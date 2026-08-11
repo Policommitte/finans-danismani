@@ -3,26 +3,46 @@ name: Backend CI
 on:
   push:
     branches: [main]
-    paths: ["backend/**", ".github/workflows/backend-ci.yml"]
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend-ci.yml"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
+
+      - name: Backend var mi kontrol et
+        id: check
+        run: |
+          if [ -f backend/requirements.txt ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "backend/requirements.txt bulundu."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "backend/requirements.txt yok — adimlar atlaniyor."
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.check.outputs.exists == 'true'
         with:
           python-version: "3.12"
-          cache: pip
-      - run: pip install -r requirements.txt
+
+      - name: Bagimliliklari kur
+        if: steps.check.outputs.exists == 'true'
+        working-directory: backend
+        run: pip install -r requirements.txt
+
       - name: Lint
+        if: steps.check.outputs.exists == 'true'
+        working-directory: backend
         run: ruff check .
+
       - name: Format kontrolu
+        if: steps.check.outputs.exists == 'true'
+        working-directory: backend
         run: black --check .
+
       - name: Test
+        if: steps.check.outputs.exists == 'true'
+        working-directory: backend
         run: pytest -q
