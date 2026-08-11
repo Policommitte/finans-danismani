@@ -1,0 +1,30 @@
+# Ortam
+.env
+.env.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+*.log
+
+# Vector DB / veri
+chroma_db/
+*.sqlite3
+data/generated/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
