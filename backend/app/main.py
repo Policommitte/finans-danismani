@@ -1,18 +1,50 @@
+import logging
+import time
 import uuid
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import health
 from app.config import settings
-from app.core.errors import unhandled_exception_handler
-from app.core.logging import setup_logging
+from app.core.errors import (
+    AppError,
+    app_error_handler,
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
+from app.core.logging import request_id_ctx, setup_logging
 
 setup_logging()
+logger = logging.getLogger("app")
+
+ERROR_RESPONSE_SCHEMA = {
+    "description": "Hata yaniti",
+    "content": {
+        "application/json": {
+            "example": {
+                "error": {
+                    "code": "not_found",
+                    "message": "Kayit bulunamadi.",
+                    "request_id": "3f2b1c8e-9a4d-4e21-b7c5-0d6e8a1f2b3c",
+                }
+            }
+        }
+    },
+}
 
 app = FastAPI(
     title="Akilli Kisisel Finans Danismani API",
     version="0.1.0",
+    responses={
+        400: ERROR_RESPONSE_SCHEMA,
+        404: ERROR_RESPONSE_SCHEMA,
+        422: ERROR_RESPONSE_SCHEMA,
+        500: ERROR_RESPONSE_SCHEMA,
+    },
 )
 
 app.add_middleware(
@@ -23,16 +55,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
 @app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    request.state.request_id = str(uuid.uuid4())
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request.state.request_id
-    return response
+async def request_context(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    request_id_ctx.set(request_id)
 
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = round((time.perf_counter() - start) * 1000, 2)
+
+    response.headers["X-Request-ID"] = request_id
+
+    logger.info(
+        "request completed",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+        },
+    )
+    return response
 
 app.include_router(health.router)
 
