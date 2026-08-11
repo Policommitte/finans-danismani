@@ -52,7 +52,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     return _error_response(exc.status_code, "http_error", str(exc.detail), _request_id(request))
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     return _error_response(
         status.HTTP_422_UNPROCESSABLE_ENTITY,
         "validation_error",

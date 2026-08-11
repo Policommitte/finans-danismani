@@ -1,12 +1,34 @@
-
-
 """Bellekteki sabit veri , DB hazır olunca sql.py devreye gircek."""
 
 _HOLDINGS: list[dict] = [
-    {"asset_type": "hisse", "symbol": "THYAO", "quantity": 100, "current_value": 45000.0, "weight_pct": 45.0},
-    {"asset_type": "altin", "symbol": "GRAM", "quantity": 20, "current_value": 25000.0, "weight_pct": 25.0},
-    {"asset_type": "doviz", "symbol": "USD", "quantity": 500, "current_value": 20000.0, "weight_pct": 20.0},
-    {"asset_type": "tahvil", "symbol": "TRT", "quantity": 10, "current_value": 10000.0, "weight_pct": 10.0},
+    {
+        "asset_type": "hisse",
+        "symbol": "THYAO",
+        "quantity": 100,
+        "current_value": 45000.0,
+        "weight_pct": 45.0,
+    },
+    {
+        "asset_type": "altin",
+        "symbol": "GRAM",
+        "quantity": 20,
+        "current_value": 25000.0,
+        "weight_pct": 25.0,
+    },
+    {
+        "asset_type": "doviz",
+        "symbol": "USD",
+        "quantity": 500,
+        "current_value": 20000.0,
+        "weight_pct": 20.0,
+    },
+    {
+        "asset_type": "tahvil",
+        "symbol": "TRT",
+        "quantity": 10,
+        "current_value": 10000.0,
+        "weight_pct": 10.0,
+    },
 ]
 
 
