@@ -68,7 +68,22 @@ async def request_context(request: Request, call_next):
     request_id_ctx.set(request_id)
 
     start = time.perf_counter()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        # Yakalanmayan hatalar disaridaki ServerErrorMiddleware'de yanita cevrilir;
+        # oraya gitmeden once traceback'i request_id ile birlikte JSON loga dusuruyoruz.
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        logger.exception(
+            "request failed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 500,
+                "duration_ms": duration_ms,
+            },
+        )
+        raise
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
 
     response.headers["X-Request-ID"] = request_id
