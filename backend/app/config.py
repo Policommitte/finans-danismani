@@ -8,11 +8,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
 
-    database_url: str = "postgresql+psycopg://finans:finans@localhost:5432/finans"
+    # DB entegrasyonu hazır olunca aktif edilecek:
+    # database_url: str = "postgresql+psycopg://finans:finans@localhost:5432/finans"
 
-    vector_db_url: str = "http://localhost:8001"
-    embedding_model: str = ""
+    # RAG / Vector DB entegrasyonunda aktif edilecek:
+    # vector_db_url: str = "http://localhost:8001"
+    # embedding_model: str = ""
 
+    # LLM entegrasyonunda kullanılacak (ajanlar sprint ?'te bağlanacak):
     llm_api_key: str = ""
     default_model: str = ""
 
