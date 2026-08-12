@@ -75,8 +75,14 @@ Tanımlı hata kodları:
 Kendi hata sınıfları `core/errors.py` içinde: `AppError`, `NotFoundError`,
 `BusinessRuleError`.
 
-`request_id` hem gövdede hem `X-Request-ID` header'ında dönüyor. Kullanıcı
-hata bildirdiğinde bu id ile loglarda tam o istek bulunabiliyor.
+`request_id` hem gövdede hem `X-Request-ID` header'ında dönüyor (500 dahil).
+Kullanıcı hata bildirdiğinde bu id ile loglarda tam o istek bulunabiliyor.
+Yakalanmayan hatalarda traceback, request_id ile birlikte JSON loga yazılıyor.
+
+`validation_error` yanıtı ayrıca `details` listesi içerir; her öğe `field`,
+`message` ve `type` alanlarından oluşur. Frontend form hatalarını alan bazında
+bu listeden gösterebilir. *(Öneri — şema sözleşmesinde frontend ile birlikte
+kesinleşecek.)*
 
 ## 5. Endpoint isimlendirme
 

@@ -31,16 +31,24 @@ def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", str(uuid.uuid4()))
 
 
-def _error_response(status_code: int, code: str, message: str, request_id: str) -> JSONResponse:
+def _error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    request_id: str,
+    details: list[dict] | None = None,
+) -> JSONResponse:
+    error: dict = {
+        "code": code,
+        "message": message,
+        "request_id": request_id,
+    }
+    if details is not None:
+        error["details"] = details
     return JSONResponse(
         status_code=status_code,
-        content={
-            "error": {
-                "code": code,
-                "message": message,
-                "request_id": request_id,
-            }
-        },
+        content={"error": error},
+        headers={"X-Request-ID": request_id},
     )
 
 
@@ -55,11 +63,20 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
+    details = [
+        {
+            "field": ".".join(str(part) for part in err.get("loc", []) if part != "body"),
+            "message": str(err.get("msg", "")),
+            "type": str(err.get("type", "")),
+        }
+        for err in exc.errors()
+    ]
     return _error_response(
         status.HTTP_422_UNPROCESSABLE_ENTITY,
         "validation_error",
         "Gecersiz istek.",
         _request_id(request),
+        details=details,
     )
 
 
