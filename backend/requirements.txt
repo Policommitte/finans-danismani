@@ -2,14 +2,27 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
+email-validator==2.2.0
 
 # Orkestrasyon katmani (app/engine/orchestrator.py)
 langgraph==1.2.11
 langchain-core==1.5.4
 
-# Ajan LLM istemcisi (app/core/llm.py) - gecikmeli import edilir, anahtar
-# tanimli degilse ajanlar LLM'siz calisir.
+# Ajan LLM istemcisi (app/core/llm.py) - gecikmeli import edilir. MODEL KARARI
+# HENUZ VERILMEDI: anahtar veya model adi tanimli degilse ajanlar LLM'siz
+# calisir, paket yuklu olsa bile kullanilmaz.
 google-genai==1.75.0
+
+# Veritabani (app/db/session.py, app/repositories/sql.py)
+# DATABASE_URL tanimli degilse hicbiri kullanilmaz; repository katmani bellek
+# ici veriye duser.
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+
+# Kimlik dogrulama (app/auth/) - Python 3.13'te crypt modulu kaldirildigi icin
+# passlib yerine dogrudan bcrypt (docs/backend-kararlar.md bolum 1).
+PyJWT==2.10.1
+bcrypt==4.2.1
 
 httpx==0.28.1
 ruff==0.8.4

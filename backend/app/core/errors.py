@@ -27,6 +27,24 @@ class BusinessRuleError(AppError):
     status_code = 422
 
 
+class AuthenticationError(AppError):
+    """Kimlik dogrulanamadi (token yok / gecersiz / suresi dolmus).
+
+    Yanit gövdesi hicbir zaman NEDEN'i ayirt etmez ("token suresi doldu" ile
+    "imza gecersiz" ayrimi saldirgana bilgi verir); ayrinti yalnizca logdadir.
+    """
+
+    code = "unauthorized"
+    status_code = 401
+
+
+class AuthorizationError(AppError):
+    """Kimlik dogru ama bu kaynaga erisim yetkisi yok."""
+
+    code = "forbidden"
+    status_code = 403
+
+
 def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", str(uuid.uuid4()))
 

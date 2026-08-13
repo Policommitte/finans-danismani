@@ -13,7 +13,7 @@ Iki sey ozellikle sinanir:
 import pytest
 
 from app.agents.security_agent import RISK_THRESHOLD, SecurityAgent
-from app.schema.models import AgentState
+from app.orchestration.models import AgentState
 
 
 class SayanSecurityAgent(SecurityAgent):
@@ -30,7 +30,7 @@ class SayanSecurityAgent(SecurityAgent):
 
 
 def _state(**kwargs) -> AgentState:
-    alanlar = {"user_query": "soru", "user_id": "u1", "thread_id": "t1"}
+    alanlar = {"user_query": "soru", "user_id": 1, "thread_id": 1}
     alanlar.update(kwargs)
     return AgentState(**alanlar)
 

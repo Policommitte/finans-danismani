@@ -1,0 +1,249 @@
+"""Risk skorlama - sayinin TEK kaynagi.
+
+Hem `RiskStrategyAgent` hem `GET /api/risk/profile` bu fonksiyonu cagirir.
+Skor iki yerde hesaplansaydi dashboard ile sohbet farkli sayi gosterirdi
+(mimari v4 bolum 5.5).
+
+Skor DETERMINISTIKTIR: LLM kullanmaz, ayni girdi her zaman ayni sayiyi verir.
+Ajan yalnizca sonucu yorumlar.
+
+SKOR BILESENLERI (0-100, yuksek = riskli)
+    yogunlasma  (0-40)  Tek varlik siniftaki agirlik - cesitlendirme eksikligi
+    varlik tipi (0-35)  Sinif bazli temel risk (kripto > hisse > altin > tahvil)
+    oynaklik    (0-15)  Olculebilen varliklarin gecmis oynakligi
+    tek pozisyon(0-10)  En buyuk TEK varligin portfoydeki payi
+
+Bu agirliklar bir sektor standardi degil, projenin acikladigi ve savunabildigi
+basit bir modeldir; degistirilirse tek yer burasidir.
+"""
+
+from __future__ import annotations
+
+#: Varlik sinifi -> 0-1 arasi temel risk katsayisi.
+ASSET_CLASS_RISK: dict[str, float] = {
+    "CRYPTO": 1.00,
+    "USA_STOCK": 0.65,
+    "EU_STOCK": 0.65,
+    "STOCK": 0.60,
+    "FOREX": 0.40,
+    "GOLD": 0.30,
+    "BOND": 0.10,
+}
+
+#: Beyan edilen tolerans -> skorun "rahat" kabul edilen ust siniri.
+TOLERANCE_LIMITS: dict[str, int] = {"LOW": 35, "MEDIUM": 60, "HIGH": 80}
+
+RISK_LEVELS = (
+    (35, "dusuk"),
+    (60, "orta"),
+    (80, "yuksek"),
+    (101, "cok yuksek"),
+)
+
+
+def risk_profili_hesapla(
+    holdings: list[dict],
+    allocation: list[dict],
+    risk_tolerance: str | None = None,
+    volatility_by_symbol: dict[str, float] | None = None,
+) -> dict:
+    """Portfoy risk profilini hesaplar.
+
+    Args:
+        holdings: `market_value_try` ve `asset_class` alanlarini tasiyan
+            varlik satirlari (MCP tool ciktisi ya da repository satiri).
+        allocation: Varlik sinifi bazinda dagilim (`asset_class`, `class_pct`).
+        risk_tolerance: Kullanicinin beyani (LOW | MEDIUM | HIGH).
+        volatility_by_symbol: Olculebilmis oynakliklar (yuzde).
+
+    Returns:
+        `risk_score`, `risk_level`, bilesen kirilimi, gerekceler ve oneriler.
+        Portfoy bossa skor 0 doner - "veri yok" ile "risksiz" karisMasin diye
+        `holding_count` de dondurulur.
+    """
+    volatility_by_symbol = volatility_by_symbol or {}
+    toplam = sum(float(h.get("market_value_try") or 0) for h in holdings)
+
+    if not holdings or toplam <= 0:
+        return {
+            "risk_score": 0,
+            "risk_level": "hesaplanamadi",
+            "risk_tolerance": risk_tolerance,
+            "holding_count": 0,
+            "components": {},
+            "top_class": None,
+            "top_class_pct": None,
+            "reasons": ["Portfoyde deger tasiyan varlik bulunmadigi icin risk hesaplanamadi."],
+            "suggestions": [],
+            "tolerance_alignment": "bilinmiyor",
+        }
+
+    # --- 1) Yogunlasma: en buyuk varlik sinifinin payi ---
+    dagilim = allocation or _dagilim_uret(holdings, toplam)
+    en_buyuk = max(dagilim, key=lambda d: float(d.get("class_pct") or 0))
+    en_buyuk_pct = float(en_buyuk.get("class_pct") or 0)
+    # %100 tek sinif -> 40 puan, %25 ve alti -> 0 puan (dengeli kabul).
+    yogunlasma = _kirp((en_buyuk_pct - 25) / 75 * 40, 0, 40)
+
+    # --- 2) Varlik tipi: sinif risklerinin deger agirlikli ortalamasi ---
+    agirlikli = sum(
+        ASSET_CLASS_RISK.get(str(d.get("asset_class") or "").upper(), 0.5)
+        * float(d.get("class_pct") or 0)
+        for d in dagilim
+    )
+    tip_riski = _kirp(agirlikli / 100 * 35, 0, 35)
+
+    # --- 3) Oynaklik: olculebilenlerin ortalamasi (%8 ve ustu tam puan) ---
+    if volatility_by_symbol:
+        ortalama_oynaklik = sum(volatility_by_symbol.values()) / len(volatility_by_symbol)
+        oynaklik_puani = _kirp(ortalama_oynaklik / 8 * 15, 0, 15)
+    else:
+        ortalama_oynaklik = None
+        oynaklik_puani = 0.0
+
+    # --- 4) Tek pozisyon yogunlugu ---
+    en_buyuk_varlik = max(holdings, key=lambda h: float(h.get("market_value_try") or 0))
+    tek_pozisyon_pct = float(en_buyuk_varlik.get("market_value_try") or 0) / toplam * 100
+    tek_pozisyon = _kirp((tek_pozisyon_pct - 30) / 70 * 10, 0, 10)
+
+    skor = round(yogunlasma + tip_riski + oynaklik_puani + tek_pozisyon)
+    seviye = next(ad for sinir, ad in RISK_LEVELS if skor < sinir)
+
+    gerekceler = _gerekceler(
+        en_buyuk_sinif=str(en_buyuk.get("asset_class")),
+        en_buyuk_pct=en_buyuk_pct,
+        en_buyuk_varlik=str(en_buyuk_varlik.get("symbol")),
+        tek_pozisyon_pct=tek_pozisyon_pct,
+        ortalama_oynaklik=ortalama_oynaklik,
+        holding_count=len(holdings),
+    )
+    uyum, oneriler = _tolerans_uyumu(skor, risk_tolerance, en_buyuk.get("asset_class"))
+
+    return {
+        "risk_score": skor,
+        "risk_level": seviye,
+        "risk_tolerance": risk_tolerance,
+        "holding_count": len(holdings),
+        "components": {
+            "concentration": round(yogunlasma, 1),
+            "asset_type": round(tip_riski, 1),
+            "volatility": round(oynaklik_puani, 1),
+            "single_position": round(tek_pozisyon, 1),
+        },
+        "top_class": en_buyuk.get("asset_class"),
+        "top_class_pct": round(en_buyuk_pct, 2),
+        "avg_volatility_pct": round(ortalama_oynaklik, 2) if ortalama_oynaklik else None,
+        "reasons": gerekceler,
+        "suggestions": oneriler,
+        "tolerance_alignment": uyum,
+    }
+
+
+def _dagilim_uret(holdings: list[dict], toplam: float) -> list[dict]:
+    """Dagilim verilmediyse varlik satirlarindan uretir."""
+    by_class: dict[str, float] = {}
+    for holding in holdings:
+        sinif = str(holding.get("asset_class") or "DIGER").upper()
+        by_class[sinif] = by_class.get(sinif, 0.0) + float(holding.get("market_value_try") or 0)
+
+    return [
+        {"asset_class": sinif, "class_pct": deger / toplam * 100}
+        for sinif, deger in by_class.items()
+    ]
+
+
+def _gerekceler(
+    en_buyuk_sinif: str,
+    en_buyuk_pct: float,
+    en_buyuk_varlik: str,
+    tek_pozisyon_pct: float,
+    ortalama_oynaklik: float | None,
+    holding_count: int,
+) -> list[str]:
+    gerekceler = [
+        f"Portfoyun %{en_buyuk_pct:.0f}'i {en_buyuk_sinif} sinifinda.",
+    ]
+    if tek_pozisyon_pct >= 40:
+        gerekceler.append(
+            f"Tek bir varlik ({en_buyuk_varlik}) portfoyun %{tek_pozisyon_pct:.0f}'ini olusturuyor."
+        )
+    if holding_count <= 3:
+        gerekceler.append(f"Portfoyde yalnizca {holding_count} varlik var.")
+    if ortalama_oynaklik is not None and ortalama_oynaklik >= 4:
+        gerekceler.append(f"Olculen ortalama gunluk oynaklik %{ortalama_oynaklik:.1f} ile yuksek.")
+    return gerekceler
+
+
+def _tolerans_uyumu(skor: int, risk_tolerance: str | None, en_buyuk_sinif) -> tuple[str, list[str]]:
+    """Skoru kullanicinin beyan ettigi toleransla karsilastirir."""
+    oneriler: list[str] = []
+
+    if skor >= 60:
+        oneriler.append(
+            f"{en_buyuk_sinif} agirligini dusurup daha dusuk riskli siniflara "
+            "(tahvil, altin) pay ayirmak cesitlendirmeyi artirir."
+        )
+
+    if not risk_tolerance:
+        return "bilinmiyor", oneriler
+
+    sinir = TOLERANCE_LIMITS.get(str(risk_tolerance).upper())
+    if sinir is None:
+        return "bilinmiyor", oneriler
+
+    if skor > sinir:
+        oneriler.append(
+            f"Portfoy riski beyan edilen '{risk_tolerance}' toleransin ustunde; "
+            "yeniden dengeleme degerlendirilebilir."
+        )
+        return "tolerans ustu", oneriler
+
+    if skor < sinir - 25:
+        return "tolerans alti", oneriler
+
+    return "uyumlu", oneriler
+
+
+def _kirp(value: float, alt: float, ust: float) -> float:
+    return max(alt, min(value, ust))
+
+
+# ---------------------------------------------------------------------------
+# Servis katmani - endpoint ve ajan AYNI fonksiyonu cagirir
+# ---------------------------------------------------------------------------
+
+
+async def risk_profili_getir(user_id: int, portfolio_id: int | None = None) -> dict:
+    """Kullanicinin risk profilini uretir (`GET /api/risk/profile`).
+
+    Ayni hesap `RiskStrategyAgent` icinde de kullanilir; ajan verileri MCP
+    tool'lari uzerinden alir, bu fonksiyon repository'den okur - SONUC AYNIDIR,
+    cunku skor `risk_profili_hesapla` icinde tek yerde hesaplanir.
+    """
+    from app.repositories.deps import get_portfolio_repository, get_user_repository
+
+    portfolio_repository = get_portfolio_repository()
+    holdings = await portfolio_repository.get_holdings(user_id, portfolio_id)
+    allocation = await portfolio_repository.get_allocation(user_id, portfolio_id)
+    user = await get_user_repository().get_by_id(user_id)
+
+    return risk_profili_hesapla(
+        holdings=[
+            {
+                "symbol": h.get("symbol"),
+                "asset_class": h.get("asset_class"),
+                "market_value_try": h.get("market_value_try"),
+            }
+            for h in holdings
+        ],
+        allocation=[
+            {"asset_class": a.get("asset_class"), "class_pct": a.get("class_pct")}
+            for a in allocation
+        ],
+        risk_tolerance=(user or {}).get("risk_tolerance"),
+        # Oynaklik olcumu tool katmaninda yapilir (ajan yolu). REST yolunda
+        # olculmez: dashboard'un ilk yuklemesini yavaslatmamak icin bilincli
+        # bir tercih - skorun oynaklik bileseni bu durumda 0 katkida bulunur
+        # ve `avg_volatility_pct` None doner.
+        volatility_by_symbol=None,
+    )

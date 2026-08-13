@@ -14,7 +14,7 @@ import pytest
 from app.agents.market_research import NO_RETRIEVAL_MESSAGE, MarketResearchAgent
 from app.mcp.client import MCPClient, MCPServer
 from app.mcp.mock import build_mock_mcp_client
-from app.schema.models import AgentState, Source
+from app.orchestration.models import AgentState, Source
 
 
 class SahteLLM:
@@ -35,7 +35,7 @@ class CokenLLM:
 
 
 def _state(sorgu: str, **kwargs) -> AgentState:
-    return AgentState(user_query=sorgu, user_id="u1", thread_id="t1", **kwargs)
+    return AgentState(user_query=sorgu, user_id=1, thread_id=1, **kwargs)
 
 
 def _ajan(llm=None, mcp_client=None) -> MarketResearchAgent:
@@ -316,3 +316,43 @@ async def test_yavas_tool_timeout_uretir(sorgu):
     sonuc = await ajan.run(_state(sorgu))
 
     assert sonuc["agent_errors"][0].error_type == "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Kaynak alanlari - gercek MCP tool ciktisiyla (backend part 2)
+# ---------------------------------------------------------------------------
+
+
+def test_source_dokuman_kimligini_kullanir():
+    """`Source.doc_id` DOKUMAN kimligidir; chunk numarasi kullaniciya yaramaz."""
+    kaynak = MarketResearchAgent._to_source(
+        {
+            "chunk_id": "17",
+            "doc_id": "DOC-001",
+            "title": "THYAO 2026 2. Ceyrek",
+            "tip": "bilanco",
+            "date": "2026-07-28",
+            "metadata": {"symbol": "THYAO", "topic": "earnings"},
+            "score": 0.3,
+        }
+    )
+
+    assert kaynak.doc_id == "DOC-001"
+
+
+def test_source_tool_un_verdigi_tipi_korur():
+    """Esleme tablosuna korukorune guvenilseydi bilanco 'haber' olurdu."""
+    kaynak = MarketResearchAgent._to_source(
+        {"chunk_id": "1", "doc_id": "DOC-001", "title": "x", "tip": "bilanco", "metadata": {}}
+    )
+
+    assert kaynak.tip == "bilanco"
+
+
+def test_source_tip_yoksa_eski_topic_eslemesine_duser():
+    """Zarf oncesi yazilmis sunucular yalnizca `metadata.topic` donuyor."""
+    kaynak = MarketResearchAgent._to_source(
+        {"chunk_id": "1", "title": "x", "metadata": {"topic": "analyst"}}
+    )
+
+    assert kaynak.tip == "analist_raporu"

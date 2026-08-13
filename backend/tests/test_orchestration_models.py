@@ -1,4 +1,4 @@
-"""Ortak veri modellerinin testleri (app/schema/models.py).
+"""Ortak veri modellerinin testleri (app/orchestration/models.py).
 
 Burada ozellikle REDUCER kurallari sinanir: paralel calisan node'lar ayni
 alana yazdiginda verinin uzerine yazilmasi degil, BIRIKMESI gerekir. Reducer
@@ -13,7 +13,15 @@ import pytest
 from langgraph.graph.message import add_messages
 from pydantic import ValidationError
 
-from app.schema.models import AgentError, AgentState, Source, ToolResult
+from app.orchestration.models import (
+    RESET,
+    AgentError,
+    AgentState,
+    RouterDecision,
+    Source,
+    ToolResult,
+    add_or_reset,
+)
 
 
 def _reducer_of(field_name: str):
@@ -104,7 +112,7 @@ def test_tool_result_hata_bilgisi_tasiyabilir():
 
 
 def test_agent_state_varsayilanlari():
-    state = AgentState(user_query="soru", user_id="u1", thread_id="t1")
+    state = AgentState(user_query="soru", user_id=1, thread_id=1)
 
     assert state.messages == []
     assert state.requested_agents == []
@@ -121,7 +129,7 @@ def test_agent_state_varsayilanlari():
 
 @pytest.mark.parametrize("eksik_alan", ["user_query", "user_id", "thread_id"])
 def test_agent_state_girdi_alanlari_zorunludur(eksik_alan):
-    alanlar = {"user_query": "soru", "user_id": "u1", "thread_id": "t1"}
+    alanlar = {"user_query": "soru", "user_id": 1, "thread_id": 1}
     del alanlar[eksik_alan]
 
     with pytest.raises(ValidationError):
@@ -130,8 +138,8 @@ def test_agent_state_girdi_alanlari_zorunludur(eksik_alan):
 
 def test_agent_state_varsayilanlari_ornekler_arasinda_paylasilmaz():
     """default_factory kullanildigi icin listeler ornege ozel olmali."""
-    birinci = AgentState(user_query="a", user_id="u", thread_id="t")
-    ikinci = AgentState(user_query="b", user_id="u", thread_id="t")
+    birinci = AgentState(user_query="a", user_id=1, thread_id=1)
+    ikinci = AgentState(user_query="b", user_id=1, thread_id=1)
 
     birinci.security_flags.append("prompt_injection")
 
@@ -144,9 +152,13 @@ def test_agent_state_varsayilanlari_ornekler_arasinda_paylasilmaz():
 
 
 @pytest.mark.parametrize("alan", ["sources", "agent_errors", "security_flags"])
-def test_paralel_yazilan_alanlar_operator_add_reducer_tasir(alan):
-    """Bu alanlara birden fazla node yazar; reducer olmazsa veri kaybolur."""
-    assert _reducer_of(alan) is operator.add
+def test_paralel_yazilan_alanlar_add_or_reset_reducer_tasir(alan):
+    """Bu alanlara birden fazla node yazar; reducer olmazsa veri kaybolur.
+
+    Reducer `operator.add` DEGIL `add_or_reset`: birikime ek olarak tur basi
+    sifirlamayi da anlamasi gerekir (bkz. asagidaki sentinel testleri).
+    """
+    assert _reducer_of(alan) is add_or_reset
 
 
 def test_messages_alani_add_messages_reducer_tasir():
@@ -163,21 +175,72 @@ def test_ajan_ciktilari_reducer_tasimaz(alan):
     assert operator.add not in get_args(annotation)
 
 
-def test_operator_add_reducer_listeleri_birlestirir():
+def test_add_or_reset_listeleri_birlestirir():
     """Reducer davranisinin kendisi: iki paralel node'un ciktisi birikir."""
     market_ciktisi = [Source(doc_id="d1", baslik="Piyasa haberi")]
     portfolio_ciktisi = [Source(doc_id="d2", baslik="Portfoy raporu")]
 
-    birlesik = operator.add(market_ciktisi, portfolio_ciktisi)
+    birlesik = add_or_reset(market_ciktisi, portfolio_ciktisi)
 
     assert [s.doc_id for s in birlesik] == ["d1", "d2"]
+    # Reducer birikimli oldugu icin operator.add ile ayni sonucu vermeli.
+    assert birlesik == operator.add(market_ciktisi, portfolio_ciktisi)
+
+
+def test_add_or_reset_sentinel_kanali_temizler():
+    """Tur basi sifirlama: `[]` yazmak yetmez, sentinel gerekir."""
+    mevcut = [Source(doc_id="d1", baslik="Onceki turdan kalan")]
+
+    assert add_or_reset(mevcut, []) == mevcut, "bos liste SIFIRLAMAZ (reducer birikimli)"
+    assert add_or_reset(mevcut, [RESET]) == []
+
+
+def test_add_or_reset_sentinel_sonrasi_ayni_turda_yazabilir():
+    """`[RESET, deger]`: once temizle, sonra bu turun degerini yaz."""
+    mevcut = [Source(doc_id="eski", baslik="Onceki tur")]
+    yeni = Source(doc_id="yeni", baslik="Bu tur")
+
+    assert add_or_reset(mevcut, [RESET, yeni]) == [yeni]
+
+
+def test_add_or_reset_none_guncellemeyi_yok_sayar():
+    mevcut = ["prompt_injection"]
+
+    assert add_or_reset(mevcut, None) == mevcut
+
+
+def test_router_decision_gecerli_niyet_kabul_eder():
+    karar = RouterDecision(intent="karma", agents=["portfolio", "risk_strategy"], reasoning="test")
+
+    assert karar.intent == "karma"
+    assert karar.needs_clarification is False
+
+
+def test_router_decision_gecersiz_niyeti_reddeder():
+    with pytest.raises(ValidationError):
+        RouterDecision(intent="bilinmeyen")
+
+
+def test_agent_state_yeni_alanlari():
+    """§14-7: request_id, portfolio_id ve intent state'te tasiniyor."""
+    state = AgentState(
+        user_query="soru", user_id=1, thread_id=2, request_id="abc", portfolio_id=7, intent="risk"
+    )
+
+    assert (state.request_id, state.portfolio_id, state.intent) == ("abc", 7, "risk")
+
+
+def test_agent_state_user_id_ve_thread_id_int_olmali():
+    """DB'de users.id ve chat_sessions.id SERIAL; MCP yetkilendirmesi int karsilastirir."""
+    with pytest.raises(ValidationError):
+        AgentState(user_query="soru", user_id="kullanici", thread_id="oturum")
 
 
 def test_agent_state_dolu_haliyle_olusturulabilir():
     state = AgentState(
         user_query="Portfoyumun riski nedir?",
-        user_id="u1",
-        thread_id="t1",
+        user_id=1,
+        thread_id=1,
         requested_agents=["portfolio", "risk_strategy"],
         portfolio_data={"toplam": 100_000},
         sources=[Source(doc_id="d1", baslik="Kaynak")],
