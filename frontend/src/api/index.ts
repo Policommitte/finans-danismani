@@ -1,4 +1,4 @@
-﻿import { mockAdapter } from './mockAdapter';
+import { mockAdapter } from './mockAdapter';
 
 export const api = mockAdapter;
 
