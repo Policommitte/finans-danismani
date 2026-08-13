@@ -2,16 +2,17 @@
 
 Bu dosya bir SOZLESME dosyasidir: orchestrator, kendisine enjekte edilen her
 ajanin `name` ozelligine ve `run(state) -> dict` metoduna sahip oldugunu
-varsayar. Gercek ajan implementasyonlari (MarketResearchAgent, PortfolioAgent,
-RiskStrategyAgent) ayri bir calisma dalinda gelistirilmektedir; buradaki taban
-sinifi onlarin ortak davranisini (timeout, hata yakalama) merkezilestirir.
+varsayar. Buradaki taban sinifi ajanlarin ortak davranisini (timeout, hata
+yakalama, MCP tool cagrisi, LLM erisimi) merkezilestirir.
 """
 
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 
-from app.schema.models import AgentError, AgentState
+from app.mcp.client import MCPClientError
+from app.schema.models import AgentError, AgentState, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,23 @@ class BaseAgent(ABC):
                     )
                 ]
             }
+        except MCPClientError as exc:
+            # MCP tool cagrisi coktu (sunucu/tool yok veya handler hata verdi).
+            # "unknown" yerine dogru kategoriyle raporlanir; boylece loglarda
+            # veri erisim sorunlari ile kod hatalari birbirine karismaz.
+            logger.warning(
+                "ajan mcp tool cagrisinda basarisiz oldu",
+                extra={"agent": self.name, "hata": str(exc)},
+            )
+            return {
+                "agent_errors": [
+                    AgentError(
+                        agent_name=self.name,
+                        error_type="tool_error",
+                        message=str(exc),
+                    )
+                ]
+            }
         except Exception as exc:  # noqa: BLE001 - ajan hatasi akisi durdurmamali
             logger.exception("ajan beklenmeyen hata verdi", extra={"agent": self.name})
             return {
@@ -92,11 +110,94 @@ class BaseAgent(ABC):
 
         Varsayilan davranis: ajanin adiyla ayni onege sahip tool'lari getirir
         (ornegin `portfolio` ajani -> `portfolio_*` tool grubu). Farkli bir
-        filtre gerekiyorsa alt sinif bu metodu ezer.
+        filtre gerekiyorsa alt sinif bu metodu ezer - ornegin
+        `MarketResearchAgent` iki ayri sunucudan (rag + market) tool kullandigi
+        icin ad onegi filtresi yerine sunucu bazli listeleme yapar.
         """
         if self.mcp_client is None:
             return []
         return await self.mcp_client.get_tools(prefix=f"{self.name}_")
+
+    async def call_tool(self, server: str, tool: str, arguments: dict | None = None) -> dict:
+        """Paylasilan MCP client uzerinden tool cagirir ve gecikmeyi olcer.
+
+        Ajanlar `self.mcp_client.call_tool(...)` yerine bu metodu kullanir;
+        boylece her cagri icin `latency_ms` tek bir yerde loglanir (NFR-05
+        izlenebilirlik) ve ileride yeniden deneme/onbellek gibi davranislar
+        ajanlar degismeden buraya eklenebilir.
+
+        Hata firlatirsa (`MCPClientError`) bilerek YUKARI birakilir: `run()`
+        bunu yakalayip `error_type="tool_error"` olan bir `AgentError`'a cevirir
+        ve akis kesilmeden devam eder.
+        """
+        if self.mcp_client is None:
+            raise MCPClientError(f"'{self.name}' ajani icin MCP client baglanmadi.")
+
+        baslangic = time.perf_counter()
+        try:
+            output = await self.mcp_client.call_tool(server=server, tool=tool, arguments=arguments)
+        except MCPClientError as exc:
+            self._log_tool_result(
+                ToolResult(
+                    tool_name=f"{server}.{tool}",
+                    output={},
+                    latency_ms=self._gecen_ms(baslangic),
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            raise
+
+        self._log_tool_result(
+            ToolResult(
+                tool_name=f"{server}.{tool}",
+                output=output,
+                latency_ms=self._gecen_ms(baslangic),
+            )
+        )
+        return output
+
+    async def generate(self, prompt: str) -> str:
+        """Ajana atanmis dil modelini tek bir prompt ile calistirir.
+
+        Iki farkli LLM arayuzunu birden destekler:
+          * `generate(prompt)` -> `app.core.llm.LLMClient` protokolu (Gemini).
+          * `ainvoke(prompt)`  -> LangChain chat modelleri.
+
+        Boylece ajanlar hangi saglayicinin bagli oldugunu bilmek zorunda kalmaz.
+        Cagri basarisiz olursa istisna yukari birakilir; ajan bunu yakalayip
+        `error_type="llm_error"` uretebilir ya da deterministik bir alternatife
+        dusebilir.
+        """
+        if self.llm is None:
+            raise RuntimeError(f"'{self.name}' ajani icin LLM baglanmadi.")
+
+        if hasattr(self.llm, "generate"):
+            return await self.llm.generate(prompt)
+
+        if hasattr(self.llm, "ainvoke"):
+            response = await self.llm.ainvoke(prompt)
+            return str(getattr(response, "content", response))
+
+        raise RuntimeError(
+            f"'{self.name}' ajanina verilen LLM nesnesi generate()/ainvoke() sunmuyor."
+        )
+
+    def _log_tool_result(self, result: ToolResult) -> None:
+        """Tool cagrisinin sonucunu yapisal logla (icerik degil, metrik)."""
+        logger.info(
+            "mcp tool cagrisi",
+            extra={
+                "agent": self.name,
+                "tool": result.tool_name,
+                "latency_ms": result.latency_ms,
+                "success": result.success,
+            },
+        )
+
+    @staticmethod
+    def _gecen_ms(baslangic: float) -> float:
+        return round((time.perf_counter() - baslangic) * 1000, 2)
 
     def is_requested(self, state: AgentState) -> bool:
         """Bu ajanin mevcut sorgu icin calismasi anlamli mi?

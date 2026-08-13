@@ -7,6 +7,10 @@ pydantic-settings==2.7.0
 langgraph==1.2.11
 langchain-core==1.5.4
 
+# Ajan LLM istemcisi (app/core/llm.py) - gecikmeli import edilir, anahtar
+# tanimli degilse ajanlar LLM'siz calisir.
+google-genai==1.75.0
+
 httpx==0.28.1
 ruff==0.8.4
 black==24.10.0

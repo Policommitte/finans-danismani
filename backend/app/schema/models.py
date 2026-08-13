@@ -92,6 +92,15 @@ class AgentState(BaseModel):
     # sonlandirabilir (ucuz no-op).
     requested_agents: list[str] = Field(default_factory=list)
 
+    # Ajan bazli OPSIYONEL parametreler: {ajan_adi: {...}}
+    #
+    # Router bir ajan icin yapilandirilmis parametre uretebildiginde (orn.
+    # market_research icin {"symbol": "THYAO", "mode": "live", "top_k": 3})
+    # bunu buraya yazar. Bos birakilirsa ajanlar parametreleri `user_query`
+    # uzerinden kendileri cikarir - yani bu alan hicbir zaman ZORUNLU degildir.
+    # Yalnizca router yazdigi icin paralel yazma catismasi olusmaz.
+    agent_tasks: dict[str, dict] = Field(default_factory=dict)
+
     # --- Ajan ciktilari (her ajan KENDI alanina yazar, catisma yok) ---
     portfolio_data: dict | None = None
     market_data: dict | None = None
