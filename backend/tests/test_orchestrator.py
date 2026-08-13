@@ -439,6 +439,14 @@ def test_route_intent_turkce_karakterleri_normalize_eder():
     assert AGENT_PORTFOLIO in orchestrator.route_intent(diakritiksiz)
 
 
+def test_route_intent_duzeltme_isaretli_harfi_normalize_eder():
+    """Finans metinlerinde 'kâr' yazimi yaygin; 'kar' anahtar kelimesine dusmeli."""
+    orchestrator = _orchestrator()
+    state = AgentState(user_query="THYAO'nun kârı arttı mı?", user_id="u", thread_id="t")
+
+    assert AGENT_MARKET_RESEARCH in orchestrator.route_intent(state)
+
+
 def test_route_intent_buyuk_harfle_de_eslesir():
     orchestrator = _orchestrator()
     state = AgentState(user_query="PORTFÖYÜM NASIL?", user_id="u", thread_id="t")
@@ -519,6 +527,41 @@ async def test_stream_request_kaynaklari_json_e_cevrilebilir_yapar():
     assert all(isinstance(k, dict) for k in kaynaklar)
 
 
+async def test_stream_request_kaynaklari_ilk_token_dan_once_yayinlar():
+    """Mimari 10.1: `sources`, ilk `token`'dan ONCE gitmelidir.
+
+    Frontend kaynak kartlarini yanit akmadan once yerlestirir; sonra
+    gonderilirse kartlar metin akarken belirir ve akis yarida kesilirse
+    kaynaklar hic gorunmez.
+    """
+    orchestrator = _orchestrator()
+
+    olaylar = await _olaylar(orchestrator, "X sirketinin bilancosu nasil?")
+
+    tipler = [o["type"] for o in olaylar]
+    assert "sources" in tipler and "token" in tipler
+    assert tipler.index("sources") < tipler.index("token")
+
+
+async def test_stream_request_llm_akisinda_da_kaynaklar_once_gider():
+    """LLM bagliyken token'lar `messages` modundan gelir; sira yine korunmali."""
+    llm = GenericFakeChatModel(messages=iter(["bir iki uc"]))
+    orchestrator = _orchestrator(synthesizer_llm=llm)
+
+    olaylar = await _olaylar(orchestrator, "X sirketinin bilancosu nasil?")
+
+    tipler = [o["type"] for o in olaylar]
+    assert tipler.index("sources") < tipler.index("token")
+
+
+async def test_stream_request_kaynaklari_yalnizca_bir_kez_yayinlar():
+    orchestrator = _orchestrator()
+
+    olaylar = await _olaylar(orchestrator, "X sirketinin bilancosu nasil?")
+
+    assert len([o for o in olaylar if o["type"] == "sources"]) == 1
+
+
 async def test_stream_request_kaynak_yoksa_sources_olayi_yayinlamaz():
     ajanlar = {AGENT_PORTFOLIO: SahteAjan(AGENT_PORTFOLIO, {"portfolio_data": {"t": 1}})}
     orchestrator = _orchestrator(agents=ajanlar)
@@ -588,6 +631,23 @@ async def test_stream_request_hata_durumunda_error_olayi_yayinlar():
     olaylar = await _olaylar(orchestrator, "Portfoyum nasil?")
 
     assert olaylar[-1]["type"] == "error"
+
+
+async def test_stream_request_hata_olayi_ic_ayrinti_sizdirmaz():
+    """Istisna metni dosya yolu/baglanti dizesi tasiyabilir; istemciye gitmemeli."""
+    orchestrator = _orchestrator()
+    gizli = "postgresql://finans:parola@db:5432/finans"
+
+    async def patlayan_astream(*args, **kwargs):
+        raise RuntimeError(gizli)
+        yield  # pragma: no cover - generator olmasi icin
+
+    orchestrator.graph.astream = patlayan_astream
+
+    hata = (await _olaylar(orchestrator, "Portfoyum nasil?"))[-1]
+
+    assert set(hata) == {"type", "message"}
+    assert gizli not in str(hata)
 
 
 # ---------------------------------------------------------------------------

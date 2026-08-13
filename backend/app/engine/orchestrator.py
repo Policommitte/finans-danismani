@@ -125,8 +125,9 @@ INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
 
 #: Turkce karakterleri ASCII karsiliklarina cevirir. Boylece anahtar kelime
 #: listesi tek bir yazimla ("portfoy") hem "portföy" hem "portfoy" girdisini
-#: yakalar.
-_TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+#: yakalar. Duzeltme isaretli harfler de dahildir: finans metinlerinde "kâr"
+#: yazimi yaygin ve "kar" anahtar kelimesiyle eslesmesi gerekir.
+_TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")
 
 #: Girdi guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
 REJECT_MESSAGE = "Bu isteği işleyemiyorum. Lütfen finansal danışmanlık kapsamında bir soru sorun."
@@ -513,12 +514,19 @@ class Orchestrator:
         Uretilen olaylar SSE'ye birebir cevrilecek sekilde tasarlanmistir:
 
             {"type": "status",  "node": ..., "message": ...}  -> ilerleme bilgisi
-            {"type": "token",   "content": ...}               -> yanit parcasi
             {"type": "sources", "items": [...]}               -> kaynak listesi
+            {"type": "token",   "content": ...}               -> yanit parcasi
             {"type": "error",   "message": ...}               -> beklenmeyen hata
 
         Token olaylari YALNIZCA synthesizer node'undan gelir; ajanlarin kendi
         ic LLM cagrilari kullaniciya sizmaz.
+
+        SIRA GARANTISI: `sources`, ilk `token`'dan ONCE yayinlanir (mimari
+        dokumani bolum 10.1). Frontend kaynak kartlarini yanit akmaya
+        baslamadan yerlestirir; aksi halde metin akarken kartlar sonradan
+        belirir ve arayuz zipladigi gibi, akis yarida kesilirse kaynaklar hic
+        gorunmez. Kaynaklar ajanlardan toplandigi icin en gec `security_gate`
+        tamamlandiginda hazirdir - synthesizer'dan hemen oncesi.
         """
         initial_state = {
             "user_query": query,
@@ -539,8 +547,12 @@ class Orchestrator:
         config = {"configurable": {"thread_id": thread_id}}
 
         token_yayinlandi = False
+        kaynaklar_yayinlandi = False
         toplanan_kaynaklar: list[Source] = []
         son_yanit: str | None = None
+
+        def _kaynak_olayi() -> dict:
+            return {"type": "sources", "items": self._serialize_sources(toplanan_kaynaklar)}
 
         try:
             async for mode, chunk in self.graph.astream(
@@ -549,6 +561,11 @@ class Orchestrator:
                 if mode == "messages":
                     token = self._extract_token(chunk)
                     if token:
+                        # Emniyet kemeri: security_gate guncellemesi bir sekilde
+                        # gelmediyse kaynaklar yine de ilk token'dan once gider.
+                        if toplanan_kaynaklar and not kaynaklar_yayinlandi:
+                            kaynaklar_yayinlandi = True
+                            yield _kaynak_olayi()
                         token_yayinlandi = True
                         yield {"type": "token", "content": token}
                     continue
@@ -559,21 +576,31 @@ class Orchestrator:
                     if durum:
                         yield {"type": "status", "node": node_name, "message": durum}
 
-                    if not isinstance(update, dict):
-                        continue
+                    if isinstance(update, dict):
+                        toplanan_kaynaklar.extend(update.get("sources") or [])
 
-                    toplanan_kaynaklar.extend(update.get("sources") or [])
+                        yanit = update.get("final_response")
+                        if yanit:
+                            son_yanit = yanit
 
-                    yanit = update.get("final_response")
-                    if yanit:
-                        son_yanit = yanit
+                    # security_gate son ajan adimindan SONRA, synthesizer'dan
+                    # ONCE calisir: kaynaklarin tamami bu noktada hazirdir.
+                    if (
+                        node_name == NODE_SECURITY_GATE
+                        and toplanan_kaynaklar
+                        and not kaynaklar_yayinlandi
+                    ):
+                        kaynaklar_yayinlandi = True
+                        yield _kaynak_olayi()
 
-        except Exception as exc:  # noqa: BLE001 - istemciye bos akis donmemeli
+        except Exception:  # noqa: BLE001 - istemciye bos akis donmemeli
+            # Hata ayrintisi YALNIZCA loga gider. Istisna metni ic ayrinti
+            # (dosya yolu, baglanti dizesi, tool argumani) tasiyabilir; projenin
+            # hata sozlesmesi bunlari istemciye acmaz.
             logger.exception("orchestrator akisi basarisiz")
             yield {
                 "type": "error",
                 "message": "İstek işlenirken beklenmeyen bir hata oluştu.",
-                "detail": str(exc),
             }
             return
 
@@ -581,10 +608,13 @@ class Orchestrator:
         # yaniti tek parca uretir. Frontend'in tek bir render yolu olsun diye
         # bu metni de token olayi olarak gonderiyoruz.
         if son_yanit and not token_yayinlandi:
+            if toplanan_kaynaklar and not kaynaklar_yayinlandi:
+                kaynaklar_yayinlandi = True
+                yield _kaynak_olayi()
             yield {"type": "token", "content": son_yanit}
 
-        if toplanan_kaynaklar:
-            yield {"type": "sources", "items": self._serialize_sources(toplanan_kaynaklar)}
+        if toplanan_kaynaklar and not kaynaklar_yayinlandi:
+            yield _kaynak_olayi()
 
     @staticmethod
     def _status_message(node_name: str, update) -> str | None:
