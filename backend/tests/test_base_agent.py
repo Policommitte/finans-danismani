@@ -11,7 +11,7 @@ import asyncio
 import pytest
 
 from app.agents.base import BaseAgent
-from app.schema.models import AgentState
+from app.orchestration.models import AgentState
 
 
 class BasariliAjan(BaseAgent):
@@ -56,7 +56,7 @@ class SahteMCPClient:
 
 @pytest.fixture
 def state() -> AgentState:
-    return AgentState(user_query="Portfoyum nasil?", user_id="u1", thread_id="t1")
+    return AgentState(user_query="Portfoyum nasil?", user_id=1, thread_id=1)
 
 
 # ---------------------------------------------------------------------------

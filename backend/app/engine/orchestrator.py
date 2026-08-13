@@ -37,6 +37,8 @@ AJANLARIN BAGLANMASI
 
 import asyncio
 import logging
+import time
+import uuid
 from collections.abc import AsyncGenerator, Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
@@ -45,7 +47,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
-from app.schema.models import AgentState, Source
+from app.orchestration.models import RESET, AgentError, AgentState, Source
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,20 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
     AGENT_PORTFOLIO: "Portfoy analizi tamamlandi.",
     AGENT_RISK_STRATEGY: "Risk degerlendirmesi tamamlandi.",
     NODE_SECURITY_GATE: "Sonuclar birlestiriliyor...",
+}
+
+#: Node adi -> SSE `status` olayinin `stage` alani (mimari v4 bolum 10.1).
+#:
+#: Frontend node adlarina DEGIL bu sabit kumeye baglanir: node adi bir
+#: uygulama detayidir, `stage` ise sozlesmenin parcasidir. Yeni bir ajan node'u
+#: eklendiginde frontend'in durum gostergesi degismek zorunda kalmaz.
+NODE_STAGES: dict[str, str] = {
+    NODE_SECURITY_IN: "security",
+    NODE_ROUTER: "routing",
+    AGENT_MARKET_RESEARCH: "agents",
+    AGENT_PORTFOLIO: "agents",
+    AGENT_RISK_STRATEGY: "risk",
+    NODE_SECURITY_GATE: "synth",
 }
 
 #: Niyet analizi icin anahtar kelimeler (ASCII'ye normalize edilmis halde).
@@ -317,7 +333,26 @@ class Orchestrator:
         `BaseAgent.is_requested`. Risk ajani sirali konumda oldugu icin
         atlansa bile graph akisi bozulmaz.
         """
-        return {"requested_agents": self.route_intent(state)}
+        requested = self.route_intent(state)
+        return {"requested_agents": requested, "intent": self._intent_adi(requested)}
+
+    @staticmethod
+    def _intent_adi(requested: list[str]) -> str:
+        """Istenen ajan kumesini tek bir niyet etiketine cevirir.
+
+        Etiket `chat_messages.meta` icine yazilir ve loglarda kullanilir;
+        yonlendirme karari zaten `requested_agents` ile verilmistir.
+        """
+        kume = set(requested)
+        if not kume:
+            return "sohbet"
+        if len(kume) > 1:
+            return "karma"
+        return {
+            AGENT_PORTFOLIO: "portfoy",
+            AGENT_MARKET_RESEARCH: "piyasa",
+            AGENT_RISK_STRATEGY: "risk",
+        }.get(next(iter(kume)), "belirsiz")
 
     def route_intent(self, state: AgentState) -> list[str]:
         """Basit sorularda tum ajanlari tetiklememek icin niyet analizi.
@@ -432,7 +467,7 @@ class Orchestrator:
         )
         for baslik, veri in veri_alanlari:
             if veri is not None:
-                bolumler.append(f"\n{baslik}:\n{veri}")
+                bolumler.append(f"\n{baslik}:\n{_ajan_metni(veri)}")
 
         if state.sources:
             kaynaklar = "\n".join(f"- [{s.doc_id}] {s.baslik}" for s in state.sources)
@@ -463,7 +498,7 @@ class Orchestrator:
         )
         for baslik, veri in veri_alanlari:
             if veri is not None:
-                satirlar.append(f"{baslik}: {veri}")
+                satirlar.append(f"{baslik}: {_ajan_metni(veri)}")
 
         if not satirlar:
             satirlar.append("Şu anda görüntülenebilecek bir analiz sonucu bulunmuyor.")
@@ -506,32 +541,46 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     async def stream_request(
-        self, query: str, user_id: str, thread_id: str
+        self,
+        query: str,
+        user_id: int,
+        thread_id: int,
+        request_id: str = "",
+        portfolio_id: int | None = None,
     ) -> AsyncGenerator[dict, None]:
         """FastAPI endpoint'inin cagirdigi TEK giris noktasi.
 
         Bir string yerine `AsyncGenerator` dondurur; cunku string token akitamaz.
-        Uretilen olaylar SSE'ye birebir cevrilecek sekilde tasarlanmistir:
+        Uretilen olaylar SSE'ye birebir cevrilir (mimari v4 bolum 10.1):
 
-            {"type": "status",  "node": ..., "message": ...}  -> ilerleme bilgisi
-            {"type": "sources", "items": [...]}               -> kaynak listesi
-            {"type": "token",   "content": ...}               -> yanit parcasi
-            {"type": "error",   "message": ...}               -> beklenmeyen hata
+            {"type": "meta",        "request_id": ..., "conversation_id": ...}
+            {"type": "status",      "stage": ..., "message": ...}
+            {"type": "sources",     "items": [...]}
+            {"type": "token",       "content": ...}
+            {"type": "agent_error", "agent": ..., "error_type": ...}
+            {"type": "error",       "code": ..., "message": ...}
+            {"type": "done",        "latency_ms": ...}
+
+        SIRA GARANTISI: `meta` ilk, `sources` ilk `token`'dan once, `done` en
+        son. Frontend kaynak kartlarini yanit akmaya baslamadan yerlestirir;
+        aksi halde metin akarken kartlar sonradan belirir ve arayuz ziplar,
+        akis yarida kesilirse kaynaklar hic gorunmez.
+
+        `done` olayina `message_id` alanini API katmani ekler (mesaj kalici
+        hale getirildikten sonra); orchestrator DB'ye dokunmaz.
 
         Token olaylari YALNIZCA synthesizer node'undan gelir; ajanlarin kendi
         ic LLM cagrilari kullaniciya sizmaz.
-
-        SIRA GARANTISI: `sources`, ilk `token`'dan ONCE yayinlanir (mimari
-        dokumani bolum 10.1). Frontend kaynak kartlarini yanit akmaya
-        baslamadan yerlestirir; aksi halde metin akarken kartlar sonradan
-        belirir ve arayuz zipladigi gibi, akis yarida kesilirse kaynaklar hic
-        gorunmez. Kaynaklar ajanlardan toplandigi icin en gec `security_gate`
-        tamamlandiginda hazirdir - synthesizer'dan hemen oncesi.
         """
+        request_id = request_id or str(uuid.uuid4())
+        baslangic = time.perf_counter()
+
         initial_state = {
             "user_query": query,
             "user_id": user_id,
             "thread_id": thread_id,
+            "request_id": request_id,
+            "portfolio_id": portfolio_id,
             # Mesaj gecmisine kullanici mesajini ekle (cok turlu baglam).
             "messages": [HumanMessage(content=query)],
             # Onceki turdan kalan ajan ciktilarini temizle: checkpointer ayni
@@ -540,11 +589,21 @@ class Orchestrator:
             "portfolio_data": None,
             "market_data": None,
             "risk_data": None,
+            # Reducer'li alanlar: `[]` yazmak SIFIRLAMAZ (reducer "hicbir sey
+            # ekleme" olarak uygular). Sentinel gonderilmezse kaynaklar ve ajan
+            # hatalari her turda birikir; ikinci turda kaynaklar ikiye katlanir
+            # ve bir turda hata veren ajan duzelse bile "ulasilamadi" uyarisi
+            # kalir. Bkz. `app.orchestration.models.add_or_reset`.
+            "sources": [RESET],
+            "agent_errors": [RESET],
+            "security_flags": [RESET],
             "final_response": None,
             "is_input_safe": True,
             "is_output_safe": True,
         }
-        config = {"configurable": {"thread_id": thread_id}}
+        # LangGraph checkpointer'i thread_id'yi string bekler; DB'deki
+        # `chat_sessions.id` ise int. Donusum sinirda TEK yerde yapilir.
+        config = {"configurable": {"thread_id": str(thread_id)}}
 
         token_yayinlandi = False
         kaynaklar_yayinlandi = False
@@ -553,6 +612,8 @@ class Orchestrator:
 
         def _kaynak_olayi() -> dict:
             return {"type": "sources", "items": self._serialize_sources(toplanan_kaynaklar)}
+
+        yield {"type": "meta", "request_id": request_id, "conversation_id": thread_id}
 
         try:
             async for mode, chunk in self.graph.astream(
@@ -574,10 +635,20 @@ class Orchestrator:
                 for node_name, update in chunk.items():
                     durum = self._status_message(node_name, update)
                     if durum:
-                        yield {"type": "status", "node": node_name, "message": durum}
+                        yield {
+                            "type": "status",
+                            "stage": NODE_STAGES.get(node_name, "agents"),
+                            "message": durum,
+                        }
 
                     if isinstance(update, dict):
                         toplanan_kaynaklar.extend(update.get("sources") or [])
+
+                        # Kismi basarisizlik: tek ajan coktu, sohbet DEVAM
+                        # ediyor. Frontend bunu uyari olarak gosterir, akisi
+                        # hata sayip kapatmaz.
+                        for hata in update.get("agent_errors") or []:
+                            yield self._agent_error_olayi(hata)
 
                         yanit = update.get("final_response")
                         if yanit:
@@ -596,17 +667,20 @@ class Orchestrator:
         except Exception:  # noqa: BLE001 - istemciye bos akis donmemeli
             # Hata ayrintisi YALNIZCA loga gider. Istisna metni ic ayrinti
             # (dosya yolu, baglanti dizesi, tool argumani) tasiyabilir; projenin
-            # hata sozlesmesi bunlari istemciye acmaz.
-            logger.exception("orchestrator akisi basarisiz")
+            # hata sozlesmesi bunlari istemciye acmaz. Makine-okunur `code`
+            # istemciye gider, insan-okunur ayrinti gitmez.
+            logger.exception("orchestrator akisi basarisiz", extra={"request_id": request_id})
             yield {
                 "type": "error",
+                "code": "ORCHESTRATOR_FAILED",
                 "message": "İstek işlenirken beklenmeyen bir hata oluştu.",
             }
             return
 
         # Streaming YAPILMAYAN yollar (reject / safe_response / LLM'siz sentez)
         # yaniti tek parca uretir. Frontend'in tek bir render yolu olsun diye
-        # bu metni de token olayi olarak gonderiyoruz.
+        # bu metni de token olayi olarak gonderiyoruz (v2.3'teki ayri `final`
+        # olayi bu yuzden kaldirildi).
         if son_yanit and not token_yayinlandi:
             if toplanan_kaynaklar and not kaynaklar_yayinlandi:
                 kaynaklar_yayinlandi = True
@@ -615,6 +689,32 @@ class Orchestrator:
 
         if toplanan_kaynaklar and not kaynaklar_yayinlandi:
             yield _kaynak_olayi()
+
+        # `message_id` alanini API katmani ekler: mesaj once kalici hale
+        # getirilir, sonra `done` istemciye yazilir. Yanit metni bu olayda
+        # TEKRAR gonderilmez - API katmani token'lari zaten biriktiriyor.
+        yield {
+            "type": "done",
+            "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
+        }
+
+    @staticmethod
+    def _agent_error_olayi(hata) -> dict:
+        """`AgentError`'i SSE olayina cevirir.
+
+        Hata MESAJI istemciye gonderilmez: ic ayrinti (tool adi, baglanti
+        dizesi, istisna metni) tasiyabilir. Frontend'e ajan adi ve hata TURU
+        yeter - "piyasa verisine ulasilamadi" cumlesini bu ikisinden kurar.
+        """
+        if isinstance(hata, AgentError):
+            return {"type": "agent_error", "agent": hata.agent_name, "error_type": hata.error_type}
+        if isinstance(hata, dict):
+            return {
+                "type": "agent_error",
+                "agent": hata.get("agent_name", "bilinmiyor"),
+                "error_type": hata.get("error_type", "unknown"),
+            }
+        return {"type": "agent_error", "agent": "bilinmiyor", "error_type": "unknown"}
 
     @staticmethod
     def _status_message(node_name: str, update) -> str | None:
@@ -676,3 +776,22 @@ class Orchestrator:
             elif hasattr(source, "model_dump"):
                 serialized.append(source.model_dump())
         return serialized
+
+
+def _ajan_metni(veri) -> str:
+    """Ajan ciktisini okunabilir metne cevirir.
+
+    Ajanlar yapisal veri (`dict`) dondurur; bu veriyi `str(dict)` olarak
+    yazmak hem LLM baglamini gereksiz doldurur hem de LLM'siz calisirken
+    kullaniciya ham Python sozlugu gosterir. Ajanlar kendi ozetlerini
+    `summary_text` / `summary` alaninda tasidigi icin once o kullanilir.
+
+    Yapisal veri KAYBOLMAZ: dashboard ayni sayilari REST uclarindan okur,
+    burada yalnizca metne cevrilir.
+    """
+    if isinstance(veri, dict):
+        for alan in ("summary_text", "summary"):
+            deger = veri.get(alan)
+            if isinstance(deger, str) and deger.strip():
+                return deger
+    return str(veri)

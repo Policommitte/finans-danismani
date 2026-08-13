@@ -1,10 +1,12 @@
 # Backend — Akıllı Kişisel Finans Danışmanı
 
-FastAPI tabanlı Orchestrator / Backend API katmanı.
+FastAPI + LangGraph tabanlı API ve orkestrasyon katmanı.
+Mimari referans: [`../SYSTEM_ARCHITECTURE_v4.md`](../SYSTEM_ARCHITECTURE_v4.md).
 
 ## Gereksinimler
 
-- Python 3.13
+- Python 3.13 (CI bu sürümde çalışır)
+- PostgreSQL 16 + pgvector — **opsiyonel**, aşağıya bakın
 
 ## Kurulum
 
@@ -23,68 +25,126 @@ uvicorn app.main:app --reload --reload-dir app
 ```
 
 - Swagger: http://localhost:8000/docs
-- Health: http://localhost:8000/health
+- Health: http://localhost:8000/health · http://localhost:8000/health/db
+
+### Kademeli çalışma — hiçbiri zorunlu değil
+
+Sistem üç şey olmadan da **uçtan uca çalışır**; her biri bağımsız olarak
+açılabilir. Ekip birbirini beklemez:
+
+| Eksik olan | Ne olur |
+|---|---|
+| `DATABASE_URL` yok | Repository katmanı bellek içi veriye düşer (SQL seed'inin alt kümesi, **aynı rakamlar**). `/health` `data_source: in-memory` döner. |
+| `LLM_API_KEY` / model adı yok | Ajanlar LLM'siz çalışır: kaynaklardan deterministik alıntı/özet üretirler. Akış, olaylar ve testler etkilenmez. |
+| `EMBEDDING_MODEL` yok | `rag_search` yalnızca BM25 (tam eşleşme) ayağıyla çalışır; hibrit arama model kararından sonra açılır. |
+
+> ⚠️ **LLM modeli henüz seçilmedi.** Kodda hiçbir model adı sabit yazılı
+> değildir; `DEFAULT_MODEL` boş olduğu sürece LLM hiç oluşturulmaz. Karar
+> verildiğinde tek yapılacak `.env` dosyasına model adını yazmaktır.
+
+### Veritabanıyla çalıştırma
+
+```bash
+docker compose up -d db          # şema + dummy data ilk kalkışta yüklenir
+export DATABASE_URL=postgresql+psycopg://finans:finans@localhost:5432/finans
+uvicorn app.main:app --reload --reload-dir app
+```
 
 ## Test
 
 ```bash
-pytest -q
+pytest -q                        # DB gerekmez (bellek içi repository'ler)
+
+# PostgreSQL entegrasyon testleri (opsiyonel):
+TEST_DATABASE_URL=postgresql+psycopg://finans:finans@localhost:5432/finans pytest -q
 ```
 
-## Ortam değişkenleri
+Lint: `ruff check . && black --check .`
 
-| Değişken | Varsayılan | Açıklama |
+## Demo kullanıcı
+
+Dummy data'daki tüm kullanıcıların şifresi `demo1234`.
+
+```bash
+curl -X POST localhost:8000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"mehmet@example.com","password":"demo1234"}'
+```
+
+## Endpoint'ler
+
+Sözleşme: [`../docs/api-sozlesmesi.md`](../docs/api-sozlesmesi.md)
+
+| Metot | Yol | Besler |
 |---|---|---|
-| `APP_ENV` | `development` | Çalışma ortamı |
-| `LOG_LEVEL` | `INFO` | Log seviyesi |
-| `CORS_ORIGINS` | `http://localhost:3000` | Virgülle ayrılmış frontend adresleri |
-| `LLM_API_KEY` | boş | LLM entegrasyonunda doldurulacak |
-| `DEFAULT_MODEL` | boş | LLM entegrasyonunda doldurulacak |
-| `PORTFOLIO_MODEL` | boş | Boşsa `DEFAULT_MODEL` kullanılır |
-| `MARKET_MODEL` | boş | Boşsa `DEFAULT_MODEL` kullanılır |
-| `RISK_MODEL` | boş | Boşsa `DEFAULT_MODEL` kullanılır |
-
-`DATABASE_URL` ve `VECTOR_DB_URL` şu an devre dışı.
+| POST | `/api/auth/login` | Login |
+| GET | `/api/auth/me` | AppShell |
+| GET | `/api/dashboard/summary` | Dashboard ilk yükleme (birleşik) |
+| GET | `/api/portfolio/summary` · `/holdings` · `/allocation` · `/transactions` | Portföy sekmesi |
+| GET | `/api/market/assets` · `/history` | Piyasa sekmesi |
+| POST | `/api/market/search` | RAG destekli piyasa araması |
+| GET | `/api/risk/profile` | Risk paneli |
+| GET | `/api/conversations` · `/{id}/messages` | Sohbet listesi |
+| POST | `/api/chat/stream` | Chat (SSE) |
 
 ## Klasör yapısı
 
 ```
 app/
   api/routes/     endpoint tanımları
-  core/           errors, logging
-  repositories/   veri erişim katmanı
-  schemas/        Pydantic request/response modelleri
-  services/       iş mantığı
-  agents/         ajanlar
-  mcp/            MCP server
-  db/             DB oturumu — şu an devre dışı
+  auth/           JWT, get_current_user
+  core/           errors, logging, llm
+  orchestration/  AgentState + ortak modeller (REST modelleri DEĞİL)
+  schemas/        REST request/response modelleri
+  services/       ekran verisi domain servisleri
+  repositories/   veri erişim katmanı (base / in_memory / sql / deps)
+  agents/         base · market_research · portfolio · risk_strategy · security_agent
+  engine/         orchestrator (graph, router, sentez) · factory (wiring)
+  mcp/            client · server (tool grupları) · context (user_id contextvar)
+  market/         provider · scheduler (periyodik fiyat görevi)
+  db/             async oturum yönetimi
   config.py       ayarlar
   main.py         uygulama girişi
 tests/
 ```
 
+> `orchestration/` ile `schemas/` karıştırılmamalı: ilki graph içinde taşınan
+> durum, ikincisi HTTP sınırındaki sözleşme. (Eskiden `schema/` + `schemas/`
+> yan yanaydı; tek harf farkı kalıcı karışıklık üretiyordu.)
+
 ## Yeni endpoint eklerken
 
-Veriye doğrudan erişme, repository katmanını kullan:
+Katman kuralı: **`routes → services → repositories`**. Endpoint veriye
+doğrudan erişmez.
 
 ```python
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from app.repositories.base import PortfolioRepository
-from app.repositories.deps import get_portfolio_repository
+from app.auth.deps import CurrentUser
+from app.services import portfolio as service
 
-router = APIRouter(prefix="/portfolio", tags=["portfolio"])
+router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
-@router.get("")
-async def get_portfolio(repo: PortfolioRepository = Depends(get_portfolio_repository)):
-    return repo.get_summary(user_id=1)
+@router.get("/summary")
+async def summary(user: CurrentUser):
+    return await service.ozet_getir(user["id"])
 ```
 
 Router'ı `app/main.py` içinde `include_router` ile ekle.
 
-## Bilinen durum
+## Yeni MCP tool eklerken
 
-- Veri bellekte sabit tutuluyor (`repositories/in_memory.py`)
-- DB entegrasyonu bekliyor; `app/db/session.py` ve `/health/db` yoruma alınmış durumda
-- Kimlik doğrulama henüz yok
+1. `app/mcp/server.py` içine handler yaz, `TOOL_GROUPS`'a ekle.
+2. Ortak zarfı döndür: `ok({...})` / `fail("...")`.
+3. `user_id`'yi **parametre alma** — `require_user_id()` ile contextvar'dan al.
+4. Mimari v4 §6.2'deki tool kataloğunu güncelle.
+
+## Bilinen durum / açık işler
+
+- LLM modeli ve embedding modeli seçilmedi (mimari v4 §16).
+- Synthesizer LangChain uyumlu bir chat modeli bekler; model kararına kadar
+  deterministik özet üretilir.
+- Gerçek piyasa API sağlayıcısı bağlanmadı (`ApiMarketProvider` simülatöre
+  düşer) — PO onayı ve lisans kontrolü gerekiyor.
+- `POST /api/reports` (FR-RISK-04) Sprint 4'e ertelendi.

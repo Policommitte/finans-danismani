@@ -12,7 +12,7 @@ import time
 from abc import ABC, abstractmethod
 
 from app.mcp.client import MCPClientError
-from app.schema.models import AgentError, AgentState, ToolResult
+from app.orchestration.models import AgentError, AgentState, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,9 @@ class BaseAgent(ABC):
 
         baslangic = time.perf_counter()
         try:
-            output = await self.mcp_client.call_tool(server=server, tool=tool, arguments=arguments)
+            output = await self.mcp_client.call_tool(
+                server=server, tool=tool, arguments=arguments, agent=self.name
+            )
         except MCPClientError as exc:
             self._log_tool_result(
                 ToolResult(

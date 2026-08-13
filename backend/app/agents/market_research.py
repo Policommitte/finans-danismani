@@ -51,7 +51,7 @@ from typing import Any
 from app.agents.base import BaseAgent
 from app.mcp.servers.market import MARKET_SERVER_NAME
 from app.mcp.servers.rag import RAG_SERVER_NAME
-from app.schema.models import AgentError, AgentState, Source
+from app.orchestration.models import AgentError, AgentState, Source
 
 logger = logging.getLogger(__name__)
 
@@ -336,11 +336,19 @@ class MarketResearchAgent(BaseAgent):
         tarih = chunk.get("date")
 
         return Source(
-            doc_id=str(chunk.get("chunk_id", "")),
+            # `doc_id` DOKUMAN kimligidir (rag.documents.external_id), chunk
+            # kimligi degil: kullanici kaynagi acmak istediginde chunk numarasi
+            # ise yaramaz. Tool dokuman kimligini vermiyorsa chunk'a duselir.
+            doc_id=str(chunk.get("doc_id") or chunk.get("chunk_id") or ""),
             baslik=chunk.get("title") or f"{kaynak_adi} ({tarih or 'tarih yok'})",
             sirket=metadata.get("symbol"),
             tarih=tarih,
-            tip=_TOPIC_TO_TIP.get(metadata.get("topic"), "haber"),
+            # Tool dokuman tipini zaten sozlesmedeki degerle donuyorsa (haber |
+            # bilanco | analist_raporu | duyuru) oldugu gibi kullanilir; eski
+            # `topic` alanini donen sunucular icin esleme tablosuna duselir.
+            # Eslemeye korukorune guvenilseydi bir bilanco dokumani "haber"
+            # olarak etiketlenirdi.
+            tip=chunk.get("tip") or _TOPIC_TO_TIP.get(metadata.get("topic"), "haber"),
             score=chunk.get("score"),
         )
 

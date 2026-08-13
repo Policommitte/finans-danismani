@@ -30,7 +30,7 @@ from app.engine.orchestrator import (
     SAFE_RESPONSE_MESSAGE,
     Orchestrator,
 )
-from app.schema.models import AgentState, Source
+from app.orchestration.models import AgentState, Source
 
 # ---------------------------------------------------------------------------
 # Test yardimcilari
@@ -102,16 +102,16 @@ def _orchestrator(agents=None, security_agent=None, **kwargs) -> Orchestrator:
     )
 
 
-async def _calistir(orchestrator: Orchestrator, sorgu: str, thread_id: str = "t1") -> dict:
+async def _calistir(orchestrator: Orchestrator, sorgu: str, thread_id: int = 1) -> dict:
     """Graph'i sonuna kadar calistirip nihai state'i doner."""
     return await orchestrator.graph.ainvoke(
-        {"user_query": sorgu, "user_id": "u1", "thread_id": thread_id},
+        {"user_query": sorgu, "user_id": 1, "thread_id": thread_id},
         config={"configurable": {"thread_id": thread_id}},
     )
 
 
-async def _olaylar(orchestrator: Orchestrator, sorgu: str, thread_id: str = "t1") -> list[dict]:
-    return [olay async for olay in orchestrator.stream_request(sorgu, "u1", thread_id)]
+async def _olaylar(orchestrator: Orchestrator, sorgu: str, thread_id: int = 1) -> list[dict]:
+    return [olay async for olay in orchestrator.stream_request(sorgu, 1, thread_id)]
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +423,7 @@ async def test_tum_ajanlar_cokerse_bile_yanit_uretilir():
 )
 def test_route_intent_anahtar_kelimeye_gore_ajan_secer(sorgu, beklenen):
     orchestrator = _orchestrator()
-    state = AgentState(user_query=sorgu, user_id="u1", thread_id="t1")
+    state = AgentState(user_query=sorgu, user_id=1, thread_id=1)
 
     assert beklenen in orchestrator.route_intent(state)
 
@@ -432,8 +432,8 @@ def test_route_intent_turkce_karakterleri_normalize_eder():
     """'portföy' ve 'portfoy' ayni sekilde eslenmelidir."""
     orchestrator = _orchestrator()
 
-    diakritikli = AgentState(user_query="Portföyüm", user_id="u", thread_id="t")
-    diakritiksiz = AgentState(user_query="portfoyum", user_id="u", thread_id="t")
+    diakritikli = AgentState(user_query="Portföyüm", user_id=1, thread_id=1)
+    diakritiksiz = AgentState(user_query="portfoyum", user_id=1, thread_id=1)
 
     assert AGENT_PORTFOLIO in orchestrator.route_intent(diakritikli)
     assert AGENT_PORTFOLIO in orchestrator.route_intent(diakritiksiz)
@@ -442,14 +442,14 @@ def test_route_intent_turkce_karakterleri_normalize_eder():
 def test_route_intent_duzeltme_isaretli_harfi_normalize_eder():
     """Finans metinlerinde 'kâr' yazimi yaygin; 'kar' anahtar kelimesine dusmeli."""
     orchestrator = _orchestrator()
-    state = AgentState(user_query="THYAO'nun kârı arttı mı?", user_id="u", thread_id="t")
+    state = AgentState(user_query="THYAO'nun kârı arttı mı?", user_id=1, thread_id=1)
 
     assert AGENT_MARKET_RESEARCH in orchestrator.route_intent(state)
 
 
 def test_route_intent_buyuk_harfle_de_eslesir():
     orchestrator = _orchestrator()
-    state = AgentState(user_query="PORTFÖYÜM NASIL?", user_id="u", thread_id="t")
+    state = AgentState(user_query="PORTFÖYÜM NASIL?", user_id=1, thread_id=1)
 
     assert AGENT_PORTFOLIO in orchestrator.route_intent(state)
 
@@ -457,7 +457,7 @@ def test_route_intent_buyuk_harfle_de_eslesir():
 def test_route_intent_eslesme_yoksa_tum_ajanlari_secer():
     """Guvenli varsayilan: eksik yanit vermektense biraz fazla calis."""
     orchestrator = _orchestrator()
-    state = AgentState(user_query="Merhaba", user_id="u", thread_id="t")
+    state = AgentState(user_query="Merhaba", user_id=1, thread_id=1)
 
     assert set(orchestrator.route_intent(state)) == set(_uc_ajan())
 
@@ -465,7 +465,7 @@ def test_route_intent_eslesme_yoksa_tum_ajanlari_secer():
 def test_route_intent_portfoy_istendiginde_risk_i_de_ekler():
     """Risk analizi portfoy/piyasa verisine dayandigi icin birlikte anlamlidir."""
     orchestrator = _orchestrator()
-    state = AgentState(user_query="Portföyümün dağılımı nedir?", user_id="u", thread_id="t")
+    state = AgentState(user_query="Portföyümün dağılımı nedir?", user_id=1, thread_id=1)
 
     secilen = orchestrator.route_intent(state)
 
@@ -493,7 +493,12 @@ async def test_stream_request_ilerleme_olaylari_yayinlar():
 
     durum_olaylari = [o for o in olaylar if o["type"] == "status"]
     assert durum_olaylari
-    assert all("message" in o and "node" in o for o in durum_olaylari)
+    # Sozlesme (mimari v4 bolum 10.1): `status` olayi `stage` tasir, node adi
+    # DEGIL - node adi bir uygulama detayi, `stage` ise frontend sozlesmesi.
+    assert all("message" in o and "stage" in o for o in durum_olaylari)
+    assert all(
+        o["stage"] in {"security", "routing", "agents", "risk", "synth"} for o in durum_olaylari
+    )
 
 
 async def test_stream_request_yanit_token_i_yayinlar():
@@ -578,7 +583,7 @@ async def test_stream_request_reddedilen_istekte_gecti_mesaji_yayinlamaz():
     olaylar = await _olaylar(orchestrator, "zararli sorgu")
 
     durumlar = [o for o in olaylar if o["type"] == "status"]
-    assert not [o for o in durumlar if o["node"] == "security_in"]
+    assert not [o for o in durumlar if o["stage"] == "security"]
 
 
 async def test_stream_request_guvensiz_ciktida_gecti_mesaji_yayinlamaz():
@@ -587,7 +592,7 @@ async def test_stream_request_guvensiz_ciktida_gecti_mesaji_yayinlamaz():
     olaylar = await _olaylar(orchestrator, "Portfoyum nasil?")
 
     durumlar = [o for o in olaylar if o["type"] == "status"]
-    assert not [o for o in durumlar if o["node"] == NODE_SECURITY_GATE]
+    assert not [o for o in durumlar if o["stage"] == "synth"]
 
 
 async def test_stream_request_guvenli_sorguda_denetim_mesaji_yayinlar():
@@ -597,7 +602,7 @@ async def test_stream_request_guvenli_sorguda_denetim_mesaji_yayinlar():
     olaylar = await _olaylar(orchestrator, "Portfoyum nasil?")
 
     durumlar = [o for o in olaylar if o["type"] == "status"]
-    assert [o for o in durumlar if o["node"] == "security_in"]
+    assert [o for o in durumlar if o["stage"] == "security"]
 
 
 async def test_stream_request_reddedilen_istekte_de_token_yayinlar():
@@ -615,7 +620,15 @@ async def test_stream_request_olay_tipleri_beklenen_kumede():
 
     olaylar = await _olaylar(orchestrator, "Portfoyumun riski nedir?")
 
-    assert {o["type"] for o in olaylar} <= {"status", "token", "sources", "error"}
+    assert {o["type"] for o in olaylar} <= {
+        "meta",
+        "status",
+        "sources",
+        "token",
+        "agent_error",
+        "error",
+        "done",
+    }
 
 
 async def test_stream_request_hata_durumunda_error_olayi_yayinlar():
@@ -646,7 +659,8 @@ async def test_stream_request_hata_olayi_ic_ayrinti_sizdirmaz():
 
     hata = (await _olaylar(orchestrator, "Portfoyum nasil?"))[-1]
 
-    assert set(hata) == {"type", "message"}
+    # `code` makine-okunur, `message` kullaniciya gosterilir; istisna metni YOK.
+    assert set(hata) == {"type", "code", "message"}
     assert gizli not in str(hata)
 
 
@@ -714,8 +728,8 @@ async def test_sentez_baglamı_ajan_verisini_icerir():
     orchestrator = _orchestrator()
     state = AgentState(
         user_query="Portfoyum nasil?",
-        user_id="u",
-        thread_id="t",
+        user_id=1,
+        thread_id=1,
         portfolio_data={"toplam": 100_000},
         market_data={"ozet": "yatay"},
     )
@@ -735,10 +749,10 @@ async def test_sentez_baglamı_ajan_verisini_icerir():
 async def test_ayni_thread_de_mesajlar_birikir():
     orchestrator = _orchestrator()
 
-    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id="oturum-1")
-    await _olaylar(orchestrator, "Peki riskim?", thread_id="oturum-1")
+    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id=101)
+    await _olaylar(orchestrator, "Peki riskim?", thread_id=101)
 
-    state = orchestrator.graph.get_state({"configurable": {"thread_id": "oturum-1"}})
+    state = orchestrator.graph.get_state({"configurable": {"thread_id": "101"}})
     icerikler = [m.content for m in state.values["messages"]]
 
     assert "Portfoyum nasil?" in icerikler
@@ -748,10 +762,10 @@ async def test_ayni_thread_de_mesajlar_birikir():
 async def test_farkli_thread_ler_birbirini_etkilemez():
     orchestrator = _orchestrator()
 
-    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id="oturum-a")
-    await _olaylar(orchestrator, "Riskim nedir?", thread_id="oturum-b")
+    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id=102)
+    await _olaylar(orchestrator, "Riskim nedir?", thread_id=103)
 
-    state_b = orchestrator.graph.get_state({"configurable": {"thread_id": "oturum-b"}})
+    state_b = orchestrator.graph.get_state({"configurable": {"thread_id": "103"}})
     icerikler = [m.content for m in state_b.values["messages"]]
 
     assert "Portfoyum nasil?" not in icerikler
@@ -766,10 +780,10 @@ async def test_yeni_tur_onceki_turun_ajan_verisini_tasimaz():
     ajanlar = _uc_ajan()
     orchestrator = _orchestrator(agents=ajanlar)
 
-    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id="oturum-1")
+    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id=101)
 
     ajanlar[AGENT_PORTFOLIO].cikti = {"portfolio_data": {"toplam": 250_000}}
-    await _olaylar(orchestrator, "Peki simdi?", thread_id="oturum-1")
+    await _olaylar(orchestrator, "Peki simdi?", thread_id=101)
 
     risk_ajani = ajanlar[AGENT_RISK_STRATEGY]
     assert risk_ajani.gorulen_state.portfolio_data == {"toplam": 250_000}

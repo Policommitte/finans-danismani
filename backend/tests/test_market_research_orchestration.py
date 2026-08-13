@@ -37,9 +37,9 @@ def _orchestrator(mcp_client=None, llm=None) -> Orchestrator:
     return Orchestrator(agents={AGENT_MARKET_RESEARCH: ajan}, security_agent=SecurityAgent())
 
 
-async def _calistir(orchestrator: Orchestrator, sorgu: str, thread_id: str = "t1") -> dict:
+async def _calistir(orchestrator: Orchestrator, sorgu: str, thread_id: int = 1) -> dict:
     return await orchestrator.graph.ainvoke(
-        {"user_query": sorgu, "user_id": "u1", "thread_id": thread_id},
+        {"user_query": sorgu, "user_id": 1, "thread_id": thread_id},
         config={"configurable": {"thread_id": thread_id}},
     )
 
@@ -146,11 +146,9 @@ async def test_mcp_cokmesi_istegi_dusurmez():
 async def test_streaming_akisi_token_ve_kaynak_yayinlar():
     orchestrator = _orchestrator()
 
-    olaylar = [
-        o async for o in orchestrator.stream_request("THYAO bilancosu ne durumda?", "u1", "t9")
-    ]
+    olaylar = [o async for o in orchestrator.stream_request("THYAO bilancosu ne durumda?", 1, 9)]
 
     tipler = {o["type"] for o in olaylar}
     assert "token" in tipler
     assert "sources" in tipler
-    assert any(o.get("node") == AGENT_MARKET_RESEARCH for o in olaylar if o["type"] == "status")
+    assert any(o.get("stage") == "agents" for o in olaylar if o["type"] == "status")

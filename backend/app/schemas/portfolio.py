@@ -1,0 +1,67 @@
+"""Portfoy ekrani sozlesmeleri.
+
+Tum parasal alanlar TRY'ye normalize edilmistir ve `_try` ile biter; cevrim
+DB view'inda (`v_holdings_valued`) yapilir, frontend cevrim yapmaz.
+"""
+
+from pydantic import BaseModel, Field
+
+
+class PortfolioSummary(BaseModel):
+    """SummaryCards bileseni - `v_portfolio_summary` satiri."""
+
+    portfolio_id: int | None = Field(default=None, description="Ozetin ait oldugu portfoy")
+    holding_count: int = Field(description="Portfoydeki varlik sayisi")
+    total_value_try: float = Field(description="Guncel toplam deger (TRY)")
+    total_cost_try: float = Field(description="Toplam maliyet (TRY)")
+    total_pnl_try: float = Field(description="Toplam kar/zarar (TRY)")
+    total_pnl_pct: float | None = Field(default=None, description="Toplam kar/zarar yuzdesi")
+
+
+class Holding(BaseModel):
+    """HoldingsTable satiri."""
+
+    symbol: str
+    asset_name: str
+    asset_class: str = Field(description="STOCK | GOLD | FOREX | BOND | CRYPTO | ...")
+    currency: str
+    quantity: float
+    average_buy_price: float
+    current_price: float
+    daily_change_pct: float | None = None
+    market_value_try: float
+    cost_basis_try: float
+    pnl_try: float
+    pnl_pct: float | None = None
+
+
+class HoldingsResponse(BaseModel):
+    items: list[Holding]
+    total_value_try: float = Field(description="Satirlarin toplami - tabloda alt bilgi olarak")
+
+
+class AllocationSlice(BaseModel):
+    """AllocationPie dilimi."""
+
+    asset_class: str
+    class_value_try: float
+    class_pct: float
+
+
+class AllocationResponse(BaseModel):
+    items: list[AllocationSlice]
+
+
+class Transaction(BaseModel):
+    id: int
+    symbol: str
+    asset_name: str
+    transaction_type: str = Field(description="BUY | SELL")
+    quantity: float
+    unit_price: float
+    transaction_date: str
+
+
+class TransactionsResponse(BaseModel):
+    items: list[Transaction]
+    limit: int
