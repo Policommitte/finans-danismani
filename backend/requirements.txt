@@ -3,8 +3,16 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
 
-httpx==0.28.1
+# Orkestrasyon katmani (app/engine/orchestrator.py)
+langgraph==1.2.11
+langchain-core==1.5.4
+
+# Ajan LLM istemcisi (app/core/llm.py) - gecikmeli import edilir, anahtar
+# tanimli degilse ajanlar LLM'siz calisir.
 google-genai==1.75.0
+
+httpx==0.28.1
 ruff==0.8.4
 black==24.10.0
-pytest==8.3.4
+pytest==8.4.2
+pytest-asyncio==1.4.0

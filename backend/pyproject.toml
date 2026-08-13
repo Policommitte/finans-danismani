@@ -9,3 +9,6 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+# Orkestrasyon katmani bastan sona async oldugu icin async testler
+# ayrica isaretlenmeden calissin diye auto mod kullaniliyor.
+asyncio_mode = "auto"

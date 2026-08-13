@@ -1,7 +1,9 @@
-"""Gelistirme ve test icin: gercek LlamaIndex / Borsa-KAP entegrasyonlari
-hazir olana kadar 'rag' ve 'market' sunucularini sahte veriyle ayaga
-kaldiran bir MCPClient uretir. Orchestrator, gercek sunucular hazir
-oldugunda bu fonksiyonun yerine kendi wiring'ini kullanacaktir.
+"""Gelistirme ve test icin sahte MCP kurulumu.
+
+Gercek LlamaIndex / Borsa-KAP entegrasyonlari hazir olana kadar 'rag' ve
+'market' sunucularini sahte veriyle ayaga kaldiran bir `MCPClient` uretir.
+Gercek sunucular hazir oldugunda `app.engine.factory.build_mcp_client`
+fabrikasi bu fonksiyonun yerine gercek wiring'i cagirir; ajanlar degismez.
 """
 
 from __future__ import annotations

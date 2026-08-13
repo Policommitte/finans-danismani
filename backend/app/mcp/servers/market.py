@@ -8,7 +8,10 @@ yapisal veri dondurur.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+# NOT: `datetime.UTC` kisayolu 3.11+ ile geldi; CI 3.13 kullansa da yerel
+# gelistirme ortamlari 3.10 olabildigi icin esdegeri olan `timezone.utc`
+# tercih edildi.
+from datetime import datetime, timezone
 from typing import Any
 
 from app.mcp.client import MCPServer
@@ -42,7 +45,7 @@ async def market_get_quote(symbol: str) -> dict[str, Any]:
     return {
         "symbol": symbol.upper(),
         "found": True,
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         **quote,
     }
 

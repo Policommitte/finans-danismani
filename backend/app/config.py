@@ -19,9 +19,17 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     default_model: str = ""
 
+    # Ajan bazlı model seçimi: ucuz model ajanlarda, güçlü model synthesizer'da.
+    # Ücretsiz API kotasını korumak için bilinçli bir tercihtir.
     portfolio_model: str = ""
     market_model: str = ""
     risk_model: str = ""
+    synthesizer_model: str = ""  # en güçlü model burada
+    security_model: str = ""  # en küçük/hızlı model burada
+
+    # Timeout — bir ajan asılırsa tüm istek düşmesin (graceful degradation).
+    agent_timeout_seconds: int = 20
+    synthesizer_timeout_seconds: int = 40
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -32,6 +40,8 @@ class Settings(BaseSettings):
             "portfolio": self.portfolio_model,
             "market": self.market_model,
             "risk": self.risk_model,
+            "synthesizer": self.synthesizer_model,
+            "security": self.security_model,
         }
         return overrides.get(agent) or self.default_model
 
