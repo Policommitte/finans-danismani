@@ -1,13 +1,16 @@
+import asyncio
+import contextlib
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import health
+from app.api.routes import auth, chat, dashboard, health, market, portfolio, risk
 from app.config import settings
 from app.core.errors import (
     AppError,
@@ -17,6 +20,10 @@ from app.core.errors import (
     validation_exception_handler,
 )
 from app.core.logging import request_id_ctx, setup_logging
+from app.db.session import dispose_engine
+from app.market.scheduler import run_price_scheduler
+from app.mcp.context import set_request_context
+from app.repositories.deps import describe_backend
 
 setup_logging()
 logger = logging.getLogger("app")
@@ -36,11 +43,42 @@ ERROR_RESPONSE_SCHEMA = {
     },
 }
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Uygulama omru: arka plan fiyat gorevi burada baslar ve durur.
+
+    Fiyat gorevi ISTEK AKISINDAN BAGIMSIZDIR (mimari v4 bolum 8): sohbet
+    gelmese de fiyatlar ilerler. Gorev hicbir kosulda uygulamayi dusurmez;
+    baslatilamazsa loglanir ve API normal calismaya devam eder.
+    """
+    logger.info(
+        "uygulama basliyor",
+        extra={"data_source": describe_backend(), "provider": settings.market_data_provider},
+    )
+
+    gorev: asyncio.Task | None = None
+    if settings.price_tick_seconds > 0:
+        gorev = asyncio.create_task(run_price_scheduler())
+
+    try:
+        yield
+    finally:
+        if gorev is not None:
+            gorev.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await gorev
+        if settings.database_enabled:
+            await dispose_engine()
+
+
 app = FastAPI(
     title="Akilli Kisisel Finans Danismani API",
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
     responses={
         400: ERROR_RESPONSE_SCHEMA,
+        401: ERROR_RESPONSE_SCHEMA,
         404: ERROR_RESPONSE_SCHEMA,
         422: ERROR_RESPONSE_SCHEMA,
         500: ERROR_RESPONSE_SCHEMA,
@@ -66,6 +104,9 @@ async def request_context(request: Request, call_next):
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
     request_id_ctx.set(request_id)
+    # Denetim kayitlari (`tool_calls`) bu id ile eslesir; kullanici kimligi
+    # `get_current_user` bagimliliginda yazilir.
+    set_request_context(request_id=request_id)
 
     start = time.perf_counter()
     try:
@@ -101,9 +142,9 @@ async def request_context(request: Request, call_next):
 
 
 app.include_router(health.router)
-
-# Yeni router'lar buraya eklenecek:
-# app.include_router(portfolio.router)
-# app.include_router(market.router)
-# app.include_router(risk.router)
-# app.include_router(chat.router)
+app.include_router(auth.router)
+app.include_router(dashboard.router)
+app.include_router(portfolio.router)
+app.include_router(market.router)
+app.include_router(risk.router)
+app.include_router(chat.router)
