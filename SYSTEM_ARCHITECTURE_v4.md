@@ -1,4 +1,4 @@
-# SYSTEM ARCHITECTURE v4
+# SYSTEM ARCHITECTURE v4.1
 ## Akıllı Kişisel Finans Danışmanı
 
 **Durum:** v2.3 (backend derinliği) ve v3 (sistem geneli) dokümanlarının birleştirilmiş hâli.
@@ -1011,36 +1011,27 @@ tests/
 
 ---
 
-# 14 · DOKÜMAN ↔ KOD FARKLARI
+# 14 · DOKÜMAN ↔ KOD FARKLARI (13 Ağustos 2026)
 
-Bu bölüm bir **iş listesiydi**; maddeler backend 2. parçada kapatıldı
-(branch `feat/backend-part2`).
+Bugünkü kodun bu dokümandan saptığı yerler — her satır bir iş kalemidir.
 
-| # | Konu | Durum | Nerede |
+| # | Konu | Bugünkü durum | Hedef |
 |---|---|---|---|
-| 1 | Orchestrator HTTP'ye bağlı değil | ✅ | `POST /api/chat/stream` · `services/chat.py` |
-| 2 | SSE `meta` / `done` / `agent_error` olayları | ✅ | `engine/orchestrator.py::stream_request` |
-| 3 | `status` olayı `stage` alanı | ✅ | `NODE_STAGES` |
-| 4 | Reducer'lı alanlar tur başında sıfırlanmıyor | ✅ | `orchestration/models.py::add_or_reset` (sentinel) |
-| 5 | Güvenlik desenleri Türkçe injection'ı kaçırıyor | ✅ | `agents/security_agent.py::normalize` + ek toleranslı desenler |
-| 6 | `AgentState.user_id` / `thread_id` | ✅ `int` | `orchestration/models.py` |
-| 7 | `AgentState` eksik alanlar | ✅ | `request_id`, `portfolio_id`, `intent` |
-| 8 | Kimlik doğrulama | ✅ JWT + bcrypt | `app/auth/` |
-| 9 | PortfolioAgent / RiskStrategyAgent | ✅ | `agents/portfolio.py` · `agents/risk_strategy.py` |
-| 10 | MCP sunucusu | ✅ 8 tool + ortak zarf + contextvar | `mcp/server.py` · `mcp/context.py` |
-| 11 | DB bağlantısı | ✅ async SQLAlchemy + SQL repository'ler | `db/session.py` · `repositories/sql.py` |
-| 12 | REST uçları | ✅ §10.2'deki liste | `api/routes/` |
-| 13 | `schema/` vs `schemas/` | ✅ `orchestration/` + `schemas/` | — |
+| 1 | Orchestrator HTTP'ye bağlı değil | `/api/chat/stream` yok | Bölüm 10.2 |
+| 2 | SSE `meta` / `done` / `agent_error` olayları | üretilmiyor | Bölüm 10.1 |
+| 3 | `status` olayı `stage` alanı | `node` alanı taşıyor | Bölüm 10.1 |
+| 4 | Reducer'lı alanlar tur başında sıfırlanmıyor | `sources`/`agent_errors` birikiyor | Bölüm 5.3 uyarısı |
+| 5 | Güvenlik desenleri Türkçe injection'ı kaçırıyor | ASCII desenler, normalize yok | Bölüm 11 uyarısı |
+| 6 | `AgentState.user_id` / `thread_id` | `str` | `int` (5.3) |
+| 7 | `AgentState` eksik alanlar | `request_id`, `portfolio_id`, `intent` yok | Bölüm 5.3 |
+| 8 | Kimlik doğrulama | yok | JWT + `get_current_user` |
+| 9 | PortfolioAgent / RiskStrategyAgent | yazılmadı | Bölüm 5.5 |
+| 10 | MCP sunucusu | mock tool'lar (`mcp/mock.py`) | Bölüm 6.2 |
+| 11 | DB bağlantısı | `db/session.py` yorumda, repository in-memory | Bölüm 9 |
+| 12 | REST uçları | stub'lar farklı isimlerde (`/api/market/news`) | Bölüm 10.2 |
+| 13 | `schema/` vs `schemas/` | yan yana | Bölüm 12 |
 
-## 14.1 Bilinçli olarak yapılmayanlar
-
-| Konu | Neden |
-|---|---|
-| Synthesizer'a LLM bağlanması | Model kararı verilmedi (§16-1). Kodda model adı **sabit değil**; `.env` boşken deterministik özet üretilir. |
-| Hibrit arama (dense + BM25) | Embedding modeli seçilmedi. `rag_search` şimdilik yalnızca BM25 ayağıyla çalışır; SQL fonksiyonu hazır. |
-| Gerçek piyasa API'si | PO onayı + lisans kontrolü gerekiyor (§8.3). `ApiMarketProvider` simülatöre düşer. |
-| `POST /api/reports` | Sprint 4'e ertelendi (FR-RISK-04). |
-| Kullanıcı kaydı (register) | Product Backlog'da kart yok. |
+---
 
 # 15 · GENİŞLETME NOKTALARI
 
@@ -1107,4 +1098,4 @@ flowchart LR
 
 ---
 
-**Doküman durumu:** v4 — v2.3 ve v3 birleştirildi, dört kontrat çelişkisi tek sözleşmede toplandı. Bölüm 14'teki iş listesi backend 2. parçada kapatıldı; kalan açıklar §14.1 ve §16'da.
+**Doküman durumu:** v4 — v2.3 ve v3 birleştirildi, dört kontrat çelişkisi tek sözleşmede toplandı, kod ile doküman arasındaki farklar bölüm 14'te listelendi.
