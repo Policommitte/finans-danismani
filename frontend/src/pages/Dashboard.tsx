@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import Card from '../components/ui/Card';
-import Button from '../components/ui/Button';
+import { Button } from '../components/ui/Button';
+import PortfolioPieChart from '../components/PortfolioPieChart';
 import { api } from '../api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -27,6 +28,10 @@ export default function Dashboard() {
     <Layout>
       <h1>Dashboard</h1>
       <p>Backend durumu: <strong>{health}</strong></p>
+
+      <Card title="">
+        <PortfolioPieChart />
+      </Card>
 
       <Card title="Örnek Kart">
         <p>Bu bir Card bileşeni içinde gösterilen içerik.</p>

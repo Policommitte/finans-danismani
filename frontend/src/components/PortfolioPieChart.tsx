@@ -7,91 +7,90 @@ import {
 import Badge from './ui/Badge';
 
 type AssetSlice = {
-  tur: string;
-  miktar: number;
-  deger: number;
-  yuzde: number;
+  type: string;
+  quantity: number;
+  value: number;
+  percent: number;
 };
 
-type Kur = 'TRY' | 'EUR' | 'USD';
-type Gorunum = 'pasta' | 'sutun';
-type ZamanAraligi = '1g' | '1h' | '1a' | '1y' | 'tumu';
+type Currency = 'TRY' | 'EUR' | 'USD';
+type ViewMode = 'pie' | 'bar';
+type TimeRange = '1d' | '1w' | '1m' | '1y' | 'all';
 
 const mockPortfolio: AssetSlice[] = [
-  { tur: 'Hisse Senedi', miktar: 120, deger: 45000, yuzde: 45 },
-  { tur: 'Altin', miktar: 30, deger: 25000, yuzde: 25 },
-  { tur: 'DÃ¶viz', miktar: 500, deger: 20000, yuzde: 20 },
-  { tur: 'Fon', miktar: 15, deger: 10000, yuzde: 10 },
+  { type: 'Stocks', quantity: 120, value: 45000, percent: 45 },
+  { type: 'Gold', quantity: 30, value: 25000, percent: 25 },
+  { type: 'Currency', quantity: 500, value: 20000, percent: 20 },
+  { type: 'Fund', quantity: 15, value: 10000, percent: 10 },
 ];
 
-const mockGecmisVeri: Record<ZamanAraligi, { etiket: string; deger: number }[]> = {
-  '1g': [
-    { etiket: '09:00', deger: 98500 }, { etiket: '12:00', deger: 99200 },
-    { etiket: '15:00', deger: 99800 }, { etiket: '18:00', deger: 100000 },
+const mockHistory: Record<TimeRange, { label: string; value: number }[]> = {
+  '1d': [
+    { label: '09:00', value: 98500 }, { label: '12:00', value: 99200 },
+    { label: '15:00', value: 99800 }, { label: '18:00', value: 100000 },
   ],
-  '1h': [
-    { etiket: 'Pzt', deger: 96000 }, { etiket: 'Sal', deger: 97500 },
-    { etiket: 'Ã‡ar', deger: 96800 }, { etiket: 'Per', deger: 98200 },
-    { etiket: 'Cum', deger: 100000 },
+  '1w': [
+    { label: 'Mon', value: 96000 }, { label: 'Tue', value: 97500 },
+    { label: 'Wed', value: 96800 }, { label: 'Thu', value: 98200 },
+    { label: 'Fri', value: 100000 },
   ],
-  '1a': [
-    { etiket: 'Hafta 1', deger: 90000 }, { etiket: 'Hafta 2', deger: 93500 },
-    { etiket: 'Hafta 3', deger: 97000 }, { etiket: 'Hafta 4', deger: 100000 },
+  '1m': [
+    { label: 'Week 1', value: 90000 }, { label: 'Week 2', value: 93500 },
+    { label: 'Week 3', value: 97000 }, { label: 'Week 4', value: 100000 },
   ],
   '1y': [
-    { etiket: 'Ocak', deger: 70000 }, { etiket: 'Mart', deger: 78000 },
-    { etiket: 'MayÄ±s', deger: 85000 }, { etiket: 'Temmuz', deger: 91000 },
-    { etiket: 'EylÃ¼l', deger: 95000 }, { etiket: 'KasÄ±m', deger: 100000 },
+    { label: 'Jan', value: 70000 }, { label: 'Mar', value: 78000 },
+    { label: 'May', value: 85000 }, { label: 'Jul', value: 91000 },
+    { label: 'Sep', value: 95000 }, { label: 'Nov', value: 100000 },
   ],
-  tumu: [
-    { etiket: '2023', deger: 40000 }, { etiket: '2024', deger: 65000 },
-    { etiket: '2025', deger: 85000 }, { etiket: '2026', deger: 100000 },
+  all: [
+    { label: '2023', value: 40000 }, { label: '2024', value: 65000 },
+    { label: '2025', value: 85000 }, { label: '2026', value: 100000 },
   ],
 };
 
-const ZAMAN_ETIKET: Record<ZamanAraligi, string> = {
-  '1g': '1 GÃ¼n', '1h': '1 Hafta', '1a': '1 Ay', '1y': '1 YÄ±l', tumu: 'TÃ¼mÃ¼',
+const RANGE_LABEL: Record<TimeRange, string> = {
+  '1d': '1 Day', '1w': '1 Week', '1m': '1 Month', '1y': '1 Year', all: 'All Time',
 };
 
-const KUR_ORANLARI: Record<Kur, number> = { TRY: 1, EUR: 0.027, USD: 0.029 };
-const KUR_SEMBOL: Record<Kur, string> = { TRY: 'â‚º', EUR: 'â‚¬', USD: '$' };
-const MAT_RENKLER = ['#3B82F6', '#10B981', '#8B5CF6', '#06B6D4'];
+const RATES: Record<Currency, number> = { TRY: 1, EUR: 0.027, USD: 0.029 };
+const SYMBOL: Record<Currency, string> = { TRY: 'TL', EUR: '€', USD: '$' };
+const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#06B6D4'];
 
 function renderActiveShape(props: any) {
   const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
   return (
     <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 10}
-      startAngle={startAngle} endAngle={endAngle} fill={fill} cornerRadius={8} />
+      startAngle={startAngle} endAngle={endAngle} fill={fill} />
   );
 }
 
 export default function PortfolioPieChart() {
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
-  const [kur, setKur] = useState<Kur>('TRY');
-  const [gorunum, setGorunum] = useState<Gorunum>('pasta');
-  const [zamanAraligi, setZamanAraligi] = useState<ZamanAraligi>('1a');
-  const [veriHatasi, setVeriHatasi] = useState(false);
+  const [currency, setCurrency] = useState<Currency>('TRY');
+  const [view, setView] = useState<ViewMode>('pie');
+  const [range, setRange] = useState<TimeRange>('1m');
+  const [dataError, setDataError] = useState(false);
   const navigate = useNavigate();
 
-  const cevir = (tutar: number) => tutar * KUR_ORANLARI[kur];
-  const toplamVarlik = mockPortfolio.reduce((sum, item) => sum + cevir(item.deger), 0);
-  const gecmisVeri = mockGecmisVeri[zamanAraligi];
+  const convert = (amount: number) => amount * RATES[currency];
+  const totalValue = mockPortfolio.reduce((sum, item) => sum + convert(item.value), 0);
+  const historyData = mockHistory[range];
 
-  const sutunGorunumeGec = () => {
-    // GerÃ§ek backend baÄŸlanÄ±nca burada veri Ã§ekme hatasÄ± kontrolÃ¼ yapÄ±lacak
-    if (!gecmisVeri || gecmisVeri.length === 0) {
-      setVeriHatasi(true);
+  const switchToBarView = () => {
+    if (!historyData || historyData.length === 0) {
+      setDataError(true);
       setTimeout(() => {
-        setVeriHatasi(false);
-        setGorunum('pasta');
+        setDataError(false);
+        setView('pie');
       }, 1500);
       return;
     }
-    setGorunum('sutun');
+    setView('bar');
   };
 
   return (
-    <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div className="flex flex-col rounded-none border border-gray-200 bg-white shadow-sm">
       <style>{`
         @keyframes spinIn {
           from { transform: rotate(-180deg) scale(0.7); opacity: 0; }
@@ -103,77 +102,76 @@ export default function PortfolioPieChart() {
       <div className="flex items-center justify-between px-6 pt-6">
         <div>
           <div className="flex items-center gap-2 text-lg font-semibold">
-            PortfÃ¶y {gorunum === 'pasta' ? 'DaÄŸÄ±lÄ±mÄ±' : 'PerformansÄ±'}
-            <Badge className="bg-green-100 text-green-700">
-              <span>â–² 5.2%</span>
+            Portfolio {view === 'pie' ? 'Allocation' : 'Performance'}
+            <Badge className="rounded-none bg-green-100 text-green-700">
+              <span>▲ 5.2%</span>
             </Badge>
           </div>
           <div className="mt-2 flex gap-1">
             <button
-              onClick={() => setGorunum('pasta')}
-              className={`rounded-md px-3 py-1 text-xs font-medium ${
-                gorunum === 'pasta' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              onClick={() => setView('pie')}
+              className={`rounded-none px-3 py-1 text-xs font-medium ${
+                view === 'pie' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              Pasta Grafik
+              Pie Chart
             </button>
             <button
-              onClick={sutunGorunumeGec}
-              className={`rounded-md px-3 py-1 text-xs font-medium ${
-                gorunum === 'sutun' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              onClick={switchToBarView}
+              className={`rounded-none px-3 py-1 text-xs font-medium ${
+                view === 'bar' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              SÃ¼tun Grafik
+              Bar Chart
             </button>
           </div>
         </div>
         <div className="text-right">
           <div className="mb-1 flex justify-end gap-1">
-            {(['TRY', 'EUR', 'USD'] as Kur[]).map((k) => (
+            {(['TRY', 'EUR', 'USD'] as Currency[]).map((c) => (
               <button
-                key={k}
-                onClick={() => setKur(k)}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  kur === k ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                key={c}
+                onClick={() => setCurrency(c)}
+                className={`rounded-none px-2 py-1 text-xs font-medium ${
+                  currency === c ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                {k}
+                {c}
               </button>
             ))}
           </div>
-          <div className="text-xs text-gray-500">Toplam VarlÄ±k</div>
+          <div className="text-xs text-gray-500">Total Assets</div>
           <div className="text-xl font-bold">
-            {toplamVarlik.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} {KUR_SEMBOL[kur]}
+            {totalValue.toLocaleString('en-US', { maximumFractionDigits: 2 })} {SYMBOL[currency]}
           </div>
         </div>
       </div>
 
-      {veriHatasi && (
-        <div className="mx-6 mt-4 rounded-md bg-amber-50 px-4 py-2 text-sm text-amber-700">
-          GeÃ§miÅŸ veriye ulaÅŸÄ±lamadÄ±, pasta grafiÄŸe dÃ¶nÃ¼lÃ¼yor...
+      {dataError && (
+        <div className="mx-6 mt-4 rounded-none bg-amber-50 px-4 py-2 text-sm text-amber-700">
+          Could not load historical data, returning to pie chart...
         </div>
       )}
 
-      {gorunum === 'pasta' && (
+      {view === 'pie' && (
         <div className="px-2 pb-4">
           <div className="pie-spin-in" style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
               <PieChart>
                 <Tooltip
                   formatter={(value: number, name: string, props: any) => [
-                    `${cevir(props.payload.deger).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${KUR_SEMBOL[kur]} (${props.payload.miktar} adet)`,
+                    `${convert(props.payload.value).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${SYMBOL[currency]} (${props.payload.quantity} units)`,
                     name,
                   ]}
                 />
                 <Pie
                   data={mockPortfolio}
-                  dataKey="deger"
-                  nameKey="tur"
+                  dataKey="value"
+                  nameKey="type"
                   cx="50%"
                   cy="50%"
                   innerRadius={70}
                   outerRadius={110}
-                  cornerRadius={8}
                   paddingAngle={4}
                   activeIndex={activeIndex}
                   activeShape={renderActiveShape}
@@ -182,7 +180,7 @@ export default function PortfolioPieChart() {
                   {mockPortfolio.map((_, index) => (
                     <Cell
                       key={index}
-                      fill={MAT_RENKLER[index % MAT_RENKLER.length]}
+                      fill={COLORS[index % COLORS.length]}
                       stroke="none"
                       style={{ cursor: 'pointer' }}
                       onMouseEnter={() => setActiveIndex(index)}
@@ -190,12 +188,12 @@ export default function PortfolioPieChart() {
                     />
                   ))}
                   <LabelList
-                    dataKey="yuzde"
+                    dataKey="percent"
                     stroke="none"
                     fontSize={12}
                     fontWeight={500}
                     fill="#fff"
-                    formatter={(value: number) => `%${value}`}
+                    formatter={(value: number) => `${value}%`}
                   />
                 </Pie>
               </PieChart>
@@ -204,18 +202,18 @@ export default function PortfolioPieChart() {
         </div>
       )}
 
-      {gorunum === 'sutun' && (
+      {view === 'bar' && (
         <div className="px-6 pb-6">
           <div className="mb-3 flex gap-1">
-            {(Object.keys(ZAMAN_ETIKET) as ZamanAraligi[]).map((z) => (
+            {(Object.keys(RANGE_LABEL) as TimeRange[]).map((r) => (
               <button
-                key={z}
-                onClick={() => setZamanAraligi(z)}
-                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  zamanAraligi === z ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                key={r}
+                onClick={() => setRange(r)}
+                className={`rounded-none px-2 py-1 text-xs font-medium ${
+                  range === r ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                {ZAMAN_ETIKET[z]}
+                {RANGE_LABEL[r]}
               </button>
             ))}
           </div>
@@ -223,37 +221,37 @@ export default function PortfolioPieChart() {
           <div className="flex gap-4">
             <div style={{ width: '65%', height: 280 }}>
               <ResponsiveContainer>
-                <BarChart data={gecmisVeri}>
+                <BarChart data={historyData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="etiket" fontSize={12} />
+                  <XAxis dataKey="label" fontSize={12} />
                   <YAxis fontSize={12} />
                   <Tooltip
                     formatter={(value: number) => [
-                      `${cevir(value).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${KUR_SEMBOL[kur]}`,
-                      'DeÄŸer',
+                      `${convert(value).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${SYMBOL[currency]}`,
+                      'Value',
                     ]}
                   />
-                  <Bar dataKey="deger" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="value" fill="#3B82F6" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
             <div className="flex-1 space-y-2 text-sm">
-              {(Object.keys(ZAMAN_ETIKET) as ZamanAraligi[]).map((z, i) => {
-                const veri = mockGecmisVeri[z];
-                const ilk = veri[0].deger;
-                const son = veri[veri.length - 1].deger;
-                const degisimYuzde = ((son - ilk) / ilk) * 100;
-                const pozitif = degisimYuzde >= 0;
+              {(Object.keys(RANGE_LABEL) as TimeRange[]).map((r) => {
+                const data = mockHistory[r];
+                const first = data[0].value;
+                const last = data[data.length - 1].value;
+                const changePercent = ((last - first) / first) * 100;
+                const positive = changePercent >= 0;
                 return (
                   <div
-                    key={z}
-                    className={`flex items-center justify-between rounded-md px-3 py-2 ${
-                      pozitif ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                    key={r}
+                    className={`flex items-center justify-between rounded-none px-3 py-2 ${
+                      positive ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
                     }`}
                   >
-                    <span className="font-medium">{ZAMAN_ETIKET[z]}</span>
-                    <span>{pozitif ? '\u25B2' : '\u25BC'} %{Math.abs(degisimYuzde).toFixed(1)}</span>
+                    <span className="font-medium">{RANGE_LABEL[r]}</span>
+                    <span>{positive ? '▲' : '▼'} {Math.abs(changePercent).toFixed(1)}%</span>
                   </div>
                 );
               })}
@@ -263,4 +261,4 @@ export default function PortfolioPieChart() {
       )}
     </div>
   );
-}   
+}
