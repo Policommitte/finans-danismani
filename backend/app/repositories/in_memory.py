@@ -499,7 +499,9 @@ class InMemoryMarketRepository:
             for a in _ASSETS
         ]
 
-    async def apply_price_updates(self, updates: list[dict], write_history: bool) -> int:
+    async def apply_price_updates(
+        self, updates: list[dict], write_history: bool, source: str = "simulated"
+    ) -> int:
         for update in updates:
             asset = next((a for a in _ASSETS if a["id"] == update["asset_id"]), None)
             if asset is None:
@@ -510,6 +512,17 @@ class InMemoryMarketRepository:
             if previous:
                 asset["daily_change_pct"] = round((new_price - previous) / previous * 100, 4)
         return len(updates)
+
+    async def get_api_usage_today(self) -> int:
+        """Yedek katmanda kota takibi YOKTUR; her zaman 0 doner.
+
+        Bellek ici mod bir gelistirme/demo yedegidir ve dis API cagrisi
+        yapilmayabilir; sayaci burada tutmak yaniltici olurdu.
+        """
+        return 0
+
+    async def record_api_usage(self, calls: int = 1) -> None:
+        return None
 
 
 class InMemoryRagRepository:

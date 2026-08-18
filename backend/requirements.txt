@@ -24,6 +24,11 @@ google-genai==1.75.0
 sqlalchemy[asyncio]==2.0.36
 psycopg[binary]==3.2.3
 
+# Canli piyasa verisi (app/market/yahoo.py). Resmi bir API DEGILDIR: Yahoo'nun
+# genel uclarini kullanir, sembol adlari ve veri surekliligi garanti degildir.
+# Ulasilamadiginda saglayici simulatore duser, sistem calismaya devam eder.
+yfinance==1.3.0
+
 # Kimlik dogrulama (app/auth/) - Python 3.13'te crypt modulu kaldirildigi icin
 # passlib yerine dogrudan bcrypt (docs/backend-kararlar.md bolum 1).
 PyJWT==2.10.1

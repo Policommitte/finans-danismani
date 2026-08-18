@@ -56,14 +56,28 @@ class Settings(BaseSettings):
     security_model: str = ""  # en kucuk/hizli model burada
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
-    # simulated: kota harcamaz, deterministik (demo varsayilani)
-    # api / hybrid: gercek saglayici - PO onayi ve lisans kontrolu gerekir
-    market_data_provider: str = "simulated"
-    price_tick_seconds: int = 60
+    # api       : Yahoo Finance'ten GERCEK fiyat (varsayilan)
+    # simulated : rastgele yuruyus - kota harcamaz, deterministik
+    #
+    # "api" secili olsa bile Yahoo'ya ulasilamazsa saglayici otomatik olarak
+    # simulatore duser ve `price_history.source` "simulated" yazilir; yani
+    # sahte veri hicbir zaman "gercek" olarak etiketlenmez.
+    market_data_provider: str = "api"
+
+    #: Fiyat gorevinin calisma araligi. 15 dakika: Yahoo tek istekte tum
+    #: sembolleri getirdigi icin gunde ~96 cagri eder (kota tavaninin cok
+    #: altinda). Daha sik calistirmak engellenme riskini artirir.
+    price_tick_seconds: int = 900
+
     market_sim_seed: int = 20260813
+
     #: Fiyat gorevi her N tick'te bir `price_history`'ye satir yazar.
-    price_history_every_n_ticks: int = 5
-    #: Ucretsiz API katmanlari icin gunluk cagri tavani (kota korumasi).
+    #: 1 = her tick (15 dakikada bir satir). Tick araligi 60 sn iken bu deger
+    #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
+    price_history_every_n_ticks: int = 1
+
+    #: Gunluk cagri tavani (kota korumasi). 96 tick/gun beklenir; tavan
+    #: yeniden baslatmalara ve elle calistirmalara pay birakir.
     market_api_daily_quota: int = 400
 
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
