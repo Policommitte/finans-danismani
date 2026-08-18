@@ -1,4 +1,4 @@
-# SYSTEM ARCHITECTURE v4
+# SYSTEM ARCHITECTURE v4.1
 ## Akıllı Kişisel Finans Danışmanı
 
 **Durum:** v2.3 (backend derinliği) ve v3 (sistem geneli) dokümanlarının birleştirilmiş hâli.
@@ -27,17 +27,14 @@ Bu doküman bugünkü kodu değil, **hedef mimariyi** anlatır. Aradaki güncel 
 
 ```mermaid
 flowchart TB
-    subgraph FE["🖥️ FRONTEND — Next.js + React"]
+    subgraph FE["🖥️ FRONTEND — React + Vite"]
         F1["Login"]
-        F2["Global ChatWidget"]
-        F3["Dashboard"]
-        F4["Portföy"]
-        F5["Piyasa"]
-        F6["Risk"]
+        F2["Chat"]
+        F3["Dashboard<br/>Portföy · Piyasa · Risk"]
     end
 
     subgraph API["🌐 API KATMANI — FastAPI"]
-        A1["REST<br/>/api/dashboard · /api/portfolio<br/>/api/market · /api/risk"]
+        A1["REST<br/>/api/portfolio · /api/market"]
         A2["SSE<br/>/api/chat/stream"]
         A3["Auth<br/>JWT"]
     end
@@ -201,127 +198,93 @@ sequenceDiagram
 
 | Alan | Seçim |
 |---|---|
-| Framework | Next.js + React + TypeScript |
-| Routing | Next.js App Router |
-| Stil | Tailwind CSS veya CSS Modules |
+| Framework | React 18 + TypeScript |
+| Stil | Tailwind CSS + shadcn/ui |
+| Sunucu durumu | TanStack Query |
+| İstemci durumu | Zustand (chat akışı) |
 | Grafik | Recharts |
-| API iletişimi | Fetch tabanlı merkezi API client |
-| Streaming | `fetch` + ReadableStream ile SSE okuma |
-| State yönetimi | Sprint 1'de React state + custom hooks |
-| Test | Vitest + React Testing Library, ileride Playwright |
-
-Backend ayrı FastAPI uygulamasıdır. Next.js API routes zorunlu değildir; frontend doğrudan FastAPI endpointlerine gider.
+| Yönlendirme | React Router |
+| Form | React Hook Form + Zod |
 
 ## 4.2 Sayfa Haritası
 
 ```mermaid
 flowchart LR
-    ROOT["/"] --> DASH["/dashboard"]
-    ROOT --> PORT["/portfolio"]
-    ROOT --> MARKET["/market"]
-    ROOT --> RISK["/risk"]
-    ROOT --> REPORT["/reports"]
-    ROOT --> WIDGET["Global ChatWidget"]
+    L["/login"] -->|"JWT alındı"| C["/chat"]
+    L --> D["/dashboard"]
+    C <--> D
+    D --> T1["Sekme: Portföy"]
+    D --> T2["Sekme: Piyasa"]
+    D --> T3["Sekme: Risk"]
 
-    DASH --> API1["GET /api/dashboard/summary"]
-    PORT --> API2["GET /api/portfolio/*"]
-    MARKET --> API3["GET/POST /api/market/*"]
-    RISK --> API4["GET /api/risk/profile"]
-    WIDGET --> API5["POST /api/chat/stream"]
-
-    style DASH fill:#bbdefb
-    style PORT fill:#c8e6c9
-    style MARKET fill:#fff3e0
-    style RISK fill:#f3e5f5
-    style WIDGET fill:#e0f2f1
+    style L fill:#ffe0b2
+    style C fill:#c8e6c9
+    style D fill:#bbdefb
 ```
 
-Piyasa ve Risk ayrı route olarak tasarlanır. AI Chat ayrı bir sayfa değil, tüm ekranlarda sağ alt köşede duran global `ChatWidget` olarak çalışır. `/reports` Sprint 1'de stub olabilir; gerçek rapor üretimi Sprint 4 kapsamındadır.
+Piyasa ve Risk **ayrı sayfa değil, sekme**.
 
 ## 4.3 Bileşen Ağacı
 
 ```mermaid
 flowchart TD
-    ROOT["RootLayout"] --> SHELL["AppShell"]
-    ROOT --> CHAT["ChatWidget"]
+    APP["App"] --> AUTH["AuthProvider"]
+    AUTH --> RT["Router"]
+    RT --> LP["LoginPage"]
+    RT --> SH["AppShell"]
 
-    SHELL --> NAV["Sidebar"]
-    SHELL --> HEAD["Header"]
-    SHELL --> CONTENT["Page Content"]
+    SH --> NAV["Sidebar + Topbar"]
+    SH --> CP["ChatPage"]
+    SH --> DP["DashboardPage"]
 
-    CONTENT --> DASH["DashboardPage"]
-    CONTENT --> PORT["PortfolioPage"]
-    CONTENT --> MARKET["MarketPage"]
-    CONTENT --> RISK["RiskPage"]
-    CONTENT --> REPORT["ReportsPage (Sprint 4/stub)"]
+    CP --> CL["ConversationList"]
+    CP --> MSG["MessageList"]
+    CP --> INP["ChatInput"]
+    MSG --> BUB["MessageBubble"]
+    MSG --> STA["StatusIndicator"]
+    MSG --> SRC["SourceCard"]
 
-    DASH --> SUM["PortfolioSummaryCard"]
-    DASH --> PIE["AssetAllocationChart"]
-    DASH --> RSKS["RiskSummaryCard"]
-    DASH --> INS["MarketInsightList"]
+    DP --> SUM["SummaryCards"]
+    DP --> PIE["AllocationPie"]
+    DP --> TBL["HoldingsTable"]
+    DP --> LNE["PriceChart"]
+    DP --> RSK["RiskPanel"]
 
-    PORT --> TBL["AssetTable"]
-    PORT --> TRX["TransactionList"]
-
-    MARKET --> SEARCH["MarketSearchBox"]
-    MARKET --> LNE["PriceHistoryChart"]
-    MARKET --> SRCM["MarketSourceList"]
-
-    RISK --> SCORE["RiskScoreCard"]
-    RISK --> REC["RecommendationList"]
-
-    CHAT --> LAUNCH["ChatLauncherButton"]
-    CHAT --> PANEL["ChatPanel"]
-    PANEL --> MSG["MessageList"]
-    PANEL --> INP["MessageInput"]
-    MSG --> SRC["SourceList"]
-    MSG --> AERR["AgentErrorNotice"]
-
-    style CHAT fill:#e0f2f1
-    style DASH fill:#bbdefb
+    style CP fill:#c8e6c9
+    style DP fill:#bbdefb
 ```
 
 ## 4.4 Veri Akışı — Hangi Bileşen Nereden Beslenir
 
 ```mermaid
 flowchart LR
-    subgraph H["Custom Hooks — REST"]
-        H1["useDashboard"]
-        H2["usePortfolio"]
-        H3["useMarket"]
-        H4["useRisk"]
-        H5["useReports (Sprint 4)"]
+    subgraph Q["TanStack Query — REST"]
+        Q1["usePortfolioSummary"]
+        Q2["useHoldings"]
+        Q3["useAllocation"]
+        Q4["useMarketHistory"]
+        Q5["useConversations"]
     end
-    subgraph S["Frontend Services"]
-        S1["dashboardService"]
-        S2["portfolioService"]
-        S3["marketService"]
-        S4["riskService"]
-        S5["chatService"]
-    end
-    subgraph C["Chat State — SSE"]
+    subgraph Z["Zustand — SSE"]
         Z1["messages[]"]
         Z2["streamingText"]
         Z3["status"]
         Z4["sources[]"]
-        Z5["agent_errors[]"]
     end
 
-    H1 --> S1 --> SUM["Dashboard components"]
-    H2 --> S2 --> PORT["Portfolio components"]
-    H3 --> S3 --> MARKET["Market components"]
-    H4 --> S4 --> RISK["Risk components"]
-    H5 --> REPORT["Reports stub / Sprint 4"]
+    Q1 --> SUM["SummaryCards"]
+    Q2 --> TBL["HoldingsTable"]
+    Q3 --> PIE["AllocationPie"]
+    Q4 --> LNE["PriceChart"]
+    Q5 --> CL["ConversationList"]
 
-    S5 --> Z1
+    Z1 --> MSG["MessageList"]
     Z2 --> MSG
     Z3 --> STA["StatusIndicator"]
     Z4 --> SRC["SourceCard"]
-    Z5 --> AERR["AgentErrorNotice"]
 
-    style H fill:#e8f5e9
-    style S fill:#e3f2fd
-    style C fill:#fff3e0
+    style Q fill:#e8f5e9
+    style Z fill:#fff3e0
 ```
 
 ## 4.5 SSE Tüketim Durum Makinesi
@@ -343,16 +306,6 @@ stateDiagram-v2
     Hata --> Bosta
 ```
 
-SSE event sırası backend kontratıyla aynıdır:
-
-```text
-meta ilk gelir.
-sources ilk token'dan önce gelir.
-done en son gelir.
-```
-
-Frontend `done` eventi gelmeden stream'i tamamlanmış saymaz. `final` olayı yoktur; `reject_response` ve `safe_response` metinleri de normal asistan cevabı gibi `token` eventleriyle gösterilir.
-
 ## 4.6 ⚠️ Kritik Teknik Not
 
 ```mermaid
@@ -369,71 +322,20 @@ Chat ucu POST + JWT header gerektiriyor; tarayıcının yerleşik `EventSource` 
 ## 4.7 Klasör Yapısı
 
 ```
-frontend/
-└── src/
-    ├── app/
-    │   ├── layout.tsx
-    │   ├── page.tsx
-    │   ├── dashboard/page.tsx
-    │   ├── portfolio/page.tsx
-    │   ├── market/page.tsx
-    │   ├── risk/page.tsx
-    │   └── reports/page.tsx
-    ├── components/
-    │   ├── layout/
-    │   ├── dashboard/
-    │   ├── portfolio/
-    │   ├── market/
-    │   ├── risk/
-    │   ├── chat/
-    │   ├── reports/      # Sprint 4
-    │   └── feedback/
-    ├── hooks/
-    │   ├── useDashboard.ts
-    │   ├── usePortfolio.ts
-    │   ├── useMarket.ts
-    │   ├── useRisk.ts
-    │   ├── useReports.ts # Sprint 4
-    │   ├── useChatStream.ts
-    │   └── useThreadId.ts
-    ├── services/
-    │   ├── apiClient.ts
-    │   ├── dashboardService.ts
-    │   ├── portfolioService.ts
-    │   ├── marketService.ts
-    │   ├── riskService.ts
-    │   ├── reportService.ts # Sprint 4
-    │   └── chatService.ts
-    └── models/
-        ├── common.ts
-        ├── dashboard.ts
-        ├── portfolio.ts
-        ├── market.ts
-        ├── risk.ts
-        ├── report.ts # Sprint 4
-        └── chat.ts
+frontend/src/
+├── app/            router, providers, layout
+├── pages/          login · chat · dashboard
+├── features/
+│   ├── auth/       useAuth, AuthProvider, token
+│   ├── chat/       useChatStream, chatStore, bileşenler
+│   ├── portfolio/  query hook'ları, tablo, pasta
+│   └── market/     fiyat grafiği, varlık listesi
+├── components/ui/  shadcn primitifleri
+├── lib/            apiClient, sseClient, formatters
+└── types/          API kontrat tipleri
 ```
 
-Frontend bileşenleri backend'e doğrudan istek atmaz; veri çekme hooks ve services katmanında yapılır. REST, SSE ve RAG response alanları backend v4 kararı gereği `snake_case` kullanır.
-
-## 4.8 Backend Endpoint Kullanımı
-
-| Ekran / Bileşen | Endpoint | Not |
-|---|---|---|
-| AppShell | `GET /api/auth/me` | Mevcut kullanıcı bilgisi |
-| Dashboard | `GET /api/dashboard/summary` | Birleşik özet |
-| Portfolio summary | `GET /api/portfolio/summary` | Özet kartlar |
-| Holdings table | `GET /api/portfolio/holdings` | Varlık listesi |
-| Allocation chart | `GET /api/portfolio/allocation` | Dağılım grafiği |
-| Transactions | `GET /api/portfolio/transactions?limit=20` | İşlem geçmişi |
-| Market list | `GET /api/market/assets` | Piyasa ekranı |
-| Price chart | `GET /api/market/history?symbol=&days=` | Fiyat geçmişi |
-| Market search | `POST /api/market/search` | RAG destekli piyasa araması |
-| Risk page | `GET /api/risk/profile` | Risk paneli |
-| ChatWidget | `POST /api/chat/stream` | SSE |
-| Chat history | `GET /api/conversations`, `GET /api/conversations/{id}/messages` | İleri kapsam |
-
-Rapor endpointleri Sprint 4'e ertelenmiştir. Sprint 1'de `/reports` route'u yalnızca stub ekran olarak açılabilir.
+> v3'te bu klasör `web/src/` yazıyordu; repodaki gerçek dizin `frontend/src/` olduğu için düzeltildi.
 
 ---
 
@@ -535,7 +437,7 @@ class Source(BaseModel):
 
 class AgentError(BaseModel):
     """Bir ajanın başarısızlığı — akışı DURDURMAZ, kısmi yanıt üretilir."""
-    agent: str
+    agent_name: str
     error_type: Literal["timeout", "tool_error", "llm_error", "unknown"]
     message: str
 
@@ -584,11 +486,11 @@ class BaseAgent(ABC):
             return await asyncio.wait_for(self._execute(state), self.timeout_seconds)
         except asyncio.TimeoutError:
             return {"agent_errors": [AgentError(
-                agent=self.name, error_type="timeout",
+                agent_name=self.name, error_type="timeout",
                 message=f"{self.timeout_seconds}s içinde yanıt alınamadı")]}
         except Exception as exc:
             return {"agent_errors": [AgentError(
-                agent=self.name, error_type="unknown", message=str(exc))]}
+                agent_name=self.name, error_type="unknown", message=str(exc))]}
 
     async def call_tool(self, server: str, tool: str, arguments: dict) -> dict:
         """MCP çağrısını yapar, süresini ToolResult olarak loglar."""
@@ -628,7 +530,7 @@ class RiskStrategyAgent(BaseAgent):
     async def _execute(self, state) -> dict:
         if state.portfolio_data is None:      # savunmacı kontrol
             return {"agent_errors": [AgentError(
-                agent=self.name, error_type="tool_error",
+                agent_name=self.name, error_type="tool_error",
                 message="Portföy verisi olmadan risk hesaplanamadı")]}
         return {"risk_data": ...}
 ```
@@ -937,7 +839,7 @@ USD/EUR varlıklar `v_fx_rates` üzerinden TRY'ye çevrilir; toplamlar `market_v
 
 **v2.3'ten gelen değişiklikler:**
 - `final` olayı **kaldırıldı**. `reject_response` / `safe_response` metinleri de `token` olarak gönderilir; frontend'in tek render yolu olur. (Mevcut kod da böyle çalışıyor.)
-- `data: [DONE]` sentinel'i yerine **JSON `done` olayı** kullanılır: `message_id` ve `latency_ms` taşıyabildiği için mesajı kalıcı hâle getirmek ve süre ölçmek mümkün olur. Frontend `done` olayı gelmeden stream'i tamamlanmış saymaz.
+- `data: [DONE]` sentinel'i yerine **JSON `done` olayı** kullanılır: `message_id` ve `latency_ms` taşıyabildiği için mesajı kalıcı hâle getirmek ve süre ölçmek mümkün olur. FastAPI katmanı isterse geriye dönük uyum için ardından `data: [DONE]` da yazabilir.
 - `error` olayı hem makine-okunur `code` hem kullanıcıya gösterilecek `message` taşır. **İstisna metni (`str(exc)`) istemciye gönderilmez** — yalnızca loga yazılır.
 
 ## 10.2 REST Uçları ⚖️
@@ -962,9 +864,7 @@ USD/EUR varlıklar `v_fx_rates` üzerinden TRY'ye çevrilir; toplamlar `market_v
 | POST | `/api/chat/stream` | Chat (SSE) | ikisi de |
 | GET | `/health` | — | ikisi de |
 
-**Neden granüler + tek birleşik dashboard ucu:** Bileşen başına uç, frontend'in bileşen bazlı loading/refetch yönetimiyle uyumlu; ekran başına tek uç ise dashboard'un ilk yüklemesini 4 istekten 1'e indiriyor. İkisi birden tutuldu: dashboard **ilk yükleme** için `/api/dashboard/summary`, ayrı ekranlar ve tazeleme için granüler uçlar.
-
-**Konuşma geçmişi uçları (`GET /api/conversations`, `GET /api/conversations/{id}/messages`) ileri kapsamdır** — Sprint 1'de ChatWidget yalnızca aktif oturum state'iyle çalışabilir; kalıcı sohbet geçmişi ve conversation listesi sonraki sprintlerde eklenir.
+**Neden granüler + tek birleşik dashboard ucu:** Bileşen başına uç, TanStack Query'nin bileşen bazlı önbelleğe alma ve yeniden çekme davranışıyla uyumlu; ekran başına tek uç ise dashboard'un ilk yüklemesini 4 istekten 1'e indiriyor. İkisi birden tutuldu: dashboard **ilk yükleme** için `/api/dashboard/summary`, sekmeler ve tazeleme için granüler uçlar.
 
 **Sürüm ön eki yok** (`/api/v1` değil `/api`): tek sürüm var, dış tüketici yok. İleride gerekirse router prefix'lerine tek satırla eklenir.
 

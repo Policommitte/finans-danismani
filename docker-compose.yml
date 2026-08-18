@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:16
+    # pgvector eklentisi gerekli: rag.chunks.embedding + hnsw indeksi.
+    # Duz postgres:16 imajinda "CREATE EXTENSION vector" basarisiz olur.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: finans
       POSTGRES_PASSWORD: finans
@@ -9,18 +11,15 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Sema + dummy data yalnizca BOS bir volume'de (ilk kalkista) calisir.
+      # Yeniden yuklemek icin: docker compose down -v && docker compose up -d
+      - ./db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U finans"]
       interval: 5s
       retries: 5
 
-  vectordb:
-    image: chromadb/chroma:latest
-    ports:
-      - "8001:8000"
-    volumes:
-      - chromadata:/chroma/chroma
+# Not: chromadb servisi kaldirildi — vector DB karari pgvector (bir container az).
 
 volumes:
   pgdata:
-  chromadata:

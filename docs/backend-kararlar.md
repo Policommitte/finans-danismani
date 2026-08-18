@@ -20,16 +20,23 @@ hash'lemede `passlib` yerine doğrudan `bcrypt` kullanılacak.
 ```
 app/
   api/routes/     endpoint tanımları
-  core/           errors, logging
-  repositories/   veri erişim katmanı
-  schemas/        Pydantic request/response modelleri
-  services/       iş mantığı
+  auth/           JWT, get_current_user
+  core/           errors, logging, llm
+  orchestration/  AgentState + ortak orkestrasyon modelleri
+  schemas/        REST request/response modelleri (Pydantic)
+  services/       ekran verisi domain servisleri
+  repositories/   veri erişim katmanı (base / in_memory / sql / deps)
   agents/         ajanlar
-  mcp/            MCP server
-  db/             DB oturumu — şu an devre dışı
+  engine/         orchestrator + wiring
+  mcp/            client · server (tool grupları) · context
+  market/         fiyat sağlayıcı + periyodik görev
+  db/             async oturum yönetimi
   config.py       ayarlar
   main.py         uygulama girişi
 ```
+
+> `orchestration/` eskiden `schema/` adındaydı ve `schemas/` ile yan yana
+> duruyordu; tek harf farkı kalıcı karışıklık üretiyordu (mimari v4 §12).
 
 Katmanlar arası kural: `routes` → `services` → `repositories`. Endpoint'ler
 veriye doğrudan erişmez.
@@ -89,7 +96,16 @@ kesinleşecek.)*
 - Çoğul kaynak adı: `/portfolio`, `/market`, `/risk`
 - Alt kaynak: `/portfolio/history`
 - Aksiyonlar `/actions` altında: `/actions/rebalance`, `/actions/report`
-- Sürüm ön eki kullanılacak: `/api/v1/...`
+- **Sürüm ön eki YOK: `/api/...`** *(güncellendi — mimari v4 §10.2)*
+
+Gerekçe: tek sürüm var, dış tüketici yok. İleride gerekirse router prefix'lerine
+tek satırla eklenir. Uçların tam listesi: [`api-sozlesmesi.md`](api-sozlesmesi.md).
+
+## 5.1 JSON alan adlandırma
+
+**Her yerde `snake_case`** *(mimari v4 §10.3)*. DB, orkestrasyon modelleri ve SSE
+olayları zaten snake_case; REST'i camelCase yapmak frontend'e iki ayrı sözleşme
+taşıtırdı.
 
 ## 6. Loglama
 
@@ -108,13 +124,47 @@ bu proje ölçeğinde kazanç sağlamıyor.
 Karar mimari oturumunda kesinleşecek. Ayrı servis çıkarsa yalnızca
 `services/orchestrator.py` içeriği değişir; endpoint ve frontend etkilenmez.
 
-## 8. Açık konular
+## 8. Kimlik doğrulama *(karar verildi)*
 
-- Kimlik doğrulama henüz yok. Product Backlog'da kullanıcı yönetimi kartı
-  bulunmuyor, eklenmesi gerekiyor.
-- Risk skorunun nerede hesaplanacağı netleşmedi. Öneri: sayı backend'de
-  deterministik olarak hesaplansın, ajan yalnızca yorumlasın.
+**JWT (HS256) + bcrypt.** Token içinde yalnızca `sub` (kullanıcı id) taşınır;
+yetki kararı her istekte DB'deki güncel kayda göre verilir — böylece kullanıcı
+silindiğinde elde kalmış token yetki taşımaya devam etmez.
+
+`user_id` hiçbir zaman URL veya gövdede taşınmaz. `get_current_user`
+bağımlılığı kimliği çözer ve **MCP contextvar'ına** yazar; MCP tool şemalarında
+`user_id` parametresi YOKTUR (prompt injection başkasının verisini isteyemez).
+
+Python 3.13'te `crypt` modülü kaldırıldığı için `passlib` yerine doğrudan
+`bcrypt` kullanılıyor (bkz. §1).
+
+> Product Backlog'da kullanıcı yönetimi kartı hâlâ yok; kayıt (register) ucu
+> bilinçli olarak yazılmadı, dummy kullanıcılarla giriş yapılıyor
+> (şifre: `demo1234`).
+
+## 9. Risk skoru nerede hesaplanır *(karar verildi)*
+
+**Backend'de, deterministik olarak** (`app/services/risk.py`); ajan yalnızca
+yorumlar. Dashboard'daki RiskPanel ile sohbetteki risk ajanı aynı fonksiyonu
+çağırır — iki yerde hesaplansaydı iki farklı sayı görünürdü.
+
+## 10. Veri erişimi: DB varsa SQL, yoksa bellek *(karar verildi)*
+
+`DATABASE_URL` doluysa `repositories/sql.py`, boşsa `repositories/in_memory.py`
+devreye girer; seçim `repositories/deps.py` içinde **tek yerde** yapılır.
+Endpoint, servis, MCP tool ve ajan kodu bu ayrımı görmez.
+
+Bellek içi veri, `db/v5_schema_and_data.sql` seed'inin alt kümesidir ve **aynı
+rakamları** üretir. Böylece CI Postgres'siz çalışır ve DB'siz gelişen bir
+geliştirici DB'li geliştiriciyle aynı ekranı görür.
+
+## 11. Açık konular
+
+- LLM modeli seçilmedi — kodda hiçbir model adı sabit değil, `.env` boş olduğu
+  sürece ajanlar LLM'siz çalışıyor.
+- Embedding modeli seçilmedi — `rag_search` şimdilik yalnızca BM25 ayağıyla
+  çalışıyor, hibrit arama karar sonrası açılacak.
 - `/chat` isteğinde bağlam (seçili varlık, tarih aralığı) gönderilecek mi?
 - "Yeniden Dengele" ve "Detaylı Rapor" düz metin mi, yapısal veri mi
-  döndürecek?
-- Piyasa verisi gerçek kaynaktan mı, dummy generator'dan mı gelecek?
+  döndürecek? (`POST /api/reports` Sprint 4'e ertelendi.)
+- Gerçek piyasa API sağlayıcısı: `MARKET_DATA_PROVIDER=simulated` varsayılan;
+  `api`/`hybrid` PO onayı ve lisans kontrolü gerektiriyor.
