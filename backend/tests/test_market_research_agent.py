@@ -13,8 +13,18 @@ import pytest
 
 from app.agents.market_research import NO_RETRIEVAL_MESSAGE, MarketResearchAgent
 from app.mcp.client import MCPClient, MCPServer
-from app.mcp.mock import build_mock_mcp_client
+from app.mcp.server import build_servers
 from app.orchestration.models import AgentState, Source
+
+pytestmark = pytest.mark.db
+
+
+def build_mcp_client() -> MCPClient:
+    """Gercek tool'lardan olusan MCP istemcisi (veri kaynagi: PostgreSQL)."""
+    client = MCPClient()
+    for server in build_servers():
+        client.register_server(server)
+    return client
 
 
 class SahteLLM:
@@ -34,13 +44,22 @@ class CokenLLM:
         raise RuntimeError("model kotasi doldu")
 
 
+#: Seed'deki (`db/v5_schema_and_data.sql`) THYAO bilanco dokumanini bulan sorgu.
+#: Dokumanlarda sirket UNVANI yazili ("Turk Hava Yollari"); yalnizca "THYAO"
+#: aramak BM25 ayaginda sonuc dondurmez.
+RAG_SORGUSU = "THYAO ikinci ceyrek karini nasil etkiledi"
+
+#: Deterministik ozette alintilanan kaynak basligi.
+RAG_KAYNAK_BASLIGI = "THYAO 2026 2. Çeyrek Finansal Sonuçları"
+
+
 def _state(sorgu: str, **kwargs) -> AgentState:
     return AgentState(user_query=sorgu, user_id=1, thread_id=1, **kwargs)
 
 
 def _ajan(llm=None, mcp_client=None) -> MarketResearchAgent:
     return MarketResearchAgent(
-        mcp_client=mcp_client if mcp_client is not None else build_mock_mcp_client(),
+        mcp_client=mcp_client if mcp_client is not None else build_mcp_client(),
         llm=llm if llm is not None else SahteLLM(),
         timeout_seconds=5,
     )
@@ -60,9 +79,7 @@ async def test_rag_sorgusu_market_data_ve_kaynak_uretir():
     llm = SahteLLM()
     ajan = _ajan(llm=llm)
 
-    sonuc = await ajan.run(
-        _state("THYAO ikinci ceyrek karini nasil etkiledi", **_gorev(mode="rag"))
-    )
+    sonuc = await ajan.run(_state(RAG_SORGUSU, **_gorev(mode="rag")))
 
     assert sonuc["market_data"]["summary"] == "Test ozeti."
     assert sonuc["market_data"]["live_data"] is None
@@ -74,7 +91,7 @@ async def test_kaynaklar_source_modeli_olarak_doner():
     """Orchestrator `sources` alanini `Source` nesnesi olarak serilestirir."""
     ajan = _ajan()
 
-    sonuc = await ajan.run(_state("THYAO bilancosu", **_gorev(mode="rag", symbol="THYAO")))
+    sonuc = await ajan.run(_state(RAG_SORGUSU, **_gorev(mode="rag", symbol="THYAO")))
 
     kaynaklar = sonuc["sources"]
     assert kaynaklar and all(isinstance(k, Source) for k in kaynaklar)
@@ -87,7 +104,7 @@ async def test_kaynak_alintilari_market_data_icinde_de_tasinir():
     """security_gate ham veriyi tarar; alintilar orada olmazsa denetlenemez."""
     ajan = _ajan()
 
-    sonuc = await ajan.run(_state("THYAO bilancosu", **_gorev(mode="rag", symbol="THYAO")))
+    sonuc = await ajan.run(_state(RAG_SORGUSU, **_gorev(mode="rag", symbol="THYAO")))
 
     alintilar = sonuc["market_data"]["sources"]
     assert alintilar and all(a["source"] and a["excerpt"] for a in alintilar)
@@ -129,9 +146,7 @@ async def test_canli_sorgu_fiyat_dondurur_ve_llm_cagirmaz():
 async def test_both_modu_rag_ve_canli_veriyi_birlestirir():
     ajan = _ajan()
 
-    sonuc = await ajan.run(
-        _state("THYAO bugun neden yukseldi", **_gorev(mode="both", symbol="THYAO"))
-    )
+    sonuc = await ajan.run(_state(RAG_SORGUSU, **_gorev(mode="both", symbol="THYAO")))
 
     assert sonuc["market_data"]["live_data"] is not None
     assert sonuc["sources"]
@@ -181,10 +196,12 @@ async def test_sembol_yoksa_rag_moduna_dusulur():
 async def test_router_gorevi_cikarimin_onune_gecer():
     ajan = _ajan()
 
-    sonuc = await ajan.run(_state("THYAO fiyati ne", **_gorev(mode="rag", symbol="ASELS")))
+    sonuc = await ajan.run(
+        _state("SASA kapasite yatirimi fiyati ne", **_gorev(mode="rag", symbol="SASA"))
+    )
 
     assert sonuc["market_data"]["mode"] == "rag"
-    assert sonuc["sources"][0].sirket == "ASELS"
+    assert sonuc["sources"][0].sirket == "SASA"
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +220,7 @@ async def test_router_istemediyse_ajan_calismaz():
 async def test_router_istediyse_ajan_calisir():
     ajan = _ajan()
 
-    sonuc = await ajan.run(_state("THYAO bilancosu", requested_agents=["market_research"]))
+    sonuc = await ajan.run(_state(RAG_SORGUSU, requested_agents=["market_research"]))
 
     assert sonuc["market_data"] is not None
 
@@ -217,7 +234,7 @@ async def test_mcp_sunucusu_yoksa_tool_error_uretir():
     """MCP cokmesi akisi durdurmamali, dogru kategoriyle raporlanmali."""
     ajan = _ajan(mcp_client=MCPClient())
 
-    sonuc = await ajan.run(_state("THYAO bilancosu"))
+    sonuc = await ajan.run(_state(RAG_SORGUSU))
 
     hatalar = sonuc["agent_errors"]
     assert len(hatalar) == 1
@@ -233,7 +250,7 @@ async def test_tool_icinde_hata_olusursa_tool_error_uretir():
     sunucu.register_tool("rag_search", bozuk_rag_search)
     ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
 
-    sonuc = await ajan.run(_state("THYAO bilancosu"))
+    sonuc = await ajan.run(_state(RAG_SORGUSU))
 
     assert sonuc["agent_errors"][0].error_type == "tool_error"
 
@@ -242,7 +259,7 @@ async def test_llm_cokerse_rag_verisi_korunur():
     """KRITIK: model cokse bile bulunan kaynaklar bosa gitmemeli."""
     ajan = _ajan(llm=CokenLLM())
 
-    sonuc = await ajan.run(_state("THYAO bilancosu", **_gorev(mode="rag", symbol="THYAO")))
+    sonuc = await ajan.run(_state(RAG_SORGUSU, **_gorev(mode="rag", symbol="THYAO")))
 
     assert sonuc["sources"]  # kaynaklar duruyor
     assert sonuc["market_data"]["summary"]  # deterministik alintiya dusuldu
@@ -251,12 +268,12 @@ async def test_llm_cokerse_rag_verisi_korunur():
 
 async def test_llm_yoksa_kaynaklardan_deterministik_ozet_uretilir():
     """LLM bagli olmamak bir HATA degildir; ajan alinti yaparak calisir."""
-    ajan = MarketResearchAgent(mcp_client=build_mock_mcp_client(), llm=None, timeout_seconds=5)
+    ajan = MarketResearchAgent(mcp_client=build_mcp_client(), llm=None, timeout_seconds=5)
 
-    sonuc = await ajan.run(_state("THYAO bilancosu", **_gorev(mode="rag", symbol="THYAO")))
+    sonuc = await ajan.run(_state(RAG_SORGUSU, **_gorev(mode="rag", symbol="THYAO")))
 
     assert "agent_errors" not in sonuc
-    assert "Dunya Gazetesi" in sonuc["market_data"]["summary"]
+    assert RAG_KAYNAK_BASLIGI in sonuc["market_data"]["summary"]
 
 
 async def test_bos_sorgu_hata_dondurur_ama_firlatmaz():
@@ -274,7 +291,7 @@ async def test_bos_sorgu_hata_dondurur_ama_firlatmaz():
 
 async def test_ajan_yalnizca_rag_ve_market_tool_larini_gorur():
     """NFR-04: bu ajan portfoy sunucusuna ERISEMEZ."""
-    client = build_mock_mcp_client()
+    client = build_mcp_client()
     client.register_server(MCPServer(name="portfolio"))
     ajan = _ajan(mcp_client=client)
 

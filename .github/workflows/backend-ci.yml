@@ -8,6 +8,29 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Veri katmani testleri gercek bir PostgreSQL ister (@pytest.mark.db).
+    # Servis olmadan bu testler SESSIZCE atlanir ve CI yesil gorunur.
+    # pgvector'lu imaj sart: duz postgres imajinda "CREATE EXTENSION vector"
+    # basarisiz olur (bkz. docker-compose.yml).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: finans
+          POSTGRES_PASSWORD: finans
+          POSTGRES_DB: finans
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finans"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://finans:finans@localhost:5432/finans
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +55,12 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
+      - name: Semayi ve seed veriyi yukle
+        if: steps.check.outputs.exists == 'true'
+        env:
+          PGPASSWORD: finans
+        run: psql -h localhost -U finans -d finans -v ON_ERROR_STOP=1 -q -f db/v5_schema_and_data.sql
+
       - name: Lint
         if: steps.check.outputs.exists == 'true'
         working-directory: backend
@@ -45,4 +74,13 @@ jobs:
       - name: Test
         if: steps.check.outputs.exists == 'true'
         working-directory: backend
-        run: pytest -q
+        # `-rs`: atlanan testlerin NEDENI cikti'da gorunsun.
+        # Servis bir sekilde devre disi kalirsa db testleri sessizce atlanir ve
+        # CI yesil goruntur; asagidaki kontrol tam olarak bunu yakalar.
+        run: |
+          set -o pipefail
+          pytest -q -rs | tee pytest-cikti.txt
+          if grep -q "TEST_DATABASE_URL / DATABASE_URL tanimli degil" pytest-cikti.txt; then
+            echo "::error::Veri katmani testleri atlandi — Postgres servisi calismiyor."
+            exit 1
+          fi

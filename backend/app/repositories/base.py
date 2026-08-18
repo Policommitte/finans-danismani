@@ -6,8 +6,9 @@ implementasyona konusur.
 
 Iki implementasyon vardir ve ikisi de AYNI sozlesmeyi uygular:
 
-    in_memory.py  -> DATABASE_URL tanimli degilken (test, demo, DB'siz gelistirme)
-    sql.py        -> PostgreSQL (db/v5_schema_and_data.sql semasi)
+    sql.py        -> PostgreSQL (db/v5_schema_and_data.sql semasi) - BIRINCIL
+    in_memory.py  -> bellek ici veri - YEDEK (DB tanimli degilse ya da
+                     baglanti kurulamiyorsa devreye girer)
 
 Secim `deps.py` icinde TEK yerde yapilir; servis ve endpoint kodu degismez.
 

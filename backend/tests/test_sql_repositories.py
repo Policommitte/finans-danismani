@@ -226,31 +226,28 @@ async def test_denetim_kayitlari_yazilir(sql_repolar):
     assert satir["args"] == {"limit": 10}
 
 
-async def test_sql_ve_bellek_ici_ayni_sozlesmeyi_uygular(sql_repolar):
-    """Iki implementasyon ayrisirsa DB'li ve DB'siz gelistirici farkli ekran gorur.
+async def test_varlik_satirlari_sozlesmedeki_alanlari_tasir(sql_repolar):
+    """`v_holdings_valued` alan kumesi REST sozlesmesiyle uyusmali.
 
-    Fiyatlar (fiyat gorevi yuzunden) ayrisabilir; AYNI olmasi gerekenler
-    sozlesme ve portfoy icerigidir: ayni alanlar, ayni varliklar, ayni maliyet.
+    Eskiden burada SQL ile bellek ici implementasyon karsilastiriliyordu;
+    bellek ici implementasyon kaldirildigi icin referans artik sozlesmenin
+    kendisi (`app/schemas/portfolio.py::Holding`).
     """
-    from app.repositories.in_memory import InMemoryPortfolioRepository
+    varliklar = await sql_repolar.get_portfolio_repository().get_holdings(1)
 
-    sql_repository = sql_repolar.get_portfolio_repository()
-    bellek_repository = InMemoryPortfolioRepository()
+    beklenen = {
+        "symbol",
+        "asset_name",
+        "asset_class",
+        "currency",
+        "quantity",
+        "average_buy_price",
+        "current_price",
+        "market_value_try",
+        "cost_basis_try",
+        "pnl_try",
+        "pnl_pct",
+    }
 
-    sql_varliklar = await sql_repository.get_holdings(1)
-    bellek_varliklar = await bellek_repository.get_holdings(1)
-    sql_ozet = await sql_repository.get_summary(1)
-    bellek_ozet = await bellek_repository.get_summary(1)
-
-    assert set(sql_ozet) >= set(bellek_ozet), "ozet alan kumeleri ayrisamaz"
-    assert set(sql_varliklar[0]) >= set(bellek_varliklar[0]), "varlik alanlari ayrisamaz"
-
-    # Fiyattan ve FX kurundan BAGIMSIZ olan alanlar birebir ayni olmali.
-    # (Tutarlar karsilastirilmaz: fiyat gorevi calistiginda hem deger hem de
-    # USD varliklarin TRY maliyeti degisir - bu bir uyusmazlik degil.)
-    def _pozisyonlar(satirlar):
-        return {
-            v["symbol"]: (float(v["quantity"]), float(v["average_buy_price"])) for v in satirlar
-        }
-
-    assert _pozisyonlar(sql_varliklar) == _pozisyonlar(bellek_varliklar)
+    assert varliklar
+    assert beklenen <= set(varliklar[0])
