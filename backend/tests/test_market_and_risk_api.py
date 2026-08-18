@@ -1,5 +1,7 @@
 """Piyasa ve risk uclarinin testleri."""
 
+from datetime import date
+
 import pytest
 
 from app.services.risk import risk_profili_hesapla
@@ -9,6 +11,7 @@ from app.services.risk import risk_profili_hesapla
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.db
 def test_varlik_listesi_doner(client, auth):
     govde = client.get("/api/market/assets", headers=auth).json()
 
@@ -16,6 +19,7 @@ def test_varlik_listesi_doner(client, auth):
     assert {"THYAO", "BTC", "USD/TRY"} <= semboller
 
 
+@pytest.mark.db
 def test_varlik_listesi_kategoriye_gore_filtrelenir(client, auth):
     govde = client.get("/api/market/assets?category=CRYPTO", headers=auth).json()
 
@@ -23,14 +27,20 @@ def test_varlik_listesi_kategoriye_gore_filtrelenir(client, auth):
     assert all(v["asset_class"] == "CRYPTO" for v in govde["items"])
 
 
+@pytest.mark.db
 def test_fiyat_gecmisi_istenen_gun_sayisinca_nokta_doner(client, auth):
     govde = client.get("/api/market/history?symbol=THYAO&days=10", headers=auth).json()
 
     assert govde["symbol"] == "THYAO"
-    assert len(govde["points"]) == 11  # 10 gun once -> bugun dahil
+    assert govde["points"]
     assert all(nokta["price"] > 0 for nokta in govde["points"])
+    # Nokta SAYISI seed'in cozunurluguna bagli; sinanan sey istenen ARALIK.
+    ilk = date.fromisoformat(govde["points"][0]["ts"][:10])
+    son = date.fromisoformat(govde["points"][-1]["ts"][:10])
+    assert (son - ilk).days <= 10
 
 
+@pytest.mark.db
 def test_fiyat_gecmisi_kronolojik_sirali(client, auth):
     """PriceChart soldan saga cizer; seri eskiden yeniye gelmeli."""
     noktalar = client.get("/api/market/history?symbol=THYAO&days=5", headers=auth).json()["points"]
@@ -39,6 +49,7 @@ def test_fiyat_gecmisi_kronolojik_sirali(client, auth):
     assert zamanlar == sorted(zamanlar)
 
 
+@pytest.mark.db
 def test_bilinmeyen_sembol_404_doner(client, auth):
     yanit = client.get("/api/market/history?symbol=YOKBOYLE", headers=auth)
 
@@ -46,6 +57,7 @@ def test_bilinmeyen_sembol_404_doner(client, auth):
     assert yanit.json()["error"]["code"] == "not_found"
 
 
+@pytest.mark.db
 def test_arama_ilgili_dokumani_bulur(client, auth):
     yanit = client.post(
         "/api/market/search", headers=auth, json={"query": "THYAO net kar yolcu doluluk"}
@@ -58,6 +70,7 @@ def test_arama_ilgili_dokumani_bulur(client, auth):
     assert any(s["symbol"] == "THYAO" for s in sonuclar)
 
 
+@pytest.mark.db
 def test_arama_sirket_filtresine_uyar(client, auth):
     """Filtre SEMBOL ile de calismali: ajan sorgudan sembol cikarir, dokumanda
     unvan yazilidir. Yalnizca unvana bakilsaydi filtreli arama bos donerdi."""
@@ -69,6 +82,7 @@ def test_arama_sirket_filtresine_uyar(client, auth):
     assert all(s["symbol"] == "SASA" for s in sonuclar)
 
 
+@pytest.mark.db
 def test_arama_cok_kisa_sorguyu_reddeder(client, auth):
     yanit = client.post("/api/market/search", headers=auth, json={"query": "a"})
 
@@ -80,6 +94,7 @@ def test_arama_cok_kisa_sorguyu_reddeder(client, auth):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.db
 def test_risk_profili_bilesenleriyle_doner(client, auth):
     govde = client.get("/api/risk/profile", headers=auth).json()
 
@@ -95,6 +110,7 @@ def test_risk_profili_bilesenleriyle_doner(client, auth):
     assert govde["reasons"]
 
 
+@pytest.mark.db
 def test_risk_skoru_ayni_girdide_ayni_sonucu_verir(client, auth):
     """Deterministik: iki cagri arasinda LLM ya da rastgelelik yok."""
     birinci = client.get("/api/risk/profile", headers=auth).json()

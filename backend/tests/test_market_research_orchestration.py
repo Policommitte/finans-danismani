@@ -10,12 +10,16 @@ ajanin orchestrator'a dogru baglandigini dogrular:
   * MCP cokmesi tum istegi dusurmeden yaniti uretebiliyor mu.
 """
 
+import pytest
+
 from app.agents.market_research import MarketResearchAgent
 from app.agents.security_agent import SecurityAgent
 from app.engine.factory import build_orchestrator
 from app.engine.orchestrator import AGENT_MARKET_RESEARCH, REJECT_MESSAGE, Orchestrator
 from app.mcp.client import MCPClient
-from app.mcp.mock import build_mock_mcp_client
+from tests.test_market_research_agent import RAG_SORGUSU, build_mcp_client
+
+pytestmark = pytest.mark.db
 
 
 class SahteLLM:
@@ -30,7 +34,7 @@ class SahteLLM:
 
 def _orchestrator(mcp_client=None, llm=None) -> Orchestrator:
     ajan = MarketResearchAgent(
-        mcp_client=mcp_client if mcp_client is not None else build_mock_mcp_client(),
+        mcp_client=mcp_client if mcp_client is not None else build_mcp_client(),
         llm=llm if llm is not None else SahteLLM(),
         timeout_seconds=5,
     )
@@ -78,7 +82,7 @@ def test_factory_calisir_orchestrator_uretir():
 async def test_piyasa_sorgusu_market_data_uretir():
     orchestrator = _orchestrator()
 
-    state = await _calistir(orchestrator, "THYAO bilancosu hakkinda ne var?")
+    state = await _calistir(orchestrator, RAG_SORGUSU)
 
     assert state["market_data"]["summary"]
     assert state["is_output_safe"] is True
@@ -88,7 +92,7 @@ async def test_piyasa_sorgusu_market_data_uretir():
 async def test_kaynaklar_state_e_ve_yanita_tasinir():
     orchestrator = _orchestrator()
 
-    state = await _calistir(orchestrator, "THYAO bilancosu hakkinda ne var?")
+    state = await _calistir(orchestrator, RAG_SORGUSU)
 
     assert state["sources"]
     assert state["sources"][0].doc_id
@@ -97,9 +101,7 @@ async def test_kaynaklar_state_e_ve_yanita_tasinir():
 
 async def test_router_ilgisiz_sorguda_ajani_calistirmaz():
     """Yalnizca portfoy sorulan bir istekte piyasa arastirmasi yapilmamali."""
-    ajan = MarketResearchAgent(
-        mcp_client=build_mock_mcp_client(), llm=SahteLLM(), timeout_seconds=5
-    )
+    ajan = MarketResearchAgent(mcp_client=build_mcp_client(), llm=SahteLLM(), timeout_seconds=5)
     # Portfoy ajani da kayitli olmali; aksi halde router tek ajan oldugu icin
     # "hicbiri eslesmedi -> hepsini calistir" guvenli varsayilanina duser.
     from app.engine.orchestrator import AGENT_PORTFOLIO
@@ -136,7 +138,7 @@ async def test_mcp_cokmesi_istegi_dusurmez():
     """Ajan tool hatasi verse bile kullanici yanit almalidir."""
     orchestrator = _orchestrator(mcp_client=MCPClient())
 
-    state = await _calistir(orchestrator, "THYAO bilancosu hakkinda ne var?")
+    state = await _calistir(orchestrator, RAG_SORGUSU)
 
     assert state["final_response"]
     assert state["agent_errors"][0].error_type == "tool_error"
@@ -146,7 +148,7 @@ async def test_mcp_cokmesi_istegi_dusurmez():
 async def test_streaming_akisi_token_ve_kaynak_yayinlar():
     orchestrator = _orchestrator()
 
-    olaylar = [o async for o in orchestrator.stream_request("THYAO bilancosu ne durumda?", 1, 9)]
+    olaylar = [o async for o in orchestrator.stream_request(RAG_SORGUSU, 1, 9)]
 
     tipler = {o["type"] for o in olaylar}
     assert "token" in tipler

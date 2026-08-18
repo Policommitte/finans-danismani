@@ -1,9 +1,12 @@
 """Portfoy ve dashboard uclarinin testleri (§14-12).
 
-Rakamlar `db/v5_schema_and_data.sql` seed'i ile AYNI olmalidir: bellek ici veri
-o seed'in alt kumesidir ve ayni hesap zincirini (holdings -> allocation ->
-summary) uygular. Iki yol farkli sayi uretirse test kirilir.
+Rakamlar `db/v5_schema_and_data.sql` seed'inden gelir; hesap zinciri
+(holdings -> allocation -> summary) bozulursa test kirilir.
 """
+
+import pytest
+
+pytestmark = pytest.mark.db
 
 #: 1 numarali portfoyun beklenen toplami:
 #:   THYAO 1000 x 315.50            =   315.500,00 TL
@@ -89,9 +92,10 @@ def test_portfoyu_bos_kullanici_404_alir(client):
 
 
 async def test_bos_portfoyde_ozet_none_doner():
-    from app.repositories.in_memory import InMemoryPortfolioRepository
+    """Bos portfoy bir HATA degil; repository `None` dondurmeli."""
+    from app.repositories.deps import get_portfolio_repository
 
-    assert await InMemoryPortfolioRepository().get_summary(user_id=999) is None
+    assert await get_portfolio_repository().get_summary(user_id=2_000_000_000) is None
 
 
 def test_dashboard_tek_istekte_hepsini_dondurur(client, auth):

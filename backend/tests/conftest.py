@@ -1,10 +1,20 @@
 """Ortak test fixture'lari.
 
-Testler DATABASE_URL tanimsiz calisir: repository katmani bellek ici veriye
-duser (`app/repositories/deps.py`). Boylece CI'da Postgres gerekmez ve testler
-saniyeler icinde biter. SQL implementasyonlari ayrica isaretlenmis
-entegrasyon testleriyle dogrulanir.
+Testler GERCEK PostgreSQL uzerinde calisir; bellek ici veri kaldirildi
+(`backend/_mock_arsiv/`). Baglanti `TEST_DATABASE_URL`, o yoksa `DATABASE_URL`
+uzerinden gelir:
+
+    TEST_DATABASE_URL=postgresql+psycopg://kullanici:parola@host:5432/veritabani pytest -q
+
+Ikisi de tanimli degilse `@pytest.mark.db` isaretli testler ATLANIR; veri
+kaynagina dokunmayan testler (risk hesabi, orkestrasyon grafigi, guvenlik
+kurallari, hata zarflari) calismaya devam eder.
+
+⚠️ Isaret edilen veritabani TEST veritabani olmalidir: sohbet ve denetim
+testleri gercekten satir yazar.
 """
+
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,28 +23,45 @@ from app.auth.security import create_access_token
 from app.config import settings
 from app.main import app
 
-#: Bellek ici veri kumesindeki demo kullanici (SQL seed'i ile ayni kayit).
+TEST_DATABASE_URL = (os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
+
+#: `db/v5_schema_and_data.sql` seed'indeki demo kullanici.
 DEMO_USER_ID = 1
 DEMO_EMAIL = "mehmet@example.com"
 DEMO_PASSWORD = "demo1234"
 
+DB_YOK_MESAJI = (
+    "TEST_DATABASE_URL / DATABASE_URL tanimli degil; bu test gercek bir veritabani ister."
+)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Baglanti yoksa `db` isaretli testleri atlar."""
+    if TEST_DATABASE_URL:
+        return
+
+    atla = pytest.mark.skip(reason=DB_YOK_MESAJI)
+    for item in items:
+        if "db" in item.keywords:
+            item.add_marker(atla)
+
 
 @pytest.fixture(autouse=True)
-def _bellek_ici_veri(monkeypatch):
-    """Her test bellek ici repository'lerle baslar.
+def _veritabani(request, monkeypatch):
+    """`db` isaretli testleri veritabanina baglar.
 
-    `autouse`: bir testin DATABASE_URL tanimlamasi digerlerini etkilemesin.
-    `reset_repositories` onbellekleri temizler; aksi halde ilk secim tum test
-    oturumu boyunca yapisir.
+    `autouse`: bir testin ayar degistirmesi digerlerini etkilemesin.
+    `reset_repositories` onbellekleri temizler; aksi halde ilk baglanti tum
+    test oturumu boyunca yapisir.
     """
-    from app.repositories.deps import reset_repositories
-    from app.repositories.in_memory import reset_data
+    if "db" not in request.keywords:
+        yield
+        return
 
-    monkeypatch.setattr(settings, "database_url", "")
+    from app.repositories.deps import reset_repositories
+
+    monkeypatch.setattr(settings, "database_url", TEST_DATABASE_URL)
     reset_repositories()
-    # Fiyat gorevi bellek ici fiyatlari yerinde gunceller; sifirlanmazsa bir
-    # testin tetikledigi tick digerinin bekledigi seed degerini bozar.
-    reset_data()
     yield
     reset_repositories()
 
