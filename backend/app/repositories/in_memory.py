@@ -512,8 +512,16 @@ class InMemoryMarketRepository:
         ]
 
     async def apply_price_updates(
-        self, updates: list[dict], write_history: bool, source: str = "simulated"
+        self, updates: list[dict], write_live: bool, source: str = "simulated"
     ) -> int:
+        """Bellek ici kopyadaki fiyatlari gunceller.
+
+        `write_live` yok sayilir: bu yedek katmanda `live_prices` karsiligi
+        bir tablo YOKTUR, dolayisiyla gun ici kayit tutulmaz. Yedek plan
+        "uygulama DB'siz de ayakta kalsin" icindir, veri biriktirmek icin
+        degil - DB'ye tekrar ulasildiginda tarihce SQL tarafinda kaldigi
+        yerden devam eder.
+        """
         for update in updates:
             asset = next((a for a in _ASSETS if a["id"] == update["asset_id"]), None)
             if asset is None:
@@ -524,6 +532,19 @@ class InMemoryMarketRepository:
             if previous:
                 asset["daily_change_pct"] = round((new_price - previous) / previous * 100, 4)
         return len(updates)
+
+    async def pending_close_days(self) -> list[str]:
+        """Her zaman bos: gun ici kayit tutulmadigi icin kapanacak gun yoktur."""
+        return []
+
+    async def close_out_day(self, day: str) -> int:
+        """Yedek katmanda gun kapanisi YOKTUR; cagrilmasi zararsizdir.
+
+        `pending_close_days` hep bos dondugu icin scheduler burayi normalde
+        hic cagirmaz. Yine de sozlesmenin parcasi: SQL yerine bellek ici
+        depoya duselim diye cagiran kodun degismesi gerekmez.
+        """
+        return 0
 
     async def get_api_usage_today(self) -> int:
         """Bugun dis piyasa API'sine yapilan ISTEK sayisi.

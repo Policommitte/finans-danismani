@@ -69,14 +69,44 @@ class MarketRepository(Protocol):
         ...
 
     async def apply_price_updates(
-        self, updates: list[dict], write_history: bool, source: str = "simulated"
+        self, updates: list[dict], write_live: bool, source: str = "simulated"
     ) -> int:
         """Uretilen fiyatlari yazar. `updates`: `{asset_id, price}` kayitlari.
 
-        `source` `price_history.source` sutununa yazilir ve GERCEKTEN
-        kullanilan kaynagi belirtmelidir ("api" | "simulated"). Gercek veri
-        "simulated" etiketlenirse ileride hangi satirin guvenilir oldugu
-        ayirt edilemez.
+        `assets` her cagirmada guncellenir. `write_live` True ise ayrica
+        `live_prices` tablosuna GUN ICI bir satir eklenir - `price_history`'ye
+        DEGIL. Gecmis tabloya yalnizca gun kapanisi yazilir
+        (bkz. `close_out_day`).
+
+        `source` yazilan satirin kaynagini belirtir ve GERCEKTEN kullanilan
+        kaynak olmalidir ("api" | "simulated"). Gercek veri "simulated"
+        etiketlenirse ileride hangi satirin guvenilir oldugu ayirt edilemez;
+        tersi ise sahte veriyi gercek gostermek olur.
+        """
+        ...
+
+    async def pending_close_days(self) -> list[str]:
+        """Kapanisi henuz yazilmamis gunler (`YYYY-AA-GG`, eskiden yeniye).
+
+        `live_prices` icinde BUGUNDEN once kalan her gun kapanmayi bekliyor
+        demektir; ayri bir durum tablosu tutulmaz. Uygulama hafta sonu
+        boyunca kapali kalsa bile acilista bekleyen gunlerin hepsi burada
+        gorunur.
+        """
+        ...
+
+    async def close_out_day(self, day: str) -> int:
+        """Gunu kapatir; kapanis yazilan varlik sayisini doner.
+
+        TEK transaction icinde sirasiyla:
+          1. o gunun SON canli fiyatini `price_history`'ye kapanis olarak yaz
+          2. `assets.prev_close`'u bu kapanisa esitle
+          3. o gune ait `live_prices` satirlarini sil
+
+        Once yazip sonra silmek onemlidir: ters sirada bir hata veriyi
+        geri donusu olmayan bicimde kaybettirir. `TRUNCATE` HICBIR ZAMAN
+        kullanilmaz - yalnizca kapanan gunun satirlari silinir, o an akan
+        yeni gunun satirlarina dokunulmaz.
         """
         ...
 
