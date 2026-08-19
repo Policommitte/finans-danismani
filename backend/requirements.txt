@@ -39,6 +39,10 @@ yfinance==1.3.0
 # serisinde ve cp313 wheel'i var.
 pandas==2.2.3
 
+# Chunk/sorgu embedding'i (app/ingestion/embeddings.py) - Cohere embed-v4.
+# EMBEDDING_API_KEY tanimli degilse kullanilmaz; rag_search BM25 ile calisir.
+cohere==7.0.8
+
 # Kimlik dogrulama (app/auth/) - Python 3.13'te crypt modulu kaldirildigi icin
 # passlib yerine dogrudan bcrypt (docs/backend-kararlar.md bolum 1).
 PyJWT==2.10.1
