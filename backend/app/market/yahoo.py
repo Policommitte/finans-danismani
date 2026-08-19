@@ -4,11 +4,19 @@ Bu modul YALNIZCA fiyat ceker; veritabanini, zamanlayiciyi ve `assets`
 tablosunu BILMEZ. Yazma isi `ApiMarketProvider` -> `MarketRepository`
 zincirindedir.
 
-TEK ISTEK, TUM SEMBOLLER
-    Her varlik icin ayri istek atmak 16 cagri/tick eder; 15 dakikada bir
-    calisan gorev icin gunde ~1.500 cagri demektir ve yfinance resmi bir API
-    olmadigi icin bu hacim gecici engellemeye yol acar. Bunun yerine
-    `yf.download` TEK istekte tum sembolleri getirir: gunde ~96 cagri.
+CAGRI SAYISI: SEMBOL BASINA BIR ISTEK
+    `yf.download` disaridan TEK bir cagri gibi gorunur ama iceride ticker
+    listesi uzerinde DONER ve her ticker icin ayri bir HTTP istegi atar
+    (yfinance/multi.py: `_download_one` -> `Ticker.history`). `threads=True`
+    bu istekleri yalnizca PARALELLESTIRIR, tek istege indirmez.
+
+    Yani N sembol = N istek. Bu modulun sembol listesi 16 ticker uretir;
+    15 dakikalik tick ile gunde ~1.536 istek eder. Kota sayaci bu yuzden
+    tick basina 1 degil GERCEK ticker sayisi kadar islenmelidir - bkz.
+    `ApiMarketProvider.next_prices`.
+
+    Hacmi dusurmenin yolu tick araligini buyutmek veya sembol listesini
+    kisaltmaktir; tek istege indirmek yfinance ile MUMKUN DEGILDIR.
 
 BLOKLAMA
     yfinance SENKRON bir kutuphanedir. Dogrudan cagrilirsa `asyncio` olay
@@ -38,10 +46,12 @@ TROY_ONS_GRAM = 31.1034768
 #: Altin/gumus turetmesi icin gereken kur sembolu.
 USDTRY_TICKER = "USDTRY=X"
 
-#: `assets.symbol` -> Yahoo ticker. TEK DOGRULUK KAYNAGI.
+#: `assets.symbol` -> Yahoo ticker.
 #:
-#: `borsa-verisi/` gecmis veri betigi de bu tabloyu kullanir; iki yerde
-#: tutulursa biri duzeltildiginde digeri sessizce bozulur.
+#: AYNI ESLEME IKI YERDE DURUR: `borsa-verisi/symbols.py` bagimsiz bir
+#: betiktir, backend'i import ETMEZ ve tabloyu kendi bicimiyle tutar. Elle
+#: senkron tutulurlar; ayrisirlarsa `tests/test_yahoo_client.py` icindeki
+#: senkron testi CI'da hata verir - yani sessizce bozulamazlar.
 YAHOO_TICKERS: dict[str, str] = {
     # BIST hisseleri - Yahoo'da ".IS" eki ile
     "THYAO": "THYAO.IS",
@@ -70,9 +80,18 @@ TURETILMIS_GRAM_TRY: dict[str, str] = {
     "GUMUS": "SI=F",  # COMEX gumus vadeli
 }
 
-#: Yahoo cagrisi icin ust sinir. Ag takilirsa fiyat gorevi sonsuza kadar
+#: Yahoo cagrisi icin DIS ust sinir. Ag takilirsa fiyat gorevi sonsuza kadar
 #: beklememelidir; saglayici bu surenin sonunda yedege duser.
 ISTEK_TIMEOUT_SANIYE = 30
+
+#: yfinance'e GECIRILEN istek basina timeout.
+#:
+#: NEDEN AYRICA GEREKLI: `asyncio.wait_for` bir is parcacigini IPTAL EDEMEZ.
+#: Dis sure dolunca `to_thread` icindeki indirme calismaya DEVAM eder ve
+#: yfinance kendi ic is parcaciklarini da actigi icin takilan cagrilar tick
+#: tick birikir. Asil sinir bu yuzden ICERIDE olmali; dis sinir son caredir.
+#: yfinance'in varsayilani 10 sn'dir, burada acikca verilir.
+YFINANCE_TIMEOUT_SANIYE = 12
 
 
 def desteklenen_semboller() -> set[str]:
@@ -139,6 +158,7 @@ def _indir(tickerlar: list[str]) -> dict[str, float]:
         progress=False,
         auto_adjust=False,
         threads=True,
+        timeout=YFINANCE_TIMEOUT_SANIYE,
     )
     return _son_fiyatlar(df, tickerlar)
 
@@ -175,6 +195,9 @@ def fiyatlari_turet(ham: dict[str, float], db_symbols: list[str]) -> dict[str, f
 async def canli_fiyatlar(db_symbols: list[str]) -> dict[str, float]:
     """Verilen `assets.symbol` listesi icin guncel fiyatlari doner.
 
+    Bir cagrida kac HTTP istegi atildigini cagiran taraf `gerekli_tickerlar()`
+    ile ogrenir (her ticker = bir istek; bkz. modul docstring'i).
+
     Returns:
         `{sembol: fiyat}`. Fiyati alinamayan sembol sozlukte YER ALMAZ;
         cagiran taraf eski fiyati korur.
@@ -191,6 +214,11 @@ async def canli_fiyatlar(db_symbols: list[str]) -> dict[str, float]:
     fiyatlar = fiyatlari_turet(ham, db_symbols)
     logger.info(
         "yahoo canli fiyat alindi",
-        extra={"istenen": len(db_symbols), "alinan": len(fiyatlar), "cagri": 1},
+        extra={
+            "istenen": len(db_symbols),
+            "alinan": len(fiyatlar),
+            # Her ticker ayri bir HTTP istegidir - "1" DEGIL.
+            "cagri": len(tickerlar),
+        },
     )
     return fiyatlar

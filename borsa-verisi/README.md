@@ -169,10 +169,15 @@ engellemeye yol açabildiği için çağrılar arasında 0.4 sn beklenir.
 python -m pytest tests/ -q
 ```
 
-36 test — **ağ ve veritabanı gerektirmez**. Hesaplama mantığını (takvim günü
+44 test — **ağ ve veritabanı gerektirmez**. Hesaplama mantığını (takvim günü
 referansı, altın türetmesi, yıllık değişim sınırı) ve SQL sözleşmesini
 (kapsam dışı tabloya yazmama, tekrar çalıştırılabilirlik) sabitler.
 
-> Gerçek veritabanına yazma yolu **canlı olarak test edilmemiştir** — bu
-> makinede PostgreSQL ayakta değil. İlk gerçek çalıştırmayı `--kuru-calistir`
-> sonrası, tercihen yedeği alınmış bir veritabanında yapın.
+Testler **CI'da da koşar**: `.github/workflows/backend-ci.yml` içindeki
+`borsa-verisi` job'ı ruff + black + pytest çalıştırır. (Backend job'ının her
+adımı `working-directory: backend` olduğu için bu klasör ayrı bir job ister —
+aksi halde buradaki kod hiç kontrol edilmezdi.)
+
+> Sembol eşlemesi (`symbols.py`) backend'deki `app/market/yahoo.py` ile aynı
+> tabloyu tutar. İkisi elle senkron tutulur; ayrışırlarsa backend'deki
+> `test_sembol_tablosu_borsa_verisi_ile_ayni` testi CI'da hata verir.

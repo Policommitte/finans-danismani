@@ -97,10 +97,17 @@ _ASSETS_UPDATE_VOLATILITE = _ASSETS_UPDATE.replace(
 #: `assets` tablosunda BULUNMAYABILECEK kolonlar -> yazilacak SQL parcasi.
 #:
 #: NEDEN: Repo semasi (`db/v5_schema_and_data.sql`) ile calisan veritabani
-#: her zaman birebir ayni olmayabilir. Ornegin Supabase'deki tabloda
-#: `prev_close`, `price_updated_at` ve `sim_volatility` yoktur. Var olmayan
-#: bir kolona yazmak TUM islemi iptal eder ve binlerce satirlik fiyat verisi
-#: geri alinir; bu yuzden UPDATE ifadesi calisma aninda semaya gore kurulur.
+#: her zaman birebir ayni olmayabilir. Var olmayan bir kolona yazmak TUM
+#: islemi iptal eder ve binlerce satirlik fiyat verisi geri alinir; bu yuzden
+#: UPDATE ifadesi calisma aninda semaya gore kurulur.
+#:
+#: GECMIS NOT (16 Agustos 2026): ekibin paylasilan Supabase veritabaninda o
+#: tarihte `prev_close`, `price_updated_at` ve `sim_volatility` YOKTU ve bu
+#: mekanizma sayesinde toplama yine de tamamlandi. Bu KALICI bir durum
+#: DEGILDIR, giderilmesi gereken bir sema kaymasidir: backend'in fiyat gorevi
+#: (`app/repositories/sql.py`) bu kolonlari OPSIYONEL saymaz, dogrudan
+#: kullanir - eksiklerse fiyat guncelleme 15 dakikada bir hata verir.
+#: Kolonlari eklemek icin: `db/migrations/001_assets_fiyat_kolonlari.sql`.
 _OPSIYONEL_KOLONLAR: dict[str, str] = {
     "prev_close": "prev_close = COALESCE(%(prev_close)s, prev_close)",
     "price_updated_at": "price_updated_at = now()",

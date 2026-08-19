@@ -64,9 +64,13 @@ class Settings(BaseSettings):
     # sahte veri hicbir zaman "gercek" olarak etiketlenmez.
     market_data_provider: str = "api"
 
-    #: Fiyat gorevinin calisma araligi. 15 dakika: Yahoo tek istekte tum
-    #: sembolleri getirdigi icin gunde ~96 cagri eder (kota tavaninin cok
-    #: altinda). Daha sik calistirmak engellenme riskini artirir.
+    #: Fiyat gorevinin calisma araligi. 15 dakika -> gunde 96 tick.
+    #:
+    #: DIKKAT: bir tick TEK istek DEGILDIR. yfinance her ticker icin ayri bir
+    #: HTTP istegi atar (bkz. `app/market/yahoo.py`), yani 16 ticker x 96 tick
+    #: = gunde ~1.536 istek. Bu araligi kisaltmak istek sayisini dogru orantili
+    #: buyutur ve yfinance resmi bir API olmadigi icin engellenme riskini
+    #: artirir.
     price_tick_seconds: int = 900
 
     market_sim_seed: int = 20260813
@@ -76,9 +80,14 @@ class Settings(BaseSettings):
     #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
     price_history_every_n_ticks: int = 1
 
-    #: Gunluk cagri tavani (kota korumasi). 96 tick/gun beklenir; tavan
-    #: yeniden baslatmalara ve elle calistirmalara pay birakir.
-    market_api_daily_quota: int = 400
+    #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
+    #:
+    #: HESAP: 16 ticker x 96 tick = 1.536 istek/gun. Tavan yeniden
+    #: baslatmalara, elle calistirmalara ve ayni veritabanini paylasan birden
+    #: fazla gelistiriciye pay birakacak sekilde ~%60 ustune konuldu.
+    #: Onceki 400 degeri tick basina 1 sayildigi varsayimindan geliyordu ve
+    #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
+    market_api_daily_quota: int = 2500
 
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20

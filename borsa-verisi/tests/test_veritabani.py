@@ -9,7 +9,6 @@ import psycopg
 import database
 from database import VARSAYILAN_DSN, dsn_getir
 
-
 # ---------------------------------------------------------------------------
 # Baglanti adresi cozumleme
 # ---------------------------------------------------------------------------

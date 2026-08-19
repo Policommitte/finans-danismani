@@ -74,9 +74,11 @@ class SimulatedMarketProvider(MarketDataProvider):
 class ApiMarketProvider(MarketDataProvider):
     """Gercek piyasa verisi - Yahoo Finance (`app/market/yahoo.py`).
 
-    TEK ISTEK: Tum semboller `yf.download` ile TEK cagrida gelir. 15 dakikalik
-    tick ile gunde ~96 cagri eder; sembol basina ayri istek atilsaydi ~1.500
-    cagri olurdu ve yfinance resmi API olmadigi icin engellenme riski dogardi.
+    CAGRI SAYISI: `yf.download` tek bir fonksiyon cagrisi gibi gorunse de
+    iceride HER TICKER icin ayri bir HTTP istegi atar (bkz. `yahoo.py` modul
+    docstring'i). Bu yuzden kota sayacina tick basina `1` degil, o tick'te
+    cekilen TICKER SAYISI islenir; aksi halde `market_api_usage` gercegin
+    ~16'da birini gosterir ve `MARKET_API_DAILY_QUOTA` tavani hic tetiklenmez.
 
     YEDEGE DUSME (fail-safe): Asagidaki durumlarda simulatore dusulur ve bu
     GIZLENMEZ - `son_kaynak` "simulated" olur, boylece `price_history`'ye
@@ -136,14 +138,27 @@ class ApiMarketProvider(MarketDataProvider):
             return True
         return False
 
-    async def _kotayi_isle(self, cagri: int = 1) -> None:
-        """Cagriyi `market_api_usage` tablosuna islenir. Hata yutulur."""
+    async def _kotayi_isle(self, cagri: int) -> None:
+        """Yapilan HTTP istegi sayisini `market_api_usage`'a isler. Hata yutulur.
+
+        `cagri` her zaman GERCEK ticker sayisidir; varsayilani bilincli olarak
+        yoktur ki yanlislikla tekrar `1` islenmesin.
+        """
         try:
             await self._depo().record_api_usage(cagri)
         except Exception:  # noqa: BLE001 - denetim kaydi asil isi dusurmemeli
             logger.exception("api kullanim sayaci yazilamadi")
 
     async def _yedege_dus(self, assets: list[dict]) -> list[dict]:
+        """Simulatore duser - TUM varliklar icin fiyat uretir.
+
+        BILINCLI FARK: basarili yolda yalnizca Yahoo'da karsiligi olan
+        varliklar guncellenir, burada ise hepsi. Yahoo eslemesi olmayan bir
+        varlik (orn. tahvil) aksi halde api modunda SONSUZA KADAR ayni fiyatta
+        donar ve grafigi duz cizgi olur. Uretilen fiyat "gercek" gibi
+        gosterilmez: `son_kaynak` "simulated" olur ve `price_history.source`
+        oyle yazilir.
+        """
         self.son_kaynak = self._fallback.name
         return await self._fallback.next_prices(assets)
 
@@ -161,17 +176,23 @@ class ApiMarketProvider(MarketDataProvider):
             logger.warning("yahoo'da karsiligi olan varlik yok, simulatore dusuluyor")
             return await self._yedege_dus(assets)
 
+        semboller = [a["symbol"] for a in istenen]
+
+        # Yahoo'ya atilacak GERCEK istek sayisi: her ticker ayri bir HTTP
+        # istegidir. Hata durumunda da islenir - istekler zaten yapilmistir.
+        cagri_sayisi = len(yahoo.gerekli_tickerlar(semboller))
+
         try:
-            fiyatlar = await yahoo.canli_fiyatlar([a["symbol"] for a in istenen])
+            fiyatlar = await yahoo.canli_fiyatlar(semboller)
         except Exception as exc:  # noqa: BLE001 - ag hatasi gorevi durdurmamali
             logger.warning(
                 "yahoo canli fiyat alinamadi, simulatore dusuluyor",
                 extra={"hata": f"{type(exc).__name__}: {exc}"},
             )
-            await self._kotayi_isle()
+            await self._kotayi_isle(cagri_sayisi)
             return await self._yedege_dus(assets)
 
-        await self._kotayi_isle()
+        await self._kotayi_isle(cagri_sayisi)
 
         if not fiyatlar:
             logger.warning("yahoo bos sonuc dondurdu, simulatore dusuluyor")

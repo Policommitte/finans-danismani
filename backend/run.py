@@ -30,4 +30,8 @@ if sys.platform == "win32":
 import uvicorn
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True, reload_dirs=["app"])
+    # 127.0.0.1 - bu betik YEREL gelistirme icindir. "0.0.0.0" sunucuyu ayni
+    # agdaki herkese acar; kafe/okul agindayken JWT_SECRET varsayilaniyla
+    # calisan bir API disariya acik olur. Docker/production'da adres
+    # Dockerfile'daki CMD ile verilir, bu dosya oraya hic girmez.
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True, reload_dirs=["app"])

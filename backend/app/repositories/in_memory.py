@@ -161,16 +161,23 @@ _SEED_ASSETS: list[dict] = [
 #: Calisma zamaninda GUNCELLENEN kopya (fiyat gorevi buraya yazar).
 _ASSETS: list[dict] = [dict(a) for a in _SEED_ASSETS]
 
+#: `market_api_usage` tablosunun bellek ici karsiligi: ISO tarih -> istek
+#: sayisi. `market_api_usage` gibi kalici DEGILDIR, surec yeniden baslayinca
+#: sifirlanir; amaci DB'siz calisirken gunluk tavanin yok olmasini onlemektir.
+_API_USAGE: dict[str, int] = {}
+
 
 def reset_data() -> None:
-    """Varlik fiyatlarini tohum degerlerine dondurur.
+    """Varlik fiyatlarini ve api sayacini tohum degerlerine dondurur.
 
-    Fiyat gorevi bellek ici veriyi yerinde gunceller; testler bu yuzden
-    birbirinin fiyatlarini gorur. `tests/conftest.py` her testten once bunu
-    cagirir. Uretimde cagrilmaz.
+    Fiyat gorevi bellek ici veriyi YERINDE gunceller, yani durum surec omru
+    boyunca birikir; birbirinden bagimsiz olmasi gereken testler bunu acikca
+    cagirmalidir. `conftest.py` artik otomatik cagirmiyor (testler gercek
+    PostgreSQL'e tasindi). Uretimde cagrilmaz.
     """
     _ASSETS.clear()
     _ASSETS.extend(dict(a) for a in _SEED_ASSETS)
+    _API_USAGE.clear()
 
 
 _PORTFOLIOS: list[dict] = [
@@ -285,6 +292,11 @@ _RAG_CHUNKS: list[dict] = [
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _bugun() -> str:
+    """Api sayacinin gun anahtari - SQL'deki `CURRENT_DATE` karsiligi."""
+    return _now().date().isoformat()
 
 
 def _asset(asset_id: int) -> dict:
@@ -514,15 +526,24 @@ class InMemoryMarketRepository:
         return len(updates)
 
     async def get_api_usage_today(self) -> int:
-        """Yedek katmanda kota takibi YOKTUR; her zaman 0 doner.
+        """Bugun dis piyasa API'sine yapilan ISTEK sayisi.
 
-        Bellek ici mod bir gelistirme/demo yedegidir ve dis API cagrisi
-        yapilmayabilir; sayaci burada tutmak yaniltici olurdu.
+        BELLEK ICI MODDA DA GERCEKTEN SAYILIR. Daha once burasi sabit `0`
+        donuyordu; DB'ye ulasilamadiginda repository katmani bu yedege duser
+        ama `MARKET_DATA_PROVIDER=api` ise Yahoo cagrilari DEVAM eder - yani
+        tam da kotanin en cok gerektigi anda tavan tamamen ortadan kalkiyordu.
+
+        Sayac kalici degildir: surec yeniden baslayinca sifirlanir. DB'li
+        moddaki `market_api_usage` tablosunun yerini TUTMAZ, yalnizca yedek
+        moddaki sinirsizligi kapatir.
         """
-        return 0
+        return _API_USAGE.get(_bugun(), 0)
 
     async def record_api_usage(self, calls: int = 1) -> None:
-        return None
+        if calls <= 0:
+            return
+        bugun = _bugun()
+        _API_USAGE[bugun] = _API_USAGE.get(bugun, 0) + calls
 
 
 class InMemoryRagRepository:

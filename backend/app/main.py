@@ -5,21 +5,9 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-# WINDOWS NOTU: psycopg'nin async surucusu, asyncio'nun Windows'taki VARSAYILAN
-# event loop'u olan ProactorEventLoop ile calismaz - "Psycopg cannot use the
-# 'ProactorEventLoop' to run in async mode" hatasi verir.
-#
-# Duzeltme BILEREK burada DEGIL, `run.py` icindedir: `uvicorn app.main:app`
-# komutu kendi event loop'unu `asyncio.run()` ile olusturur, bu modulu ise
-# o loop'un ICINDE, gecikmeli olarak import eder (uvicorn'un `Config.load()`
-# mekanizmasi). Yani policy burada ayarlansa bile loop ZATEN kurulmus olur -
-# denendi, calismadi. `set_event_loop_policy` yalnizca uvicorn hic
-# BASLAMADAN once, ayri bir surecte calisan kodda etkilidir.
-#
-# Windows'ta yerel gelistirme icin: `uvicorn app.main:app` YERINE
-# `python run.py` calistirin (bkz. backend/run.py). Docker/Linux'ta (CI,
-# production) bu sorun hic yasanmaz, mevcut `uvicorn app.main:app` komutu
-# aynen kalir.
+# WINDOWS NOTU: event loop policy duzeltmesi bilerek BURADA DEGIL, `run.py`
+# icindedir - gerekcesi orada anlatilir. Windows'ta yerel gelistirme icin
+# `uvicorn app.main:app` yerine `python run.py` calistirin.
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware

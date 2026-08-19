@@ -1,15 +1,23 @@
 """Yahoo canli fiyat istemcisinin saf mantigi (`app/market/yahoo.py`).
 
-BU TESTLER AGA CIKMAZ: yalnizca sembol eslemesi, ticker listesi uretimi ve
-gram/TRY turetmesi sinanir. Gercek indirme `_indir` icinde izole edilmistir.
+BU TESTLER AGA CIKMAZ: sembol eslemesi, ticker listesi uretimi, gram/TRY
+turetmesi ve `yf.download` ciktisinin cozulmesi sinanir. Gercek indirme
+`_indir` icinde izole edilmistir; DataFrame'ler elde kurulur.
 
 Kritik davranislar:
   * Turetilmis varlik istendiginde USD/TRY kuru OTOMATIK istege eklenir;
     eklenmezse gram altin fiyati hesaplanamaz.
   * Kur veya ons fiyati eksikse turetilmis varlik sonuca EKLENMEZ - yanlis
     fiyat yazmaktansa eski fiyat korunur.
+  * `_son_fiyatlar` yfinance'in IKI farkli kolon bicimini de cozer; bozulursa
+    sessizce bos sonuc doner ve sistem farkinda olmadan simulatore duser.
 """
 
+import importlib.util
+import sys
+from pathlib import Path
+
+import pandas as pd
 import pytest
 
 from app.market import yahoo
@@ -142,3 +150,144 @@ async def test_bos_sembol_listesi_ag_cagrisi_yapmaz():
 
 async def test_yalnizca_desteklenmeyen_sembollerde_cagri_yapilmaz():
     assert await yahoo.canli_fiyatlar(["TR10Y", "YOKBOYLE"]) == {}
+
+
+# ---------------------------------------------------------------------------
+# `yf.download` ciktisinin cozulmesi (`_son_fiyatlar`)
+#
+# BU MODULDEKI EN KIRILGAN YER: yfinance surum degisikliklerinde kolon yapisi
+# degisir. Bozuldugunda istisna FIRLATMAZ, sessizce bos sozluk doner - yani
+# saglayici "Yahoo bos dondu" deyip simulatore duser ve kimse fark etmez.
+# ---------------------------------------------------------------------------
+
+NAN = float("nan")
+
+
+def _coklu_ticker_df(kapanislar: dict[str, list[float]]) -> pd.DataFrame:
+    """`yf.download`'un COKLU ticker ciktisi.
+
+    Kolonlar (Price, Ticker) MultiIndex'idir; `group_by="column"` varsayilani
+    ile ust seviye 'Close', 'Open' gibi alan adlaridir.
+    """
+    uzunluk = len(next(iter(kapanislar.values())))
+    indeks = pd.date_range("2026-08-19 10:00", periods=uzunluk, freq="min")
+
+    veri: dict[tuple[str, str], list[float]] = {}
+    for ticker, seri in kapanislar.items():
+        veri[("Close", ticker)] = seri
+        # Gercek ciktida baska alanlar da vardir; kod yalnizca Close okumali.
+        veri[("Open", ticker)] = [0.0] * uzunluk
+
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+    return df
+
+
+def _tek_ticker_duz_df(kapanis: list[float]) -> pd.DataFrame:
+    """`multi_level_index=False` (veya eski yfinance) ciktisi: DUZ kolonlar.
+
+    Bu bicimde `df["Close"]` bir Series'tir, DataFrame degil.
+    """
+    indeks = pd.date_range("2026-08-19 10:00", periods=len(kapanis), freq="min")
+    return pd.DataFrame({"Close": kapanis, "Open": [0.0] * len(kapanis)}, index=indeks)
+
+
+def test_coklu_ticker_son_kapanislari_cozulur():
+    df = _coklu_ticker_df({"THYAO.IS": [300.0, 301.5], "AAPL": [215.0, 216.25]})
+
+    sonuc = yahoo._son_fiyatlar(df, ["AAPL", "THYAO.IS"])
+
+    assert sonuc == {"THYAO.IS": 301.5, "AAPL": 216.25}
+
+
+def test_son_satir_bossa_bir_onceki_gecerli_kapanis_alinir():
+    """Intraday veride son mumlar cogu zaman NaN gelir - atlanmalidir."""
+    df = _coklu_ticker_df({"THYAO.IS": [300.0, 301.5, NAN, NAN]})
+
+    sonuc = yahoo._son_fiyatlar(df, ["THYAO.IS"])
+
+    assert sonuc == {"THYAO.IS": 301.5}
+
+
+def test_tamamen_bos_ticker_sonuca_girmez():
+    """Bir sembol gelmezse digerleri yine de donmeli (kismi basari)."""
+    df = _coklu_ticker_df({"THYAO.IS": [300.0, 301.5], "SOL-USD": [NAN, NAN]})
+
+    sonuc = yahoo._son_fiyatlar(df, ["SOL-USD", "THYAO.IS"])
+
+    assert sonuc == {"THYAO.IS": 301.5}
+
+
+def test_sifir_kapanis_gecerli_sayilmaz():
+    """0 fiyat gercek bir kotasyon degildir; yazilirsa dashboard bozulur."""
+    df = _coklu_ticker_df({"THYAO.IS": [300.0, 0.0]})
+
+    assert yahoo._son_fiyatlar(df, ["THYAO.IS"]) == {}
+
+
+def test_tek_ticker_duz_bicim_de_cozulur():
+    """`Close` Series geldiginde ticker adi listeden alinir."""
+    df = _tek_ticker_duz_df([300.0, 301.5])
+
+    sonuc = yahoo._son_fiyatlar(df, ["THYAO.IS"])
+
+    assert sonuc == {"THYAO.IS": 301.5}
+
+
+def test_bos_dataframe_bos_sozluk_dondurur():
+    assert yahoo._son_fiyatlar(pd.DataFrame(), ["THYAO.IS"]) == {}
+
+
+def test_none_bos_sozluk_dondurur():
+    """yfinance hata durumunda `None` donebilir; istisna firlatilmamali."""
+    assert yahoo._son_fiyatlar(None, ["THYAO.IS"]) == {}
+
+
+# ---------------------------------------------------------------------------
+# Sembol tablosu senkronu
+# ---------------------------------------------------------------------------
+
+
+def _borsa_verisi_symbols():
+    """`borsa-verisi/symbols.py`'yi dosya yolundan yukler.
+
+    `borsa-verisi/` bir paket DEGILDIR ve backend onu import etmez; bu yuzden
+    normal `import` calismaz. Klasor yoksa (backend tek basina kullanildiginda)
+    test atlanir.
+    """
+    yol = Path(__file__).resolve().parents[2] / "borsa-verisi" / "symbols.py"
+    if not yol.exists():
+        pytest.skip("borsa-verisi/ bu kopyada yok")
+
+    spec = importlib.util.spec_from_file_location("borsa_verisi_symbols", yol)
+    modul = importlib.util.module_from_spec(spec)
+    # `sys.modules`'a ONCE yazilmali: `symbols.py` `from __future__ import
+    # annotations` kullaniyor ve @dataclass alan tiplerini cozerken modulu
+    # `sys.modules` uzerinden ariyor - kayitli degilse AttributeError verir.
+    sys.modules[spec.name] = modul
+    spec.loader.exec_module(modul)
+    return modul
+
+
+def test_sembol_tablosu_borsa_verisi_ile_ayni():
+    """AYNI ESLEME IKI YERDE DURUYOR - ayrisirlarsa burasi kirmizi yanar.
+
+    `app/market/yahoo.py` canli fiyati, `borsa-verisi/symbols.py` gecmis
+    veriyi ceker. Biri duzeltilip digeri unutulursa grafikteki gecmis seri ile
+    canli fiyat FARKLI enstrumanlardan gelir ve bu sessizce olur.
+    """
+    symbols = _borsa_verisi_symbols()
+
+    dogrudan = {e.db_symbol: e.yahoo_ticker for e in symbols.ESLESMELER if not e.turetilmis}
+    turetilmis = {e.db_symbol: e.yahoo_ticker for e in symbols.ESLESMELER if e.turetilmis}
+
+    assert yahoo.YAHOO_TICKERS == dogrudan
+    assert yahoo.TURETILMIS_GRAM_TRY == turetilmis
+
+
+def test_troy_ons_sabiti_iki_yerde_ayni():
+    """Sabit ayrisirsa gram altin fiyati iki kaynakta farkli cikar."""
+    symbols = _borsa_verisi_symbols()
+
+    assert yahoo.TROY_ONS_GRAM == symbols.TROY_ONS_GRAM
+    assert yahoo.USDTRY_TICKER == symbols.USDTRY_TICKER

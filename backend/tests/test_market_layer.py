@@ -169,13 +169,42 @@ async def test_kota_dolduysa_yahoo_hic_cagrilmaz(monkeypatch):
     assert len(sonuc) == len(VARLIKLAR)
 
 
-async def test_basarili_cagri_kota_sayacina_islenir(monkeypatch):
+async def test_kota_sayacina_TICKER_SAYISI_islenir(monkeypatch):
+    """KRITIK: `yf.download` tek istek DEGILDIR - her ticker ayri HTTP istegi.
+
+    Sayac tick basina `1` islerse `market_api_usage` gercegin ~16'da birini
+    gosterir ve `MARKET_API_DAILY_QUOTA` tavani hicbir zaman tetiklenmez.
+    """
     _yahoo_taklit(monkeypatch, fiyatlar={"THYAO": 301.25, "BTC": 64227.97})
     depo = SahteKotaDeposu()
 
     await ApiMarketProvider(kota_deposu=depo).next_prices(VARLIKLAR)
 
-    assert depo.kaydedilen == 1, "tum semboller TEK cagride gelir"
+    # THYAO.IS + BTC-USD = 2 istek
+    assert depo.kaydedilen == 2
+
+
+async def test_turetilmis_varligin_kur_istegi_de_sayilir(monkeypatch):
+    """GRAM_ALTIN icin GC=F'nin YANI SIRA USDTRY=X de cekilir: 2 istek."""
+    _yahoo_taklit(monkeypatch, fiyatlar={"GRAM_ALTIN": 6864.63})
+    depo = SahteKotaDeposu()
+    varliklar = [
+        {"asset_id": 7, "symbol": "GRAM_ALTIN", "current_price": 6800.0, "sim_volatility": 0.008}
+    ]
+
+    await ApiMarketProvider(kota_deposu=depo).next_prices(varliklar)
+
+    assert depo.kaydedilen == 2
+
+
+async def test_hata_durumunda_da_gercek_istek_sayisi_islenir(monkeypatch):
+    """Istekler zaten yapildi; hata aldik diye kotadan dusulmemeleri olmaz."""
+    _yahoo_taklit(monkeypatch, hata=TimeoutError("yahoo yanit vermedi"))
+    depo = SahteKotaDeposu()
+
+    await ApiMarketProvider(kota_deposu=depo).next_prices(VARLIKLAR)
+
+    assert depo.kaydedilen == 2
 
 
 async def test_desteklenmeyen_varlik_yahoo_ya_sorulmaz(monkeypatch):
@@ -202,6 +231,30 @@ async def test_hicbir_varlik_desteklenmiyorsa_simulatore_dusulur(monkeypatch):
     assert cagrilar == []
     assert saglayici.son_kaynak == "simulated"
     assert len(sonuc) == 1
+
+
+async def test_bellek_ici_depo_kota_sayacini_gercekten_tutar():
+    """Yedek katmanda tavan YOK OLMAMALI.
+
+    DB'ye ulasilamadiginda repository katmani bellek ici yedege duser ama
+    `MARKET_DATA_PROVIDER=api` ise Yahoo cagrilari devam eder. Sayac burada
+    sabit `0` donerse gunluk tavan tam da en cok gerektigi anda devre disi
+    kalir - yani kota korumasi sessizce kaybolur.
+    """
+    from app.repositories.in_memory import InMemoryMarketRepository, reset_data
+
+    reset_data()
+    depo = InMemoryMarketRepository()
+
+    assert await depo.get_api_usage_today() == 0
+
+    await depo.record_api_usage(16)
+    await depo.record_api_usage(16)
+
+    assert await depo.get_api_usage_today() == 32
+
+    reset_data()
+    assert await depo.get_api_usage_today() == 0
 
 
 async def test_kota_sayaci_okunamazsa_cagri_yine_de_yapilir(monkeypatch):

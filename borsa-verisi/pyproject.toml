@@ -1,0 +1,20 @@
+# Yalnizca ARAC AYARI - bu klasor bir Python paketi degildir, bagimsiz bir
+# betik klasorudur (bkz. README.md).
+#
+# NEDEN GEREKLI: black ve ruff ayarlarini dosyadan yukari dogru arar. Bu dosya
+# olmadan `borsa-verisi/` icinde calistirildiklarinda backend/pyproject.toml'u
+# BULAMAZLAR ve black varsayilan 88 karakter sinirina duser - ayni depoda iki
+# farkli bicim olusur. Degerler backend/pyproject.toml ile AYNI tutulur.
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+# Testler ag ve veritabani GEREKTIRMEZ; hepsi saf mantik sinar.
+testpaths = ["tests"]
