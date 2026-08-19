@@ -28,7 +28,12 @@ async def price_tick(provider: MarketDataProvider, write_history: bool) -> int:
         return 0
 
     updates = await provider.next_prices(assets)
-    return await repository.apply_price_updates(updates, write_history=write_history)
+
+    # Saglayici yedege dusmus olabilir (kota/ag hatasi); bu durumda kaynak
+    # "api" DEGIL "simulated"dir. `son_kaynak` yoksa saglayici adi kullanilir.
+    kaynak = getattr(provider, "son_kaynak", provider.name)
+
+    return await repository.apply_price_updates(updates, write_history=write_history, source=kaynak)
 
 
 async def run_price_scheduler(provider: MarketDataProvider | None = None) -> None:

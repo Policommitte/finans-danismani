@@ -68,8 +68,24 @@ class MarketRepository(Protocol):
         """Fiyat gorevinin ihtiyaci: id, symbol, current_price, sim_volatility."""
         ...
 
-    async def apply_price_updates(self, updates: list[dict], write_history: bool) -> int:
-        """Uretilen fiyatlari yazar. `updates`: `{asset_id, price}` kayitlari."""
+    async def apply_price_updates(
+        self, updates: list[dict], write_history: bool, source: str = "simulated"
+    ) -> int:
+        """Uretilen fiyatlari yazar. `updates`: `{asset_id, price}` kayitlari.
+
+        `source` `price_history.source` sutununa yazilir ve GERCEKTEN
+        kullanilan kaynagi belirtmelidir ("api" | "simulated"). Gercek veri
+        "simulated" etiketlenirse ileride hangi satirin guvenilir oldugu
+        ayirt edilemez.
+        """
+        ...
+
+    async def get_api_usage_today(self) -> int:
+        """Bugun dis piyasa API'sine kac cagri yapildi (kota korumasi)."""
+        ...
+
+    async def record_api_usage(self, calls: int = 1) -> None:
+        """Gunluk cagri sayacini artirir (`market_api_usage`)."""
         ...
 
 

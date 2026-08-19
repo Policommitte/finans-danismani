@@ -5,6 +5,9 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+# WINDOWS NOTU: event loop policy duzeltmesi bilerek BURADA DEGIL, `run.py`
+# icindedir - gerekcesi orada anlatilir. Windows'ta yerel gelistirme icin
+# `uvicorn app.main:app` yerine `python run.py` calistirin.
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware

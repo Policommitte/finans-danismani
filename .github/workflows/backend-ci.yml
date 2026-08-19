@@ -84,3 +84,54 @@ jobs:
             echo "::error::Veri katmani testleri atlandi — Postgres servisi calismiyor."
             exit 1
           fi
+
+  # `borsa-verisi/` backend'in DISINDA, bagimsiz bir betik klasorudur.
+  # AYRI JOB SART: yukaridaki job'in her adimi `working-directory: backend`
+  # oldugu icin bu klasordeki kod ve 44 test CI'da HIC kosmuyordu - yerelde
+  # gecseler de ilk bozulmada kimse haberdar olmazdi.
+  #
+  # Postgres servisi YOK: bu testler ag ve veritabani gerektirmez, hepsi saf
+  # mantik sinar (sembol eslemesi, metrik hesabi, SQL metni uretimi).
+  borsa-verisi:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: borsa-verisi var mi kontrol et
+        id: check
+        run: |
+          if [ -f borsa-verisi/requirements.txt ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "borsa-verisi/requirements.txt bulundu."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "borsa-verisi/requirements.txt yok — adimlar atlaniyor."
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.exists == 'true'
+        with:
+          python-version: "3.13"
+
+      - name: Bagimliliklari kur
+        if: steps.check.outputs.exists == 'true'
+        working-directory: borsa-verisi
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        if: steps.check.outputs.exists == 'true'
+        working-directory: borsa-verisi
+        run: ruff check .
+
+      - name: Format kontrolu
+        if: steps.check.outputs.exists == 'true'
+        working-directory: borsa-verisi
+        run: black --check .
+
+      - name: Test
+        if: steps.check.outputs.exists == 'true'
+        working-directory: borsa-verisi
+        # pytest hic test toplayamazsa 5 doner ve job kirmizi olur; yol/import
+        # bozulmasi sessizce "yesil" gorunmez.
+        run: pytest -q -rs

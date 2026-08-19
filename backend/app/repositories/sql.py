@@ -203,12 +203,18 @@ class SqlMarketRepository(_SqlRepository):
             """
         )
 
-    async def apply_price_updates(self, updates: list[dict], write_history: bool) -> int:
+    async def apply_price_updates(
+        self, updates: list[dict], write_history: bool, source: str = "simulated"
+    ) -> int:
         """Fiyatlari gunceller; istenirse `price_history`'ye de yazar.
 
         `daily_change_pct` ve `weekly_change_pct` YENIDEN HESAPLANIR - aksi
         halde seed degerinde donar ve dashboard hep ayni yuzdeyi gosterir
         (mimari v4 bolum 8.2).
+
+        `source` cagiran tarafindan verilir ve GERCEKTEN kullanilan kaynagi
+        belirtir: saglayici Yahoo'ya ulasamayip simulatore dustuyse "api"
+        DEGIL "simulated" yazilir (bkz. `ApiMarketProvider.son_kaynak`).
         """
         if not updates:
             return 0
@@ -240,12 +246,12 @@ class SqlMarketRepository(_SqlRepository):
                         """
                         INSERT INTO price_history (asset_id, ts, price, source)
                         SELECT (value->>'asset_id')::INT, date_trunc('second', now()),
-                               (value->>'price')::NUMERIC, 'simulated'
+                               (value->>'price')::NUMERIC, :source
                         FROM jsonb_array_elements(CAST(:payload AS JSONB))
                         ON CONFLICT (asset_id, ts) DO NOTHING
                         """
                     ),
-                    {"payload": _json(updates)},
+                    {"payload": _json(updates), "source": source},
                 )
 
             await session.execute(
@@ -267,6 +273,39 @@ class SqlMarketRepository(_SqlRepository):
             await session.commit()
 
         return len(updates)
+
+    async def get_api_usage_today(self) -> int:
+        """Bugun dis piyasa API'sine yapilan cagri sayisi."""
+        async with self._session_factory() as session:
+            sonuc = await session.execute(
+                text("SELECT call_count FROM market_api_usage WHERE usage_date = CURRENT_DATE")
+            )
+            satir = sonuc.first()
+            return int(satir[0]) if satir else 0
+
+    async def record_api_usage(self, calls: int = 1) -> None:
+        """Gunluk cagri sayacini artirir.
+
+        UPSERT: gunun ilk cagrisinda satir yaratilir, sonrakiler UZERINE
+        EKLENIR (sifirlanmaz).
+        """
+        if calls <= 0:
+            return
+
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO market_api_usage (usage_date, call_count, last_call_at)
+                    VALUES (CURRENT_DATE, :calls, now())
+                    ON CONFLICT (usage_date) DO UPDATE
+                        SET call_count   = market_api_usage.call_count + EXCLUDED.call_count,
+                            last_call_at = now()
+                    """
+                ),
+                {"calls": calls},
+            )
+            await session.commit()
 
 
 class SqlRagRepository(_SqlRepository):
