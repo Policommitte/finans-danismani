@@ -83,7 +83,11 @@ class CohereEmbedder:
         `embed_query` cagiran her yer (bkz. Faz 4 - `SqlRagRepository`) ayni
         korumadan otomatik yararlanir, saglayiciya ozel hata tipini bilmeden.
         """
-        import cohere
+        # `cohere.errors...` DOGRUDAN ERISILEMEZ: paket lazy `__getattr__`
+        # kullanir ve `errors` alt-modulu oradan cozulmuyor - bare `import
+        # cohere` + noktali erisim `AttributeError` firlatirdi (istisna
+        # yakalanmadan ONCE, except ifadesinin kendisi patlardi).
+        from cohere.errors import TooManyRequestsError
 
         for attempt in range(1, _MAX_RATE_LIMIT_RETRIES + 1):
             try:
@@ -96,7 +100,7 @@ class CohereEmbedder:
                     truncate="END",
                 )
                 return response.embeddings.float_
-            except cohere.errors.too_many_requests_error.TooManyRequestsError:
+            except TooManyRequestsError:
                 if attempt == _MAX_RATE_LIMIT_RETRIES:
                     raise
                 logger.warning(
