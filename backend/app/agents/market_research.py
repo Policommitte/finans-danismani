@@ -49,8 +49,8 @@ import re
 from typing import Any
 
 from app.agents.base import BaseAgent
-from app.mcp.servers.market import MARKET_SERVER_NAME
-from app.mcp.servers.rag import RAG_SERVER_NAME
+from app.mcp.client import MCPToolExecutionError
+from app.mcp.server import MARKET_SERVER_NAME, RAG_SERVER_NAME
 from app.orchestration.models import AgentError, AgentState, Source
 
 logger = logging.getLogger(__name__)
@@ -365,23 +365,32 @@ class MarketResearchAgent(BaseAgent):
         if not sembol:
             return "Canli veri icin bir hisse kodu tespit edilemedi.", None
 
-        quote = await self.call_tool(
-            server=MARKET_SERVER_NAME,
-            tool="market_get_quote",
-            arguments={"symbol": sembol},
-        )
-
-        if not quote.get("found", False):
+        # Sembol bulunamazsa tool ortak zarfta `ok=False` doner, istemci de bunu
+        # istisnaya cevirir. Kullanici acisindan "boyle bir sembol yok" bir
+        # sistem hatasi degildir; akis kesilmeden bilgilendirici mesaj doner.
+        try:
+            quote = await self.call_tool(
+                server=MARKET_SERVER_NAME,
+                tool="market_get_quote",
+                arguments={"symbol": sembol},
+            )
+        except MCPToolExecutionError:
+            logger.warning("canli fiyat alinamadi", extra={"symbol": sembol}, exc_info=True)
             return f"{sembol} icin canli fiyat verisi bulunamadi.", None
 
+        if quote.get("price") is None:
+            return f"{sembol} icin canli fiyat verisi bulunamadi.", None
+
+        # Alan adlari `app/mcp/server.py::market_get_quote` sozlesmesidir.
         canli_veri = {
-            "symbol": quote["symbol"],
+            "symbol": quote.get("symbol") or sembol,
             "price": quote["price"],
-            "timestamp": quote["timestamp"],
+            "timestamp": quote.get("ts"),
         }
+        degisim = quote.get("daily_change_pct") or 0
         ozet = (
             f"{canli_veri['symbol']} guncel fiyat: {canli_veri['price']} "
-            f"{quote.get('currency', '')} ({quote.get('change_percent', 0):+.2f}%)."
+            f"{quote.get('currency') or ''} ({degisim:+.2f}%)."
         ).strip()
 
         if task.get("include_disclosures"):

@@ -12,3 +12,7 @@ pythonpath = ["."]
 # Orkestrasyon katmani bastan sona async oldugu icin async testler
 # ayrica isaretlenmeden calissin diye auto mod kullaniliyor.
 asyncio_mode = "auto"
+# Gercek bir PostgreSQL baglantisi gerektiren testler (bkz. tests/conftest.py).
+markers = [
+    "db: gercek bir veritabani baglantisi gerektirir (TEST_DATABASE_URL / DATABASE_URL)",
+]

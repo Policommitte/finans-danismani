@@ -16,7 +16,12 @@ google-genai==1.75.0
 # Veritabani (app/db/session.py, app/repositories/sql.py)
 # DATABASE_URL tanimli degilse hicbiri kullanilmaz; repository katmani bellek
 # ici veriye duser.
-sqlalchemy==2.0.36
+#
+# [asyncio] EKSTRASI ZORUNLU: SQLAlchemy'nin async katmani `greenlet` ister ama
+# taban bagimliligi `python_version < "3.13"` kosuluyla tanimli. Proje 3.13
+# kullandigi icin duz `sqlalchemy` ile greenlet KURULMAZ ve her async DB
+# cagrisi "the greenlet library is required" hatasi verir.
+sqlalchemy[asyncio]==2.0.36
 psycopg[binary]==3.2.3
 
 # Kimlik dogrulama (app/auth/) - Python 3.13'te crypt modulu kaldirildigi icin
