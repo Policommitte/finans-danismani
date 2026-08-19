@@ -34,7 +34,10 @@ yfinance==1.3.0
 # DataFrame kolon yapisina (tek ticker'da duz, coklu ticker'da MultiIndex)
 # dogrudan bagimlidir ve testleri pandas'i acikca import eder. Sabitlenmezse
 # backend ile borsa-verisi/ farkli pandas surumlerine dusebilir.
-pandas==2.2.1
+# 2.2.1 DEGIL: o surumun Python 3.13 icin hazir paketi (wheel) yok, pip
+# kaynaktan derlemeye calisir ve derleme hatasiyla duser. 2.2.3 ayni 2.2
+# serisinde ve cp313 wheel'i var.
+pandas==2.2.3
 
 # Kimlik dogrulama (app/auth/) - Python 3.13'te crypt modulu kaldirildigi icin
 # passlib yerine dogrudan bcrypt (docs/backend-kararlar.md bolum 1).

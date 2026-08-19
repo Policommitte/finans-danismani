@@ -16,7 +16,8 @@ yfinance==1.3.0
 
 # Zaman serisi hizalama ve metrik hesabi (yfinance zaten getirir, acikca
 # import ettigimiz icin sabitlendi) - backend/requirements.txt ile AYNI surum
-pandas==2.2.1
+# 2.2.1 DEGIL: Python 3.13 icin wheel'i yok, kaynaktan derleme patliyor.
+pandas==2.2.3
 
 # PostgreSQL surucusu - backend/requirements.txt ile AYNI surum
 psycopg[binary]==3.2.3
