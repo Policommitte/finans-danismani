@@ -62,6 +62,7 @@ def _group_documents_by_chunk_budget(
         batches.append(current)
     return batches
 
+
 _FIND_UNCHUNKED_SQL = text(
     """
     SELECT d.id, d.raw_text
@@ -99,7 +100,9 @@ _INSERT_CHUNK_SQL = text(
 )
 
 
-async def run_backfill(max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS, limit: int | None = None) -> int:
+async def run_backfill(
+    max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS, limit: int | None = None
+) -> int:
     """Chunk'siz tum dokumanlari boler, embedding'ler ve kaydeder.
 
     `limit` verilirse yalnizca ilk N aday dokuman islenir - tam calistirmadan
@@ -109,24 +112,24 @@ async def run_backfill(max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS, limit: in
     """
     embedder = get_embedder()
     if embedder is None:
-        logger.warning("EMBEDDING_API_KEY tanimli degil - chunk'lar embedding'siz (NULL) kaydedilecek")
+        logger.warning(
+            "EMBEDDING_API_KEY tanimli degil - chunk'lar embedding'siz (NULL) kaydedilecek"
+        )
 
     session_factory = get_session_factory()
     async with session_factory() as session:
         run_id = (
             await session.execute(_START_RUN_SQL, {"embedding_model": settings.embedding_model})
         ).scalar_one()
-        await session.commit()  # run kaydi hemen kalici olsun - batch'ler cakilirsa bile gorunur kalir
+        # run kaydi hemen kalici olsun - sonraki batch'ler cakilirsa bile gorunur kalir
+        await session.commit()
 
         rows = (await session.execute(_FIND_UNCHUNKED_SQL)).mappings().all()
         if limit is not None:
             rows = rows[:limit]
         logger.info("chunk'siz dokuman bulundu", extra={"count": len(rows), "limit": limit})
 
-        doc_chunks = [
-            (row["id"], chunk_document(row["raw_text"], max_chunk_chars))
-            for row in rows
-        ]
+        doc_chunks = [(row["id"], chunk_document(row["raw_text"], max_chunk_chars)) for row in rows]
         doc_chunks = [(doc_id, texts) for doc_id, texts in doc_chunks if texts]
         batches = _group_documents_by_chunk_budget(doc_chunks, _MAX_TEXTS_PER_BATCH)
 
@@ -188,6 +191,8 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
     if not settings.database_enabled:
-        raise SystemExit("DATABASE_URL tanimli degil - backend/.env icinde ayarlayip tekrar deneyin.")
+        raise SystemExit(
+            "DATABASE_URL tanimli degil - backend/.env icinde ayarlayip tekrar deneyin."
+        )
     written = asyncio.run(run_backfill(limit=args.limit))
     print(f"{written} chunk yazildi.")
