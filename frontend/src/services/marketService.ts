@@ -3,6 +3,7 @@ import type {
   HistoryResponse,
   MarketSearchRequest,
   MarketSearchResponse,
+  PublicMarketTickerResponse,
 } from "../models/market";
 import { apiRequest } from "./apiClient";
 
@@ -21,4 +22,8 @@ export function searchMarket(payload: MarketSearchRequest): Promise<MarketSearch
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function getPublicMarketTicker(): Promise<PublicMarketTickerResponse> {
+  return apiRequest<PublicMarketTickerResponse>("/api/public/market-ticker", { auth: false });
 }

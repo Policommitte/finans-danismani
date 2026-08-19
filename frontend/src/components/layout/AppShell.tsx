@@ -12,19 +12,20 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
+  const isPublic = pathname === "/" || isLogin;
 
   useEffect(() => {
-    if (!auth.loading && !auth.user && !auth.hasToken && !isLogin) {
+    if (!auth.loading && !auth.user && !auth.hasToken && !isPublic) {
       router.replace("/login");
     }
-  }, [auth.hasToken, auth.loading, auth.user, isLogin, router]);
+  }, [auth.hasToken, auth.loading, auth.user, isPublic, router]);
 
-  if (isLogin) {
+  if (isPublic) {
     return <>{children}</>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen app-bg">
       <div className="flex">
         <Sidebar />
         <div className="min-w-0 flex-1">

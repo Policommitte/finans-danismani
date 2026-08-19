@@ -28,21 +28,21 @@ export default function PortfolioPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Portfoy</h1>
-        <p className="mt-1 text-sm text-slate-500">Varliklar, dagilim ve son islemler.</p>
+        <h1 className="text-2xl font-semibold app-heading">Portfoy</h1>
+        <p className="mt-1 text-sm app-muted">Varliklar, dagilim ve son islemler.</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
-          <div className="text-xs uppercase text-slate-500">Toplam deger</div>
+          <div className="text-xs uppercase app-muted">Toplam deger</div>
           <div className="mt-2 text-2xl font-semibold">{money.format(data.summary.total_value_try)}</div>
         </Card>
         <Card>
-          <div className="text-xs uppercase text-slate-500">Toplam maliyet</div>
+          <div className="text-xs uppercase app-muted">Toplam maliyet</div>
           <div className="mt-2 text-2xl font-semibold">{money.format(data.summary.total_cost_try)}</div>
         </Card>
         <Card>
-          <div className="text-xs uppercase text-slate-500">Kar / zarar</div>
-          <div className={`mt-2 text-2xl font-semibold ${data.summary.total_pnl_try < 0 ? "text-red-600" : "text-emerald-700"}`}>
+          <div className="text-xs uppercase app-muted">Kar / zarar</div>
+          <div className={`mt-2 text-2xl font-semibold ${data.summary.total_pnl_try < 0 ? "app-danger" : "app-success"}`}>
             {money.format(data.summary.total_pnl_try)}
           </div>
         </Card>

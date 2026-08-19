@@ -46,3 +46,16 @@ export type MarketSearchResponse = {
   query: string;
   items: SearchHit[];
 };
+
+export type PublicMarketTickerItem = {
+  symbol: string;
+  label: string;
+  value: number;
+  currency: string;
+  change_percent: number | null;
+  source: string;
+};
+
+export type PublicMarketTickerResponse = {
+  items: PublicMarketTickerItem[];
+};

@@ -8,7 +8,7 @@ export function SourceList({ sources }: { sources: Source[] }) {
   return (
     <div className="mt-2 space-y-1">
       {sources.slice(0, 3).map((source) => (
-        <div key={source.doc_id} className="rounded-md bg-white/80 px-2 py-1 text-xs text-slate-600">
+        <div key={source.doc_id} className="rounded-md app-surface px-2 py-1 text-xs app-muted">
           {source.baslik}
           {source.sirket ? ` · ${source.sirket}` : ""}
         </div>

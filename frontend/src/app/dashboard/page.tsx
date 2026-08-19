@@ -22,8 +22,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Dashboard</h1>
-        <p className="mt-1 text-sm text-slate-500">Portfoy, risk ve piyasa ozeti.</p>
+        <h1 className="text-2xl font-semibold app-heading">Dashboard</h1>
+        <p className="mt-1 text-sm app-muted">Portfoy, risk ve piyasa ozeti.</p>
       </div>
       <SummaryCards data={data} />
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">

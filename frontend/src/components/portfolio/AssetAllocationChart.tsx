@@ -4,7 +4,14 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import type { AllocationSlice } from "../../models/portfolio";
 import Card from "../ui/Card";
 
-const colors = ["#2563eb", "#16a34a", "#eab308", "#dc2626", "#7c3aed", "#0891b2"];
+const colors = [
+  "var(--color-primary)",
+  "var(--color-success)",
+  "var(--color-chart-yellow)",
+  "var(--color-danger)",
+  "var(--color-chart-purple)",
+  "var(--color-chart-cyan)",
+];
 
 export function AssetAllocationChart({ items }: { items: AllocationSlice[] }) {
   return (
@@ -17,7 +24,14 @@ export function AssetAllocationChart({ items }: { items: AllocationSlice[] }) {
                 <Cell key={item.asset_class} fill={colors[index % colors.length]} />
               ))}
             </Pie>
-            <Tooltip formatter={(value) => `%${Number(value).toFixed(2)}`} />
+            <Tooltip
+              formatter={(value) => `%${Number(value).toFixed(2)}`}
+              contentStyle={{
+                background: "var(--color-surface)",
+                borderColor: "var(--color-border)",
+                color: "var(--color-text)",
+              }}
+            />
           </PieChart>
         </ResponsiveContainer>
       </div>

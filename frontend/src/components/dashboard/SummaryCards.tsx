@@ -20,8 +20,8 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card) => (
         <Card key={card.label}>
-          <div className="text-xs font-medium uppercase text-slate-500">{card.label}</div>
-          <div className="mt-2 text-2xl font-semibold text-slate-950">{card.value}</div>
+          <div className="text-xs font-medium uppercase app-muted">{card.label}</div>
+          <div className="mt-2 text-2xl font-semibold app-heading">{card.value}</div>
         </Card>
       ))}
     </div>

@@ -20,8 +20,8 @@ export default function RiskPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Risk</h1>
-        <p className="mt-1 text-sm text-slate-500">Portfoy risk skoru ve strateji onerileri.</p>
+        <h1 className="text-2xl font-semibold app-heading">Risk</h1>
+        <p className="mt-1 text-sm app-muted">Portfoy risk skoru ve strateji onerileri.</p>
       </div>
       <RiskScoreCard risk={data} />
       <RecommendationList risk={data} />

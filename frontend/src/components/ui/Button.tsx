@@ -6,9 +6,9 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const variants = {
-  primary: "bg-blue-700 text-white hover:bg-blue-800",
-  secondary: "bg-slate-100 text-slate-900 hover:bg-slate-200",
-  ghost: "bg-transparent text-slate-700 hover:bg-slate-100",
+  primary: "app-primary",
+  secondary: "app-card-muted app-heading hover:opacity-90",
+  ghost: "bg-transparent app-muted app-subtle-hover",
 };
 
 export default function Button({ children, variant = "primary", className = "", ...props }: ButtonProps) {

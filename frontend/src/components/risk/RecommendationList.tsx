@@ -6,20 +6,20 @@ export function RecommendationList({ risk }: { risk: RiskProfileResponse }) {
     <Card title="Risk gerekceleri ve oneriler">
       <div className="grid gap-5 md:grid-cols-2">
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-slate-900">Gerekceler</h3>
-          <ul className="space-y-2 text-sm text-slate-600">
+          <h3 className="mb-2 text-sm font-semibold app-heading">Gerekceler</h3>
+          <ul className="space-y-2 text-sm app-muted">
             {risk.reasons.map((reason) => (
-              <li key={reason} className="rounded-md bg-slate-50 p-3">
+              <li key={reason} className="rounded-md app-card-muted p-3">
                 {reason}
               </li>
             ))}
           </ul>
         </div>
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-slate-900">Oneriler</h3>
-          <ul className="space-y-2 text-sm text-slate-600">
+          <h3 className="mb-2 text-sm font-semibold app-heading">Oneriler</h3>
+          <ul className="space-y-2 text-sm app-muted">
             {risk.suggestions.map((suggestion) => (
-              <li key={suggestion} className="rounded-md bg-blue-50 p-3 text-blue-900">
+              <li key={suggestion} className="rounded-md app-primary-soft p-3">
                 {suggestion}
               </li>
             ))}
