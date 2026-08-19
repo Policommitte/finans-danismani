@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # --- RAG / Vector DB ------------------------------------------------
     # Model secildi: Cohere embed-v4 (output_dimension=1024 - vector(1024)
-    # semasiyla degisiklik gerekmeden eslesir). COHERE_API_KEY bos oldugu
+    # semasiyla degisiklik gerekmeden eslesir). EMBEDDING_API_KEY bos oldugu
     # surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla calisir;
     # hibrit arama (dense + BM25 -> RRF) anahtar tanimlaninca acilir.
     embedding_model: str = ""
