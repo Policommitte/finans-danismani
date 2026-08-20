@@ -50,6 +50,16 @@ export DATABASE_URL=postgresql+psycopg://finans:finans@localhost:5432/finans
 uvicorn app.main:app --reload --reload-dir app
 ```
 
+> **2026-08-20 güncelleme:** `rag.chunks` seed verisi artık elle yazılmış
+> metin değil — `db/v5_schema_and_data.sql`'deki 8 örnek dokümanın
+> `raw_text`'i dolduruldu ve chunk'lar + embedding'ler gerçek pipeline'dan
+> (`app.ingestion.backfill`, Cohere embed-v4) üretildi. Yani taze bir
+> `docker compose up -d db` sonrası lokal DB'de hibrit/dense arama da
+> gerçek vektörlerle test edilebilir — ayrıca backfill çalıştırmaya gerek
+> yok. `raw_text`'i değiştirirseniz chunk/embedding tutarsız kalır; yeniden
+> üretmek için `db/v5_schema_and_data.sql`'deki "13 · RAG ÖRNEK
+> DOKÜMANLARI" bölümündeki talimatı izleyin.
+
 ## Test
 
 ```bash

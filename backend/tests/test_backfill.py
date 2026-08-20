@@ -118,6 +118,37 @@ class _SahteEmbedder:
         return [0.1] * 1024
 
 
+@pytest.fixture(autouse=True)
+async def _ingestion_runs_temizle(request):
+    """Her `db`-isaretli testten SONRA o test sirasinda `run_backfill`in
+    yazdigi `rag.ingestion_runs` satirlarini siler.
+
+    `run_backfill` her cagrildiginda kalici bir satir ekler ve kendisi hicbir
+    zaman silmez (uretimde bu BILEREK boyle - gecmis calistirma kaydi kalici
+    kalmali). Testler bunu birakirsa DB'de sonsuza kadar yigilir; o yuzden
+    temizlik sorumlulugu burada, `gecici_dokuman`'da degil (o fixture'i
+    kullanmayan testler de var, orn. `test_bos_raw_text_islenmez`).
+    """
+    if "db" not in request.keywords:
+        yield
+        return
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        baslangic_id = (
+            await session.execute(text("SELECT COALESCE(max(id), 0) FROM rag.ingestion_runs"))
+        ).scalar_one()
+
+    yield
+
+    async with session_factory() as session:
+        await session.execute(
+            text("DELETE FROM rag.ingestion_runs WHERE id > :baslangic_id"),
+            {"baslangic_id": baslangic_id},
+        )
+        await session.commit()
+
+
 @pytest.fixture
 async def gecici_dokuman():
     """Chunk'siz test dokumanlari ekleyen bir fabrika fixture'i doner, testten
@@ -164,7 +195,7 @@ async def test_chunksiz_dokuman_islenir_ve_embedding_alir(gecici_dokuman, monkey
     sahte = _SahteEmbedder()
     monkeypatch.setattr(backfill, "get_embedder", lambda: sahte)
 
-    yazilan = await backfill.run_backfill(limit=None)
+    yazilan = await backfill.run_backfill(document_ids=idler)
 
     assert yazilan >= 1
     assert sahte.cagrilar  # en az bir embed cagrisi yapildi
@@ -202,7 +233,7 @@ async def test_bos_raw_text_islenmez(monkeypatch):
         sahte = _SahteEmbedder()
         monkeypatch.setattr(backfill, "get_embedder", lambda: sahte)
 
-        await backfill.run_backfill(limit=None)
+        await backfill.run_backfill(document_ids=[doc_id])
 
         async with session_factory() as session:
             sonuc = await session.execute(
@@ -223,7 +254,7 @@ async def test_embedder_yoksa_null_embedding_ile_kaydedilir(gecici_dokuman, monk
     idler = await gecici_dokuman(["Baska bir haber metni burada duruyor."])
     monkeypatch.setattr(backfill, "get_embedder", lambda: None)
 
-    yazilan = await backfill.run_backfill(limit=None)
+    yazilan = await backfill.run_backfill(document_ids=idler)
 
     assert yazilan >= 1
 
@@ -244,7 +275,7 @@ async def test_limit_parametresi_islem_sayisini_sinirlar(gecici_dokuman, monkeyp
     sahte = _SahteEmbedder()
     monkeypatch.setattr(backfill, "get_embedder", lambda: sahte)
 
-    await backfill.run_backfill(limit=1)
+    await backfill.run_backfill(document_ids=idler, limit=1)
 
     session_factory = get_session_factory()
     async with session_factory() as session:
@@ -260,25 +291,25 @@ async def test_limit_parametresi_islem_sayisini_sinirlar(gecici_dokuman, monkeyp
 async def test_ikinci_calistirma_ayni_dokumani_tekrar_islemez(gecici_dokuman, monkeypatch):
     """Idempotency: bir kez chunk'lanan dokuman, script tekrar calistirilinca
     yeniden islenmez - `_FIND_UNCHUNKED_SQL` onu otomatik disarida birakir."""
-    await gecici_dokuman(["Idempotency testi icin haber metni."])
+    idler = await gecici_dokuman(["Idempotency testi icin haber metni."])
     sahte = _SahteEmbedder()
     monkeypatch.setattr(backfill, "get_embedder", lambda: sahte)
 
-    ilk_yazilan = await backfill.run_backfill(limit=None)
+    ilk_yazilan = await backfill.run_backfill(document_ids=idler)
     assert ilk_yazilan > 0
 
-    ikinci_yazilan = await backfill.run_backfill(limit=None)
+    ikinci_yazilan = await backfill.run_backfill(document_ids=idler)
 
     assert ikinci_yazilan == 0
 
 
 @pytest.mark.db
 async def test_ingestion_run_kaydi_dogru_olusturulur(gecici_dokuman, monkeypatch):
-    await gecici_dokuman(["Run kaydi testi icin haber metni."])
+    idler = await gecici_dokuman(["Run kaydi testi icin haber metni."])
     sahte = _SahteEmbedder()
     monkeypatch.setattr(backfill, "get_embedder", lambda: sahte)
 
-    yazilan = await backfill.run_backfill(limit=None)
+    yazilan = await backfill.run_backfill(document_ids=idler)
 
     session_factory = get_session_factory()
     async with session_factory() as session:
@@ -307,7 +338,7 @@ async def test_bir_grup_basarisiz_olursa_onceki_grup_kalici_kalir(gecici_dokuman
     monkeypatch.setattr(backfill, "get_embedder", lambda: sahte)
 
     with pytest.raises(RuntimeError):
-        await backfill.run_backfill(limit=None)
+        await backfill.run_backfill(document_ids=idler)
 
     assert len(sahte.cagrilar) == 2  # ilk grup basarili, ikincide patladi
 

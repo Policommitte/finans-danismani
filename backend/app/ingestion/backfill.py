@@ -75,6 +75,27 @@ _FIND_UNCHUNKED_SQL = text(
     """
 )
 
+#: `document_ids` verildiginde tarama TUM `rag.documents` yerine yalnizca bu
+#: id'lerle sinirlanir - testler (`@pytest.mark.db`) kendi gecici
+#: dokumanlarinin disina asla tasmasin diye (bkz. `tests/test_backfill.py`).
+#: Ayri sorgu olarak tutuluyor: `document_ids=None` icin `= ANY(:document_ids)`
+#: NULL parametreyle calismaz (Postgres'te NULL ile ANY karsilastirmasi hep
+#: NULL/false doner, tum satirlar elenirdi) - iki sorguyu birlestirip
+#: `:document_ids IS NULL OR ...` yazmak yerine, hicbir sartla calisan
+#: orijinal sorgu degistirilmeden birebir korunuyor.
+_FIND_UNCHUNKED_SQL_SCOPED = text(
+    """
+    SELECT d.id, d.raw_text
+    FROM rag.documents d
+    LEFT JOIN rag.chunks c ON c.document_id = d.id
+    WHERE c.id IS NULL
+      AND d.raw_text IS NOT NULL
+      AND btrim(d.raw_text) <> ''
+      AND d.id = ANY(:document_ids)
+    ORDER BY d.id
+    """
+)
+
 _START_RUN_SQL = text(
     """
     INSERT INTO rag.ingestion_runs (embedding_model, status)
@@ -101,12 +122,19 @@ _INSERT_CHUNK_SQL = text(
 
 
 async def run_backfill(
-    max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS, limit: int | None = None
+    max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+    limit: int | None = None,
+    document_ids: list[int] | None = None,
 ) -> int:
     """Chunk'siz tum dokumanlari boler, embedding'ler ve kaydeder.
 
     `limit` verilirse yalnizca ilk N aday dokuman islenir - tam calistirmadan
     once kucuk olcekte dogrulamak icin (bkz. Cohere trial kota/rate limit).
+
+    `document_ids` verilirse tarama yalnizca bu id'lerle sinirlanir - normal
+    calistirmada KULLANILMAZ (varsayilan `None`, tum `rag.documents` taranir);
+    yalnizca testlerin gercek DB'deki alakasiz/prod dokumanlara asla
+    dokunmamasi icin var (bkz. `_FIND_UNCHUNKED_SQL_SCOPED`).
 
     Toplam yazilan chunk sayisini dondurur.
     """
@@ -124,48 +152,85 @@ async def run_backfill(
         # run kaydi hemen kalici olsun - sonraki batch'ler cakilirsa bile gorunur kalir
         await session.commit()
 
-        rows = (await session.execute(_FIND_UNCHUNKED_SQL)).mappings().all()
-        if limit is not None:
-            rows = rows[:limit]
-        logger.info("chunk'siz dokuman bulundu", extra={"count": len(rows), "limit": limit})
-
-        doc_chunks = [(row["id"], chunk_document(row["raw_text"], max_chunk_chars)) for row in rows]
-        doc_chunks = [(doc_id, texts) for doc_id, texts in doc_chunks if texts]
-        batches = _group_documents_by_chunk_budget(doc_chunks, _MAX_TEXTS_PER_BATCH)
-
         total_chunks = 0
-        for batch_num, batch in enumerate(batches, start=1):
-            flat = [
-                (document_id, index, content)
-                for document_id, texts in batch
-                for index, content in enumerate(texts)
-            ]
-            if embedder is not None:
-                vectors = await embedder.embed_documents([content for _, _, content in flat])
+        try:
+            if document_ids is not None:
+                rows = (
+                    (
+                        await session.execute(
+                            _FIND_UNCHUNKED_SQL_SCOPED, {"document_ids": document_ids}
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
             else:
-                vectors = [None] * len(flat)
+                rows = (await session.execute(_FIND_UNCHUNKED_SQL)).mappings().all()
+            if limit is not None:
+                rows = rows[:limit]
+            logger.info("chunk'siz dokuman bulundu", extra={"count": len(rows), "limit": limit})
 
-            for (document_id, chunk_index, content), embedding in zip(flat, vectors, strict=True):
-                await session.execute(
-                    _INSERT_CHUNK_SQL,
-                    {
-                        "document_id": document_id,
-                        "chunk_index": chunk_index,
-                        "content": content,
-                        "embedding": embedding,
+            doc_chunks = [
+                (row["id"], chunk_document(row["raw_text"], max_chunk_chars)) for row in rows
+            ]
+            doc_chunks = [(doc_id, texts) for doc_id, texts in doc_chunks if texts]
+            batches = _group_documents_by_chunk_budget(doc_chunks, _MAX_TEXTS_PER_BATCH)
+
+            for batch_num, batch in enumerate(batches, start=1):
+                flat = [
+                    (document_id, index, content)
+                    for document_id, texts in batch
+                    for index, content in enumerate(texts)
+                ]
+                if embedder is not None:
+                    vectors = await embedder.embed_documents([content for _, _, content in flat])
+                else:
+                    vectors = [None] * len(flat)
+
+                grup_eklenen = 0
+                for (document_id, chunk_index, content), embedding in zip(
+                    flat, vectors, strict=True
+                ):
+                    sonuc = await session.execute(
+                        _INSERT_CHUNK_SQL,
+                        {
+                            "document_id": document_id,
+                            "chunk_index": chunk_index,
+                            "content": content,
+                            "embedding": embedding,
+                        },
+                    )
+                    # `ON CONFLICT ... DO NOTHING` (bkz. `_INSERT_CHUNK_SQL`) satiri
+                    # atlarsa rowcount 0 olur - `len(flat)` bunu kacirir, gercekte
+                    # kaydedilenden FAZLA sayardi.
+                    grup_eklenen += sonuc.rowcount
+                await session.commit()  # bu grup kalici - sonraki grup basarisiz olsa da kaybolmaz
+
+                total_chunks += grup_eklenen
+                logger.info(
+                    "grup islendi",
+                    extra={
+                        "batch": f"{batch_num}/{len(batches)}",
+                        "documents_in_batch": len(batch),
+                        "chunks_so_far": total_chunks,
                     },
                 )
-            await session.commit()  # bu grup kalici - sonraki grup basarisiz olsa da kaybolmaz
-
-            total_chunks += len(flat)
-            logger.info(
-                "grup islendi",
-                extra={
-                    "batch": f"{batch_num}/{len(batches)}",
-                    "documents_in_batch": len(batch),
-                    "chunks_so_far": total_chunks,
-                },
+        except Exception:
+            # `run_id` satiri START'ta commit edilmisti - burada yakalamazsak
+            # 'running' durumunda SONSUZA KADAR kalir (hicbir sey onu
+            # 'failed'e cevirmez). Onceki gruplar zaten commit edildi, o
+            # yuzden rollback yalnizca son (commit'lenmemis) grubu geri alir.
+            await session.rollback()
+            await session.execute(
+                _FINISH_RUN_SQL,
+                {"run_id": run_id, "status": "failed", "chunk_count": total_chunks},
             )
+            await session.commit()
+            logger.exception(
+                "backfill basarisiz - run 'failed' olarak isaretlendi",
+                extra={"run_id": run_id, "chunks_before_failure": total_chunks},
+            )
+            raise
 
         await session.execute(
             _FINISH_RUN_SQL,
