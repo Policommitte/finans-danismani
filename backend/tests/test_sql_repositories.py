@@ -180,7 +180,7 @@ async def test_fiyat_guncellemesi_yazilir_ve_degisim_hesaplanir(sql_repolar):
     try:
         yeni_fiyat = round(eski_fiyat * 1.05, 4)
         await repository.apply_price_updates(
-            [{"asset_id": hedef["asset_id"], "price": yeni_fiyat}], write_history=True
+            [{"asset_id": hedef["asset_id"], "price": yeni_fiyat}], write_live=True
         )
 
         quote = await repository.get_quote("THYAO")
@@ -189,7 +189,7 @@ async def test_fiyat_guncellemesi_yazilir_ve_degisim_hesaplanir(sql_repolar):
         assert float(quote["daily_change_pct"]) != 1.2
     finally:
         await repository.apply_price_updates(
-            [{"asset_id": hedef["asset_id"], "price": eski_fiyat}], write_history=False
+            [{"asset_id": hedef["asset_id"], "price": eski_fiyat}], write_live=False
         )
 
 

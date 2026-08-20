@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS chat_messages CASCADE;
 DROP TABLE IF EXISTS chat_sessions CASCADE;
 DROP TABLE IF EXISTS user_alerts CASCADE;
 DROP TABLE IF EXISTS watchlists CASCADE;
+DROP TABLE IF EXISTS live_prices CASCADE;
 DROP TABLE IF EXISTS price_history CASCADE;
 DROP TABLE IF EXISTS transactions CASCADE;
 DROP TABLE IF EXISTS portfolio_assets CASCADE;
@@ -79,6 +80,20 @@ CREATE TABLE price_history (
     source VARCHAR(20) NOT NULL DEFAULT 'simulated'
            CHECK (source IN ('simulated','api','backfill')),
     PRIMARY KEY (asset_id, ts)
+);
+
+-- Gün İÇİ canlı fiyat kaydı. Fiyat görevi her tick'te BURAYA yazar.
+-- Gün (Europe/Istanbul) bittiğinde günün son satırı `price_history`'ye kapanış
+-- olarak taşınır ve o güne ait satırlar silinir — böylece `price_history`
+-- günlük çözünürlükte kalır, canlı tick'lerle şişmez.
+-- Bkz. app/repositories/sql.py -> close_out_day(), db/migrations/002_*.sql
+CREATE TABLE live_prices (
+    id SERIAL PRIMARY KEY,
+    asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    price NUMERIC NOT NULL CHECK (price > 0),
+    source VARCHAR(20) NOT NULL DEFAULT 'simulated'
+           CHECK (source IN ('simulated','api','backfill')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE market_api_usage (
@@ -245,6 +260,8 @@ CREATE TABLE rag.ingestion_runs (
 CREATE UNIQUE INDEX users_email_lower_uidx ON users (lower(email));
 CREATE INDEX assets_name_trgm_idx      ON assets USING gin (name gin_trgm_ops);
 CREATE INDEX price_history_asset_ts_idx ON price_history (asset_id, ts DESC);
+CREATE INDEX live_prices_asset_created_idx ON live_prices (asset_id, created_at DESC);
+CREATE INDEX live_prices_created_idx     ON live_prices (created_at);
 CREATE INDEX portfolios_user_idx       ON portfolios (user_id);
 CREATE INDEX portfolio_assets_pf_idx   ON portfolio_assets (portfolio_id);
 CREATE INDEX transactions_pf_date_idx  ON transactions (portfolio_id, transaction_date DESC);

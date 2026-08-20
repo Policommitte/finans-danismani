@@ -75,10 +75,25 @@ class Settings(BaseSettings):
 
     market_sim_seed: int = 20260813
 
-    #: Fiyat gorevi her N tick'te bir `price_history`'ye satir yazar.
+    #: Fiyat gorevi her N tick'te bir `live_prices`'a satir yazar.
     #: 1 = her tick (15 dakikada bir satir). Tick araligi 60 sn iken bu deger
     #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
+    #:
+    #: NOT: satir artik dogrudan `price_history`'ye DEGIL `live_prices`'a
+    #: gider; `price_history`'ye gun bitiminde yalnizca gunun KAPANISI yazilir
+    #: (bkz. `market_day_timezone` ve `app/market/scheduler.py`). Ortam
+    #: degiskeninin adi geriye donuk uyumluluk icin ayni birakildi.
     price_history_every_n_ticks: int = 1
+
+    #: Gun sinirinin belirlendigi saat dilimi. Bu saat diliminde gun
+    #: degistiginde `live_prices`'taki o gune ait satirlarin SONUNCUSU
+    #: `price_history`'ye gunun kapanisi olarak yazilir ve o gunun canli
+    #: satirlari silinir.
+    #:
+    #: Neden ayar: veritabani sunucusu UTC calisiyor (Supabase oyle), ama
+    #: kullanicilar ve BIST Turkiye saatinde. Gun sinirini UTC'ye birakmak
+    #: "kapanis"i saat 03:00'e kaydirirdi.
+    market_day_timezone: str = "Europe/Istanbul"
 
     #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
     #:
