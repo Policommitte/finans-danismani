@@ -381,6 +381,13 @@ INSERT INTO assets (category_id, symbol, name, currency, current_price,
 (2,'GUMUS','Gram Gümüş','TRY',31.50,-0.2,1.1,42.6,0.0120),
 (3,'USD/TRY','Amerikan Doları','TRY',33.55,0.1,0.8,25.4,0.0050),
 (3,'EUR/TRY','Euro','TRY',36.80,0.3,1.2,28.7,0.0050),
+-- TR10Y (id 11): Yahoo Finance'te güvenilir bir karşılığı YOKTUR, bu yüzden
+-- ekibin paylaşılan veritabanından 16 Ağustos 2026'da silindi
+-- (bkz. borsa-verisi/symbols.py). Burada BİLEREK duruyor: satır silinirse
+-- SERIAL id'ler kayar (BTC 12->11) ve aşağıdaki transactions/watchlist
+-- kayıtları sessizce YANLIŞ varlığa bağlanır. Şema sıfırdan yüklenirse TR10Y
+-- geri gelir ve gerçek fiyat kaynağı olmadığı için yalnızca simüle fiyat
+-- alır - price_history.source o satırlarda 'simulated' yazar.
 (4,'TR10Y','Türkiye 10 Yıllık Tahvil','TRY',100.00,0.0,0.0,15.5,0.0020),
 (5,'BTC','Bitcoin','USD',65400.00,4.5,-2.3,125.6,0.0400),
 (5,'ETH','Ethereum','USD',3450.00,2.1,-1.5,85.2,0.0450),

@@ -23,13 +23,24 @@ async def assets(
     return await service.varliklar_getir(category)
 
 
+#: `borsa-verisi/` betigi Yahoo'dan varsayilan olarak 2 yillik gecmis ceker
+#: (`period=2y`); ust sinir bununla eslesir. Daha genis bir gecmis yuklenirse
+#: bu deger DE guncellenmelidir - aksi halde veri veritabaninda durur ama
+#: frontend'e hic ulasmaz.
+MAX_HISTORY_GUN = 730
+
+
 @router.get("/history", response_model=HistoryResponse)
 async def history(
     user: CurrentUser,
     symbol: str = Query(description="Varlik kodu (orn. THYAO)"),
-    days: int = Query(default=30, ge=1, le=365),
+    days: int = Query(default=30, ge=1, le=MAX_HISTORY_GUN),
 ) -> HistoryResponse:
-    """PriceChart icin ham fiyat serisi."""
+    """PriceChart icin ham fiyat serisi.
+
+    Gunluk/haftalik gorunum icin varsayilan 30 gun yeterlidir; frontend
+    yillik gorunum icin `days=365` veya `days=730` gonderebilir.
+    """
     return await service.gecmis_getir(symbol, days=days)
 
 

@@ -72,30 +72,138 @@ class SimulatedMarketProvider(MarketDataProvider):
 
 
 class ApiMarketProvider(MarketDataProvider):
-    """Gercek piyasa API'si - HENUZ BAGLANMADI.
+    """Gercek piyasa verisi - Yahoo Finance (`app/market/yahoo.py`).
 
-    ⚠️ Gercek saglayici kullanimi PO onayi ve lisans kontrolu gerektirir
-    (mimari v4 bolum 8.3). Saglayici secildiginde YALNIZCA bu sinif yazilir;
-    scheduler, tool'lar ve dashboard degismez.
+    CAGRI SAYISI: `yf.download` tek bir fonksiyon cagrisi gibi gorunse de
+    iceride HER TICKER icin ayri bir HTTP istegi atar (bkz. `yahoo.py` modul
+    docstring'i). Bu yuzden kota sayacina tick basina `1` degil, o tick'te
+    cekilen TICKER SAYISI islenir; aksi halde `market_api_usage` gercegin
+    ~16'da birini gosterir ve `MARKET_API_DAILY_QUOTA` tavani hic tetiklenmez.
 
-    Uygulanirken ZORUNLU olanlar:
-      * Gunluk cagri sayaci (`market_api_usage` tablosu) - kota asilirsa
-        simulatore dus.
-      * Timeout ve hata durumunda simulatore dusme (demo gunu kesinti olmasin).
-      * Cekilen gercek fiyatin baz fiyat olarak yazilmasi (capa).
+    YEDEGE DUSME (fail-safe): Asagidaki durumlarda simulatore dusulur ve bu
+    GIZLENMEZ - `son_kaynak` "simulated" olur, boylece `price_history`'ye
+    yanlislikla "api" etiketi yazilmaz:
+      * Gunluk kota (`MARKET_API_DAILY_QUOTA`) dolduysa,
+      * Yahoo zaman asimina ugrar veya hata verirse,
+      * Hicbir sembol icin fiyat donmezse.
+
+    Yahoo'nun dondugu fiyatlar `assets.current_price` uzerine yazilir; yani
+    gercek fiyat ayni zamanda BAZ fiyattir (mimari v4 bolum 8.2 "capa").
     """
 
     name = "api"
 
-    def __init__(self, fallback: MarketDataProvider | None = None) -> None:
+    def __init__(
+        self,
+        fallback: MarketDataProvider | None = None,
+        kota_deposu=None,
+    ) -> None:
+        """
+        Args:
+            fallback: Yahoo kullanilamadiginda devreye giren saglayici.
+            kota_deposu: `get_api_usage_today` / `record_api_usage` sunan
+                depo. `None` ise calisma aninda `get_market_repository()`
+                kullanilir (testte enjekte edilebilsin diye parametre var).
+        """
         self._fallback = fallback or SimulatedMarketProvider()
+        self._kota_deposu = kota_deposu
+        #: Son `next_prices` cagrisinda GERCEKTEN kullanilan kaynak.
+        #: `price_history.source` bu degerden yazilir.
+        self.son_kaynak: str = self.name
+
+    def _depo(self):
+        if self._kota_deposu is not None:
+            return self._kota_deposu
+        from app.repositories.deps import get_market_repository
+
+        return get_market_repository()
+
+    async def _kota_doldu_mu(self) -> bool:
+        """Gunluk cagri tavani asildi mi? Sayac okunamazsa AKIS DURMAZ."""
+        tavan = settings.market_api_daily_quota
+        if tavan <= 0:
+            return False
+
+        try:
+            kullanilan = await self._depo().get_api_usage_today()
+        except Exception:  # noqa: BLE001 - sayac hatasi fiyat cekmeyi engellemesin
+            logger.exception("api kota sayaci okunamadi, cagri yine de denenecek")
+            return False
+
+        if kullanilan >= tavan:
+            logger.warning(
+                "gunluk api kotasi doldu, simulatore dusuluyor",
+                extra={"kullanilan": kullanilan, "tavan": tavan},
+            )
+            return True
+        return False
+
+    async def _kotayi_isle(self, cagri: int) -> None:
+        """Yapilan HTTP istegi sayisini `market_api_usage`'a isler. Hata yutulur.
+
+        `cagri` her zaman GERCEK ticker sayisidir; varsayilani bilincli olarak
+        yoktur ki yanlislikla tekrar `1` islenmesin.
+        """
+        try:
+            await self._depo().record_api_usage(cagri)
+        except Exception:  # noqa: BLE001 - denetim kaydi asil isi dusurmemeli
+            logger.exception("api kullanim sayaci yazilamadi")
+
+    async def _yedege_dus(self, assets: list[dict]) -> list[dict]:
+        """Simulatore duser - TUM varliklar icin fiyat uretir.
+
+        BILINCLI FARK: basarili yolda yalnizca Yahoo'da karsiligi olan
+        varliklar guncellenir, burada ise hepsi. Yahoo eslemesi olmayan bir
+        varlik (orn. tahvil) aksi halde api modunda SONSUZA KADAR ayni fiyatta
+        donar ve grafigi duz cizgi olur. Uretilen fiyat "gercek" gibi
+        gosterilmez: `son_kaynak` "simulated" olur ve `price_history.source`
+        oyle yazilir.
+        """
+        self.son_kaynak = self._fallback.name
+        return await self._fallback.next_prices(assets)
 
     async def next_prices(self, assets: list[dict]) -> list[dict]:
-        logger.warning(
-            "gercek piyasa API saglayicisi baglanmadi, simulatore dusuldu",
-            extra={"provider": settings.market_data_provider},
-        )
-        return await self._fallback.next_prices(assets)
+        from app.market import yahoo
+
+        self.son_kaynak = self.name
+
+        if await self._kota_doldu_mu():
+            return await self._yedege_dus(assets)
+
+        # Yahoo'da karsiligi olmayan varliklar (orn. tahvil) hic istenmez.
+        istenen = [a for a in assets if a.get("symbol") in yahoo.desteklenen_semboller()]
+        if not istenen:
+            logger.warning("yahoo'da karsiligi olan varlik yok, simulatore dusuluyor")
+            return await self._yedege_dus(assets)
+
+        semboller = [a["symbol"] for a in istenen]
+
+        # Yahoo'ya atilacak GERCEK istek sayisi: her ticker ayri bir HTTP
+        # istegidir. Hata durumunda da islenir - istekler zaten yapilmistir.
+        cagri_sayisi = len(yahoo.gerekli_tickerlar(semboller))
+
+        try:
+            fiyatlar = await yahoo.canli_fiyatlar(semboller)
+        except Exception as exc:  # noqa: BLE001 - ag hatasi gorevi durdurmamali
+            logger.warning(
+                "yahoo canli fiyat alinamadi, simulatore dusuluyor",
+                extra={"hata": f"{type(exc).__name__}: {exc}"},
+            )
+            await self._kotayi_isle(cagri_sayisi)
+            return await self._yedege_dus(assets)
+
+        await self._kotayi_isle(cagri_sayisi)
+
+        if not fiyatlar:
+            logger.warning("yahoo bos sonuc dondurdu, simulatore dusuluyor")
+            return await self._yedege_dus(assets)
+
+        # Fiyati alinamayan varlik listeye EKLENMEZ; eski fiyati korunur.
+        return [
+            {"asset_id": a["asset_id"], "price": fiyatlar[a["symbol"]]}
+            for a in istenen
+            if a["symbol"] in fiyatlar
+        ]
 
 
 def build_provider(name: str | None = None) -> MarketDataProvider:
