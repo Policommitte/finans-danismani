@@ -7,7 +7,6 @@ const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/portfolio", label: "Portfoy" },
   { href: "/market", label: "Piyasa" },
-  { href: "/risk", label: "Risk" },
   { href: "/reports", label: "Raporlar" },
 ];
 

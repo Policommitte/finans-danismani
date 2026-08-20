@@ -1,20 +1,20 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
 import { useAuth } from "../hooks/useAuth";
-import type { PublicMarketTickerItem } from "../models/market";
-import { getPublicMarketTicker } from "../services/marketService";
+import type { PublicLandingPreviewResponse, PublicMarketTickerItem } from "../models/market";
+import { getPublicLandingPreview, getPublicMarketTicker } from "../services/marketService";
 
 type ThemeMode = "light" | "dark";
 type Language = "tr" | "en";
+type PreviewKey = "dashboard" | "portfolio" | "market";
 
 const publicMenuTargets = [
   { key: "analysis", href: "/dashboard", icon: "/analiz.svg" },
   { key: "portfolio", href: "/portfolio", icon: "/portfoy.svg" },
-  { key: "risk", href: "/risk", icon: "/risk.svg" },
   { key: "market", href: "/market", icon: "/piyasa.svg" },
 ];
 
@@ -61,29 +61,49 @@ const copy = {
     chatLoginRequired: "Soru sormadan önce giriş yapmalısınız.",
     close: "Kapat",
     utilityNav: ["Profil", "Ayarlar"],
-    nav: ["Genel Bakış", "Portföy", "Risk", "Piyasa"],
+    nav: ["Genel Bakış", "Portföy", "Piyasa"],
     brand: "Finans Danışmanı",
     themeToLight: "Aydınlık moda geç",
     themeToDark: "Karanlık moda geç",
     languageLabel: "Dili İngilizce yap",
     features: [
-      ["Dashboard", "Portföy toplam değeri ve piyasa özeti."],
-      ["Portföy", "Varlık dağılımı, pozisyonlar ve işlem geçmişi."],
-      ["Risk", "Risk skoru, gerekçeler ve aksiyon önerileri."],
-      ["AI Asistan", "Sağ altta açılan sohbet widget'ı."],
+      {
+        key: "dashboard",
+        title: "Genel Bakış",
+        metric: "1,64 Mn",
+        description: "Genel finans ekranı",
+        badge: "Önizleme",
+        icon: "/analiz.svg",
+      },
+      {
+        key: "portfolio",
+        title: "Portföy",
+        metric: "3",
+        description: "Varlık ve risk özeti",
+        badge: "Önizleme",
+        icon: "/portfoy.svg",
+      },
+      {
+        key: "market",
+        title: "Piyasa",
+        metric: "5",
+        description: "Canlı piyasa görünümü",
+        badge: "Önizleme",
+        icon: "/piyasa.svg",
+      },
     ],
     slides: [
       {
         key: "analysis",
         tab: "Analiz",
-        eyebrow: "Dashboard ve risk görünümü",
+        eyebrow: "Genel bakış ve risk görünümü",
         title: "Portföyünüzün anlık durumunu net görün.",
         body:
-          "Toplam değer, kar-zarar, varlık dağılımı ve risk skoru dashboard üzerinde özetlenir. Kullanıcı portföyünün genel sağlığını hızlıca takip eder.",
+          "Toplam değer, kar-zarar, varlık dağılımı ve risk skoru genel bakış ekranında özetlenir. Kullanıcı portföyünün genel sağlığını hızlıca takip eder.",
         metrics: [
-          ["Toplam değer", "1.09M TL"],
+          ["Toplam değer", "1,64 Mn"],
           ["Risk skoru", "61/100"],
-          ["Dağılım", "STOCK %67"],
+          ["Dağılım", "Kripto %67"],
         ],
       },
       {
@@ -147,29 +167,49 @@ const copy = {
     chatLoginRequired: "You need to log in before asking a question.",
     close: "Close",
     utilityNav: ["Profile", "Settings"],
-    nav: ["Analysis", "Portfolio", "Risk", "Market"],
+    nav: ["Overview", "Portfolio", "Market"],
     brand: "Finance Advisor",
     themeToLight: "Switch to light mode",
     themeToDark: "Switch to dark mode",
     languageLabel: "Switch language to Turkish",
     features: [
-      ["Dashboard", "Portfolio total value and market summary."],
-      ["Portfolio", "Asset allocation, positions and transaction history."],
-      ["Risk", "Risk score, explanations and action recommendations."],
-      ["AI Assistant", "Chat widget that opens from the bottom right."],
+      {
+        key: "dashboard",
+        title: "Overview",
+        metric: "1.64M TRY",
+        description: "General finance screen",
+        badge: "Preview",
+        icon: "/analiz.svg",
+      },
+      {
+        key: "portfolio",
+        title: "Portfolio",
+        metric: "3",
+        description: "Assets and risk summary",
+        badge: "Preview",
+        icon: "/portfoy.svg",
+      },
+      {
+        key: "market",
+        title: "Market",
+        metric: "5",
+        description: "Live market view",
+        badge: "Preview",
+        icon: "/piyasa.svg",
+      },
     ],
     slides: [
       {
         key: "analysis",
-        tab: "Analysis",
-        eyebrow: "Dashboard and risk view",
+        tab: "Overview",
+        eyebrow: "Overview and risk view",
         title: "See your portfolio's current status clearly.",
         body:
-          "Total value, profit/loss, asset allocation and risk score are summarized on the dashboard so users can quickly follow portfolio health.",
+          "Total value, profit/loss, asset allocation and risk score are summarized in the overview screen so users can quickly follow portfolio health.",
         metrics: [
-          ["Total value", "1.09M TRY"],
+          ["Total value", "1.64M TRY"],
           ["Risk score", "61/100"],
-          ["Weight", "STOCK 67%"],
+          ["Allocation", "Crypto 67%"],
         ],
       },
       {
@@ -232,8 +272,8 @@ function formatValue(item: PublicMarketTickerItem, language: Language): string {
   }).format(item.value);
 }
 
-function displayUpper(value: string): string {
-  return value.toLocaleUpperCase("en-US");
+function displayUpper(value: string, language: Language): string {
+  return value.toLocaleUpperCase(language === "tr" ? "tr-TR" : "en-US");
 }
 
 function MenuIcon({ src }: { src: string }) {
@@ -314,26 +354,20 @@ function LanguageToggle({ language, onToggle }: { language: Language; onToggle: 
 }
 
 function LandingSideMenu({
-  open,
   language,
   authRequiredPath,
-  onOpen,
-  onClose,
   onNavigate,
   onAuthPopoverClose,
 }: {
-  open: boolean;
   language: Language;
   authRequiredPath: string | null;
-  onOpen: () => void;
-  onClose: () => void;
   onNavigate: (href: string) => void;
   onAuthPopoverClose: () => void;
 }) {
   const menuRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!open) {
+    if (!authRequiredPath) {
       return;
     }
 
@@ -343,165 +377,102 @@ function LandingSideMenu({
       }
 
       if (!menuRef.current.contains(event.target)) {
-        if (event.target instanceof Element && event.target.closest("[data-keep-sidebar-open]")) {
-          return;
-        }
-
-        onClose();
+        onAuthPopoverClose();
       }
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [onClose, open]);
+  }, [authRequiredPath, onAuthPopoverClose]);
+
+  const iconButtonClass =
+    "relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/10 bg-white/[0.06] px-0 font-black tracking-wide text-white/70 transition hover:border-white/30 hover:bg-white/15 hover:text-white";
+  const homeButtonClass =
+    "group relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/15 bg-white/10 px-0 font-black tracking-wide text-white/80";
+  const tooltipClass =
+    "pointer-events-none absolute left-1/2 -top-4 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[13px] font-bold leading-none text-white/70 transition-colors group-hover:text-white";
 
   return (
-    <>
-      <div
-        className={`fixed inset-0 z-40 bg-black/45 backdrop-blur-sm transition-opacity md:hidden ${
-          open ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-        onClick={onClose}
-      />
+    <aside
+      ref={menuRef}
+      onPointerDown={(event) => {
+        if (!authRequiredPath || !(event.target instanceof Element)) {
+          return;
+        }
 
-      <aside
-        ref={menuRef}
-        onPointerDown={(event) => {
-          if (!authRequiredPath || !(event.target instanceof Element)) {
-            return;
-          }
+        if (!event.target.closest("button,a,[role='status']")) {
+          onAuthPopoverClose();
+        }
+      }}
+      className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
+    >
+      <div aria-hidden="true" className="h-20" />
 
-          if (!event.target.closest("button,a,[role='status']")) {
-            onAuthPopoverClose();
-          }
-        }}
-        className={`fixed bottom-0 left-0 top-0 z-50 flex flex-col overflow-visible border-r border-[var(--color-border)] shadow-2xl transition-[width,padding] duration-500 ease-in-out ${
-          open
-            ? "w-80 max-w-[86vw] bg-[var(--color-market-bar)] px-6 py-6"
-            : "w-24 bg-[var(--color-market-bar)] px-6 py-6"
-        }`}
-      >
-        <button
-          type="button"
-          aria-label={open ? "Menuyu kapat" : "Menuyu ac"}
-          aria-expanded={open}
-          onClick={open ? onClose : onOpen}
-          className="absolute right-0 top-1/2 flex h-14 w-9 translate-x-full -translate-y-1/2 items-center justify-center rounded-r-full border border-l-0 border-white/10 bg-gradient-to-br from-[#4f7cff] via-[#6366f1] to-[#7c5cff] text-lg font-medium leading-none text-white shadow-[0_10px_24px_rgba(79,124,255,0.35)] transition hover:brightness-110"
+      <nav className="mt-10 space-y-7">
+        <Link
+          href="/"
+          onClick={onAuthPopoverClose}
+          aria-current="page"
+          className={homeButtonClass}
         >
-          <span className="translate-y-[-1px]">{open ? "<" : ">"}</span>
-        </button>
-
-        <div aria-hidden="true" className="h-20" />
-
-        <nav className="mt-10 space-y-3">
-          <Link
-            href="/"
-            onClick={onClose}
-            aria-current="page"
-            className={`group relative flex h-16 items-center overflow-visible rounded-md border font-black tracking-wide transition-all duration-500 ease-in-out ${
-              open
-                ? "w-full gap-4 border-white/15 bg-white/10 px-4 pl-5 text-base text-white"
-                : "w-full border-white/15 bg-white/10 px-0 text-white/80"
-            }`}
-          >
-            {open ? <span className="absolute bottom-3 left-0 top-3 w-1 rounded-r-full bg-[var(--color-primary)]" /> : null}
-            <span className="absolute left-2 top-1/2 -translate-y-1/2">
-              <MenuIcon src="/ana-sayfa.svg" />
-            </span>
-            <span
-              className={`ml-12 min-w-0 whitespace-nowrap transition-[max-width,opacity,transform] duration-300 ease-out ${
-                open ? "max-w-44 translate-x-0 opacity-100" : "max-w-0 -translate-x-2 overflow-hidden opacity-0"
-              }`}
-            >
-              {copy[language].home}
-            </span>
-            {!open ? (
-              <span className="pointer-events-none absolute left-full top-1/2 z-[70] ml-3 -translate-y-1/2 rounded-md bg-[var(--color-surface)] px-3 py-2 text-xs font-bold text-[var(--color-heading)] opacity-0 shadow-lg transition-opacity delay-700 group-hover:opacity-100">
-                {copy[language].home}
-              </span>
+          <span className="absolute bottom-3 left-0 top-3 w-1 rounded-r-full bg-[var(--color-primary)]" />
+          <span className="absolute left-2 top-1/2 -translate-y-1/2">
+            <MenuIcon src="/ana-sayfa.svg" />
+          </span>
+          <span className={tooltipClass}>{copy[language].home}</span>
+        </Link>
+        {publicMenuTargets.map((target, index) => (
+          <div key={target.key} className="group relative">
+            {authRequiredPath === target.href ? (
+              <AuthRequiredPopover
+                language={language}
+                nextPath={target.href}
+                onClose={onAuthPopoverClose}
+              />
             ) : null}
-          </Link>
-          {publicMenuTargets.map((target, index) => (
-            <div key={target.key} className="group relative">
-              {authRequiredPath === target.href ? (
-                <AuthRequiredPopover
-                  language={language}
-                  nextPath={target.href}
-                  onClose={onAuthPopoverClose}
-                />
-              ) : null}
-              <button
-                type="button"
-                onClick={() => onNavigate(target.href)}
-                className={`relative flex h-16 items-center overflow-visible rounded-md border font-black tracking-wide transition-all duration-500 ease-in-out hover:border-white/30 hover:bg-white/15 hover:text-white ${
-                  open
-                    ? "w-full gap-4 border-white/10 bg-white/[0.06] px-4 text-left text-base text-white/90"
-                    : "w-full border-white/10 bg-white/[0.06] px-0 text-white/70"
-                }`}
-              >
-                <span className="absolute left-2 top-1/2 -translate-y-1/2">
-                  <MenuIcon src={target.icon} />
-                </span>
-                <span
-                  className={`ml-12 min-w-0 whitespace-nowrap transition-[max-width,opacity,transform] duration-300 ease-out ${
-                    open ? "max-w-44 translate-x-0 opacity-100" : "max-w-0 -translate-x-2 overflow-hidden opacity-0"
-                  }`}
-                >
-                  {copy[language].nav[index]}
-                </span>
-              </button>
-              {!open ? (
-                <span className="pointer-events-none absolute left-full top-1/2 z-[70] ml-3 -translate-y-1/2 rounded-md bg-[var(--color-surface)] px-3 py-2 text-xs font-bold text-[var(--color-heading)] opacity-0 shadow-lg transition-opacity delay-700 group-hover:opacity-100">
-                  {copy[language].nav[index]}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </nav>
+            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
+              <span className="absolute left-2 top-1/2 -translate-y-1/2">
+                <MenuIcon src={target.icon} />
+              </span>
+            </button>
+            <span className={tooltipClass}>{copy[language].nav[index]}</span>
+          </div>
+        ))}
+      </nav>
 
-        <div className="mt-auto space-y-3 pt-6">
-          {utilityMenuTargets.map((target, index) => (
-            <div key={target.key} className="group relative">
-              {authRequiredPath === target.href ? (
-                <AuthRequiredPopover
-                  language={language}
-                  nextPath={target.href}
-                  onClose={onAuthPopoverClose}
-                />
-              ) : null}
-              <button
-                type="button"
-                onClick={() => onNavigate(target.href)}
-                className={`relative flex h-16 items-center overflow-visible rounded-md border font-black tracking-wide transition-all duration-500 ease-in-out hover:border-white/30 hover:bg-white/15 hover:text-white ${
-                  open
-                    ? "w-full gap-4 border-white/10 bg-white/[0.06] px-4 text-left text-sm text-white/90"
-                    : "w-full border-white/10 bg-white/[0.06] px-0 text-white/70"
-                }`}
-              >
-                <span className="absolute left-2 top-1/2 -translate-y-1/2">
-                  <MenuIcon src={target.icon} />
-                </span>
-                <span
-                  className={`ml-12 min-w-0 whitespace-nowrap transition-[max-width,opacity,transform] duration-300 ease-out ${
-                    open ? "max-w-44 translate-x-0 opacity-100" : "max-w-0 -translate-x-2 overflow-hidden opacity-0"
-                  }`}
-                >
-                  {copy[language].utilityNav[index]}
-                </span>
-              </button>
-              {!open ? (
-                <span className="pointer-events-none absolute left-full top-1/2 z-[70] ml-3 -translate-y-1/2 rounded-md bg-[var(--color-surface)] px-3 py-2 text-xs font-bold text-[var(--color-heading)] opacity-0 shadow-lg transition-opacity delay-700 group-hover:opacity-100">
-                  {copy[language].utilityNav[index]}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </aside>
-    </>
+      <div className="mt-auto space-y-5 pt-6">
+        {utilityMenuTargets.map((target, index) => (
+          <div key={target.key} className="group relative">
+            {target.key !== "settings" && authRequiredPath === target.href ? (
+              <AuthRequiredPopover
+                language={language}
+                nextPath={target.href}
+                onClose={onAuthPopoverClose}
+              />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                if (target.key === "settings") {
+                  onAuthPopoverClose();
+                  return;
+                }
+
+                onNavigate(target.href);
+              }}
+              className={iconButtonClass}
+            >
+              <span className="absolute left-2 top-1/2 -translate-y-1/2">
+                <MenuIcon src={target.icon} />
+              </span>
+            </button>
+            <span className={tooltipClass}>{copy[language].utilityNav[index]}</span>
+          </div>
+        ))}
+      </div>
+    </aside>
   );
 }
-
 function MarketTicker({
   theme,
   language,
@@ -547,7 +518,8 @@ function MarketTicker({
   }, []);
 
   return (
-    <section className="relative bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
+    <>
+      <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
       <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
         <span
           aria-hidden="true"
@@ -560,7 +532,7 @@ function MarketTicker({
           <span
             className="h-2 w-2 rotate-45 bg-[var(--color-accent)]"
           />
-          {displayUpper(copy[language].marketData)}
+          {displayUpper(copy[language].marketData, language)}
         </div>
         <div className="relative min-w-0 flex-1 overflow-hidden py-3">
           {loading && items.length === 0 ? (
@@ -579,7 +551,7 @@ function MarketTicker({
                     className="flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6"
                   >
                     <div>
-                      <div className="text-xs font-semibold text-[var(--color-market-muted)]">{displayUpper(item.label)}</div>
+                      <div className="text-xs font-semibold text-[var(--color-market-muted)]">{displayUpper(item.label, language)}</div>
                       <div className="mt-1 text-lg font-semibold">{formatValue(item, language)}</div>
                     </div>
                     <div className={`text-xs font-semibold ${positive ? "app-success" : "app-danger"}`}>
@@ -602,7 +574,9 @@ function MarketTicker({
           <LanguageToggle language={language} onToggle={onLanguageToggle} />
         </div>
       </div>
-    </section>
+      </section>
+      <div aria-hidden="true" className="h-20" />
+    </>
   );
 }
 
@@ -640,7 +614,7 @@ function HeroVisual({ slideKey, language }: { slideKey: string; language: Langua
         <div className="grid gap-4 md:grid-cols-[0.9fr_1fr]">
           <div className="space-y-4">
             <div className="rounded-md bg-[var(--color-overlay-soft)] p-5">
-              <div className="text-xs font-bold text-[var(--color-on-primary-muted)]">{displayUpper(visual.newsFlow)}</div>
+              <div className="text-xs font-bold text-[var(--color-on-primary-muted)]">{displayUpper(visual.newsFlow, language)}</div>
               <div className="mt-4 space-y-3 text-sm text-[var(--color-market-text)]">
                 {visual.news.map((newsItem) => (
                   <div key={newsItem} className="rounded-md bg-[var(--color-overlay-soft)] p-3">
@@ -651,7 +625,7 @@ function HeroVisual({ slideKey, language }: { slideKey: string; language: Langua
             </div>
           </div>
           <div className="rounded-md bg-[var(--color-surface)] p-5 text-[var(--color-text)]">
-            <div className="text-xs font-bold app-muted">{displayUpper(visual.personalRecommendation)}</div>
+            <div className="text-xs font-bold app-muted">{displayUpper(visual.personalRecommendation, language)}</div>
             <div className="mt-4 text-xl font-black">{visual.recommendationTitle}</div>
             <p className="mt-3 text-sm leading-6 app-muted">
               {visual.recommendationBody}
@@ -669,9 +643,11 @@ function HeroVisual({ slideKey, language }: { slideKey: string; language: Langua
     <div className="relative min-h-80 overflow-hidden rounded-md app-card-muted p-6 shadow-xl">
       <div className="grid gap-4 md:grid-cols-[1fr_0.8fr]">
         <div className="rounded-md app-card p-5 shadow-sm">
-          <div className="text-xs font-bold app-muted">{displayUpper(visual.portfolioSummary)}</div>
-          <div className="mt-4 text-3xl font-black app-heading">1.09M TL</div>
-          <div className="mt-2 text-sm font-semibold app-danger">-27.80% kar/zarar</div>
+          <div className="text-xs font-bold app-muted">{displayUpper(visual.portfolioSummary, language)}</div>
+          <div className="mt-4 text-3xl font-black app-heading">{language === "tr" ? "1,64 Mn" : "1.64M TRY"}</div>
+          <div className="mt-2 text-sm font-semibold app-success">
+            {language === "tr" ? "+5.27% kar/zarar" : "+5.27% P/L"}
+          </div>
           <div className="mt-6 space-y-3">
             <div className="h-3 w-full rounded-full app-card-muted">
               <div className="h-3 w-2/3 rounded-full bg-[var(--color-primary)]" />
@@ -686,12 +662,12 @@ function HeroVisual({ slideKey, language }: { slideKey: string; language: Langua
         </div>
         <div className="space-y-4">
           <div className="rounded-md bg-[var(--color-panel-dark)] p-5 text-[var(--color-market-text)]">
-            <div className="text-xs font-bold text-[var(--color-on-primary-muted)]">{displayUpper(visual.riskScore)}</div>
+            <div className="text-xs font-bold text-[var(--color-on-primary-muted)]">{displayUpper(visual.riskScore, language)}</div>
             <div className="mt-3 text-4xl font-black">61</div>
             <div className="text-sm text-[var(--color-on-primary-muted)]">{visual.highRisk}</div>
           </div>
           <div className="rounded-md app-card p-5 shadow-sm">
-            <div className="text-xs font-bold app-muted">{displayUpper(visual.marketSignal)}</div>
+            <div className="text-xs font-bold app-muted">{displayUpper(visual.marketSignal, language)}</div>
             <div className="mt-3 text-sm font-semibold app-heading">
               {visual.marketSignalBody}
             </div>
@@ -729,7 +705,7 @@ function HeroSlider({ language }: { language: Language }) {
               <div className="min-w-0 flex min-h-[420px] flex-col justify-center">
                 <div className="min-h-[270px]">
                   <p className="mb-4 text-sm font-bold tracking-wide app-primary-text">
-                    {displayUpper(slide.eyebrow)}
+                    {displayUpper(slide.eyebrow, language)}
                   </p>
                   <h1 className="max-w-4xl text-5xl font-black leading-tight app-heading md:text-6xl">
                     {slide.title}
@@ -744,7 +720,7 @@ function HeroSlider({ language }: { language: Language }) {
                       key={label}
                       className="rounded-md border app-card p-4"
                     >
-                      <div className="text-xs font-bold app-muted">{displayUpper(label)}</div>
+                      <div className="text-xs font-bold app-muted">{displayUpper(label, language)}</div>
                       <div className="mt-2 text-lg font-black app-heading">{value}</div>
                     </div>
                   ))}
@@ -776,13 +752,479 @@ function HeroSlider({ language }: { language: Language }) {
   );
 }
 
+function formatTry(value: number, language: Language): string {
+  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    maximumFractionDigits: 0,
+    style: "currency",
+    currency: "TRY",
+  }).format(value);
+}
+
+function formatCompactTry(value: number, language: Language): string {
+  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    maximumFractionDigits: 2,
+    notation: "compact",
+    compactDisplay: "short",
+  }).format(value);
+}
+
+function assetClassLabel(assetClass: string, language: Language): string {
+  const labels: Record<string, { tr: string; en: string }> = {
+    STOCK: { tr: "Hisse", en: "Stocks" },
+    FOREX: { tr: "Döviz", en: "FX" },
+    GOLD: { tr: "Altın", en: "Gold" },
+    CRYPTO: { tr: "Kripto", en: "Crypto" },
+    BOND: { tr: "Tahvil", en: "Bond" },
+  };
+  return labels[assetClass]?.[language] ?? assetClass;
+}
+
+function PreviewBody({
+  preview,
+  language,
+  previewData,
+}: {
+  preview: PreviewKey;
+  language: Language;
+  previewData: PublicLandingPreviewResponse | null;
+}) {
+  if (preview === "portfolio") {
+    const holdings = previewData?.holdings.length
+      ? previewData.holdings
+      : [
+          {
+            symbol: "THYAO",
+            asset_name: "Turk Hava Yollari",
+            asset_class: "STOCK",
+            current_price: 315.5,
+            daily_change_pct: 1.2,
+            market_value_try: 315500,
+            pnl_pct: 8.79,
+          },
+          {
+            symbol: "SASA",
+            asset_name: "Sasa Polyester",
+            asset_class: "STOCK",
+            current_price: 45.2,
+            daily_change_pct: -1.8,
+            market_value_try: 226000,
+            pnl_pct: -13.08,
+          },
+          {
+            symbol: "BTC",
+            asset_name: "Bitcoin",
+            asset_class: "CRYPTO",
+            current_price: 65400,
+            daily_change_pct: 4.5,
+            market_value_try: 1097085,
+            pnl_pct: 9,
+          },
+        ];
+    const portfolioAllocation = previewData?.allocation.length
+      ? previewData.allocation
+      : [
+          { asset_class: "CRYPTO", class_value_try: 1097085, class_pct: 66.95 },
+          { asset_class: "STOCK", class_value_try: 541500, class_pct: 33.05 },
+        ];
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-[1fr_0.75fr]">
+        <div className="rounded-md border app-card p-4">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-sm font-black app-heading">{language === "tr" ? "Varlıklar" : "Assets"}</div>
+            <span className="rounded-full bg-[var(--color-surface-muted)] px-3 py-1 text-xs font-bold app-muted">
+              {holdings.length} {language === "tr" ? "pozisyon" : "positions"}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {holdings.map((holding) => {
+              const change = holding.daily_change_pct ?? 0;
+              return (
+                <div key={holding.symbol} className="grid grid-cols-3 items-center rounded-md app-card-muted px-3 py-3 text-sm">
+                  <span className="font-black app-heading">{holding.symbol}</span>
+                  <span className="app-muted">{formatCompactTry(holding.market_value_try, language)}</span>
+                  <span className={change >= 0 ? "app-success text-right font-bold" : "app-danger text-right font-bold"}>
+                    {change >= 0 ? "+" : ""}{change.toFixed(2)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="rounded-md border app-card p-4">
+            <div className="text-sm font-black app-heading">{language === "tr" ? "Dağılım" : "Allocation"}</div>
+            <div className="mt-4 space-y-3">
+              {portfolioAllocation.map((item, index) => (
+                <div key={item.asset_class}>
+                  <div className="mb-1 flex items-center justify-between text-xs font-bold app-muted">
+                    <span>{assetClassLabel(item.asset_class, language)}</span>
+                    <span>%{item.class_pct.toFixed(2)}</span>
+                  </div>
+                  <div className="h-3 rounded-full app-card-muted">
+                    <div
+                      className="h-3 rounded-full"
+                      style={{
+                        width: `${item.class_pct}%`,
+                        backgroundColor: ["var(--color-primary)", "var(--color-accent)", "var(--color-success)"][index % 3],
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-md border border-[var(--color-primary)] bg-[var(--color-surface)] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-black app-heading">{language === "tr" ? "Portföy özeti" : "Portfolio summary"}</div>
+                <div className="mt-2 text-3xl font-black app-heading">{formatCompactTry(previewData?.total_value_try ?? 1638585, language)}</div>
+                <p className="mt-2 text-sm app-muted">
+                  {language === "tr"
+                    ? `Toplam getiri: ${previewData?.total_pnl_pct == null ? "+5.27%" : `${previewData.total_pnl_pct > 0 ? "+" : ""}${previewData.total_pnl_pct.toFixed(2)}%`}`
+                    : `Total return: ${previewData?.total_pnl_pct == null ? "+5.27%" : `${previewData.total_pnl_pct > 0 ? "+" : ""}${previewData.total_pnl_pct.toFixed(2)}%`}`}
+                </p>
+              </div>
+              <div className="rounded-md border border-[var(--color-warning-border)] px-3 py-2 text-right">
+                <div className="text-xs font-bold app-muted">{language === "tr" ? "Risk" : "Risk"}</div>
+                <div className="mt-1 text-xl font-black text-[var(--color-warning-text)]">61/100</div>
+                <div className="text-xs font-bold text-[var(--color-warning-text)]">{language === "tr" ? "orta" : "medium"}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (preview === "market") {
+    const rows = [
+      ["BIST 100", language === "tr" ? "14.241" : "14,241", "+0.80%"],
+      ["USD/TRY", language === "tr" ? "47,93" : "47.93", "+0.02%"],
+      ["BTC", language === "tr" ? "63.583" : "63,583", "+1.20%"],
+      ["EUR/TRY", language === "tr" ? "55,49" : "55.49", "+0.07%"],
+      ["XAU/USD", language === "tr" ? "4.458" : "4,458", "+0.46%"],
+    ];
+    const movers = [
+      ["BTC", "+1.20%"],
+      ["BIST 100", "+0.80%"],
+      ["USD/TRY", "+0.02%"],
+    ];
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-[0.85fr_1fr]">
+        <div className="rounded-md border app-card p-4">
+          <div className="h-11 rounded-md border app-card-muted px-4 py-3 text-sm app-muted">
+            {language === "tr" ? "Piyasada ara" : "Search market"}
+          </div>
+          <div className="mt-4 space-y-3">
+            {rows.map(([symbol, value, change]) => (
+              <div key={symbol} className="flex items-center justify-between rounded-md app-card-muted px-3 py-3">
+                <div>
+                  <div className="text-sm font-black app-heading">{symbol}</div>
+                  <div className="text-xs app-muted">{value}</div>
+                </div>
+                <div className="text-sm font-bold app-success">{change}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="rounded-md border app-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-black app-heading">{language === "tr" ? "BIST 100 fiyat grafiği" : "BIST 100 price chart"}</div>
+              <span className="rounded-full bg-[var(--color-primary)] px-3 py-1 text-xs font-bold text-[var(--color-on-primary)]">
+                {language === "tr" ? "seçili endeks" : "selected index"}
+              </span>
+            </div>
+            <div className="mt-6 flex h-40 items-end gap-2 rounded-md app-card-muted p-4">
+              {[35, 52, 46, 70, 63, 88, 76, 96].map((height, index) => (
+                <div
+                  key={index}
+                  className="flex-1 rounded-t bg-[var(--color-primary)]"
+                  style={{ height: `${height}%`, opacity: 0.45 + index * 0.06 }}
+                />
+              ))}
+            </div>
+            <p className="mt-4 text-sm app-muted">
+              {language === "tr"
+                ? "Piyasa ekranı endeksleri, döviz kurlarını ve öne çıkan varlıkları tek görünümde takip etmenizi sağlar."
+                : "The market screen helps you follow indices, FX rates and highlighted assets in one view."}
+            </p>
+          </div>
+          <div className="rounded-md border border-[var(--color-primary)] bg-[var(--color-surface)] p-4">
+            <div className="text-sm font-black app-heading">{language === "tr" ? "Piyasa özeti" : "Market summary"}</div>
+            <div className="mt-3 text-2xl font-black app-heading">{language === "tr" ? "BIST yükselişte" : "BIST trending up"}</div>
+            <div className="mt-3 grid gap-2 text-sm">
+              {movers.map(([symbol, change]) => (
+                <div key={symbol} className="flex items-center justify-between">
+                  <span className="font-semibold app-muted">{symbol}</span>
+                  <span className="font-bold app-success">{change}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const fallbackAllocation = [
+    { asset_class: "CRYPTO", class_value_try: 1097085, class_pct: 66.95 },
+    { asset_class: "STOCK", class_value_try: 541500, class_pct: 33.05 },
+  ];
+  const allocation = previewData?.allocation.length ? previewData.allocation : fallbackAllocation;
+  const totalValue = previewData?.total_value_try ?? 1638585;
+  const pnlPct = previewData?.total_pnl_pct ?? 5.27;
+  const holdingCount = previewData?.holding_count ?? 3;
+  const allocationColors = ["var(--color-primary)", "var(--color-accent)", "var(--color-success)", "var(--color-chart-yellow)"];
+  let allocationCursor = 0;
+  const allocationGradient = allocation
+    .map((item, index) => {
+      const start = allocationCursor;
+      const end = allocationCursor + item.class_pct;
+      allocationCursor = end;
+      return `${allocationColors[index % allocationColors.length]} ${start}% ${end}%`;
+    })
+    .join(", ");
+  const classCount = new Set(allocation.map((item) => item.asset_class)).size;
+
+  const riskToneClass = "text-[var(--color-warning-text)]";
+  const overviewMetrics = [
+    {
+      label: language === "tr" ? "Toplam değer" : "Total value",
+      value: formatCompactTry(totalValue, language),
+      badge: formatTry(totalValue, language),
+      badgeClass: "app-success",
+      valueClass: "app-heading",
+    },
+    {
+      label: language === "tr" ? "Kar / zarar" : "Profit / loss",
+      value: `${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
+      badge: language === "tr" ? "toplam getiri" : "total return",
+      badgeClass: "app-muted",
+      valueClass: pnlPct >= 0 ? "app-success" : "app-danger",
+    },
+    {
+      label: language === "tr" ? "Risk skoru" : "Risk score",
+      value: "61/100",
+      badge: language === "tr" ? "orta" : "medium",
+      badgeClass: riskToneClass,
+      valueClass: riskToneClass,
+    },
+    {
+      label: language === "tr" ? "Varlık sayısı" : "Asset count",
+      value: String(holdingCount),
+      badge: language === "tr" ? `${classCount} sınıf` : `${classCount} classes`,
+      badgeClass: "app-success",
+      valueClass: "app-heading",
+    },
+  ];
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[0.8fr_1fr]">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {overviewMetrics.map((metric) => (
+          <div key={metric.label} className="rounded-md border app-card p-4">
+            <div className="text-xs font-bold app-muted">{displayUpper(metric.label, language)}</div>
+            <div className={`mt-3 text-2xl font-black ${metric.valueClass}`}>{metric.value}</div>
+            <div className={`mt-2 text-xs font-bold ${metric.badgeClass}`}>{metric.badge}</div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-md border app-card p-4">
+        <div className="text-sm font-black app-heading">{language === "tr" ? "Varlık dağılımı" : "Asset allocation"}</div>
+        <div className="mt-5 grid items-center gap-5 sm:grid-cols-[180px_1fr]">
+          <div
+            aria-hidden="true"
+            className="mx-auto h-40 w-40 rounded-full"
+            style={{
+              background: `conic-gradient(${allocationGradient})`,
+            }}
+          >
+            <div className="flex h-full w-full items-center justify-center rounded-full p-6">
+              <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-[var(--color-surface)] text-center">
+                <div className="text-2xl font-black app-heading">{holdingCount}</div>
+                <div className="text-xs font-bold app-muted">{language === "tr" ? "varlık" : "assets"}</div>
+              </div>
+            </div>
+          </div>
+          <div className="space-y-3 text-sm">
+            {allocation.map((item, index) => (
+              <div key={item.asset_class} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: allocationColors[index % allocationColors.length] }}
+                  />
+                  <span className="font-semibold app-muted">{assetClassLabel(item.asset_class, language)}</span>
+                </div>
+                <span className="font-black app-heading">%{item.class_pct.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="mt-5 text-sm leading-6 app-muted">
+          {language === "tr" ? "Genel bakış ekranı portföy dağılımını ve temel metrikleri tek yerde toplar." : "The overview screen combines allocation and key metrics in one view."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PreviewModal({
+  preview,
+  language,
+  previewData,
+  isAuthenticated,
+  onClose,
+}: {
+  preview: PreviewKey;
+  language: Language;
+  previewData: PublicLandingPreviewResponse | null;
+  isAuthenticated: boolean;
+  onClose: () => void;
+}) {
+  const selected = copy[language].features.find((card) => card.key === preview);
+
+  if (!selected) {
+    return null;
+  }
+  const previewFootnote =
+    preview === "market"
+      ? language === "tr"
+        ? "Bu önizleme temsili piyasa verileriyle hazırlanmıştır."
+        : "This preview is prepared with representative market data."
+      : language === "tr"
+        ? "Bu önizleme temsili portföy verileriyle hazırlanmıştır."
+        : "This preview is prepared with representative portfolio data.";
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm">
+      <section className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-md border app-card p-6 shadow-2xl">
+        <div className="mb-6 flex items-start justify-between gap-5">
+          <div className="flex items-center gap-4">
+            <span className="flex h-12 w-12 items-center justify-center rounded-md bg-[var(--color-surface-muted)] text-[var(--color-primary)]">
+              <MenuIcon src={selected.icon} />
+            </span>
+            <div>
+              <div className="text-xs font-bold app-primary-text">{selected.badge}</div>
+              <h2 className="mt-1 text-2xl font-black app-heading">{selected.title}</h2>
+              <p className="mt-1 text-sm app-muted">{selected.description}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--color-border)] bg-transparent text-lg font-black app-muted transition hover:border-[var(--color-primary)] hover:text-[var(--color-heading)]"
+          >
+            x
+          </button>
+        </div>
+        <PreviewBody preview={preview} language={language} previewData={previewData} />
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t app-border pt-5">
+          <p className="text-sm app-muted">
+            {previewFootnote}
+          </p>
+          {isAuthenticated ? (
+            <span className="cursor-not-allowed rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-sm font-bold app-muted">
+              {language === "tr" ? "Giriş yapıldı" : "Signed in"}
+            </span>
+          ) : (
+            <Link href="/login" className="rounded-md app-primary px-4 py-3 text-sm font-bold">
+              {copy[language].login}
+            </Link>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function QuickAccessCards({
+  language,
+  previewData,
+  onOpenPreview,
+}: {
+  language: Language;
+  previewData: PublicLandingPreviewResponse | null;
+  onOpenPreview: (preview: PreviewKey) => void;
+}) {
+  const cards = copy[language].features;
+
+  function cardMetric(cardKey: string, fallback: string): { value: string; unit: string } {
+    if (cardKey === "dashboard") {
+      return {
+        value: formatCompactTry(previewData?.total_value_try ?? 1638585, language),
+        unit: language === "tr" ? "toplam değer" : "total value",
+      };
+    }
+
+    if (cardKey === "portfolio") {
+      return {
+        value: String(previewData?.holding_count ?? 3),
+        unit: language === "tr" ? "pozisyon" : "positions",
+      };
+    }
+
+    return {
+      value: fallback,
+      unit: language === "tr" ? "öne çıkan" : "featured",
+    };
+  }
+
+  return (
+    <section id="ozellikler" className="border-t app-border app-card-muted py-14">
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-3">
+        {cards.map((card) => {
+          const metric = cardMetric(card.key, card.metric);
+
+          return (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => onOpenPreview(card.key as PreviewKey)}
+              className="group flex min-h-44 w-full flex-col justify-between rounded-md border app-card p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-[var(--color-primary)] hover:shadow-xl"
+            >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-md bg-[var(--color-surface-muted)] text-[var(--color-primary)] transition group-hover:bg-[var(--color-primary)] group-hover:text-[var(--color-on-primary)]">
+                  <MenuIcon src={card.icon} />
+                </span>
+                <div>
+                  <div className="text-lg font-black app-heading">{card.title}</div>
+                  <div className="mt-1 text-xs font-bold app-muted">{card.badge}</div>
+                </div>
+              </div>
+              <span className="text-xl font-black app-muted transition group-hover:translate-x-1 group-hover:text-[var(--color-primary)]">
+                &gt;
+              </span>
+            </div>
+
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black app-heading">{metric.value}</span>
+                <span className="text-sm font-black app-muted">{metric.unit}</span>
+              </div>
+              <p className="mt-2 text-sm font-semibold leading-6 app-muted">{card.description}</p>
+            </div>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   const auth = useAuth();
   const router = useRouter();
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [language, setLanguage] = useState<Language>("tr");
-  const [menuOpen, setMenuOpen] = useState(false);
   const [authRequiredPath, setAuthRequiredPath] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [activePreview, setActivePreview] = useState<PreviewKey | null>(null);
+  const [previewData, setPreviewData] = useState<PublicLandingPreviewResponse | null>(null);
 
   useEffect(() => {
     const savedLanguage = window.localStorage.getItem("landing-language");
@@ -791,6 +1233,29 @@ export default function HomePage() {
     if (savedLanguage === "tr" || savedLanguage === "en") {
       setLanguage(savedLanguage);
     }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPreviewData() {
+      try {
+        const response = await getPublicLandingPreview();
+        if (active) {
+          setPreviewData(response);
+        }
+      } catch {
+        if (active) {
+          setPreviewData(null);
+        }
+      }
+    }
+
+    void loadPreviewData();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   function toggleTheme() {
@@ -816,7 +1281,6 @@ export default function HomePage() {
     }
 
     if (auth.user) {
-      setMenuOpen(false);
       setAuthRequiredPath(null);
       router.push(href);
       return;
@@ -825,56 +1289,50 @@ export default function HomePage() {
     setAuthRequiredPath(href);
   }
 
-  function closeMenu() {
-    setMenuOpen(false);
-    setAuthRequiredPath(null);
-  }
-
   return (
     <main className="min-h-screen overflow-x-hidden app-bg transition-colors">
-      <LandingSideMenu
-        open={menuOpen}
-        language={language}
-        authRequiredPath={authRequiredPath}
-        onOpen={() => setMenuOpen(true)}
-        onClose={closeMenu}
-        onNavigate={handleProtectedNavigate}
-        onAuthPopoverClose={() => setAuthRequiredPath(null)}
-      />
-
-      <div
-        className={`transition-[margin,width] duration-500 ease-in-out ${
-          menuOpen ? "ml-80 w-[calc(100%-20rem)]" : "ml-24 w-[calc(100%-6rem)]"
-        }`}
-      >
-        <MarketTicker
-          theme={theme}
+      <div className={activePreview ? "pointer-events-none blur-sm transition" : "transition"}>
+        <LandingSideMenu
           language={language}
-          onThemeToggle={toggleTheme}
-          onLanguageToggle={toggleLanguage}
+          authRequiredPath={authRequiredPath}
+          onNavigate={handleProtectedNavigate}
+          onAuthPopoverClose={() => setAuthRequiredPath(null)}
         />
 
-        <HeroSlider language={language} />
+        <div className="ml-24 w-[calc(100%-6rem)]">
+          <MarketTicker
+            theme={theme}
+            language={language}
+            onThemeToggle={toggleTheme}
+            onLanguageToggle={toggleLanguage}
+          />
 
-        <section
-          id="ozellikler"
-          className="border-t app-border app-card-muted py-14"
-        >
-          <div className="mx-auto grid max-w-7xl gap-4 px-4 md:grid-cols-4">
-            {copy[language].features.map(([title, text]) => (
-              <div
-                key={title}
-                className="rounded-md border app-card p-5"
-              >
-                <div className="text-lg font-bold app-heading">{title}</div>
-                <p className="mt-2 text-sm leading-6 app-muted">{text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
+          <HeroSlider language={language} />
+
+          <QuickAccessCards
+            language={language}
+            previewData={previewData}
+            onOpenPreview={setActivePreview}
+          />
+        </div>
       </div>
 
-      <ChatWidget canSend={Boolean(auth.user)} blockedMessage={copy[language].chatLoginRequired} />
+      {activePreview ? (
+        <PreviewModal
+          preview={activePreview}
+          language={language}
+          previewData={previewData}
+          isAuthenticated={Boolean(auth.user)}
+          onClose={() => setActivePreview(null)}
+        />
+      ) : null}
+
+      <ChatWidget
+        canSend={Boolean(auth.user)}
+        blockedMessage={copy[language].chatLoginRequired}
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+      />
     </main>
   );
 }

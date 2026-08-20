@@ -6,7 +6,7 @@ import { useAuth } from "../../hooks/useAuth";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 
-const allowedNextPaths = new Set(["/dashboard", "/portfolio", "/market", "/risk", "/reports", "/profile", "/settings"]);
+const allowedNextPaths = new Set(["/dashboard", "/portfolio", "/market", "/reports", "/profile", "/settings"]);
 
 function getSafeNextPath() {
   if (typeof window === "undefined") {
