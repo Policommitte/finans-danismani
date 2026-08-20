@@ -228,3 +228,56 @@ textarea {
 .ticker-track {
   animation: ticker-marquee 28s linear infinite;
 }
+
+@keyframes network-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes network-flow {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes network-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(-10px, 8px);
+  }
+}
+
+.network-node {
+  animation: network-pulse 3.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.network-line {
+  stroke-dasharray: 5 7;
+  animation: network-flow 6s linear infinite;
+}
+
+.network-drift {
+  animation: network-drift 14s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .network-node,
+  .network-line,
+  .network-drift {
+    animation: none;
+  }
+}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "../index.css";
+import "blobatar/motion.css";
 import { AppShell } from "../components/layout/AppShell";
 import { AuthProvider } from "../hooks/useAuth";
 

@@ -2,10 +2,26 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Blobatar } from "blobatar/react";
+import { thinking } from "blobatar/expression";
 import { useChatStream } from "../../hooks/useChatStream";
-import Button from "../ui/Button";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
+
+function ChatBotAvatar({ size }: { size: number }) {
+  return (
+    <div style={{ width: size, height: size }}>
+      <Blobatar
+        name="Aichatbot"
+        traits={{ shape: 0.933 }}
+        hue={225}
+        expression={thinking}
+        animate="hover"
+        className="h-full w-full"
+      />
+    </div>
+  );
+}
 
 export function ChatWidget({
   canSend = true,
@@ -31,12 +47,15 @@ export function ChatWidget({
     <div className="fixed bottom-5 right-5 z-40">
       {open && (
         <section className="absolute bottom-16 right-0 flex h-[560px] w-[380px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg border app-card shadow-2xl">
-          <header className="flex items-center justify-between app-primary px-4 py-3">
-            <div>
-              <div className="font-semibold">Finans asistanı</div>
-              <div className="text-xs opacity-80">{chat.status ?? "Hazır"}</div>
+          <header className="flex items-center gap-3 border-b app-border px-4 py-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--color-primary-soft)]">
+              <ChatBotAvatar size={30} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold app-heading">Yatırım Asistanı</div>
+              <div className="text-xs app-muted">{chat.status ?? "Hazır"}</div>
             </div>
-            <button className="rounded px-2 py-1 text-xl leading-none hover:opacity-80" onClick={() => setOpen(false)}>
+            <button className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80" onClick={() => setOpen(false)}>
               ×
             </button>
           </header>
@@ -59,9 +78,14 @@ export function ChatWidget({
           />
         </section>
       )}
-      <Button className="h-14 rounded-full px-5 shadow-lg" onClick={() => setOpen((value) => !value)}>
-        AI Chat
-      </Button>
+      <button
+        type="button"
+        aria-label={open ? "Sohbeti kapat" : "Yatırım Asistanı'nı aç"}
+        onClick={() => setOpen((value) => !value)}
+        className="grid h-14 w-14 place-items-center rounded-full bg-[var(--color-panel-dark)] shadow-xl transition hover:-translate-y-0.5 hover:shadow-2xl"
+      >
+        <ChatBotAvatar size={40} />
+      </button>
     </div>
   );
 }

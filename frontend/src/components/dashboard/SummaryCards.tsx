@@ -1,5 +1,4 @@
 import type { DashboardSummaryResponse } from "../../models/dashboard";
-import Card from "../ui/Card";
 
 const currency = new Intl.NumberFormat("tr-TR", {
   style: "currency",
@@ -7,23 +6,135 @@ const currency = new Intl.NumberFormat("tr-TR", {
   maximumFractionDigits: 0,
 });
 
-export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
-  const summary = data.summary;
-  const cards = [
-    { label: "Toplam deger", value: summary ? currency.format(summary.total_value_try) : "-" },
-    { label: "Kar / zarar", value: summary ? currency.format(summary.total_pnl_try) : "-" },
-    { label: "Risk skoru", value: `${data.risk.risk_score}/100` },
-    { label: "Varlik sayisi", value: String(summary?.holding_count ?? 0) },
-  ];
+const pct = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const RISK_LEVEL_LABEL: Record<string, string> = {
+  dusuk: "Düşük risk bandında",
+  orta: "Orta risk bandında",
+  yuksek: "Yüksek risk bandında",
+  "cok yuksek": "Çok yüksek risk bandında",
+  hesaplanamadi: "Risk hesaplanamadı",
+};
+
+const RISK_LEVEL_COLOR: Record<string, { chipClass: string; arc: string }> = {
+  dusuk: { chipClass: "app-success", arc: "var(--color-success)" },
+  orta: { chipClass: "text-[var(--color-warning-text)]", arc: "var(--color-warning-text)" },
+  yuksek: { chipClass: "app-danger", arc: "var(--color-danger)" },
+  "cok yuksek": { chipClass: "app-danger", arc: "var(--color-danger)" },
+  hesaplanamadi: { chipClass: "app-muted", arc: "var(--color-muted)" },
+};
+
+function polar(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
+}
+
+function RiskGauge({ score, color }: { score: number; color: string }) {
+  const clamped = Math.max(0, Math.min(100, score));
+  const angleEnd = 180 - (clamped / 100) * 180;
+  const start = polar(50, 52, 42, 180);
+  const end = polar(50, 52, 42, angleEnd);
+  const needleEnd = polar(50, 52, 35, angleEnd);
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map((card) => (
-        <Card key={card.label}>
-          <div className="text-xs font-medium uppercase app-muted">{card.label}</div>
-          <div className="mt-2 text-2xl font-semibold app-heading">{card.value}</div>
-        </Card>
-      ))}
+    <svg viewBox="0 0 100 58" className="h-full w-full">
+      <path d="M8 52 A42 42 0 0 1 92 52" fill="none" stroke="var(--color-chart-grid)" strokeWidth="9" strokeLinecap="round" />
+      <path
+        d={`M${start.x.toFixed(2)} ${start.y.toFixed(2)} A42 42 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`}
+        fill="none"
+        stroke={color}
+        strokeWidth="9"
+        strokeLinecap="round"
+      />
+      <line x1="50" y1="52" x2={needleEnd.x.toFixed(2)} y2={needleEnd.y.toFixed(2)} stroke="var(--color-heading)" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="50" cy="52" r="4.5" fill="var(--color-heading)" />
+    </svg>
+  );
+}
+
+export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
+  const summary = data.summary;
+  const isUp = (summary?.total_pnl_try ?? 0) >= 0;
+
+  const holdingsWithChange = data.holdings.filter((h) => h.daily_change_pct != null && h.market_value_try > 0);
+  const dailyChangeTry = holdingsWithChange.reduce(
+    (sum, h) => sum + h.market_value_try * ((h.daily_change_pct ?? 0) / 100),
+    0,
+  );
+  const dailyBase = holdingsWithChange.reduce((sum, h) => sum + h.market_value_try, 0);
+  const dailyChangePct = dailyBase > 0 ? (dailyChangeTry / dailyBase) * 100 : null;
+  const dailyUp = dailyChangeTry >= 0;
+
+  const levelKey = data.risk.risk_level.toLowerCase();
+  const levelLabel = RISK_LEVEL_LABEL[levelKey] ?? data.risk.risk_level;
+  const levelColor = RISK_LEVEL_COLOR[levelKey] ?? RISK_LEVEL_COLOR.hesaplanamadi;
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="relative overflow-hidden rounded-xl bg-[var(--color-panel-dark)] p-5 text-white shadow-lg">
+        <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+        <div className="relative flex items-center gap-2 text-xs font-medium text-white/70">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12A9 9 0 1 1 12 3" />
+              <path d="M21 3v6h-6" />
+              <path d="M12 8v4l3 2" />
+            </svg>
+          </span>
+          Toplam Portföy Değeri
+        </div>
+        <div className="relative mt-3 text-2xl font-semibold">{summary ? currency.format(summary.total_value_try) : "—"}</div>
+        {summary && (
+          <span
+            className={`relative mt-3 inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold ${
+              isUp ? "app-success" : "app-danger"
+            }`}
+          >
+            {isUp ? "▲" : "▼"} {currency.format(Math.abs(summary.total_pnl_try))}
+            {summary.total_pnl_pct != null && ` · %${pct.format(Math.abs(summary.total_pnl_pct))}`}
+          </span>
+        )}
+      </div>
+
+      <div className="rounded-xl border app-card p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-xs font-medium app-muted">
+          <span className="grid h-8 w-8 place-items-center rounded-lg app-primary-soft">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2" />
+              <rect x="11" y="8" width="10" height="12" rx="2" />
+              <path d="M15 13v2" />
+            </svg>
+          </span>
+          Günlük Değişim
+        </div>
+        <div className="mt-3 text-2xl font-semibold app-heading">
+          {dailyBase > 0 ? `${dailyUp ? "+" : ""}${currency.format(dailyChangeTry)}` : "—"}
+        </div>
+        <span className={`mt-3 inline-flex items-center gap-1 text-sm font-semibold ${dailyUp ? "app-success" : "app-danger"}`}>
+          {dailyChangePct == null ? "Veri yok" : `${dailyUp ? "▲" : "▼"} %${pct.format(Math.abs(dailyChangePct))}`}
+        </span>
+      </div>
+
+      <div className="relative overflow-hidden rounded-xl border app-card p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-xs font-medium app-muted">
+          <span className="grid h-8 w-8 place-items-center rounded-lg app-warning-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2l8 3.5v5c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11v-5z" />
+              <path d="M12 8v4" />
+              <path d="M12 16h.01" />
+            </svg>
+          </span>
+          Risk Skoru
+        </div>
+        <div className="mt-3 text-2xl font-semibold app-heading">
+          {data.risk.risk_score}
+          <span className="text-sm font-normal app-muted">/100</span>
+        </div>
+        <span className={`mt-3 inline-flex items-center text-sm font-semibold ${levelColor.chipClass}`}>{levelLabel}</span>
+        <div className="absolute right-4 top-4 h-16 w-24">
+          <RiskGauge score={data.risk.risk_score} color={levelColor.arc} />
+        </div>
+      </div>
     </div>
   );
 }
