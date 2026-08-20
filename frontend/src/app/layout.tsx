@@ -7,7 +7,7 @@ import { AuthProvider } from "../hooks/useAuth";
 
 export const metadata: Metadata = {
   title: "Akıllı Kişisel Finans Asistanı",
-  description: "Portfoy, piyasa, risk ve AI destekli finans danismani arayuzu",
+  description: "Portfoy, piyasa ve AI destekli finans danismani arayuzu",
 };
 
 const themeScript = `

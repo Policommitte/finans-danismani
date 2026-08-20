@@ -9,6 +9,7 @@ import { Footer } from "./Footer";
 import { Header } from "./Header";
 import { MarketTicker } from "./MarketTicker";
 import { Sidebar } from "./Sidebar";
+import { SiteFooter } from "./SiteFooter";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -16,6 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isLogin = pathname === "/login";
   const isPublic = pathname === "/" || isLogin;
+  const isLanding = pathname === "/";
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
@@ -25,7 +27,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [auth.hasToken, auth.loading, auth.user, isPublic, router]);
 
   if (isPublic) {
-    return <>{children}</>;
+    return (
+      <>
+        {children}
+        {!isLogin && <SiteFooter className={isLanding ? "ml-24 w-[calc(100%-6rem)]" : ""} />}
+      </>
+    );
   }
 
   return (

@@ -1,38 +1,68 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { Blobatar } from "blobatar/react";
 import { thinking } from "blobatar/expression";
+import "blobatar/motion.css";
+import { Blobatar } from "blobatar/react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useChatStream } from "../../hooks/useChatStream";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
-function ChatBotAvatar({ size }: { size: number }) {
+function ChatAvatar() {
   return (
-    <div style={{ width: size, height: size }}>
-      <Blobatar
-        name="Aichatbot"
-        traits={{ shape: 0.933 }}
-        hue={225}
-        expression={thinking}
-        animate="hover"
-        className="h-full w-full"
-      />
-    </div>
+    <span className="flex h-full w-full shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-panel-dark)]">
+      <span className="block h-[118%] w-[118%] [&_svg]:h-full [&_svg]:w-full">
+        <Blobatar name="Aichatbot" traits={{ shape: 0.933 }} hue={225} expression={thinking} animate="hover" />
+      </span>
+    </span>
   );
 }
 
 export function ChatWidget({
   canSend = true,
   blockedMessage = "Soru sormadan önce giriş yapmalısınız.",
+  open: controlledOpen,
+  onOpenChange,
 }: {
   canSend?: boolean;
   blockedMessage?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const [renderPanel, setRenderPanel] = useState(open);
+  const [closing, setClosing] = useState(false);
   const chat = useChatStream();
   const messages = canSend ? chat.messages : [];
+
+  useEffect(() => {
+    if (open) {
+      setRenderPanel(true);
+      setClosing(false);
+      return;
+    }
+
+    if (!renderPanel) {
+      return;
+    }
+
+    setClosing(true);
+    const timer = window.setTimeout(() => {
+      setRenderPanel(false);
+      setClosing(false);
+    }, 170);
+
+    return () => window.clearTimeout(timer);
+  }, [open, renderPanel]);
+
+  function setOpen(nextOpen: boolean) {
+    if (controlledOpen === undefined) {
+      setInternalOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  }
 
   function sendMessage(message: string) {
     const trimmed = message.trim();
@@ -45,17 +75,28 @@ export function ChatWidget({
 
   return (
     <div className="fixed bottom-5 right-5 z-40">
-      {open && (
-        <section className="absolute bottom-16 right-0 flex h-[560px] w-[380px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg border app-card shadow-2xl">
-          <header className="flex items-center gap-3 border-b app-border px-4 py-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--color-primary-soft)]">
-              <ChatBotAvatar size={30} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="font-semibold app-heading">Yatırım Asistanı</div>
-              <div className="text-xs app-muted">{chat.status ?? "Hazır"}</div>
+      {renderPanel && (
+        <section
+          className={`absolute bottom-24 right-0 z-20 flex h-[560px] w-[380px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-lg border app-card shadow-2xl ${
+            closing ? "chat-pop-out" : "chat-pop-in"
+          }`}
+        >
+          <header className="flex items-center justify-between app-primary px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="h-8 w-8">
+                <ChatAvatar />
+              </span>
+              <div>
+                <div className="font-semibold">Yatırım Asistanı</div>
+                <div className="text-xs opacity-80">{chat.status ?? "Hazır"}</div>
+              </div>
             </div>
-            <button className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80" onClick={() => setOpen(false)}>
+            <button
+              type="button"
+              aria-label="Sohbeti kapat"
+              className="rounded px-2 py-1 text-xl leading-none hover:opacity-80"
+              onClick={() => setOpen(false)}
+            >
               ×
             </button>
           </header>
@@ -80,11 +121,11 @@ export function ChatWidget({
       )}
       <button
         type="button"
+        className="relative z-30 h-16 w-16 rounded-full bg-[var(--color-panel-dark)] p-0 shadow-lg transition hover:-translate-y-0.5 hover:brightness-110"
         aria-label={open ? "Sohbeti kapat" : "Yatırım Asistanı'nı aç"}
-        onClick={() => setOpen((value) => !value)}
-        className="grid h-14 w-14 place-items-center rounded-full bg-[var(--color-panel-dark)] shadow-xl transition hover:-translate-y-0.5 hover:shadow-2xl"
+        onClick={() => setOpen(!open)}
       >
-        <ChatBotAvatar size={40} />
+        <ChatAvatar />
       </button>
     </div>
   );

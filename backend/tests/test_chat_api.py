@@ -11,6 +11,8 @@ import pytest
 
 from app.auth.security import create_access_token
 
+pytestmark = pytest.mark.db
+
 SORU = "Portfoyum nasil gidiyor?"
 
 

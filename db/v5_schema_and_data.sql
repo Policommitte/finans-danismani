@@ -210,9 +210,11 @@ CREATE TABLE rag.documents (
     asset_id INTEGER REFERENCES assets(id),
     tarih DATE,
     tip VARCHAR(30) CHECK (tip IN ('haber','bilanco','analist_raporu','duyuru')),
+    kategori VARCHAR(20) CHECK (kategori IN ('ekonomi','piyasa','hisse','doviz','altin','kripto','tahvil','sirket')),
     kaynak_url TEXT,
     raw_text TEXT,
-    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT documents_kategori_haber_chk CHECK (kategori IS NULL OR tip = 'haber')
 );
 
 CREATE TABLE rag.chunks (
@@ -487,15 +489,15 @@ WHERE ph.asset_id = a.id
 --      Tamamı SENTETİK. embedding NULL — ingestion dolduracak.
 -- =====================================================================
 
-INSERT INTO rag.documents (external_id, baslik, sirket, asset_id, tarih, tip) VALUES
-('DOC-001','THYAO 2026 2. Çeyrek Finansal Sonuçları','Türk Hava Yolları',1,'2026-07-28','bilanco'),
-('DOC-002','Havacılık Sektöründe Yakıt Maliyetleri Geriliyor',NULL,1,'2026-07-15','haber'),
-('DOC-003','SASA Polyester Kapasite Yatırımı Ertelendi','Sasa Polyester',4,'2026-06-30','duyuru'),
-('DOC-004','Petrokimya Sektörü Değerlendirme Raporu','Sasa Polyester',4,'2026-07-10','analist_raporu'),
-('DOC-005','Gram Altın Talebinde Mevsimsel Artış',NULL,7,'2026-08-01','haber'),
-('DOC-006','Bitcoin Kurumsal Fon Girişleri Hızlandı',NULL,12,'2026-08-05','haber'),
-('DOC-007','Nvidia Veri Merkezi Gelirleri Rekor Kırdı','Nvidia',17,'2026-07-22','bilanco'),
-('DOC-008','Küresel Faiz Beklentileri ve Portföy Dağılımı',NULL,NULL,'2026-08-08','analist_raporu');
+INSERT INTO rag.documents (external_id, baslik, sirket, asset_id, tarih, tip, kategori) VALUES
+('DOC-001','THYAO 2026 2. Çeyrek Finansal Sonuçları','Türk Hava Yolları',1,'2026-07-28','bilanco',NULL),
+('DOC-002','Havacılık Sektöründe Yakıt Maliyetleri Geriliyor',NULL,1,'2026-07-15','haber','piyasa'),
+('DOC-003','SASA Polyester Kapasite Yatırımı Ertelendi','Sasa Polyester',4,'2026-06-30','duyuru',NULL),
+('DOC-004','Petrokimya Sektörü Değerlendirme Raporu','Sasa Polyester',4,'2026-07-10','analist_raporu',NULL),
+('DOC-005','Gram Altın Talebinde Mevsimsel Artış',NULL,7,'2026-08-01','haber','altin'),
+('DOC-006','Bitcoin Kurumsal Fon Girişleri Hızlandı',NULL,12,'2026-08-05','haber','kripto'),
+('DOC-007','Nvidia Veri Merkezi Gelirleri Rekor Kırdı','Nvidia',17,'2026-07-22','bilanco',NULL),
+('DOC-008','Küresel Faiz Beklentileri ve Portföy Dağılımı',NULL,NULL,'2026-08-08','analist_raporu',NULL);
 
 INSERT INTO rag.chunks (document_id, chunk_index, content) VALUES
 (1,0,'Türk Hava Yolları 2026 yılı ikinci çeyreğinde net kârını bir önceki yılın aynı dönemine göre yüzde 18 artırdı. Yolcu doluluk oranı yüzde 84 seviyesinde gerçekleşti.'),

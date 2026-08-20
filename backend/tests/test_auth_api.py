@@ -12,6 +12,8 @@ import pytest
 from app.auth.security import create_access_token, decode_access_token, verify_password
 from tests.conftest import DEMO_EMAIL, DEMO_PASSWORD, DEMO_USER_ID
 
+pytestmark = pytest.mark.db
+
 KORUMALI_UCLAR = [
     "/api/auth/me",
     "/api/dashboard/summary",

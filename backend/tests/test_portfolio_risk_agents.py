@@ -39,6 +39,7 @@ def _state(**kwargs) -> AgentState:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.db
 async def test_portfoy_ajani_ozet_varlik_ve_dagilim_doner(mcp):
     sonuc = await PortfolioAgent(mcp_client=mcp).run(_state())
 
@@ -48,6 +49,7 @@ async def test_portfoy_ajani_ozet_varlik_ve_dagilim_doner(mcp):
     assert veri["allocation"]
 
 
+@pytest.mark.db
 async def test_portfoy_ajani_llmsiz_deterministik_ozet_uretir(mcp):
     sonuc = await PortfolioAgent(mcp_client=mcp).run(_state())
 
@@ -56,6 +58,7 @@ async def test_portfoy_ajani_llmsiz_deterministik_ozet_uretir(mcp):
     assert "SASA" in metin  # zararda olan pozisyon belirtilmeli
 
 
+@pytest.mark.db
 async def test_portfoy_ajani_islem_gecmisini_yalnizca_istenince_ceker(mcp):
     ajan = PortfolioAgent(mcp_client=mcp)
 
@@ -106,6 +109,7 @@ async def test_portfoy_ajani_piyasa_ve_rag_toollarina_erisemez(mcp):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.db
 async def test_risk_ajani_portfoy_verisi_olmadan_hata_dondurur(mcp):
     """SIRALI ajan: topoloji bozulursa sessizce yanlis skor uretmemeli."""
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(_state())
@@ -114,6 +118,7 @@ async def test_risk_ajani_portfoy_verisi_olmadan_hata_dondurur(mcp):
     assert "risk_data" not in sonuc
 
 
+@pytest.mark.db
 async def test_risk_ajani_skoru_servis_ile_ayni_hesaplar(mcp):
     portfoy = await PortfolioAgent(mcp_client=mcp).run(_state())
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(
@@ -125,6 +130,7 @@ async def test_risk_ajani_skoru_servis_ile_ayni_hesaplar(mcp):
     assert sonuc["risk_data"]["summary_text"]
 
 
+@pytest.mark.db
 async def test_risk_ajani_oynakligi_olcup_skora_katar(mcp):
     portfoy = await PortfolioAgent(mcp_client=mcp).run(_state())
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(
