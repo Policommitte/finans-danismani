@@ -493,12 +493,14 @@ class SqlRagRepository(_SqlRepository):
             CROSS JOIN q
             WHERE q.tsq IS NOT NULL
               AND c.content_tsv @@ q.tsq
-              -- Sirket filtresi hem SEMBOL hem UNVAN ile eslesir: ajanlar
-              -- sorgudan sembol cikarir ("THYAO"), dokumanda ise unvan yazar
-              -- ("Turk Hava Yollari"). Yalnizca unvana bakilsaydi ajanin her
-              -- filtreli aramasi sessizce bos donerdi.
+              -- `d.sirket` KULLANILMAZ: bu kolon haberin KAYNAGINI tutar
+              -- ("AA Ekonomi", "BigPara Doviz"), haberin KONUSU olan
+              -- sirketi degil (bkz. embedding pipeline oturum notlari,
+              -- 2026-08-19). Sirket filtresi bu yuzden yalnizca `assets`
+              -- join'ine (SEMBOL - "THYAO" - ve UNVAN - "Turk Hava
+              -- Yollari") ve baslik fallback'ine bakar; `rag.hybrid_search()`
+              -- ile ayni desen.
               AND (CAST(:sirket AS TEXT) IS NULL
-                   OR upper(d.sirket) = upper(:sirket)
                    OR upper(a.symbol) = upper(:sirket)
                    OR upper(a.name) = upper(:sirket)
                    OR d.baslik ILIKE '%' || :sirket || '%')
