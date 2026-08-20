@@ -31,13 +31,13 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
 
     # --- RAG / Vector DB ------------------------------------------------
-    # EMBEDDING MODELI HENUZ SECILMEDI (mimari v4 bolum 16, madde 1).
-    # Bos oldugu surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla
-    # calisir; hibrit arama (dense + BM25 -> RRF) model secilince acilir.
-    # Model secildiginde `db/v5_schema_and_data.sql` icindeki vector(1024)
-    # boyutu IKI yerde birden guncellenmelidir.
+    # Model secildi: Cohere embed-v4 (output_dimension=1024 - vector(1024)
+    # semasiyla degisiklik gerekmeden eslesir). EMBEDDING_API_KEY bos oldugu
+    # surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla calisir;
+    # hibrit arama (dense + BM25 -> RRF) anahtar tanimlaninca acilir.
     embedding_model: str = ""
     embedding_dim: int = 1024
+    embedding_api_key: str = ""
 
     # --- LLM ------------------------------------------------------------
     # MODEL SECIMI HENUZ YAPILMADI: bu alanlar bilincli olarak BOS birakilir,
