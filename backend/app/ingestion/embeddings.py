@@ -118,8 +118,14 @@ def get_embedder() -> Embedder | None:
     degilse `None` doner - bu bir hata DEGILDIR, "embedding'siz calis"
     demektir (bkz. `app/core/llm.py::get_llm_client`).
     """
-    if not settings.embedding_api_key:
-        logger.info("embedding baglanmadi, embedding_api_key tanimli degil")
+    if not settings.embedding_api_key or not settings.embedding_model:
+        logger.info(
+            "embedding baglanmadi, embedding_api_key veya embedding_model tanimli degil",
+            extra={
+                "anahtar_var": bool(settings.embedding_api_key),
+                "model": settings.embedding_model or "-",
+            },
+        )
         return None
 
     return CohereEmbedder(
