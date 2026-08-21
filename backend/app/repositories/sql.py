@@ -462,8 +462,11 @@ class SqlMarketRepository(_SqlRepository):
             #    ON CONFLICT tahmini backfill degerini olculen kapanisla
             #    degistirir.
             #
-            #    Sahte veri gercegin uzerine YAZMAZ: 'simulated' bir kapanis,
-            #    mevcut satir da 'simulated' degilse guncellemeyi atlar.
+            #    SIMULE SATIRLAR KAPANIS OLAMAZ. Scheduler artik simule tick
+            #    yazmiyor (bkz. `scheduler.YAZILABILIR_KAYNAKLAR`), ama eski
+            #    calistirmalardan kalmis satirlar olabilir; onlar da gecmise
+            #    GECMEZ - yalnizca silinir. Boylece sahte veri hicbir yoldan
+            #    `price_history`'ye giremez.
             sonuc = await session.execute(
                 text(
                     """
@@ -481,6 +484,7 @@ class SqlMarketRepository(_SqlRepository):
                           AND lp.created_at <  s.son
                           AND lp.asset_id IS NOT NULL
                           AND lp.price > 0
+                          AND lp.source <> 'simulated'
                         ORDER BY lp.asset_id, lp.created_at DESC, lp.id DESC
                     )
                     INSERT INTO price_history (asset_id, ts, price, source)
@@ -489,8 +493,6 @@ class SqlMarketRepository(_SqlRepository):
                     ON CONFLICT (asset_id, ts) DO UPDATE
                         SET price  = EXCLUDED.price,
                             source = EXCLUDED.source
-                        WHERE EXCLUDED.source <> 'simulated'
-                           OR price_history.source = 'simulated'
                     """
                 ),
                 parametreler,

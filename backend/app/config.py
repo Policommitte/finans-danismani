@@ -59,11 +59,14 @@ class Settings(BaseSettings):
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # api       : Yahoo Finance'ten GERCEK fiyat (varsayilan)
-    # simulated : rastgele yuruyus - kota harcamaz, deterministik
+    # simulated : rastgele yuruyus - yalnizca agsiz gelistirme/test icin
     #
     # "api" seciliyken Yahoo'ya ulasilamazsa son dogrulanmis fiyat korunur;
-    # portfoy degeri simule fiyatlarla degistirilmez. Simulator yalnizca
-    # MARKET_DATA_PROVIDER=simulated secildiginde calisir.
+    # portfoy degeri simule fiyatlarla degistirilmez.
+    #
+    # ⚠️ SIMULE FIYAT VERITABANINA HIC YAZILMAZ - "simulated" bilerek
+    # secilse bile. Scheduler kaynagi gorup tick'i atlar
+    # (bkz. `app/market/scheduler.py` -> YAZILABILIR_KAYNAKLAR).
     market_data_provider: str = "api"
 
     #: Fiyat gorevinin calisma araligi. 15 dakika -> gunde 96 tick.

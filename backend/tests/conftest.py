@@ -66,6 +66,35 @@ def _veritabani(request, monkeypatch):
     reset_repositories()
 
 
+class SahteApiSaglayici:
+    """`son_kaynak = "api"` bildiren, aga cikmayan saglayici.
+
+    Scheduler YALNIZCA gercek kaynakli tick'leri veritabanina yazar
+    (`app/market/scheduler.py` -> `YAZILABILIR_KAYNAKLAR`); simulatorle
+    yapilan bir tick hicbir sey yazmaz. Dolayisiyla YAZMA yolunu test etmek
+    icin "gercek" gibi davranan bir saglayici gerekir.
+
+    Ureteci deterministiktir (sabit carpan): simulatorun rastgeleligi test
+    beklentilerini gereksiz yere kirilgan yapiyordu.
+    """
+
+    name = "api"
+    son_kaynak = "api"
+
+    def __init__(self, carpan: float = 1.01) -> None:
+        self._carpan = carpan
+
+    async def next_prices(self, assets: list[dict]) -> list[dict]:
+        return [
+            {
+                "asset_id": a["asset_id"],
+                "price": round(float(a["current_price"]) * self._carpan, 4),
+            }
+            for a in assets
+            if float(a.get("current_price") or 0) > 0
+        ]
+
+
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)

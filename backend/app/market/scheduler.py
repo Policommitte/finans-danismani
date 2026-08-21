@@ -19,9 +19,37 @@ from app.repositories.deps import get_market_repository
 
 logger = logging.getLogger(__name__)
 
+#: Veritabanina YAZILMASINA izin verilen fiyat kaynaklari.
+#:
+#: `ApiMarketProvider` artik yedege dusmuyor; veri yoksa bos liste donuyor.
+#: Bu liste GERIYE KALAN yolu kapatir: `MARKET_DATA_PROVIDER=simulated`
+#: BILEREK secildiginde bile simule fiyat veritabanina girmez.
+#:
+#: NEDEN GEREKLI: herkes ayni Supabase'e bagli. Tek bir gelistiricinin
+#: `.env`'inde `simulated` yazmasi ortak tarihceyi kirletmeye yetiyor -
+#: 20 Agustos 2026'da `price_history`'ye tek gunde 3.616 sahte satir boyle
+#: girdi. Kullaniciya taze SAHTE fiyat gostermek, bayat GERCEK fiyat
+#: gostermekten daha kotudur.
+#:
+#: Simulator KALDIRILMADI: testler ve agsiz gelistirme icin duruyor,
+#: yalnizca urettigi fiyat kaydedilmiyor.
+#:
+#: Beyaz liste (kara liste degil) bilincli: yeni bir saglayici eklenirse
+#: yazma izni ACIKCA verilmelidir, yanlislikla degil.
+YAZILABILIR_KAYNAKLAR = frozenset({"api"})
+
+#: Bunun altindaki tick araliginda gunluk api kotasi saatler icinde dolar.
+#: 16 ticker x (3600/60) tick/saat = saatte 960 istek -> 2.500'luk tavan
+#: ~2,6 saatte biter. 300 saniyede saatte 192 istek olur.
+ASGARI_ONERILEN_TICK_SANIYE = 300
+
 
 async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
-    """Tek bir guncelleme adimi. Test edilebilir olmasi icin ayri fonksiyon."""
+    """Tek bir guncelleme adimi. Test edilebilir olmasi icin ayri fonksiyon.
+
+    Kaynak `YAZILABILIR_KAYNAKLAR` icinde degilse HICBIR SEY yazilmaz -
+    `assets.current_price` bile guncellenmez - ve `0` doner.
+    """
     repository = get_market_repository()
     assets = await repository.get_prices_for_simulation()
     if not assets:
@@ -29,9 +57,19 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
 
     updates = await provider.next_prices(assets)
 
-    # API veri uretemediyse `updates` bostur ve repository mevcut fiyatlara
-    # dokunmaz. Acik simulator modunda kaynak "simulated" olarak yazilir.
+    # API veri uretemediyse `updates` bostur ve kaynak "unavailable" olur.
+    # Acik simulator modunda kaynak "simulated"dir - ikisi de yazilamaz.
     kaynak = getattr(provider, "son_kaynak", provider.name)
+
+    if kaynak not in YAZILABILIR_KAYNAKLAR:
+        # WARNING seviyesi bilincli: "gercek fiyat alamiyoruz" fark edilmesi
+        # gereken bir durumdur. Yahoo saatlerce cokerse log gurultulu olur -
+        # gurultunun kendisi de bilgidir.
+        logger.warning(
+            "gercek fiyat alinamadi; bu tick veritabanina YAZILMADI",
+            extra={"source": kaynak, "skipped_assets": len(updates)},
+        )
+        return 0
 
     return await repository.apply_price_updates(updates, write_live=write_live, source=kaynak)
 
@@ -80,6 +118,19 @@ async def run_price_scheduler(provider: MarketDataProvider | None = None) -> Non
             "day_tz": settings.market_day_timezone,
         },
     )
+
+    # Yanlis ayarlanmis bir tick araligi SESSIZ degil GORUNUR olsun: kota
+    # dolunca saglayici veri uretemez ve fiyatlar sessizce donar. Sebebi
+    # burada bir kez soyluyoruz.
+    if 0 < settings.price_tick_seconds < ASGARI_ONERILEN_TICK_SANIYE:
+        logger.warning(
+            "PRICE_TICK_SECONDS cok kisa - gunluk api kotasi saatler icinde dolar, "
+            "sonrasinda fiyatlar hic guncellenmez",
+            extra={
+                "price_tick_seconds": settings.price_tick_seconds,
+                "onerilen_asgari": ASGARI_ONERILEN_TICK_SANIYE,
+            },
+        )
 
     while True:
         # Ayri try/except: gun kapanisi patlarsa fiyat guncellemesi yine de

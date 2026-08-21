@@ -7,6 +7,7 @@ import pytest
 from app.market.provider import ApiMarketProvider, SimulatedMarketProvider, build_provider
 from app.market.scheduler import price_tick
 from app.repositories.deps import describe_backend
+from tests.conftest import SahteApiSaglayici
 
 VARLIKLAR = [
     {"asset_id": 1, "symbol": "THYAO", "current_price": 315.50, "sim_volatility": 0.02},
@@ -305,7 +306,7 @@ async def test_fiyat_tick_i_fiyatlari_gunceller():
         repository = get_market_repository()
         onceki = (await repository.get_quote("THYAO"))["price"]
 
-        sayi = await price_tick(SimulatedMarketProvider(seed=11), write_live=False)
+        sayi = await price_tick(SahteApiSaglayici(), write_live=False)
 
         assert sayi > 0
         assert (await repository.get_quote("THYAO"))["price"] != onceki
@@ -320,9 +321,75 @@ async def test_fiyat_tick_i_gunluk_degisimi_yeniden_hesaplar():
         repository = get_market_repository()
         onceki = (await repository.get_quote("BTC"))["daily_change_pct"]
 
-        await price_tick(SimulatedMarketProvider(seed=13), write_live=False)
+        await price_tick(SahteApiSaglayici(carpan=1.03), write_live=False)
 
         assert (await repository.get_quote("BTC"))["daily_change_pct"] != onceki
+
+
+# ---------------------------------------------------------------------------
+# Simule fiyat veritabanina YAZILMAZ
+#
+# `ApiMarketProvider` artik yedege dusmuyor (veri yoksa bos liste doner).
+# Asagidaki testler GERIYE KALAN yolu kapatir: `MARKET_DATA_PROVIDER=simulated`
+# bilerek secildiginde bile simule fiyat veritabanina girmemeli.
+#
+# Herkes ayni Supabase'e bagli oldugu icin tek bir gelistiricinin `.env`'inde
+# `simulated` yazmasi ortak tarihceyi kirletmeye yetiyor: 20 Agustos 2026'da
+# `price_history`'ye tek gunde 3.616 sahte satir boyle girdi.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.db
+async def test_simule_tick_veritabanina_hic_yazmaz():
+    """Simulatorle yapilan tick `assets`'e bile dokunmamali."""
+    async with _fiyatlari_koru():
+        from sqlalchemy import text
+
+        from app.db.session import get_session_factory
+        from app.repositories.deps import get_market_repository
+
+        async with get_session_factory()() as oturum:
+            await oturum.execute(text("DELETE FROM live_prices"))
+            await oturum.commit()
+
+        repository = get_market_repository()
+        onceki = (await repository.get_quote("THYAO"))["price"]
+
+        sayi = await price_tick(SimulatedMarketProvider(seed=11), write_live=True)
+
+        assert sayi == 0, "simule tick yazilmis sayilmamali"
+        assert (await repository.get_quote("THYAO"))["price"] == onceki, "fiyat degismemeli"
+
+        async with get_session_factory()() as oturum:
+            canli = (await oturum.execute(text("SELECT count(*) FROM live_prices"))).scalar_one()
+        assert canli == 0, "live_prices'a da yazilmamali"
+
+
+@pytest.mark.db
+async def test_yahoo_cokunce_hicbir_fiyat_yazilmaz(monkeypatch):
+    """Yahoo cokunce `assets` son dogrulanmis fiyatta kalmali."""
+    async with _fiyatlari_koru():
+        from app.repositories.deps import get_market_repository
+
+        _yahoo_taklit(monkeypatch, hata=TimeoutError("yahoo yanit vermedi"))
+        saglayici = ApiMarketProvider(kota_deposu=SahteKotaDeposu())
+
+        repository = get_market_repository()
+        onceki = (await repository.get_quote("THYAO"))["price"]
+
+        sayi = await price_tick(saglayici, write_live=True)
+
+        assert sayi == 0
+        assert (await repository.get_quote("THYAO"))["price"] == onceki
+
+
+def test_yazilabilir_kaynaklar_simulated_icermez():
+    """Beyaz listenin kazara genisletilmesini yakalar."""
+    from app.market.scheduler import YAZILABILIR_KAYNAKLAR
+
+    assert "simulated" not in YAZILABILIR_KAYNAKLAR
+    assert "unavailable" not in YAZILABILIR_KAYNAKLAR
+    assert "api" in YAZILABILIR_KAYNAKLAR
 
 
 @asynccontextmanager

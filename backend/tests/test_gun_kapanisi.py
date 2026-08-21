@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import text
 
 from app.config import settings
+from tests.conftest import SahteApiSaglayici
 
 pytestmark = pytest.mark.db
 
@@ -167,13 +168,12 @@ async def _temiz_ortam():
 
 async def test_tick_price_history_yerine_live_prices_a_yazar():
     """Yonlendirmenin ozu: gun ici tick GECMIS tabloyu sismez."""
-    from app.market.provider import SimulatedMarketProvider
     from app.market.scheduler import price_tick
 
     async with _temiz_ortam():
         gecmis_once = (await _sorgu("SELECT count(*) AS n FROM price_history"))[0]["n"]
 
-        await price_tick(SimulatedMarketProvider(seed=21), write_live=True)
+        await price_tick(SahteApiSaglayici(), write_live=True)
 
         canli = (await _sorgu("SELECT count(*) AS n FROM live_prices"))[0]["n"]
         gecmis_sonra = (await _sorgu("SELECT count(*) AS n FROM price_history"))[0]["n"]
@@ -183,11 +183,10 @@ async def test_tick_price_history_yerine_live_prices_a_yazar():
 
 
 async def test_write_live_kapaliyken_hicbir_canli_satir_yazilmaz():
-    from app.market.provider import SimulatedMarketProvider
     from app.market.scheduler import price_tick
 
     async with _temiz_ortam():
-        await price_tick(SimulatedMarketProvider(seed=22), write_live=False)
+        await price_tick(SahteApiSaglayici(), write_live=False)
 
         assert (await _sorgu("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 0
 
@@ -199,14 +198,13 @@ async def test_tick_prev_close_a_dokunmaz():
     yuzde "son tick'e gore degisim"e donusuyor ve gun ici 100 -> 102 -> 104
     icin +2, +4 yerine +2, +1.96 cikiyordu.
     """
-    from app.market.provider import SimulatedMarketProvider
     from app.market.scheduler import price_tick
 
     async with _temiz_ortam():
         onceki = await _sorgu("SELECT id, prev_close FROM assets ORDER BY id")
 
-        await price_tick(SimulatedMarketProvider(seed=23), write_live=True)
-        await price_tick(SimulatedMarketProvider(seed=24), write_live=True)
+        await price_tick(SahteApiSaglayici(carpan=1.02), write_live=True)
+        await price_tick(SahteApiSaglayici(carpan=1.04), write_live=True)
 
         sonraki = await _sorgu("SELECT id, prev_close FROM assets ORDER BY id")
         assert sonraki == onceki
