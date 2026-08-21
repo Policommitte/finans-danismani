@@ -5,7 +5,6 @@ KULLANIM
     python collect.py                      # gercek calistirma (hisse+doviz+altin+ABD)
     python collect.py --kategori STOCK GOLD
     python collect.py --period 2y
-    python collect.py --volatilite-guncelle
 
 TASARIM NOTU
     Bu bir ARKA PLAN GOREVI DEGILDIR. Periyodik guncelleme
@@ -59,12 +58,6 @@ def _argumanlar() -> argparse.Namespace:
         action="store_true",
         help="price_history'ye yazma, yalnizca assets tablosunu guncelle.",
     )
-    ayristirici.add_argument(
-        "--volatilite-guncelle",
-        action="store_true",
-        help="assets.sim_volatility alanini gercek oynaklikla guncelle "
-        "(simulator davranisini degistirir - varsayilan KAPALI).",
-    )
     ayristirici.add_argument("--dsn", help="PostgreSQL adresi. Varsayilan: DATABASE_URL")
     return ayristirici.parse_args()
 
@@ -73,7 +66,7 @@ def _tablo_yazdir(sonuc: ToplamaSonucu) -> None:
     """Cekilen veriyi okunabilir bir tabloda gosterir."""
     baslik = (
         f"{'SEMBOL':<12}{'FIYAT':>14}{'GUNLUK':>10}{'HAFTALIK':>11}"
-        f"{'YILLIK':>10}{'OYNAKLIK':>11}{'GECMIS':>9}"
+        f"{'YILLIK':>10}{'GECMIS':>9}"
     )
     print("\n" + baslik)
     print("-" * len(baslik))
@@ -86,7 +79,6 @@ def _tablo_yazdir(sonuc: ToplamaSonucu) -> None:
             f"{_yuzde(veri.daily_change_pct):>10}"
             f"{_yuzde(veri.weekly_change_pct):>11}"
             f"{_yuzde(veri.yearly_change_pct):>10}"
-            f"{veri.volatilite if veri.volatilite is not None else '-':>11}"
             f"{len(veri.gecmis):>9}"
         )
 
@@ -171,7 +163,6 @@ def main() -> int:
                 conn,
                 sonuc.veriler,
                 gecmis_yaz=not args.gecmis_yok,
-                volatilite_guncelle=args.volatilite_guncelle,
             )
             api_kullanimi_kaydet(conn, sonuc.cagri_sayisi)
             conn.commit()

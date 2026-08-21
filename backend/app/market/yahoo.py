@@ -53,6 +53,8 @@ USDTRY_TICKER = "USDTRY=X"
 #: senkron tutulurlar; ayrisirlarsa `tests/test_yahoo_client.py` icindeki
 #: senkron testi CI'da hata verir - yani sessizce bozulamazlar.
 YAHOO_TICKERS: dict[str, str] = {
+    # Endeksler
+    "BIST100": "^XU100",
     # BIST hisseleri - Yahoo'da ".IS" eki ile
     "THYAO": "THYAO.IS",
     "GARAN": "GARAN.IS",

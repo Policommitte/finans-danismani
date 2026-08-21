@@ -43,12 +43,6 @@ logger = logging.getLogger(__name__)
 #: API degildir; art arda hizli istek atmak gecici engellemeye yol acabilir.
 CAGRI_ARASI_BEKLEME = 0.4
 
-#: Oynaklik (volatilite) hesabinda kullanilan son islem gunu sayisi.
-#: `assets.sim_volatility` simulatorde tek adimlik sigma olarak kullanildigi
-#: icin GUNLUK getiri standart sapmasi hesaplanir.
-VOLATILITE_PENCERE = 90
-
-
 @dataclass
 class PiyasaVerisi:
     """Tek bir varligin Yahoo'dan uretilmis tam kaydi."""
@@ -61,7 +55,6 @@ class PiyasaVerisi:
     daily_change_pct: float | None = None
     weekly_change_pct: float | None = None
     yearly_change_pct: float | None = None
-    volatilite: float | None = None
     turetilmis: bool = False
     #: `price_history` icin (UTC zaman damgasi, fiyat) ikilileri.
     gecmis: list[tuple[datetime, float]] = field(default_factory=list)
@@ -147,14 +140,6 @@ def _degisim_yuzdesi(guncel: float, referans: float | None) -> float | None:
     return round((guncel / referans - 1) * 100, 2)
 
 
-def _volatilite(seri: pd.Series) -> float | None:
-    """Gunluk getirilerin standart sapmasi (`sim_volatility` karsiligi)."""
-    getiriler = seri.tail(VOLATILITE_PENCERE).pct_change().dropna()
-    if len(getiriler) < 5:
-        return None
-    return round(float(getiriler.std()), 6)
-
-
 def metrikleri_hesapla(
     eslesme: VarlikEslesme, seri: pd.Series, turetilmis: bool = False
 ) -> PiyasaVerisi:
@@ -171,7 +156,6 @@ def metrikleri_hesapla(
         daily_change_pct=_degisim_yuzdesi(guncel, onceki),
         weekly_change_pct=_degisim_yuzdesi(guncel, _gecmis_deger(seri, 7)),
         yearly_change_pct=_degisim_yuzdesi(guncel, _gecmis_deger(seri, 365)),
-        volatilite=_volatilite(seri),
         turetilmis=turetilmis,
         gecmis=[(ts.to_pydatetime(), round(float(fiyat), 4)) for ts, fiyat in seri.items()],
     )

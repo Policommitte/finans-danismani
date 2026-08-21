@@ -59,6 +59,7 @@ export type TransactionsResponse = {
 export type PortfolioPerformancePoint = {
   ts: string;
   total_value_try: number;
+  bist100_value_try: number | null;
 };
 
 export type PortfolioPerformanceResponse = {

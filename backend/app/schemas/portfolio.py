@@ -76,6 +76,7 @@ class TransactionsResponse(BaseModel):
 class PortfolioPerformancePoint(BaseModel):
     ts: str
     total_value_try: float
+    bist100_value_try: float | None = None
 
 
 class PortfolioPerformanceResponse(BaseModel):

@@ -14,7 +14,6 @@ Hesabi iki farkli yerde yazmamak icin `_holdings_valued()` tek kaynaktir.
 from __future__ import annotations
 
 import logging
-import math
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 1.2,
         "weekly_change_pct": 4.5,
         "yearly_change_pct": 65.2,
-        "sim_volatility": 0.0200,
     },
     {
         "id": 2,
@@ -70,7 +68,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": -0.5,
         "weekly_change_pct": 2.1,
         "yearly_change_pct": 45.8,
-        "sim_volatility": 0.0200,
     },
     {
         "id": 4,
@@ -82,7 +79,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": -1.8,
         "weekly_change_pct": -5.2,
         "yearly_change_pct": -15.4,
-        "sim_volatility": 0.0250,
     },
     {
         "id": 5,
@@ -94,7 +90,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 0.4,
         "weekly_change_pct": 1.2,
         "yearly_change_pct": 85.0,
-        "sim_volatility": 0.0200,
     },
     {
         "id": 7,
@@ -106,7 +101,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 0.8,
         "weekly_change_pct": 3.5,
         "yearly_change_pct": 82.4,
-        "sim_volatility": 0.0080,
     },
     {
         "id": 9,
@@ -118,7 +112,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 0.1,
         "weekly_change_pct": 0.8,
         "yearly_change_pct": 25.4,
-        "sim_volatility": 0.0050,
     },
     {
         "id": 10,
@@ -130,7 +123,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 0.3,
         "weekly_change_pct": 1.2,
         "yearly_change_pct": 28.7,
-        "sim_volatility": 0.0050,
     },
     {
         "id": 12,
@@ -142,7 +134,6 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 4.5,
         "weekly_change_pct": -2.3,
         "yearly_change_pct": 125.6,
-        "sim_volatility": 0.0400,
     },
     {
         "id": 13,
@@ -154,7 +145,17 @@ _SEED_ASSETS: list[dict] = [
         "daily_change_pct": 2.1,
         "weekly_change_pct": -1.5,
         "yearly_change_pct": 85.2,
-        "sim_volatility": 0.0450,
+    },
+    {
+        "id": 19,
+        "symbol": "BIST100",
+        "name": "BIST 100 Endeksi",
+        "asset_class": "INDEX",
+        "currency": "TRY",
+        "current_price": 14337.0,
+        "daily_change_pct": -0.84,
+        "weekly_change_pct": 1.2,
+        "yearly_change_pct": 28.0,
     },
 ]
 
@@ -479,18 +480,8 @@ class InMemoryPortfolioRepository:
     async def get_performance_history(
         self, user_id: int, portfolio_id: int | None = None, hours: int = 24
     ) -> list[dict]:
-        rows = _holdings_valued(user_id, portfolio_id)
-        current_total = sum(row["market_value_try"] for row in rows)
-        previous_total = sum(
-            row["market_value_try"] - float(row.get("daily_change_try") or 0) for row in rows
-        )
-        return [
-            {
-                "ts": (_now() - timedelta(hours=hours)).isoformat(),
-                "total_value_try": previous_total,
-            },
-            {"ts": _now().isoformat(), "total_value_try": current_total},
-        ]
+        # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
+        return []
 
 
 class InMemoryMarketRepository:
@@ -516,48 +507,20 @@ class InMemoryMarketRepository:
         return None
 
     async def get_history(self, symbol: str, days: int = 30) -> list[dict]:
-        """Deterministik sentetik seri.
+        # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
+        return []
 
-        SQL tarafindaki `price_history` backfill'i ile AYNI formulu kullanir
-        (yillik trend + sinuzoidal dalga); rastgelelik yoktur, boylece ayni
-        grafik her calistirmada ayni cikar.
-        """
-        asset = next((a for a in _ASSETS if a["symbol"].upper() == symbol.upper()), None)
-        if asset is None:
-            return []
-
-        price = float(asset["current_price"])
-        yearly = float(asset["yearly_change_pct"]) / 100.0
-        volatility = float(asset["sim_volatility"])
-        now = _now()
-
-        series: list[dict] = []
-        for days_ago in range(days, -1, -1):
-            drift = 1 - yearly * (days_ago / 365.0)
-            wave = volatility * 2.5 * math.sin(days_ago / 6.0)
-            value = max(price * (drift + wave), price * 0.05)
-            series.append(
-                {
-                    "ts": (now - timedelta(days=days_ago)).isoformat(),
-                    "price": round(value, 4),
-                }
-            )
-        return series
-
-    async def get_prices_for_simulation(self) -> list[dict]:
+    async def get_assets_for_price_update(self) -> list[dict]:
         return [
             {
                 "asset_id": a["id"],
                 "symbol": a["symbol"],
                 "current_price": float(a["current_price"]),
-                "sim_volatility": float(a["sim_volatility"]),
             }
             for a in _ASSETS
         ]
 
-    async def apply_price_updates(
-        self, updates: list[dict], write_live: bool, source: str = "simulated"
-    ) -> int:
+    async def apply_price_updates(self, updates: list[dict], write_live: bool, source: str) -> int:
         """Bellek ici kopyadaki fiyatlari gunceller.
 
         `write_live` yok sayilir: bu yedek katmanda `live_prices` karsiligi
@@ -566,6 +529,8 @@ class InMemoryMarketRepository:
         degil - DB'ye tekrar ulasildiginda tarihce SQL tarafinda kaldigi
         yerden devam eder.
         """
+        if updates and source != "api":
+            raise ValueError("yalnizca dogrulanmis 'api' fiyatlari yazilabilir")
         for update in updates:
             asset = next((a for a in _ASSETS if a["id"] == update["asset_id"]), None)
             if asset is None:

@@ -69,7 +69,6 @@ CREATE TABLE assets (
     daily_change_pct NUMERIC DEFAULT 0.0,
     weekly_change_pct NUMERIC DEFAULT 0.0,
     yearly_change_pct NUMERIC DEFAULT 0.0,
-    sim_volatility NUMERIC NOT NULL DEFAULT 0.0150,
     price_updated_at TIMESTAMPTZ
 );
 
@@ -77,7 +76,7 @@ CREATE TABLE price_history (
     asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
     ts TIMESTAMPTZ NOT NULL,
     price NUMERIC NOT NULL CHECK (price > 0),
-    source VARCHAR(20) NOT NULL DEFAULT 'simulated'
+    source VARCHAR(20) NOT NULL DEFAULT 'api'
            CHECK (source IN ('simulated','api','backfill')),
     PRIMARY KEY (asset_id, ts)
 );
@@ -91,7 +90,7 @@ CREATE TABLE live_prices (
     id SERIAL PRIMARY KEY,
     asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
     price NUMERIC NOT NULL CHECK (price > 0),
-    source VARCHAR(20) NOT NULL DEFAULT 'simulated'
+    source VARCHAR(20) NOT NULL DEFAULT 'api'
            CHECK (source IN ('simulated','api','backfill')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -384,34 +383,35 @@ $$;
 INSERT INTO asset_categories (code, name) VALUES
 ('STOCK','BIST Hisse Senedi'), ('GOLD','Altın & Gümüş'), ('FOREX','Döviz (Fiat)'),
 ('BOND','Tahvil & Bono'), ('CRYPTO','Kripto Varlıklar'),
-('USA_STOCK','USA Hisse'), ('EU_STOCK','Avrupa Hisse');
+('USA_STOCK','USA Hisse'), ('EU_STOCK','Avrupa Hisse'),
+('INDEX','Piyasa Endeksi');
 
 INSERT INTO assets (category_id, symbol, name, currency, current_price,
-                    daily_change_pct, weekly_change_pct, yearly_change_pct, sim_volatility) VALUES
-(1,'THYAO','Türk Hava Yolları','TRY',315.50,1.2,4.5,65.2,0.0200),
-(1,'GARAN','Garanti BBVA','TRY',125.40,-0.5,2.1,45.8,0.0200),
-(1,'TCELL','Turkcell','TRY',95.80,2.1,8.4,55.3,0.0200),
-(1,'SASA','Sasa Polyester','TRY',45.20,-1.8,-5.2,-15.4,0.0250),
-(1,'ASELS','Aselsan','TRY',62.10,0.4,1.2,85.0,0.0200),
-(1,'EREGL','Erdemir','TRY',55.00,3.2,6.7,12.5,0.0200),
-(2,'GRAM_ALTIN','Gram Altın','TRY',2550.00,0.8,3.5,82.4,0.0080),
-(2,'GUMUS','Gram Gümüş','TRY',31.50,-0.2,1.1,42.6,0.0120),
-(3,'USD/TRY','Amerikan Doları','TRY',33.55,0.1,0.8,25.4,0.0050),
-(3,'EUR/TRY','Euro','TRY',36.80,0.3,1.2,28.7,0.0050),
+                    daily_change_pct, weekly_change_pct, yearly_change_pct) VALUES
+(1,'THYAO','Türk Hava Yolları','TRY',315.50,1.2,4.5,65.2),
+(1,'GARAN','Garanti BBVA','TRY',125.40,-0.5,2.1,45.8),
+(1,'TCELL','Turkcell','TRY',95.80,2.1,8.4,55.3),
+(1,'SASA','Sasa Polyester','TRY',45.20,-1.8,-5.2,-15.4),
+(1,'ASELS','Aselsan','TRY',62.10,0.4,1.2,85.0),
+(1,'EREGL','Erdemir','TRY',55.00,3.2,6.7,12.5),
+(2,'GRAM_ALTIN','Gram Altın','TRY',2550.00,0.8,3.5,82.4),
+(2,'GUMUS','Gram Gümüş','TRY',31.50,-0.2,1.1,42.6),
+(3,'USD/TRY','Amerikan Doları','TRY',33.55,0.1,0.8,25.4),
+(3,'EUR/TRY','Euro','TRY',36.80,0.3,1.2,28.7),
 -- TR10Y (id 11): Yahoo Finance'te güvenilir bir karşılığı YOKTUR, bu yüzden
 -- ekibin paylaşılan veritabanından 16 Ağustos 2026'da silindi
 -- (bkz. borsa-verisi/symbols.py). Burada BİLEREK duruyor: satır silinirse
 -- SERIAL id'ler kayar (BTC 12->11) ve aşağıdaki transactions/watchlist
 -- kayıtları sessizce YANLIŞ varlığa bağlanır. Şema sıfırdan yüklenirse TR10Y
--- geri gelir ve gerçek fiyat kaynağı olmadığı için yalnızca simüle fiyat
--- alır - price_history.source o satırlarda 'simulated' yazar.
-(4,'TR10Y','Türkiye 10 Yıllık Tahvil','TRY',100.00,0.0,0.0,15.5,0.0020),
-(5,'BTC','Bitcoin','USD',65400.00,4.5,-2.3,125.6,0.0400),
-(5,'ETH','Ethereum','USD',3450.00,2.1,-1.5,85.2,0.0450),
-(5,'SOL','Solana','USD',145.20,-5.4,12.4,340.5,0.0550),
-(6,'AAPL','Apple Inc.','USD',215.30,1.1,3.2,22.4,0.0150),
-(6,'TSLA','Tesla Inc.','USD',245.80,-2.3,-8.5,5.6,0.0300),
-(6,'NVDA','Nvidia','USD',130.50,5.6,18.2,215.8,0.0280);
+-- geri gelir; gerçek fiyat kaynağı olmadığında fiyatı sabit kalır.
+(4,'TR10Y','Türkiye 10 Yıllık Tahvil','TRY',100.00,0.0,0.0,15.5),
+(5,'BTC','Bitcoin','USD',65400.00,4.5,-2.3,125.6),
+(5,'ETH','Ethereum','USD',3450.00,2.1,-1.5,85.2),
+(5,'SOL','Solana','USD',145.20,-5.4,12.4,340.5),
+(6,'AAPL','Apple Inc.','USD',215.30,1.1,3.2,22.4),
+(6,'TSLA','Tesla Inc.','USD',245.80,-2.3,-8.5,5.6),
+(6,'NVDA','Nvidia','USD',130.50,5.6,18.2,215.8),
+(8,'BIST100','BIST 100 Endeksi','TRY',14337.00,0.0,0.0,0.0);
 
 UPDATE assets SET prev_close = ROUND(current_price / (1 + daily_change_pct/100.0), 4),
                   price_updated_at = now();
@@ -475,37 +475,6 @@ INSERT INTO chat_messages (session_id, sender_role, message_content) VALUES
 (1,'assistant','Mehmet Bey, portföyünüzdeki SASA pozisyonu yaklaşık %13 ekside. Agresif risk profilinize uygun olarak piyasa dönüşünü bekleyebilir veya BTC pozisyonunuzdan elde ettiğiniz kârla maliyet düşürmeyi değerlendirebilirsiniz. Bu bir yatırım tavsiyesi değildir.'),
 (2,'user','Ethereum maliyetim çok yüksek kaldı (4000$). Solana ise kârda. Nasıl dengeleyebilirim?'),
 (2,'assistant','Can Bey, Solana pozisyonunuzdaki kârı realize edip bir kısmını Ethereum tarafına kaydırmak, yüksek risk profiliniz için değerlendirilebilecek bir yeniden dengeleme yaklaşımıdır. Bu bir yatırım tavsiyesi değildir.');
-
-
--- =====================================================================
--- 12 · FİYAT GEÇMİŞİ BACKFILL — 90 gün · 4 saat çözünürlük (~9.200 satır)
---      Bu olmadan grafikler boş, risk ajanı volatilite hesaplayamaz.
--- =====================================================================
-
-INSERT INTO price_history (asset_id, ts, price, source)
-SELECT a.id, g.ts,
-       GREATEST(
-           -- ::NUMERIC sart: SIN()/RANDOM() ifadeyi double precision yapar ve
-           -- round(double precision, integer) PostgreSQL'de tanimli degildir.
-           ROUND((a.current_price * (
-               (1 - (a.yearly_change_pct/100.0) * (d.days_ago/365.0))
-               + a.sim_volatility * 2.5 * SIN(d.days_ago/6.0)
-               + a.sim_volatility * (RANDOM()-0.5) * 2
-           ))::NUMERIC, 4),
-           a.current_price * 0.05)
-       , 'backfill'
-FROM assets a
-CROSS JOIN LATERAL (
-    SELECT generate_series(now() - INTERVAL '90 days', now(), INTERVAL '4 hours') AS ts
-) g
-CROSS JOIN LATERAL (
-    SELECT EXTRACT(EPOCH FROM (now() - g.ts))/86400.0 AS days_ago
-) d;
-
-UPDATE price_history ph SET price = a.current_price
-FROM assets a
-WHERE ph.asset_id = a.id
-  AND ph.ts = (SELECT MAX(ts) FROM price_history WHERE asset_id = a.id);
 
 
 -- =====================================================================

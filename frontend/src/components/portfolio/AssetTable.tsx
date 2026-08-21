@@ -28,8 +28,11 @@ export function AssetTable({ items }: { items: Holding[] }) {
     maximumFractionDigits: 0,
   });
   return (
-    <Card title={language === "tr" ? "Portföy varlıkları" : "Portfolio assets"} className="h-full">
-      <div className="overflow-x-auto">
+    <Card
+      title={language === "tr" ? "Portföy varlıkları" : "Portfolio assets"}
+      className="portfolio-assets-card h-full"
+    >
+      <div className="portfolio-assets-scroll">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b app-border text-xs uppercase app-muted">
             <tr>

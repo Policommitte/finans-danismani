@@ -4,61 +4,24 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from app.market.provider import ApiMarketProvider, SimulatedMarketProvider, build_provider
+from app.market.provider import ApiMarketProvider, build_provider
 from app.market.scheduler import price_tick
 from app.repositories.deps import describe_backend
 from tests.conftest import SahteApiSaglayici
 
 VARLIKLAR = [
-    {"asset_id": 1, "symbol": "THYAO", "current_price": 315.50, "sim_volatility": 0.02},
-    {"asset_id": 12, "symbol": "BTC", "current_price": 65400.0, "sim_volatility": 0.04},
+    {"asset_id": 1, "symbol": "THYAO", "current_price": 315.50},
+    {"asset_id": 12, "symbol": "BTC", "current_price": 65400.0},
 ]
 
 
-async def test_simulator_ayni_seed_ile_ayni_seriyi_uretir():
-    """Demo tekrarlanabilirligi: prova edilen senaryo sunumda birebir ayni."""
-    birinci = await SimulatedMarketProvider(seed=7).next_prices(VARLIKLAR)
-    ikinci = await SimulatedMarketProvider(seed=7).next_prices(VARLIKLAR)
-
-    assert birinci == ikinci
+def test_yalnizca_api_saglayicisi_secilir():
+    assert isinstance(build_provider("api"), ApiMarketProvider)
 
 
-async def test_simulator_farkli_seed_ile_farkli_seri_uretir():
-    birinci = await SimulatedMarketProvider(seed=7).next_prices(VARLIKLAR)
-    ikinci = await SimulatedMarketProvider(seed=8).next_prices(VARLIKLAR)
-
-    assert birinci != ikinci
-
-
-async def test_simulator_fiyati_makul_bir_bantta_tutar():
-    """Tek adimda %20'den fazla sapma olmamali; grafik gercekci kalmali."""
-    saglayici = SimulatedMarketProvider(seed=3)
-
-    for _ in range(50):
-        for guncelleme in await saglayici.next_prices(VARLIKLAR):
-            baz = next(
-                v["current_price"] for v in VARLIKLAR if v["asset_id"] == guncelleme["asset_id"]
-            )
-            assert 0 < guncelleme["price"] <= baz * 1.2
-
-
-async def test_simulator_sifir_fiyatli_varligi_atlar():
-    sonuc = await SimulatedMarketProvider(seed=1).next_prices(
-        [{"asset_id": 99, "symbol": "BOS", "current_price": 0, "sim_volatility": 0.01}]
-    )
-
-    assert sonuc == []
-
-
-@pytest.mark.parametrize(
-    ("ayar", "beklenen"),
-    [
-        ("simulated", SimulatedMarketProvider),
-        ("api", ApiMarketProvider),
-    ],
-)
-def test_saglayici_ayara_gore_secilir(ayar, beklenen):
-    assert isinstance(build_provider(ayar), beklenen)
+def test_simulated_saglayici_artik_kabul_edilmez():
+    with pytest.raises(ValueError, match="yalnizca 'api'"):
+        build_provider("simulated")
 
 
 def test_ayar_bos_birakilirsa_varsayilan_saglayici_secilir(monkeypatch):
@@ -69,7 +32,8 @@ def test_ayar_bos_birakilirsa_varsayilan_saglayici_secilir(monkeypatch):
     assert isinstance(build_provider(""), ApiMarketProvider)
 
     monkeypatch.setattr(settings, "market_data_provider", "simulated")
-    assert isinstance(build_provider(""), SimulatedMarketProvider)
+    with pytest.raises(ValueError, match="yalnizca 'api'"):
+        build_provider("")
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +168,7 @@ async def test_turetilmis_varligin_kur_istegi_de_sayilir(monkeypatch):
     """GRAM_ALTIN icin GC=F'nin YANI SIRA USDTRY=X de cekilir: 2 istek."""
     _yahoo_taklit(monkeypatch, fiyatlar={"GRAM_ALTIN": 6864.63})
     depo = SahteKotaDeposu()
-    varliklar = [
-        {"asset_id": 7, "symbol": "GRAM_ALTIN", "current_price": 6800.0, "sim_volatility": 0.008}
-    ]
+    varliklar = [{"asset_id": 7, "symbol": "GRAM_ALTIN", "current_price": 6800.0}]
 
     await ApiMarketProvider(kota_deposu=depo).next_prices(varliklar)
 
@@ -226,9 +188,7 @@ async def test_hata_durumunda_da_gercek_istek_sayisi_islenir(monkeypatch):
 async def test_desteklenmeyen_varlik_yahoo_ya_sorulmaz(monkeypatch):
     """Yahoo'da karsiligi olmayan sembol (orn. tahvil) istege dahil edilmez."""
     cagrilar = _yahoo_taklit(monkeypatch, fiyatlar={"THYAO": 301.25})
-    varliklar = VARLIKLAR + [
-        {"asset_id": 99, "symbol": "TR10Y", "current_price": 100.0, "sim_volatility": 0.002}
-    ]
+    varliklar = VARLIKLAR + [{"asset_id": 99, "symbol": "TR10Y", "current_price": 100.0}]
 
     await ApiMarketProvider(kota_deposu=SahteKotaDeposu()).next_prices(varliklar)
 
@@ -237,9 +197,7 @@ async def test_desteklenmeyen_varlik_yahoo_ya_sorulmaz(monkeypatch):
 
 async def test_hicbir_varlik_desteklenmiyorsa_son_fiyatlar_korunur(monkeypatch):
     cagrilar = _yahoo_taklit(monkeypatch, fiyatlar={})
-    varliklar = [
-        {"asset_id": 99, "symbol": "TR10Y", "current_price": 100.0, "sim_volatility": 0.002}
-    ]
+    varliklar = [{"asset_id": 99, "symbol": "TR10Y", "current_price": 100.0}]
 
     saglayici = ApiMarketProvider(kota_deposu=SahteKotaDeposu())
     sonuc = await saglayici.next_prices(varliklar)
@@ -324,45 +282,6 @@ async def test_fiyat_tick_i_gunluk_degisimi_yeniden_hesaplar():
         await price_tick(SahteApiSaglayici(carpan=1.03), write_live=False)
 
         assert (await repository.get_quote("BTC"))["daily_change_pct"] != onceki
-
-
-# ---------------------------------------------------------------------------
-# Simule fiyat veritabanina YAZILMAZ
-#
-# `ApiMarketProvider` artik yedege dusmuyor (veri yoksa bos liste doner).
-# Asagidaki testler GERIYE KALAN yolu kapatir: `MARKET_DATA_PROVIDER=simulated`
-# bilerek secildiginde bile simule fiyat veritabanina girmemeli.
-#
-# Herkes ayni Supabase'e bagli oldugu icin tek bir gelistiricinin `.env`'inde
-# `simulated` yazmasi ortak tarihceyi kirletmeye yetiyor: 20 Agustos 2026'da
-# `price_history`'ye tek gunde 3.616 sahte satir boyle girdi.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.db
-async def test_simule_tick_veritabanina_hic_yazmaz():
-    """Simulatorle yapilan tick `assets`'e bile dokunmamali."""
-    async with _fiyatlari_koru():
-        from sqlalchemy import text
-
-        from app.db.session import get_session_factory
-        from app.repositories.deps import get_market_repository
-
-        async with get_session_factory()() as oturum:
-            await oturum.execute(text("DELETE FROM live_prices"))
-            await oturum.commit()
-
-        repository = get_market_repository()
-        onceki = (await repository.get_quote("THYAO"))["price"]
-
-        sayi = await price_tick(SimulatedMarketProvider(seed=11), write_live=True)
-
-        assert sayi == 0, "simule tick yazilmis sayilmamali"
-        assert (await repository.get_quote("THYAO"))["price"] == onceki, "fiyat degismemeli"
-
-        async with get_session_factory()() as oturum:
-            canli = (await oturum.execute(text("SELECT count(*) FROM live_prices"))).scalar_one()
-        assert canli == 0, "live_prices'a da yazilmamali"
 
 
 @pytest.mark.db

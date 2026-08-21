@@ -116,11 +116,33 @@ async def performans_getir(
                 temiz_satirlar = []
         temiz_satirlar.append(row)
 
+    benchmark_start = next(
+        (
+            row
+            for row in temiz_satirlar
+            if row.get("bist100_price") is not None and float(row["bist100_price"]) > 0
+        ),
+        None,
+    )
+    benchmark_baseline = (
+        float(benchmark_start["bist100_price"]) if benchmark_start is not None else None
+    )
+    portfolio_baseline = (
+        _f(benchmark_start["total_value_try"]) if benchmark_start is not None else 0
+    )
+
     return PortfolioPerformanceResponse(
         points=[
             PortfolioPerformancePoint(
                 ts=_iso_timestamp(row["ts"]),
                 total_value_try=_f(row["total_value_try"]),
+                bist100_value_try=(
+                    round(portfolio_baseline * float(row["bist100_price"]) / benchmark_baseline, 2)
+                    if benchmark_baseline
+                    and row.get("bist100_price") is not None
+                    and float(row["bist100_price"]) > 0
+                    else None
+                ),
             )
             for row in temiz_satirlar
         ],

@@ -21,18 +21,14 @@ logger = logging.getLogger(__name__)
 
 #: Veritabanina YAZILMASINA izin verilen fiyat kaynaklari.
 #:
-#: `ApiMarketProvider` artik yedege dusmuyor; veri yoksa bos liste donuyor.
-#: Bu liste GERIYE KALAN yolu kapatir: `MARKET_DATA_PROVIDER=simulated`
-#: BILEREK secildiginde bile simule fiyat veritabanina girmez.
+#: `ApiMarketProvider` veri yoksa bos liste dondurur. Bu beyaz liste yeni bir
+#: saglayici eklendiginde yazma izninin ACIKCA verilmesini zorunlu kilar.
 #:
 #: NEDEN GEREKLI: herkes ayni Supabase'e bagli. Tek bir gelistiricinin
 #: `.env`'inde `simulated` yazmasi ortak tarihceyi kirletmeye yetiyor -
 #: 20 Agustos 2026'da `price_history`'ye tek gunde 3.616 sahte satir boyle
 #: girdi. Kullaniciya taze SAHTE fiyat gostermek, bayat GERCEK fiyat
 #: gostermekten daha kotudur.
-#:
-#: Simulator KALDIRILMADI: testler ve agsiz gelistirme icin duruyor,
-#: yalnizca urettigi fiyat kaydedilmiyor.
 #:
 #: Beyaz liste (kara liste degil) bilincli: yeni bir saglayici eklenirse
 #: yazma izni ACIKCA verilmelidir, yanlislikla degil.
@@ -51,14 +47,14 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
     `assets.current_price` bile guncellenmez - ve `0` doner.
     """
     repository = get_market_repository()
-    assets = await repository.get_prices_for_simulation()
+    assets = await repository.get_assets_for_price_update()
     if not assets:
         return 0
 
     updates = await provider.next_prices(assets)
 
-    # API veri uretemediyse `updates` bostur ve kaynak "unavailable" olur.
-    # Acik simulator modunda kaynak "simulated"dir - ikisi de yazilamaz.
+    # API veri uretemediyse `updates` bostur ve repository mevcut fiyatlara
+    # dokunmaz.
     kaynak = getattr(provider, "son_kaynak", provider.name)
 
     if kaynak not in YAZILABILIR_KAYNAKLAR:

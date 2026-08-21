@@ -70,27 +70,23 @@ class MarketRepository(Protocol):
         """Zaman serisi: `[{"ts": ..., "price": ...}, ...]` (eskiden yeniye)."""
         ...
 
-    async def get_prices_for_simulation(self) -> list[dict]:
-        """Fiyat gorevinin ihtiyaci: id, symbol, current_price, sim_volatility."""
+    async def get_assets_for_price_update(self) -> list[dict]:
+        """Gercek fiyat gorevinin ihtiyaci: id, symbol ve mevcut fiyat."""
         ...
 
-    async def apply_price_updates(
-        self, updates: list[dict], write_live: bool, source: str = "simulated"
-    ) -> int:
-        """Uretilen fiyatlari yazar.
+    async def apply_price_updates(self, updates: list[dict], write_live: bool, source: str) -> int:
+        """Dogrulanmis fiyatlari yazar.
 
         `updates`: `{asset_id, price, previous_close?}` kayitlari. Gercek veri
-        saglayicisi onceki piyasa kapanisini iletir; simulator bu alani atlar.
+        saglayicisi onceki piyasa kapanisini iletebilir.
 
         `assets` her cagirmada guncellenir. `write_live` True ise ayrica
         `live_prices` tablosuna GUN ICI bir satir eklenir - `price_history`'ye
         DEGIL. Gecmis tabloya yalnizca gun kapanisi yazilir
         (bkz. `close_out_day`).
 
-        `source` yazilan satirin kaynagini belirtir ve GERCEKTEN kullanilan
-        kaynak olmalidir ("api" | "simulated"). Gercek veri "simulated"
-        etiketlenirse ileride hangi satirin guvenilir oldugu ayirt edilemez;
-        tersi ise sahte veriyi gercek gostermek olur.
+        `source` yazilan satirin gercek kaynagini belirtir. Calisma zamaninda
+        sentetik fiyat kabul edilmez.
         """
         ...
 

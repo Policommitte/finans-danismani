@@ -1,17 +1,19 @@
 "use client";
 
-import { MarketInsightList } from "../../components/dashboard/MarketInsightList";
+import { useState } from "react";
 import { SummaryCards } from "../../components/dashboard/SummaryCards";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { AssetTable } from "../../components/portfolio/AssetTable";
-import { PortfolioVisualization } from "../../components/portfolio/PortfolioVisualization";
-import { TransactionList } from "../../components/portfolio/TransactionList";
+import {
+  PortfolioVisualization,
+  type PortfolioViewMode,
+} from "../../components/portfolio/PortfolioVisualization";
 import { RecommendationList } from "../../components/risk/RecommendationList";
 import { RiskScoreCard } from "../../components/risk/RiskScoreCard";
 import { useAuth } from "../../hooks/useAuth";
 import { useDashboard } from "../../hooks/useDashboard";
-import { usePortfolioPerformance, usePortfolioTransactions } from "../../hooks/usePortfolio";
+import { usePortfolioPerformance } from "../../hooks/usePortfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
@@ -24,10 +26,10 @@ const RISK_LEVEL_LABEL: Record<string, string> = {
 
 export default function DashboardPage() {
   const { language } = useLanguage();
+  const [portfolioViewMode, setPortfolioViewMode] = useState<PortfolioViewMode>("line");
   const auth = useAuth();
   const dashboard = useDashboard();
   const performance = usePortfolioPerformance(24);
-  const transactions = usePortfolioTransactions(20);
 
   if (dashboard.loading) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
@@ -64,42 +66,32 @@ export default function DashboardPage() {
         </h1>
         <p className="mt-1 text-sm app-muted">
           {language === "tr" ? (
-            <>Risk skorun <span className="font-medium">{levelWord}</span> bölgede. Varlıkların, dağılımın ve son işlemlerin tek ekranda izleniyor.</>
+            <>Risk skorun <span className="font-medium">{levelWord}</span> bölgede. Varlıkların, dağılımın ve performansın tek ekranda izleniyor.</>
           ) : (
-            <>Your risk score is in the <span className="font-medium">{englishLevelLabels[levelKey] ?? levelKey}</span> range. Your assets, allocation and recent transactions are shown in one view.</>
+            <>Your risk score is in the <span className="font-medium">{englishLevelLabels[levelKey] ?? levelKey}</span> range. Your assets, allocation and performance are shown in one view.</>
           )}
         </p>
       </div>
 
       <SummaryCards data={data} />
 
-      <div className="grid items-stretch gap-6 xl:grid-cols-[1.25fr_.75fr]">
+      <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
         <PortfolioVisualization
           holdings={data.holdings}
           performancePoints={performance.data?.points ?? []}
           performanceLoading={performance.loading}
           performanceError={performance.error}
+          mode={portfolioViewMode}
+          onModeChange={setPortfolioViewMode}
         />
-        <AssetTable items={data.holdings} />
+        <div className="portfolio-assets-panel min-w-0">
+          <AssetTable items={data.holdings} />
+        </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
         <RiskScoreCard risk={data.risk} />
         <RecommendationList risk={data.risk} />
-      </div>
-
-      <div className="grid items-start gap-6 xl:grid-cols-2">
-        {transactions.loading ? (
-          <LoadingState label={language === "tr" ? "İşlem geçmişi yükleniyor" : "Loading transaction history"} />
-        ) : transactions.error || !transactions.data ? (
-          <ErrorState
-            message={transactions.error ?? (language === "tr" ? "İşlem geçmişi boş döndü." : "Transaction history is empty.")}
-            onRetry={transactions.refetch}
-          />
-        ) : (
-          <TransactionList items={transactions.data.items} />
-        )}
-        <MarketInsightList movers={data.movers} />
       </div>
     </div>
   );

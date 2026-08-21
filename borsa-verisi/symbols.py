@@ -68,6 +68,8 @@ class VarlikEslesme:
 #: tercih edildi. Bagli portfoy/islem/alarm/izleme kaydi olmadigi dogrulanarak
 #: silindi. Tahvil verisi ileride ayri bir kaynaktan ele alinabilir.
 ESLESMELER: tuple[VarlikEslesme, ...] = (
+    # --- Endeksler ---------------------------------------------------------
+    VarlikEslesme("BIST100", "INDEX", "^XU100", aciklama="BIST 100 Endeksi"),
     # --- BIST hisseleri: Yahoo'da ".IS" eki ile ---------------------------
     VarlikEslesme("THYAO", "STOCK", "THYAO.IS", aciklama="Turk Hava Yollari"),
     VarlikEslesme("GARAN", "STOCK", "GARAN.IS", aciklama="Garanti BBVA"),
@@ -107,7 +109,7 @@ ESLESMELER: tuple[VarlikEslesme, ...] = (
 
 #: `--kategori` verilmediginde toplanan gruplar. Kripto disarida: gorevde
 #: istenen kume hisse + altin + doviz + ABD hissesidir.
-VARSAYILAN_KATEGORILER: tuple[str, ...] = ("STOCK", "FOREX", "GOLD", "USA_STOCK")
+VARSAYILAN_KATEGORILER: tuple[str, ...] = ("INDEX", "STOCK", "FOREX", "GOLD", "USA_STOCK")
 
 #: Yahoo'da guvenilir karsiligi olmadigi icin hic eslenmemis DB sembolleri.
 #: Raporda "atlandi" olarak gosterilir ki eksik veri sessizce kaybolmasin.

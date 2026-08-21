@@ -237,7 +237,8 @@ class SqlPortfolioRepository(_SqlRepository):
                        p.quantity
                        * COALESCE(h.price, p.current_price)
                        * p.try_rate
-                   ) AS total_value_try
+                   ) AS total_value_try,
+                   MAX(b.price) AS bist100_price
             FROM timeline t
             CROSS JOIN positions p
             LEFT JOIN LATERAL (
@@ -248,6 +249,15 @@ class SqlPortfolioRepository(_SqlRepository):
                 ORDER BY ap.ts DESC
                 LIMIT 1
             ) h ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ap.price
+                FROM all_prices ap
+                JOIN assets benchmark ON benchmark.id = ap.asset_id
+                WHERE upper(benchmark.symbol) = 'BIST100'
+                  AND ap.ts <= t.ts
+                ORDER BY ap.ts DESC
+                LIMIT 1
+            ) b ON TRUE
             GROUP BY t.ts
             ORDER BY t.ts
             """,
@@ -301,17 +311,15 @@ class SqlMarketRepository(_SqlRepository):
             {"symbol": symbol, "days": days},
         )
 
-    async def get_prices_for_simulation(self) -> list[dict]:
+    async def get_assets_for_price_update(self) -> list[dict]:
         return await self._rows(
             """
-            SELECT id AS asset_id, symbol, current_price, sim_volatility
+            SELECT id AS asset_id, symbol, current_price
             FROM assets ORDER BY id
             """
         )
 
-    async def apply_price_updates(
-        self, updates: list[dict], write_live: bool, source: str = "simulated"
-    ) -> int:
+    async def apply_price_updates(self, updates: list[dict], write_live: bool, source: str) -> int:
         """Fiyatlari gunceller; istenirse `live_prices`'a gun ici satir yazar.
 
         GECMIS TABLOSUNA (`price_history`) BURADAN YAZILMAZ. 15 dakikalik
@@ -329,13 +337,13 @@ class SqlMarketRepository(_SqlRepository):
         halde seed degerinde donar ve dashboard hep ayni yuzdeyi gosterir
         (mimari v4 bolum 8.2).
 
-        `source` cagiran tarafindan verilir ve GERCEKTEN kullanilan kaynagi
-        belirtir: saglayici Yahoo'ya ulasamayip simulatore dustuyse "api"
-        DEGIL "simulated" yazilir (bkz. `ApiMarketProvider.son_kaynak`).
-        Etiket `live_prices` uzerinden gun sonunda `price_history`'ye tasinir.
+        `source` cagiran tarafindan verilir ve gercek kaynagi belirtir. Etiket
+        `live_prices` uzerinden gun sonunda `price_history`'ye tasinir.
         """
         if not updates:
             return 0
+        if source != "api":
+            raise ValueError("yalnizca dogrulanmis 'api' fiyatlari yazilabilir")
 
         async with self._session_factory() as session:
             await session.execute(

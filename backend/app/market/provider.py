@@ -1,10 +1,7 @@
 """Piyasa verisi saglayicilari (mimari v4 bolum 8).
 
-SIMULATOR POLITIKASI:
-    Simulator yalnizca `MARKET_DATA_PROVIDER=simulated` acikca secildiginde
-    calisir. API modunda Yahoo kullanilamazsa fiyat uretilmez ve veritabaninda
-    bulunan son dogrulanmis fiyat korunur. Boylece portfoy degeri sahte bir
-    fiyatla sessizce degismez.
+Yahoo kullanilamazsa fiyat uretilmez ve veritabaninda bulunan son dogrulanmis
+fiyat korunur. Calisma zamaninda sentetik fiyat ureten bir saglayici yoktur.
 
 Ajanlar ve MCP tool'lari hangi implementasyonun calistigini BILMEZ; ikisi de
 `assets` tablosunu okur.
@@ -13,7 +10,6 @@ Ajanlar ve MCP tool'lari hangi implementasyonun calistigini BILMEZ; ikisi de
 from __future__ import annotations
 
 import logging
-import random
 from abc import ABC, abstractmethod
 
 from app.config import settings
@@ -31,7 +27,7 @@ class MarketDataProvider(ABC):
         """Bir sonraki fiyat kumesini uretir.
 
         Args:
-            assets: `{asset_id, symbol, current_price, sim_volatility}` kayitlari.
+            assets: `{asset_id, symbol, current_price}` kayitlari.
 
         Returns:
             `{asset_id, price, previous_close?}` kayitlari. Gercek saglayici
@@ -39,36 +35,6 @@ class MarketDataProvider(ABC):
             listeye EKLENMEZ (eski fiyat korunur).
         """
         ...
-
-
-class SimulatedMarketProvider(MarketDataProvider):
-    """Rastgele yuruyus simulatoru.
-
-    SABIT SEED kullanir: prova edilen demo senaryosu sunumda birebir ayni
-    cikar. Seed `MARKET_SIM_SEED` ile degistirilebilir.
-
-    Fiyat asla sifirin altina inmez ve tek adimda baz fiyatin %20'sinden fazla
-    sapmaz - grafik gercekci kalir.
-    """
-
-    name = "simulated"
-
-    def __init__(self, seed: int | None = None) -> None:
-        self._random = random.Random(seed if seed is not None else settings.market_sim_seed)
-
-    async def next_prices(self, assets: list[dict]) -> list[dict]:
-        updates: list[dict] = []
-        for asset in assets:
-            fiyat = float(asset.get("current_price") or 0)
-            if fiyat <= 0:
-                continue
-
-            oynaklik = float(asset.get("sim_volatility") or 0.015)
-            adim = self._random.gauss(0, oynaklik)
-            yeni = fiyat * (1 + max(-0.2, min(adim, 0.2)))
-            updates.append({"asset_id": asset["asset_id"], "price": round(max(yeni, 0.0001), 4)})
-
-        return updates
 
 
 class ApiMarketProvider(MarketDataProvider):
@@ -201,9 +167,12 @@ class ApiMarketProvider(MarketDataProvider):
 
 
 def build_provider(name: str | None = None) -> MarketDataProvider:
-    """`MARKET_DATA_PROVIDER` ayarina gore saglayici uretir."""
-    secim = (name or settings.market_data_provider or "simulated").lower()
+    """Yalnizca gercek API saglayicisini uretir.
 
-    if secim in ("api", "hybrid"):
-        return ApiMarketProvider()
-    return SimulatedMarketProvider()
+    Eski bir ortam dosyasinda `simulated` kalmissa sessizce baska davranisa
+    dusmek yerine acik bir yapilandirma hatasi verilir.
+    """
+    secim = (name or settings.market_data_provider or "api").strip().lower()
+    if secim != "api":
+        raise ValueError("MARKET_DATA_PROVIDER yalnizca 'api' olabilir")
+    return ApiMarketProvider()

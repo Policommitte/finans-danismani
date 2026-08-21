@@ -1,5 +1,6 @@
 import type { DashboardSummaryResponse } from "../../models/dashboard";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { getRiskTone } from "../risk/riskTone";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
   dusuk: "Düşük risk bandında",
@@ -7,14 +8,6 @@ const RISK_LEVEL_LABEL: Record<string, string> = {
   yuksek: "Yüksek risk bandında",
   "cok yuksek": "Çok yüksek risk bandında",
   hesaplanamadi: "Risk hesaplanamadı",
-};
-
-const RISK_LEVEL_COLOR: Record<string, { chipClass: string; arc: string }> = {
-  dusuk: { chipClass: "app-success", arc: "var(--color-success)" },
-  orta: { chipClass: "text-[var(--color-warning-text)]", arc: "var(--color-warning-text)" },
-  yuksek: { chipClass: "app-danger", arc: "var(--color-danger)" },
-  "cok yuksek": { chipClass: "app-danger", arc: "var(--color-danger)" },
-  hesaplanamadi: { chipClass: "app-muted", arc: "var(--color-muted)" },
 };
 
 function polar(cx: number, cy: number, r: number, angleDeg: number) {
@@ -68,7 +61,7 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
   const levelLabel = language === "tr"
     ? RISK_LEVEL_LABEL[levelKey] ?? data.risk.risk_level
     : englishRiskLabels[levelKey] ?? data.risk.risk_level;
-  const levelColor = RISK_LEVEL_COLOR[levelKey] ?? RISK_LEVEL_COLOR.hesaplanamadi;
+  const levelColor = getRiskTone(levelKey);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -133,9 +126,9 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
           {data.risk.risk_score}
           <span className="text-sm font-normal app-muted">/100</span>
         </div>
-        <span className={`mt-3 inline-flex items-center text-sm font-semibold ${levelColor.chipClass}`}>{levelLabel}</span>
+        <span className={`mt-3 inline-flex items-center text-sm font-semibold ${levelColor.textClass}`}>{levelLabel}</span>
         <div className="absolute right-4 top-4 h-16 w-24">
-          <RiskGauge score={data.risk.risk_score} color={levelColor.arc} />
+          <RiskGauge score={data.risk.risk_score} color={levelColor.color} />
         </div>
       </div>
     </div>
