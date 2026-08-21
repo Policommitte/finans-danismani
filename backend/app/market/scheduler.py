@@ -29,8 +29,8 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
 
     updates = await provider.next_prices(assets)
 
-    # Saglayici yedege dusmus olabilir (kota/ag hatasi); bu durumda kaynak
-    # "api" DEGIL "simulated"dir. `son_kaynak` yoksa saglayici adi kullanilir.
+    # API veri uretemediyse `updates` bostur ve repository mevcut fiyatlara
+    # dokunmaz. Acik simulator modunda kaynak "simulated" olarak yazilir.
     kaynak = getattr(provider, "son_kaynak", provider.name)
 
     return await repository.apply_price_updates(updates, write_live=write_live, source=kaynak)

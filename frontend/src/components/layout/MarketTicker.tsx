@@ -7,15 +7,6 @@ import type { PublicMarketTickerItem } from "../../models/market";
 import { getPublicMarketTicker } from "../../services/marketService";
 import { ThemeToggle } from "../ui/ThemeToggle";
 
-const fallbackTickerItems: PublicMarketTickerItem[] = [
-  { symbol: "BIST100", label: "BIST 100", value: 10842.36, currency: "TRY", change_percent: 0.84, source: "fallback" },
-  { symbol: "USDTRY", label: "USD/TRY", value: 42.18, currency: "TRY", change_percent: 0.12, source: "fallback" },
-  { symbol: "EURTRY", label: "EUR/TRY", value: 45.62, currency: "TRY", change_percent: -0.2, source: "fallback" },
-  { symbol: "XAUTRY", label: "Gram Altın", value: 3918, currency: "TRY", change_percent: 1.24, source: "fallback" },
-  { symbol: "BTC", label: "BTC", value: 2184306, currency: "TRY", change_percent: 2.1, source: "fallback" },
-  { symbol: "THYAO", label: "THYAO", value: 312.5, currency: "TRY", change_percent: 1.16, source: "fallback" },
-];
-
 let cachedTickerItems: PublicMarketTickerItem[] = [];
 
 function formatValue(item: PublicMarketTickerItem, language: "tr" | "en"): string {
@@ -45,17 +36,14 @@ export function MarketTicker({
       try {
         const response = await getPublicMarketTicker();
         if (active) {
-          const nextItems = response.items.length > 0 ? response.items : fallbackTickerItems;
-          cachedTickerItems = nextItems;
-          setItems(nextItems);
+          if (response.items.length > 0) {
+            cachedTickerItems = response.items;
+            setItems(response.items);
+          }
         }
       } catch {
         if (active) {
-          setItems((current) => {
-            const nextItems = current.length > 0 ? current : fallbackTickerItems;
-            cachedTickerItems = nextItems;
-            return nextItems;
-          });
+          setItems((current) => current);
         }
       }
     }

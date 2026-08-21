@@ -81,7 +81,7 @@ TURETILMIS_GRAM_TRY: dict[str, str] = {
 }
 
 #: Yahoo cagrisi icin DIS ust sinir. Ag takilirsa fiyat gorevi sonsuza kadar
-#: beklememelidir; saglayici bu surenin sonunda yedege duser.
+#: beklememelidir; saglayici bu surenin sonunda son dogrulanmis fiyati korur.
 ISTEK_TIMEOUT_SANIYE = 30
 
 #: yfinance'e GECIRILEN istek basina timeout.

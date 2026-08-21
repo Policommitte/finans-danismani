@@ -1,11 +1,10 @@
 """Piyasa verisi saglayicilari (mimari v4 bolum 8).
 
-NEDEN SIMULATOR VARSAYILAN?
-    BIST verisi ucretsiz kaynaklarda zaten 15 dk gecikmeli, yani "anlik" degil.
-    Ucretsiz katmanlar ayda ~500 cagriya izin verir; dakikada bir guncelleme
-    ayda ~43.000 cagri eder - kotanin ~80 kati. Cozum: API gunde 2-3 kez CAPA
-    atar, simulator arayi doldurur. API cokerse veya kota biterse sistem
-    simulatorle devam eder; demo gunu risk sifirlanir.
+SIMULATOR POLITIKASI:
+    Simulator yalnizca `MARKET_DATA_PROVIDER=simulated` acikca secildiginde
+    calisir. API modunda Yahoo kullanilamazsa fiyat uretilmez ve veritabaninda
+    bulunan son dogrulanmis fiyat korunur. Boylece portfoy degeri sahte bir
+    fiyatla sessizce degismez.
 
 Ajanlar ve MCP tool'lari hangi implementasyonun calistigini BILMEZ; ikisi de
 `assets` tablosunu okur.
@@ -81,9 +80,8 @@ class ApiMarketProvider(MarketDataProvider):
     cekilen TICKER SAYISI islenir; aksi halde `market_api_usage` gercegin
     ~16'da birini gosterir ve `MARKET_API_DAILY_QUOTA` tavani hic tetiklenmez.
 
-    YEDEGE DUSME (fail-safe): Asagidaki durumlarda simulatore dusulur ve bu
-    GIZLENMEZ - `son_kaynak` "simulated" olur, boylece `price_history`'ye
-    yanlislikla "api" etiketi yazilmaz:
+    VERI YOK POLITIKASI: Asagidaki durumlarda bos guncelleme doner; `assets`
+    ve portfoy degerleri son dogrulanmis fiyatlarda kalir:
       * Gunluk kota (`MARKET_API_DAILY_QUOTA`) dolduysa,
       * Yahoo zaman asimina ugrar veya hata verirse,
       * Hicbir sembol icin fiyat donmezse.
@@ -96,17 +94,14 @@ class ApiMarketProvider(MarketDataProvider):
 
     def __init__(
         self,
-        fallback: MarketDataProvider | None = None,
         kota_deposu=None,
     ) -> None:
         """
         Args:
-            fallback: Yahoo kullanilamadiginda devreye giren saglayici.
             kota_deposu: `get_api_usage_today` / `record_api_usage` sunan
                 depo. `None` ise calisma aninda `get_market_repository()`
                 kullanilir (testte enjekte edilebilsin diye parametre var).
         """
-        self._fallback = fallback or SimulatedMarketProvider()
         self._kota_deposu = kota_deposu
         #: Son `next_prices` cagrisinda GERCEKTEN kullanilan kaynak.
         #: `price_history.source` bu degerden yazilir.
@@ -133,7 +128,7 @@ class ApiMarketProvider(MarketDataProvider):
 
         if kullanilan >= tavan:
             logger.warning(
-                "gunluk api kotasi doldu, simulatore dusuluyor",
+                "gunluk api kotasi doldu, son fiyatlar korunuyor",
                 extra={"kullanilan": kullanilan, "tavan": tavan},
             )
             return True
@@ -150,18 +145,10 @@ class ApiMarketProvider(MarketDataProvider):
         except Exception:  # noqa: BLE001 - denetim kaydi asil isi dusurmemeli
             logger.exception("api kullanim sayaci yazilamadi")
 
-    async def _yedege_dus(self, assets: list[dict]) -> list[dict]:
-        """Simulatore duser - TUM varliklar icin fiyat uretir.
-
-        BILINCLI FARK: basarili yolda yalnizca Yahoo'da karsiligi olan
-        varliklar guncellenir, burada ise hepsi. Yahoo eslemesi olmayan bir
-        varlik (orn. tahvil) aksi halde api modunda SONSUZA KADAR ayni fiyatta
-        donar ve grafigi duz cizgi olur. Uretilen fiyat "gercek" gibi
-        gosterilmez: `son_kaynak` "simulated" olur ve `price_history.source`
-        oyle yazilir.
-        """
-        self.son_kaynak = self._fallback.name
-        return await self._fallback.next_prices(assets)
+    async def _veri_yok(self) -> list[dict]:
+        """API fiyat uretemediyse mevcut dogrulanmis fiyatlari korur."""
+        self.son_kaynak = "unavailable"
+        return []
 
     async def next_prices(self, assets: list[dict]) -> list[dict]:
         from app.market import yahoo
@@ -169,13 +156,13 @@ class ApiMarketProvider(MarketDataProvider):
         self.son_kaynak = self.name
 
         if await self._kota_doldu_mu():
-            return await self._yedege_dus(assets)
+            return await self._veri_yok()
 
         # Yahoo'da karsiligi olmayan varliklar (orn. tahvil) hic istenmez.
         istenen = [a for a in assets if a.get("symbol") in yahoo.desteklenen_semboller()]
         if not istenen:
-            logger.warning("yahoo'da karsiligi olan varlik yok, simulatore dusuluyor")
-            return await self._yedege_dus(assets)
+            logger.warning("yahoo'da karsiligi olan varlik yok, fiyatlar korunuyor")
+            return await self._veri_yok()
 
         semboller = [a["symbol"] for a in istenen]
 
@@ -187,18 +174,18 @@ class ApiMarketProvider(MarketDataProvider):
             kotasyonlar = await yahoo.canli_kotasyonlar(semboller)
         except Exception as exc:  # noqa: BLE001 - ag hatasi gorevi durdurmamali
             logger.warning(
-                "yahoo canli fiyat alinamadi, simulatore dusuluyor: %s: %s",
+                "yahoo canli fiyat alinamadi, son fiyatlar korunuyor: %s: %s",
                 type(exc).__name__,
                 exc,
             )
             await self._kotayi_isle(cagri_sayisi)
-            return await self._yedege_dus(assets)
+            return await self._veri_yok()
 
         await self._kotayi_isle(cagri_sayisi)
 
         if not kotasyonlar:
-            logger.warning("yahoo bos sonuc dondurdu, simulatore dusuluyor")
-            return await self._yedege_dus(assets)
+            logger.warning("yahoo bos sonuc dondurdu, son fiyatlar korunuyor")
+            return await self._veri_yok()
 
         # Fiyati alinamayan varlik listeye EKLENMEZ; eski fiyati korunur.
         updates: list[dict] = []

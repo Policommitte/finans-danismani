@@ -215,12 +215,22 @@ class SqlPortfolioRepository(_SqlRepository):
                 JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
                 JOIN assets a ON a.id = pa.asset_id
                 JOIN v_fx_rates fx ON fx.currency = a.currency
-            ), timeline AS (
-                SELECT DISTINCT date_trunc('minute', ph.ts) AS ts
+            ), all_prices AS (
+                SELECT ph.asset_id, ph.ts, ph.price
                 FROM price_history ph
-                JOIN positions p ON p.asset_id = ph.asset_id
                 WHERE ph.ts >= now() - make_interval(hours => :hours)
+                  AND ph.ts >= :valid_from
                   AND ph.source <> 'simulated'
+                UNION ALL
+                SELECT lp.asset_id, lp.created_at AS ts, lp.price
+                FROM live_prices lp
+                WHERE lp.created_at >= now() - make_interval(hours => :hours)
+                  AND lp.created_at >= :valid_from
+                  AND lp.source <> 'simulated'
+            ), timeline AS (
+                SELECT DISTINCT ap.ts
+                FROM all_prices ap
+                JOIN positions p ON p.asset_id = ap.asset_id
             )
             SELECT t.ts,
                    SUM(
@@ -231,18 +241,22 @@ class SqlPortfolioRepository(_SqlRepository):
             FROM timeline t
             CROSS JOIN positions p
             LEFT JOIN LATERAL (
-                SELECT ph.price
-                FROM price_history ph
-                WHERE ph.asset_id = p.asset_id
-                  AND ph.ts <= t.ts
-                  AND ph.source <> 'simulated'
-                ORDER BY ph.ts DESC
+                SELECT ap.price
+                FROM all_prices ap
+                WHERE ap.asset_id = p.asset_id
+                  AND ap.ts <= t.ts
+                ORDER BY ap.ts DESC
                 LIMIT 1
             ) h ON TRUE
             GROUP BY t.ts
             ORDER BY t.ts
             """,
-            {"user_id": user_id, "portfolio_id": portfolio_id, "hours": hours},
+            {
+                "user_id": user_id,
+                "portfolio_id": portfolio_id,
+                "hours": hours,
+                "valid_from": settings.portfolio_performance_valid_from,
+            },
         )
 
 

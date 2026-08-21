@@ -12,7 +12,6 @@ cevirme yapilir.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 
 from app.core.errors import NotFoundError
 from app.repositories.deps import get_portfolio_repository
@@ -119,43 +118,16 @@ async def performans_getir(
                 temiz_satirlar = []
         temiz_satirlar.append(row)
 
-    on_bes_dakikalik_satirlar = _on_bes_dakikalik_dilimlere_indir(temiz_satirlar)
-
     return PortfolioPerformanceResponse(
         points=[
             PortfolioPerformancePoint(
-                ts=str(row["ts"]),
+                ts=_iso_timestamp(row["ts"]),
                 total_value_try=_f(row["total_value_try"]),
             )
-            for row in on_bes_dakikalik_satirlar
+            for row in temiz_satirlar
         ],
         hours=hours,
     )
-
-
-def _on_bes_dakikalik_dilimlere_indir(rows: list[dict]) -> list[dict]:
-    """Her 15 dakikalik dilimdeki en son portfoy degerini dondurur."""
-    buckets: dict[str, dict] = {}
-
-    for row in rows:
-        raw_ts = row.get("ts")
-        if raw_ts is None:
-            continue
-
-        if isinstance(raw_ts, datetime):
-            timestamp = raw_ts
-        else:
-            timestamp = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
-
-        bucket_start = timestamp.replace(
-            minute=(timestamp.minute // 15) * 15,
-            second=0,
-            microsecond=0,
-        )
-        bucket_key = bucket_start.isoformat()
-        buckets[bucket_key] = {**row, "ts": bucket_key}
-
-    return [buckets[key] for key in sorted(buckets)]
 
 
 def _holding(row: dict) -> Holding:
@@ -180,6 +152,11 @@ def _holding(row: dict) -> Holding:
 def _f(value) -> float:
     """psycopg NUMERIC kolonlari `Decimal` doner; JSON'a cevrilmeden float'a alinir."""
     return round(float(value or 0), 2)
+
+
+def _iso_timestamp(value) -> str:
+    """DB datetime degerini tarayicilarin guvenle okuyacagi ISO bicimine getirir."""
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
 def _f_opt(value) -> float | None:

@@ -148,29 +148,29 @@ async def test_fiyati_alinamayan_varlik_atlanir(monkeypatch):
     assert sonuc == [{"asset_id": 1, "price": 301.25}]
 
 
-async def test_yahoo_hata_verirse_simulatore_dusulur(monkeypatch):
-    """KRITIK: ag hatasi fiyat gorevini durdurmamali."""
+async def test_yahoo_hata_verirse_son_fiyatlar_korunur(monkeypatch):
+    """KRITIK: ag hatasi portfoy fiyatlarini simule etmemeli."""
     _yahoo_taklit(monkeypatch, hata=TimeoutError("yahoo yanit vermedi"))
     saglayici = ApiMarketProvider(kota_deposu=SahteKotaDeposu())
 
     sonuc = await saglayici.next_prices(VARLIKLAR)
 
-    assert len(sonuc) == len(VARLIKLAR)
-    assert saglayici.son_kaynak == "simulated"
+    assert sonuc == []
+    assert saglayici.son_kaynak == "unavailable"
 
 
-async def test_yahoo_bos_dondururse_simulatore_dusulur(monkeypatch):
+async def test_yahoo_bos_dondururse_son_fiyatlar_korunur(monkeypatch):
     _yahoo_taklit(monkeypatch, fiyatlar={})
     saglayici = ApiMarketProvider(kota_deposu=SahteKotaDeposu())
 
     sonuc = await saglayici.next_prices(VARLIKLAR)
 
-    assert len(sonuc) == len(VARLIKLAR)
-    assert saglayici.son_kaynak == "simulated"
+    assert sonuc == []
+    assert saglayici.son_kaynak == "unavailable"
 
 
 async def test_kota_dolduysa_yahoo_hic_cagrilmaz(monkeypatch):
-    """Kota korumasi: tavan asildiysa istek ATILMAZ, simulatore dusulur."""
+    """Kota korumasi: tavan asildiysa istek ve simule fiyat uretilmez."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "market_api_daily_quota", 100)
@@ -180,8 +180,8 @@ async def test_kota_dolduysa_yahoo_hic_cagrilmaz(monkeypatch):
     sonuc = await saglayici.next_prices(VARLIKLAR)
 
     assert cagrilar == [], "kota dolduysa Yahoo'ya istek atilmamali"
-    assert saglayici.son_kaynak == "simulated"
-    assert len(sonuc) == len(VARLIKLAR)
+    assert saglayici.son_kaynak == "unavailable"
+    assert sonuc == []
 
 
 async def test_kota_sayacina_TICKER_SAYISI_islenir(monkeypatch):
@@ -234,7 +234,7 @@ async def test_desteklenmeyen_varlik_yahoo_ya_sorulmaz(monkeypatch):
     assert "TR10Y" not in cagrilar[0]
 
 
-async def test_hicbir_varlik_desteklenmiyorsa_simulatore_dusulur(monkeypatch):
+async def test_hicbir_varlik_desteklenmiyorsa_son_fiyatlar_korunur(monkeypatch):
     cagrilar = _yahoo_taklit(monkeypatch, fiyatlar={})
     varliklar = [
         {"asset_id": 99, "symbol": "TR10Y", "current_price": 100.0, "sim_volatility": 0.002}
@@ -244,8 +244,8 @@ async def test_hicbir_varlik_desteklenmiyorsa_simulatore_dusulur(monkeypatch):
     sonuc = await saglayici.next_prices(varliklar)
 
     assert cagrilar == []
-    assert saglayici.son_kaynak == "simulated"
-    assert len(sonuc) == 1
+    assert saglayici.son_kaynak == "unavailable"
+    assert sonuc == []
 
 
 async def test_bellek_ici_depo_kota_sayacini_gercekten_tutar():

@@ -36,30 +36,6 @@ function formatTime(value: string, language: "tr" | "en"): string {
   }).format(new Date(value));
 }
 
-function groupIntoFifteenMinuteBuckets(
-  points: PortfolioPerformancePoint[],
-): PortfolioPerformancePoint[] {
-  const intervalMs = 15 * 60 * 1000;
-  const buckets = new Map<number, PortfolioPerformancePoint>();
-
-  for (const point of points) {
-    const timestamp = new Date(point.ts).getTime();
-    if (Number.isNaN(timestamp)) {
-      continue;
-    }
-
-    const bucketStart = Math.floor(timestamp / intervalMs) * intervalMs;
-    buckets.set(bucketStart, {
-      ...point,
-      ts: new Date(bucketStart).toISOString(),
-    });
-  }
-
-  return [...buckets.entries()]
-    .sort(([left], [right]) => left - right)
-    .map(([, point]) => point);
-}
-
 function ViewToggle({
   mode,
   onChange,
@@ -121,7 +97,7 @@ export function PortfolioVisualization({
   });
   const [mode, setMode] = useState<ViewMode>("pie");
   const chartPoints = useMemo(
-    () => groupIntoFifteenMinuteBuckets(performancePoints),
+    () => performancePoints.filter((point) => !Number.isNaN(new Date(point.ts).getTime())),
     [performancePoints],
   );
   const totalValue = holdings.reduce((sum, item) => sum + item.market_value_try, 0);
