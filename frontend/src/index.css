@@ -3,8 +3,91 @@
 @tailwind utilities;
 
 :root {
-  color: #172033;
-  background: #f5f7fb;
+  --color-bg: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-elevated: #ffffff;
+  --color-text: #172033;
+  --color-heading: #020617;
+  --color-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-border-soft: #f1f5f9;
+  --color-primary: #1d4ed8;
+  --color-primary-hover: #1e40af;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #eff6ff;
+  --color-primary-soft-text: #1e40af;
+  --color-success: #047857;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
+  --color-danger-text: #991b1b;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-warning-text: #78350f;
+  --color-input-bg: #ffffff;
+  --color-chart-grid: #e2e8f0;
+  --color-market-bar: #020617;
+  --color-market-text: #ffffff;
+  --color-market-muted: #cbd5e1;
+  --color-accent: #0891b2;
+  --color-cta: #ea580c;
+  --color-cta-hover: #c2410c;
+  --color-on-primary-muted: #dbeafe;
+  --color-panel-dark: #172554;
+  --color-panel-dark-alt: #020617;
+  --color-overlay-strong: rgba(255, 255, 255, 0.15);
+  --color-overlay-soft: rgba(255, 255, 255, 0.1);
+  --color-chart-yellow: #eab308;
+  --color-chart-purple: #7c3aed;
+  --color-chart-cyan: #0891b2;
+  --logo-filter: none;
+  color: var(--color-text);
+  background: var(--color-bg);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --color-bg: #0f172a;
+  --color-surface: #111827;
+  --color-surface-muted: #1e293b;
+  --color-surface-elevated: #172033;
+  --color-text: #e5e7eb;
+  --color-heading: #f8fafc;
+  --color-muted: #94a3b8;
+  --color-border: #334155;
+  --color-border-soft: #263244;
+  --color-primary: #60a5fa;
+  --color-primary-hover: #3b82f6;
+  --color-on-primary: #0f172a;
+  --color-primary-soft: #172554;
+  --color-primary-soft-text: #bfdbfe;
+  --color-success: #34d399;
+  --color-danger: #f87171;
+  --color-danger-bg: #451a1a;
+  --color-danger-border: #7f1d1d;
+  --color-danger-text: #fecaca;
+  --color-warning-bg: #422006;
+  --color-warning-border: #92400e;
+  --color-warning-text: #fde68a;
+  --color-input-bg: #0f172a;
+  --color-chart-grid: #334155;
+  --color-market-bar: #020617;
+  --color-market-text: #ffffff;
+  --color-market-muted: #cbd5e1;
+  --color-accent: #67e8f9;
+  --color-cta: #ea580c;
+  --color-cta-hover: #f97316;
+  --color-on-primary-muted: #bfdbfe;
+  --color-panel-dark: #111827;
+  --color-panel-dark-alt: #0f172a;
+  --color-overlay-strong: rgba(255, 255, 255, 0.15);
+  --color-overlay-soft: rgba(255, 255, 255, 0.1);
+  --color-chart-yellow: #facc15;
+  --color-chart-purple: #a78bfa;
+  --color-chart-cyan: #22d3ee;
+  --logo-filter: invert(1) brightness(1.2);
+  color-scheme: dark;
 }
 
 * {
@@ -24,8 +107,217 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+@layer components {
+  .app-bg {
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  .app-surface {
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .app-card {
+    border-color: var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .app-card-muted {
+    background: var(--color-surface-muted);
+  }
+
+  .instagram-gradient {
+    background: radial-gradient(circle at 30% 110%, #fdf497 0 18%, #fd5949 38%, #d6249f 62%, #285aeb 100%);
+  }
+
+  .app-border {
+    border-color: var(--color-border);
+  }
+
+  .app-border-soft {
+    border-color: var(--color-border-soft);
+  }
+
+  .app-border-soft > :not([hidden]) ~ :not([hidden]) {
+    border-color: var(--color-border-soft);
+  }
+
+  .app-heading {
+    color: var(--color-heading);
+  }
+
+  .app-muted {
+    color: var(--color-muted);
+  }
+
+  .app-primary {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
+
+  .app-primary:hover {
+    background: var(--color-primary-hover);
+  }
+
+  .app-primary-text {
+    color: var(--color-primary);
+  }
+
+  .app-primary-soft {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-soft-text);
+  }
+
+  .app-subtle-hover:hover {
+    background: var(--color-surface-muted);
+  }
+
+  .app-input {
+    border-color: var(--color-border);
+    background: var(--color-input-bg);
+    color: var(--color-text);
+  }
+
+  .app-input::placeholder {
+    color: var(--color-muted);
+  }
+
+  .app-input:focus {
+    border-color: var(--color-primary);
+  }
+
+  .app-danger {
+    color: var(--color-danger);
+  }
+
+  .app-success {
+    color: var(--color-success);
+  }
+
+  .app-danger-box {
+    border-color: var(--color-danger-border);
+    background: var(--color-danger-bg);
+    color: var(--color-danger-text);
+  }
+
+  .app-warning-box {
+    border-color: var(--color-warning-border);
+    background: var(--color-warning-bg);
+    color: var(--color-warning-text);
+  }
+
+  .app-chart-grid {
+    stroke: var(--color-chart-grid);
+  }
+}
+
 button,
 input,
 textarea {
   font: inherit;
+}
+
+@keyframes ticker-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes chat-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chat-pop-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(22px) scale(0.94);
+    filter: blur(1px);
+  }
+}
+
+.ticker-track {
+  animation: ticker-marquee 28s linear infinite;
+}
+
+@keyframes network-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes network-flow {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes network-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+
+  50% {
+    transform: translate(-10px, 8px);
+  }
+}
+
+.network-node {
+  animation: network-pulse 3.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.network-line {
+  stroke-dasharray: 5 7;
+  animation: network-flow 6s linear infinite;
+}
+
+.network-drift {
+  animation: network-drift 14s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .network-node,
+  .network-line,
+  .network-drift {
+    animation: none;
+  }
+}
+
+.chat-pop-in {
+  animation: chat-pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: bottom right;
+}
+
+.chat-pop-out {
+  animation: chat-pop-out 150ms cubic-bezier(0.4, 0, 0.8, 0.2) both;
+  transform-origin: bottom right;
 }

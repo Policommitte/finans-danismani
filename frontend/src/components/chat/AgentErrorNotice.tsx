@@ -6,7 +6,7 @@ export function AgentErrorNotice({ errors }: { errors: AgentError[] }) {
   }
 
   return (
-    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+    <div className="mt-2 rounded-md border app-warning-box p-2 text-xs">
       {errors.map((error) => (
         <div key={`${error.agent}-${error.error_type}`}>
           {error.agent} ajani gecici olarak tamamlanamadi ({error.error_type}).

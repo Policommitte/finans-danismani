@@ -5,6 +5,8 @@ export type PortfolioSummary = {
   total_cost_try: number;
   total_pnl_try: number;
   total_pnl_pct: number | null;
+  daily_change_try: number;
+  daily_change_pct: number | null;
 };
 
 export type Holding = {
@@ -16,6 +18,8 @@ export type Holding = {
   average_buy_price: number;
   current_price: number;
   daily_change_pct: number | null;
+  daily_change_try: number;
+  daily_change_pct_try: number | null;
   market_value_try: number;
   cost_basis_try: number;
   pnl_try: number;
@@ -50,4 +54,14 @@ export type Transaction = {
 export type TransactionsResponse = {
   items: Transaction[];
   limit: number;
+};
+
+export type PortfolioPerformancePoint = {
+  ts: string;
+  total_value_try: number;
+};
+
+export type PortfolioPerformanceResponse = {
+  points: PortfolioPerformancePoint[];
+  hours: number;
 };

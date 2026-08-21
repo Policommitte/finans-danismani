@@ -46,3 +46,40 @@ export type MarketSearchResponse = {
   query: string;
   items: SearchHit[];
 };
+
+export type PublicMarketTickerItem = {
+  symbol: string;
+  label: string;
+  value: number;
+  currency: string;
+  change_percent: number | null;
+  source: string;
+};
+
+export type PublicMarketTickerResponse = {
+  items: PublicMarketTickerItem[];
+};
+
+export type PublicLandingAllocationItem = {
+  asset_class: string;
+  class_value_try: number;
+  class_pct: number;
+};
+
+export type PublicLandingHoldingItem = {
+  symbol: string;
+  asset_name: string;
+  asset_class: string;
+  current_price: number;
+  daily_change_pct: number | null;
+  market_value_try: number;
+  pnl_pct: number | null;
+};
+
+export type PublicLandingPreviewResponse = {
+  total_value_try: number;
+  total_pnl_pct: number | null;
+  holding_count: number;
+  allocation: PublicLandingAllocationItem[];
+  holdings: PublicLandingHoldingItem[];
+};

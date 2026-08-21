@@ -5,9 +5,13 @@ import Button from "../ui/Button";
 
 export function MessageInput({
   disabled,
+  placeholder = "Mesajınızı yazın",
+  buttonLabel = "Gönder",
   onSend,
 }: {
   disabled: boolean;
+  placeholder?: string;
+  buttonLabel?: string;
   onSend: (message: string) => void;
 }) {
   const [message, setMessage] = useState("");
@@ -19,15 +23,15 @@ export function MessageInput({
   }
 
   return (
-    <form className="flex gap-2 border-t border-slate-200 p-3" onSubmit={submit}>
+    <form className="flex gap-2 border-t app-border p-3" onSubmit={submit}>
       <input
-        className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
+        className="min-w-0 flex-1 rounded-md border app-input px-3 py-2 text-sm outline-none"
         value={message}
         onChange={(event) => setMessage(event.target.value)}
-        placeholder="Mesajinizi yazin"
+        placeholder={placeholder}
         disabled={disabled}
       />
-      <Button disabled={disabled || !message.trim()}>Gonder</Button>
+      <Button disabled={disabled || !message.trim()}>{buttonLabel}</Button>
     </form>
   );
 }
