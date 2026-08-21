@@ -2,7 +2,7 @@ import Button from "../ui/Button";
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 p-5 text-sm text-red-800">
+    <div className="rounded-lg border app-danger-box p-5 text-sm">
       <div className="font-semibold">Veri alinamadi</div>
       <p className="mt-1">{message}</p>
       {onRetry && (

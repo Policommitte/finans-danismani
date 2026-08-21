@@ -110,14 +110,38 @@ class SqlPortfolioRepository(_SqlRepository):
     async def get_holdings(self, user_id: int, portfolio_id: int | None = None) -> list[dict]:
         return await self._rows(
             """
-            SELECT portfolio_id, asset_id, symbol, asset_name, asset_class, currency,
-                   quantity, average_buy_price, current_price, daily_change_pct,
-                   market_value_try, cost_basis_try, pnl_try, pnl_pct
-            FROM v_holdings_valued
-            WHERE user_id = :user_id
-              AND (CASE WHEN CAST(:portfolio_id AS INT) IS NULL THEN is_default
-                        ELSE portfolio_id = :portfolio_id END)
-            ORDER BY market_value_try DESC
+            SELECT h.portfolio_id, h.asset_id, h.symbol, h.asset_name,
+                   h.asset_class, h.currency, h.quantity, h.average_buy_price,
+                   h.current_price, h.daily_change_pct, h.market_value_try,
+                   h.cost_basis_try, h.pnl_try, h.pnl_pct,
+                   h.market_value_try - (
+                       h.quantity * COALESCE(a.prev_close, a.current_price)
+                       * CASE WHEN h.currency = 'TRY' THEN 1
+                              ELSE COALESCE(fx.prev_close, fx.current_price, 1) END
+                   ) AS daily_change_try,
+                   CASE WHEN (
+                       h.quantity * COALESCE(a.prev_close, a.current_price)
+                       * CASE WHEN h.currency = 'TRY' THEN 1
+                              ELSE COALESCE(fx.prev_close, fx.current_price, 1) END
+                   ) > 0 THEN 100 * (h.market_value_try / (
+                       h.quantity * COALESCE(a.prev_close, a.current_price)
+                       * CASE WHEN h.currency = 'TRY' THEN 1
+                              ELSE COALESCE(fx.prev_close, fx.current_price, 1) END
+                   ) - 1) END AS daily_change_pct_try
+            FROM v_holdings_valued h
+            JOIN assets a ON a.id = h.asset_id
+            LEFT JOIN assets fx ON fx.symbol = h.currency || '/TRY'
+            WHERE h.user_id = :user_id
+              AND h.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
+            ORDER BY h.market_value_try DESC
             """,
             {"user_id": user_id, "portfolio_id": portfolio_id},
         )
@@ -129,8 +153,15 @@ class SqlPortfolioRepository(_SqlRepository):
             FROM v_portfolio_allocation a
             JOIN portfolios p ON p.id = a.portfolio_id
             WHERE a.user_id = :user_id
-              AND (CASE WHEN CAST(:portfolio_id AS INT) IS NULL THEN p.is_default
-                        ELSE a.portfolio_id = :portfolio_id END)
+              AND a.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
             ORDER BY a.class_value DESC
             """,
             {"user_id": user_id, "portfolio_id": portfolio_id},
@@ -147,12 +178,87 @@ class SqlPortfolioRepository(_SqlRepository):
             JOIN portfolios p ON p.id = t.portfolio_id
             JOIN assets     a ON a.id = t.asset_id
             WHERE p.user_id = :user_id
-              AND (CASE WHEN CAST(:portfolio_id AS INT) IS NULL THEN p.is_default
-                        ELSE t.portfolio_id = :portfolio_id END)
+              AND t.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
             ORDER BY t.transaction_date DESC
             LIMIT :limit
             """,
             {"user_id": user_id, "portfolio_id": portfolio_id, "limit": limit},
+        )
+
+    async def get_performance_history(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        return await self._rows(
+            """
+            WITH selected_portfolio AS (
+                SELECT id
+                FROM portfolios
+                WHERE user_id = :user_id
+                  AND id = COALESCE(
+                        CAST(:portfolio_id AS INT),
+                        (
+                            SELECT id FROM portfolios
+                            WHERE user_id = :user_id
+                            ORDER BY is_default DESC, id
+                            LIMIT 1
+                        )
+                      )
+            ), positions AS (
+                SELECT pa.asset_id, pa.quantity, a.current_price, fx.try_rate
+                FROM portfolio_assets pa
+                JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
+                JOIN assets a ON a.id = pa.asset_id
+                JOIN v_fx_rates fx ON fx.currency = a.currency
+            ), all_prices AS (
+                SELECT ph.asset_id, ph.ts, ph.price
+                FROM price_history ph
+                WHERE ph.ts >= now() - make_interval(hours => :hours)
+                  AND ph.ts >= :valid_from
+                  AND ph.source <> 'simulated'
+                UNION ALL
+                SELECT lp.asset_id, lp.created_at AS ts, lp.price
+                FROM live_prices lp
+                WHERE lp.created_at >= now() - make_interval(hours => :hours)
+                  AND lp.created_at >= :valid_from
+                  AND lp.source <> 'simulated'
+            ), timeline AS (
+                SELECT DISTINCT ap.ts
+                FROM all_prices ap
+                JOIN positions p ON p.asset_id = ap.asset_id
+            )
+            SELECT t.ts,
+                   SUM(
+                       p.quantity
+                       * COALESCE(h.price, p.current_price)
+                       * p.try_rate
+                   ) AS total_value_try
+            FROM timeline t
+            CROSS JOIN positions p
+            LEFT JOIN LATERAL (
+                SELECT ap.price
+                FROM all_prices ap
+                WHERE ap.asset_id = p.asset_id
+                  AND ap.ts <= t.ts
+                ORDER BY ap.ts DESC
+                LIMIT 1
+            ) h ON TRUE
+            GROUP BY t.ts
+            ORDER BY t.ts
+            """,
+            {
+                "user_id": user_id,
+                "portfolio_id": portfolio_id,
+                "hours": hours,
+                "valid_from": settings.portfolio_performance_valid_from,
+            },
         )
 
 
@@ -216,11 +322,10 @@ class SqlMarketRepository(_SqlRepository):
         tick'ler `live_prices`'a birikir ve gun bitiminde yalnizca gunun son
         fiyati `price_history`'ye tasinir (bkz. `close_out_day`).
 
-        `prev_close` BURADA GUNCELLENMEZ. Her tick'te `prev_close =
-        current_price` yapmak `daily_change_pct`'i "dunkun kapanisina gore
-        degisim" degil "son tick'e gore degisim" haline getiriyordu: dun 100,
-        gun ici 102 -> 104 -> 106 iken +2, +4, +6 yerine +2, +4, +3.92
-        cikiyordu. `prev_close` gunde bir kez, gun kapanirken yazilir.
+        `prev_close` her tick'te ilerletilmez; saglayicinin onceki kapanisi
+        varsa o deger, yoksa mevcut gun baslangic degeri korunur. Boylece
+        `daily_change_pct` son tick'e gore degil gun baslangicina gore kalir.
+        Gun kapanirken `close_out_day` bu degeri kesin kapanisla tazeler.
 
         `daily_change_pct` ve `weekly_change_pct` YENIDEN HESAPLANIR - aksi
         halde seed degerinde donar ve dashboard hep ayni yuzdeyi gosterir
@@ -238,20 +343,40 @@ class SqlMarketRepository(_SqlRepository):
             await session.execute(
                 text(
                     """
+                    WITH incoming AS (
+                        SELECT (value->>'asset_id')::INT  AS asset_id,
+                               (value->>'price')::NUMERIC AS price,
+                               (value->>'previous_close')::NUMERIC AS previous_close
+                        FROM jsonb_array_elements(CAST(:payload AS JSONB))
+                    ), priced AS (
+                        SELECT a.id AS asset_id,
+                               v.price,
+                               CASE
+                                   WHEN v.previous_close > 0
+                                   THEN v.previous_close
+                                   WHEN (a.price_updated_at AT TIME ZONE :market_timezone)::date
+                                      < (now() AT TIME ZONE :market_timezone)::date
+                                     OR a.prev_close IS NULL
+                                     OR a.prev_close <= 0
+                                     OR ABS((a.current_price - a.prev_close) / a.prev_close) > 0.20
+                                   THEN a.current_price
+                                   ELSE a.prev_close
+                               END AS day_open
+                        FROM assets a
+                        JOIN incoming v ON v.asset_id = a.id
+                    )
                     UPDATE assets AS a
-                    SET current_price    = v.price,
-                        daily_change_pct = CASE WHEN a.prev_close > 0
-                            THEN ROUND(((v.price - a.prev_close) / a.prev_close * 100)::NUMERIC, 4)
+                    SET prev_close       = p.day_open,
+                        current_price    = p.price,
+                        daily_change_pct = CASE WHEN p.day_open > 0
+                            THEN ROUND(((p.price - p.day_open) / p.day_open * 100)::NUMERIC, 4)
                             ELSE a.daily_change_pct END,
                         price_updated_at = now()
-                    FROM (SELECT
-                            (value->>'asset_id')::INT     AS asset_id,
-                            (value->>'price')::NUMERIC    AS price
-                          FROM jsonb_array_elements(CAST(:payload AS JSONB))) AS v
-                    WHERE a.id = v.asset_id
+                    FROM priced p
+                    WHERE a.id = p.asset_id
                     """
                 ),
-                {"payload": _json(updates)},
+                {"payload": _json(updates), "market_timezone": settings.market_day_timezone},
             )
 
             if write_live:
@@ -339,8 +464,11 @@ class SqlMarketRepository(_SqlRepository):
             #    ON CONFLICT tahmini backfill degerini olculen kapanisla
             #    degistirir.
             #
-            #    Sahte veri gercegin uzerine YAZMAZ: 'simulated' bir kapanis,
-            #    mevcut satir da 'simulated' degilse guncellemeyi atlar.
+            #    SIMULE SATIRLAR KAPANIS OLAMAZ. Scheduler artik simule tick
+            #    yazmiyor (bkz. `scheduler.YAZILABILIR_KAYNAKLAR`), ama eski
+            #    calistirmalardan kalmis satirlar olabilir; onlar da gecmise
+            #    GECMEZ - yalnizca silinir. Boylece sahte veri hicbir yoldan
+            #    `price_history`'ye giremez.
             sonuc = await session.execute(
                 text(
                     """
@@ -358,6 +486,7 @@ class SqlMarketRepository(_SqlRepository):
                           AND lp.created_at <  s.son
                           AND lp.asset_id IS NOT NULL
                           AND lp.price > 0
+                          AND lp.source <> 'simulated'
                         ORDER BY lp.asset_id, lp.created_at DESC, lp.id DESC
                     )
                     INSERT INTO price_history (asset_id, ts, price, source)
@@ -366,8 +495,6 @@ class SqlMarketRepository(_SqlRepository):
                     ON CONFLICT (asset_id, ts) DO UPDATE
                         SET price  = EXCLUDED.price,
                             source = EXCLUDED.source
-                        WHERE EXCLUDED.source <> 'simulated'
-                           OR price_history.source = 'simulated'
                     """
                 ),
                 parametreler,

@@ -11,6 +11,7 @@
     "@types/node": "^20.19.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "blobatar": "^2.1.0",
     "next": "^16.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

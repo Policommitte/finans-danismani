@@ -21,8 +21,8 @@ export default function MarketPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Piyasa</h1>
-        <p className="mt-1 text-sm text-slate-500">Varlik fiyatlari, grafikler ve RAG aramasi.</p>
+        <h1 className="text-2xl font-semibold app-heading">Piyasa</h1>
+        <p className="mt-1 text-sm app-muted">Varlik fiyatlari, grafikler ve RAG aramasi.</p>
       </div>
       <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">
         <AssetList items={market.data.assets.items} onSelect={market.setSymbol} />

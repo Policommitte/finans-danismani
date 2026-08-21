@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import type { User } from "../models/auth";
 import { getAccessToken } from "../services/apiClient";
 import { getMe, login as loginRequest, logout as logoutRequest } from "../services/authService";
 
-export function useAuth() {
+type AuthContextValue = {
+  user: User | null;
+  loading: boolean;
+  error: string | null;
+  hasToken: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+  refresh: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,5 +68,20 @@ export function useAuth() {
     void refresh();
   }, []);
 
-  return { user, loading, error, hasToken, login, logout, refresh };
+  const value = useMemo(
+    () => ({ user, loading, error, hasToken, login, logout, refresh }),
+    [user, loading, error, hasToken],
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const auth = useContext(AuthContext);
+
+  if (!auth) {
+    throw new Error("useAuth must be used inside AuthProvider.");
+  }
+
+  return auth;
 }

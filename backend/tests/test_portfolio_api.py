@@ -116,3 +116,11 @@ def test_dashboard_ile_granuler_uclar_ayni_sayiyi_verir(client, auth):
 
     assert dashboard["summary"]["total_value_try"] == ozet["total_value_try"]
     assert dashboard["risk"]["risk_score"] == risk["risk_score"]
+
+
+def test_gunluk_portfoy_degisimi_onceki_kapanislarin_toplamidir(client, auth):
+    dashboard = client.get("/api/dashboard/summary", headers=auth).json()
+
+    beklenen = sum(holding["daily_change_try"] for holding in dashboard["holdings"])
+    assert dashboard["summary"]["daily_change_try"] == round(beklenen, 2)
+    assert dashboard["summary"]["daily_change_pct"] is not None

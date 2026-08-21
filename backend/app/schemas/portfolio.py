@@ -16,6 +16,10 @@ class PortfolioSummary(BaseModel):
     total_cost_try: float = Field(description="Toplam maliyet (TRY)")
     total_pnl_try: float = Field(description="Toplam kar/zarar (TRY)")
     total_pnl_pct: float | None = Field(default=None, description="Toplam kar/zarar yuzdesi")
+    daily_change_try: float = Field(default=0, description="Onceki kapanisa gore degisim (TRY)")
+    daily_change_pct: float | None = Field(
+        default=None, description="Onceki kapanisa gore portfoy degisim yuzdesi"
+    )
 
 
 class Holding(BaseModel):
@@ -29,6 +33,8 @@ class Holding(BaseModel):
     average_buy_price: float
     current_price: float
     daily_change_pct: float | None = None
+    daily_change_try: float = 0
+    daily_change_pct_try: float | None = None
     market_value_try: float
     cost_basis_try: float
     pnl_try: float
@@ -65,3 +71,13 @@ class Transaction(BaseModel):
 class TransactionsResponse(BaseModel):
     items: list[Transaction]
     limit: int
+
+
+class PortfolioPerformancePoint(BaseModel):
+    ts: str
+    total_value_try: float
+
+
+class PortfolioPerformanceResponse(BaseModel):
+    points: list[PortfolioPerformancePoint]
+    hours: int

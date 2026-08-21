@@ -6,6 +6,8 @@ DB'siz, LLM'siz ve embedding modelsiz de uctan uca calisir (bkz. asagidaki
 "kademeli calisma" notlari). Boylece ekip birbirini beklemez.
 """
 
+from datetime import datetime
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -63,11 +65,14 @@ class Settings(BaseSettings):
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # api       : Yahoo Finance'ten GERCEK fiyat (varsayilan)
-    # simulated : rastgele yuruyus - kota harcamaz, deterministik
+    # simulated : rastgele yuruyus - yalnizca agsiz gelistirme/test icin
     #
-    # "api" secili olsa bile Yahoo'ya ulasilamazsa saglayici otomatik olarak
-    # simulatore duser ve `price_history.source` "simulated" yazilir; yani
-    # sahte veri hicbir zaman "gercek" olarak etiketlenmez.
+    # "api" seciliyken Yahoo'ya ulasilamazsa son dogrulanmis fiyat korunur;
+    # portfoy degeri simule fiyatlarla degistirilmez.
+    #
+    # ⚠️ SIMULE FIYAT VERITABANINA HIC YAZILMAZ - "simulated" bilerek
+    # secilse bile. Scheduler kaynagi gorup tick'i atlar
+    # (bkz. `app/market/scheduler.py` -> YAZILABILIR_KAYNAKLAR).
     market_data_provider: str = "api"
 
     #: Fiyat gorevinin calisma araligi. 15 dakika -> gunde 96 tick.
@@ -100,6 +105,10 @@ class Settings(BaseSettings):
     #: kullanicilar ve BIST Turkiye saatinde. Gun sinirini UTC'ye birakmak
     #: "kapanis"i saat 03:00'e kaydirirdi.
     market_day_timezone: str = "Europe/Istanbul"
+
+    #: Portfoy performans grafiginde guvenilir kabul edilen ilk fiyat kaydi.
+    #: Bu esikten onceki gelistirme/simulasyon kayitlari grafige dahil edilmez.
+    portfolio_performance_valid_from: datetime = datetime.fromisoformat("2026-08-21T10:41:00+03:00")
 
     #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
     #:

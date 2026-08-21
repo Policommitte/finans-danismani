@@ -200,6 +200,27 @@ def test_coklu_ticker_son_kapanislari_cozulur():
     assert sonuc == {"THYAO.IS": 301.5, "AAPL": 216.25}
 
 
+def test_onceki_islem_gununun_kapanisi_ayri_doner():
+    indeks = pd.to_datetime(["2026-08-18 17:59", "2026-08-19 10:00", "2026-08-19 10:01"])
+    df = pd.DataFrame({"Close": [298.0, 300.0, 301.5]}, index=indeks)
+
+    sonuc = yahoo._son_kotasyonlar(df, ["THYAO.IS"])
+
+    assert sonuc == {"THYAO.IS": {"price": 301.5, "previous_close": 298.0}}
+
+
+def test_turetilmis_kotasyon_onceki_metal_ve_kuru_birlikte_kullanir():
+    ham = {
+        "GC=F": {"price": 3110.34768, "previous_close": 2799.312912},
+        yahoo.USDTRY_TICKER: {"price": 40.0, "previous_close": 39.0},
+    }
+
+    sonuc = yahoo.kotasyonlari_turet(ham, ["GRAM_ALTIN"])
+
+    assert sonuc["GRAM_ALTIN"]["price"] == pytest.approx(4000.0)
+    assert sonuc["GRAM_ALTIN"]["previous_close"] == pytest.approx(3510.0)
+
+
 def test_son_satir_bossa_bir_onceki_gecerli_kapanis_alinir():
     """Intraday veride son mumlar cogu zaman NaN gelir - atlanmalidir."""
     df = _coklu_ticker_df({"THYAO.IS": [300.0, 301.5, NAN, NAN]})
