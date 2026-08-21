@@ -38,4 +38,3 @@ class PublicLandingPreviewResponse(BaseModel):
     holding_count: int
     allocation: list[PublicLandingAllocationItem]
     holdings: list[PublicLandingHoldingItem]
-

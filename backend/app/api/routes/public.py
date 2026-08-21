@@ -22,4 +22,3 @@ async def market_ticker() -> PublicMarketTickerResponse:
 async def landing_preview() -> PublicLandingPreviewResponse:
     """Login oncesi landing modalinda gosterilecek demo portfoy ozeti."""
     return await get_public_landing_preview()
-

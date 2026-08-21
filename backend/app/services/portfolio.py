@@ -20,9 +20,9 @@ from app.schemas.portfolio import (
     AllocationSlice,
     Holding,
     HoldingsResponse,
-    PortfolioSummary,
     PortfolioPerformancePoint,
     PortfolioPerformanceResponse,
+    PortfolioSummary,
     Transaction,
     TransactionsResponse,
 )
@@ -49,9 +49,7 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Portfolio
         total_pnl_pct=_f_opt(summary.get("total_pnl_pct")),
         daily_change_try=_f(daily_change_try),
         daily_change_pct=(
-            round(daily_change_try / previous_total * 100, 2)
-            if previous_total > 0
-            else None
+            round(daily_change_try / previous_total * 100, 2) if previous_total > 0 else None
         ),
     )
 

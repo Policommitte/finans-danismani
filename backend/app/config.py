@@ -99,9 +99,7 @@ class Settings(BaseSettings):
 
     #: Portfoy performans grafiginde guvenilir kabul edilen ilk fiyat kaydi.
     #: Bu esikten onceki gelistirme/simulasyon kayitlari grafige dahil edilmez.
-    portfolio_performance_valid_from: datetime = datetime.fromisoformat(
-        "2026-08-21T10:41:00+03:00"
-    )
+    portfolio_performance_valid_from: datetime = datetime.fromisoformat("2026-08-21T10:41:00+03:00")
 
     #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
     #:

@@ -116,7 +116,7 @@ class MCPClient:
         self._servers: dict[str, MCPServer] = dict(servers or {})
         self._audit = audit
 
-    def     register_server(self, server: MCPServer) -> None:
+    def register_server(self, server: MCPServer) -> None:
         self._servers[server.name] = server
 
     def has_server(self, server: str) -> bool:

@@ -482,11 +482,13 @@ class InMemoryPortfolioRepository:
         rows = _holdings_valued(user_id, portfolio_id)
         current_total = sum(row["market_value_try"] for row in rows)
         previous_total = sum(
-            row["market_value_try"] - float(row.get("daily_change_try") or 0)
-            for row in rows
+            row["market_value_try"] - float(row.get("daily_change_try") or 0) for row in rows
         )
         return [
-            {"ts": (_now() - timedelta(hours=hours)).isoformat(), "total_value_try": previous_total},
+            {
+                "ts": (_now() - timedelta(hours=hours)).isoformat(),
+                "total_value_try": previous_total,
+            },
             {"ts": _now().isoformat(), "total_value_try": current_total},
         ]
 

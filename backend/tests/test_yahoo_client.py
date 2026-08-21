@@ -201,9 +201,7 @@ def test_coklu_ticker_son_kapanislari_cozulur():
 
 
 def test_onceki_islem_gununun_kapanisi_ayri_doner():
-    indeks = pd.to_datetime(
-        ["2026-08-18 17:59", "2026-08-19 10:00", "2026-08-19 10:01"]
-    )
+    indeks = pd.to_datetime(["2026-08-18 17:59", "2026-08-19 10:00", "2026-08-19 10:01"])
     df = pd.DataFrame({"Close": [298.0, 300.0, 301.5]}, index=indeks)
 
     sonuc = yahoo._son_kotasyonlar(df, ["THYAO.IS"])

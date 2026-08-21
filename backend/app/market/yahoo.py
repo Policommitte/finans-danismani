@@ -154,8 +154,7 @@ def _son_kotasyonlar(df: Any, tickerlar: list[str]) -> dict[str, dict[str, float
 def _son_fiyatlar(df: Any, tickerlar: list[str]) -> dict[str, float]:
     """Geriye uyumlu yalnizca-son-fiyat gorunumu."""
     return {
-        ticker: float(quote["price"])
-        for ticker, quote in _son_kotasyonlar(df, tickerlar).items()
+        ticker: float(quote["price"]) for ticker, quote in _son_kotasyonlar(df, tickerlar).items()
     }
 
 
@@ -235,9 +234,7 @@ def kotasyonlari_turet(
             previous = None
             if metal.get("previous_close") and usdtry.get("previous_close"):
                 previous = (
-                    float(metal["previous_close"])
-                    / TROY_ONS_GRAM
-                    * float(usdtry["previous_close"])
+                    float(metal["previous_close"]) / TROY_ONS_GRAM * float(usdtry["previous_close"])
                 )
             sonuc[sembol] = {
                 "price": round(current, 4),

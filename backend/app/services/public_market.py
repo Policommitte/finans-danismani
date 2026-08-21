@@ -7,7 +7,6 @@ from typing import Any
 from app.repositories.deps import get_market_repository
 from app.schemas.public import PublicMarketTickerItem, PublicMarketTickerResponse
 
-
 # Fiyat scheduler'i bu varliklari Yahoo'dan alip `assets` tablosuna yazar.
 # Public ust bar da ayni satirlari okuyarak portfoy hesaplariyla tek kaynaktan
 # beslenir. BIST 100/30 veritabaninda varlik olarak bulunmadigi icin bu listeye
