@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
     price_history_every_n_ticks: int = 1
 
+    #: Gunluk degisim icin piyasa gununun belirlendigi saat dilimi.
+    #: Sunucu UTC'de calissa bile onceki kapanis Turkiye gunune gore korunur.
+    market_day_timezone: str = "Europe/Istanbul"
+
     #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
     #:
     #: HESAP: 16 ticker x 96 tick = 1.536 istek/gun. Tavan yeniden

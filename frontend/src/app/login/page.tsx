@@ -5,7 +5,6 @@ import { useAuth } from "../../hooks/useAuth";
 
 const allowedNextPaths = new Set([
   "/dashboard",
-  "/portfolio",
   "/market",
   "/risk",
   "/reports",

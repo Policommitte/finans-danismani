@@ -35,8 +35,9 @@ class MarketDataProvider(ABC):
             assets: `{asset_id, symbol, current_price, sim_volatility}` kayitlari.
 
         Returns:
-            `{asset_id, price}` kayitlari. Fiyat uretilemeyen varlik listeye
-            EKLENMEZ (eski fiyat korunur).
+            `{asset_id, price, previous_close?}` kayitlari. Gercek saglayici
+            onceki piyasa kapanisini da iletir. Fiyat uretilemeyen varlik
+            listeye EKLENMEZ (eski fiyat korunur).
         """
         ...
 
@@ -183,27 +184,33 @@ class ApiMarketProvider(MarketDataProvider):
         cagri_sayisi = len(yahoo.gerekli_tickerlar(semboller))
 
         try:
-            fiyatlar = await yahoo.canli_fiyatlar(semboller)
+            kotasyonlar = await yahoo.canli_kotasyonlar(semboller)
         except Exception as exc:  # noqa: BLE001 - ag hatasi gorevi durdurmamali
             logger.warning(
-                "yahoo canli fiyat alinamadi, simulatore dusuluyor",
-                extra={"hata": f"{type(exc).__name__}: {exc}"},
+                "yahoo canli fiyat alinamadi, simulatore dusuluyor: %s: %s",
+                type(exc).__name__,
+                exc,
             )
             await self._kotayi_isle(cagri_sayisi)
             return await self._yedege_dus(assets)
 
         await self._kotayi_isle(cagri_sayisi)
 
-        if not fiyatlar:
+        if not kotasyonlar:
             logger.warning("yahoo bos sonuc dondurdu, simulatore dusuluyor")
             return await self._yedege_dus(assets)
 
         # Fiyati alinamayan varlik listeye EKLENMEZ; eski fiyati korunur.
-        return [
-            {"asset_id": a["asset_id"], "price": fiyatlar[a["symbol"]]}
-            for a in istenen
-            if a["symbol"] in fiyatlar
-        ]
+        updates: list[dict] = []
+        for asset in istenen:
+            quote = kotasyonlar.get(asset["symbol"])
+            if not quote:
+                continue
+            update = {"asset_id": asset["asset_id"], "price": quote["price"]}
+            if quote.get("previous_close"):
+                update["previous_close"] = quote["previous_close"]
+            updates.append(update)
+        return updates
 
 
 def build_provider(name: str | None = None) -> MarketDataProvider:

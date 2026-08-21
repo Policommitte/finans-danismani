@@ -121,11 +121,12 @@ def gerekli_tickerlar(db_symbols: list[str]) -> list[str]:
     return sorted(tickerlar)
 
 
-def _son_fiyatlar(df: Any, tickerlar: list[str]) -> dict[str, float]:
-    """`yf.download` ciktisindan ticker -> son gecerli kapanis sozlugu uretir.
+def _son_kotasyonlar(df: Any, tickerlar: list[str]) -> dict[str, dict[str, float | None]]:
+    """Son fiyatla birlikte bir onceki piyasa gununun kapanisini cozer.
 
     yfinance tek ticker'da duz, coklu ticker'da MultiIndex kolon dondurur;
-    iki bicim de burada normalize edilir.
+    iki bicim de burada normalize edilir. ``previous_close`` uygulamanin
+    onceki tick'i degil, Yahoo serisindeki onceki islem gununun son fiyatidir.
     """
     if df is None or len(df) == 0:
         return {}
@@ -135,32 +136,44 @@ def _son_fiyatlar(df: Any, tickerlar: list[str]) -> dict[str, float]:
     if hasattr(kapanis, "to_frame") and getattr(kapanis, "ndim", 2) == 1:
         kapanis = kapanis.to_frame(name=tickerlar[0])
 
-    sonuc: dict[str, float] = {}
+    sonuc: dict[str, dict[str, float | None]] = {}
     for ticker in kapanis.columns:
         seri = kapanis[ticker].dropna()
-        if seri.empty:
+        if seri.empty or float(seri.iloc[-1]) <= 0:
             continue
         fiyat = float(seri.iloc[-1])
-        if fiyat > 0:
-            sonuc[str(ticker)] = fiyat
+        son_gun = seri.index[-1].date()
+        onceki_gun = seri[[ts.date() < son_gun for ts in seri.index]]
+        onceki_gun = onceki_gun[onceki_gun > 0]
+        onceki_kapanis = float(onceki_gun.iloc[-1]) if not onceki_gun.empty else None
+        sonuc[str(ticker)] = {"price": fiyat, "previous_close": onceki_kapanis}
 
     return sonuc
 
 
-def _indir(tickerlar: list[str]) -> dict[str, float]:
+def _son_fiyatlar(df: Any, tickerlar: list[str]) -> dict[str, float]:
+    """Geriye uyumlu yalnizca-son-fiyat gorunumu."""
+    return {
+        ticker: float(quote["price"])
+        for ticker, quote in _son_kotasyonlar(df, tickerlar).items()
+    }
+
+
+def _indir(tickerlar: list[str]) -> dict[str, dict[str, float | None]]:
     """SENKRON indirme - `asyncio.to_thread` icinden cagrilir."""
     import yfinance as yf
 
     df = yf.download(
         " ".join(tickerlar),
-        period="1d",
+        # Onceki kapanis icin hafta sonu ve tatilleri de kapsayan pencere.
+        period="5d",
         interval="1m",
         progress=False,
         auto_adjust=False,
         threads=True,
         timeout=YFINANCE_TIMEOUT_SANIYE,
     )
-    return _son_fiyatlar(df, tickerlar)
+    return _son_kotasyonlar(df, tickerlar)
 
 
 def fiyatlari_turet(ham: dict[str, float], db_symbols: list[str]) -> dict[str, float]:
@@ -192,6 +205,65 @@ def fiyatlari_turet(ham: dict[str, float], db_symbols: list[str]) -> dict[str, f
     return sonuc
 
 
+def kotasyonlari_turet(
+    ham: dict[str, dict[str, float | None]], db_symbols: list[str]
+) -> dict[str, dict[str, float | None]]:
+    """Fiyat ve gercek onceki kapanisi DB sembollerine cevirir."""
+    usdtry = ham.get(USDTRY_TICKER)
+    sonuc: dict[str, dict[str, float | None]] = {}
+
+    for sembol in db_symbols:
+        if sembol in YAHOO_TICKERS:
+            quote = ham.get(YAHOO_TICKERS[sembol])
+            if quote and quote.get("price"):
+                sonuc[sembol] = {
+                    "price": round(float(quote["price"]), 4),
+                    "previous_close": (
+                        round(float(quote["previous_close"]), 4)
+                        if quote.get("previous_close")
+                        else None
+                    ),
+                }
+            continue
+
+        if sembol in TURETILMIS_GRAM_TRY:
+            metal = ham.get(TURETILMIS_GRAM_TRY[sembol])
+            if not metal or not metal.get("price") or not usdtry or not usdtry.get("price"):
+                continue
+
+            current = float(metal["price"]) / TROY_ONS_GRAM * float(usdtry["price"])
+            previous = None
+            if metal.get("previous_close") and usdtry.get("previous_close"):
+                previous = (
+                    float(metal["previous_close"])
+                    / TROY_ONS_GRAM
+                    * float(usdtry["previous_close"])
+                )
+            sonuc[sembol] = {
+                "price": round(current, 4),
+                "previous_close": round(previous, 4) if previous else None,
+            }
+
+    return sonuc
+
+
+async def canli_kotasyonlar(
+    db_symbols: list[str],
+) -> dict[str, dict[str, float | None]]:
+    """Guncel fiyatlari gercek onceki piyasa kapanislariyla doner."""
+    tickerlar = gerekli_tickerlar(db_symbols)
+    if not tickerlar:
+        return {}
+
+    ham = await asyncio.wait_for(asyncio.to_thread(_indir, tickerlar), timeout=ISTEK_TIMEOUT_SANIYE)
+    kotasyonlar = kotasyonlari_turet(ham, db_symbols)
+    logger.info(
+        "yahoo canli kotasyon alindi",
+        extra={"istenen": len(db_symbols), "alinan": len(kotasyonlar), "cagri": len(tickerlar)},
+    )
+    return kotasyonlar
+
+
 async def canli_fiyatlar(db_symbols: list[str]) -> dict[str, float]:
     """Verilen `assets.symbol` listesi icin guncel fiyatlari doner.
 
@@ -209,16 +281,6 @@ async def canli_fiyatlar(db_symbols: list[str]) -> dict[str, float]:
     if not tickerlar:
         return {}
 
-    ham = await asyncio.wait_for(asyncio.to_thread(_indir, tickerlar), timeout=ISTEK_TIMEOUT_SANIYE)
-
-    fiyatlar = fiyatlari_turet(ham, db_symbols)
-    logger.info(
-        "yahoo canli fiyat alindi",
-        extra={
-            "istenen": len(db_symbols),
-            "alinan": len(fiyatlar),
-            # Her ticker ayri bir HTTP istegidir - "1" DEGIL.
-            "cagri": len(tickerlar),
-        },
-    )
+    kotasyonlar = await canli_kotasyonlar(db_symbols)
+    fiyatlar = {sembol: float(quote["price"]) for sembol, quote in kotasyonlar.items()}
     return fiyatlar

@@ -11,6 +11,9 @@ cevirme yapilir.
 
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime
+
 from app.core.errors import NotFoundError
 from app.repositories.deps import get_portfolio_repository
 from app.schemas.portfolio import (
@@ -19,15 +22,24 @@ from app.schemas.portfolio import (
     Holding,
     HoldingsResponse,
     PortfolioSummary,
+    PortfolioPerformancePoint,
+    PortfolioPerformanceResponse,
     Transaction,
     TransactionsResponse,
 )
 
 
 async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> PortfolioSummary:
-    summary = await get_portfolio_repository().get_summary(user_id, portfolio_id)
+    repository = get_portfolio_repository()
+    summary, holdings = await asyncio.gather(
+        repository.get_summary(user_id, portfolio_id),
+        repository.get_holdings(user_id, portfolio_id),
+    )
     if summary is None:
         raise NotFoundError("Portfoy ozeti bulunamadi.")
+
+    daily_change_try = sum(float(row.get("daily_change_try") or 0) for row in holdings)
+    previous_total = float(summary["total_value_try"]) - daily_change_try
 
     return PortfolioSummary(
         portfolio_id=summary.get("portfolio_id"),
@@ -36,6 +48,12 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Portfolio
         total_cost_try=_f(summary["total_cost_try"]),
         total_pnl_try=_f(summary["total_pnl_try"]),
         total_pnl_pct=_f_opt(summary.get("total_pnl_pct")),
+        daily_change_try=_f(daily_change_try),
+        daily_change_pct=(
+            round(daily_change_try / previous_total * 100, 2)
+            if previous_total > 0
+            else None
+        ),
     )
 
 
@@ -84,6 +102,62 @@ async def islemler_getir(
     )
 
 
+async def performans_getir(
+    user_id: int, portfolio_id: int | None = None, hours: int = 24
+) -> PortfolioPerformanceResponse:
+    rows = await get_portfolio_repository().get_performance_history(
+        user_id, portfolio_id, hours=hours
+    )
+    temiz_satirlar: list[dict] = []
+    for row in rows:
+        value = float(row["total_value_try"] or 0)
+        if temiz_satirlar:
+            previous = float(temiz_satirlar[-1]["total_value_try"] or 0)
+            if previous > 0 and abs(value / previous - 1) > 0.05:
+                # Eski seed fiyatindan ilk gercek piyasa fiyatina gecis,
+                # kullanici performansi degildir; yeni canli baz buradan baslar.
+                temiz_satirlar = []
+        temiz_satirlar.append(row)
+
+    on_bes_dakikalik_satirlar = _on_bes_dakikalik_dilimlere_indir(temiz_satirlar)
+
+    return PortfolioPerformanceResponse(
+        points=[
+            PortfolioPerformancePoint(
+                ts=str(row["ts"]),
+                total_value_try=_f(row["total_value_try"]),
+            )
+            for row in on_bes_dakikalik_satirlar
+        ],
+        hours=hours,
+    )
+
+
+def _on_bes_dakikalik_dilimlere_indir(rows: list[dict]) -> list[dict]:
+    """Her 15 dakikalik dilimdeki en son portfoy degerini dondurur."""
+    buckets: dict[str, dict] = {}
+
+    for row in rows:
+        raw_ts = row.get("ts")
+        if raw_ts is None:
+            continue
+
+        if isinstance(raw_ts, datetime):
+            timestamp = raw_ts
+        else:
+            timestamp = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+
+        bucket_start = timestamp.replace(
+            minute=(timestamp.minute // 15) * 15,
+            second=0,
+            microsecond=0,
+        )
+        bucket_key = bucket_start.isoformat()
+        buckets[bucket_key] = {**row, "ts": bucket_key}
+
+    return [buckets[key] for key in sorted(buckets)]
+
+
 def _holding(row: dict) -> Holding:
     return Holding(
         symbol=row["symbol"],
@@ -94,6 +168,8 @@ def _holding(row: dict) -> Holding:
         average_buy_price=_f(row["average_buy_price"]),
         current_price=_f(row["current_price"]),
         daily_change_pct=_f_opt(row.get("daily_change_pct")),
+        daily_change_try=_f(row.get("daily_change_try")),
+        daily_change_pct_try=_f_opt(row.get("daily_change_pct_try")),
         market_value_try=_f(row["market_value_try"]),
         cost_basis_try=_f(row["cost_basis_try"]),
         pnl_try=_f(row["pnl_try"]),

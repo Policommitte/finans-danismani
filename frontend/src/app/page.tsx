@@ -4,17 +4,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
+import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../hooks/useAuth";
-import type { PublicLandingPreviewResponse, PublicMarketTickerItem } from "../models/market";
-import { getPublicLandingPreview, getPublicMarketTicker } from "../services/marketService";
+import type { PublicLandingPreviewResponse } from "../models/market";
+import { getPublicLandingPreview } from "../services/marketService";
 
-type ThemeMode = "light" | "dark";
 type Language = "tr" | "en";
 type PreviewKey = "dashboard" | "portfolio" | "market";
 
 const publicMenuTargets = [
   { key: "analysis", href: "/dashboard", icon: "/analiz.svg" },
-  { key: "portfolio", href: "/portfolio", icon: "/portfoy.svg" },
+  { key: "newsletter", href: "/bulten", icon: "/bulten.svg" },
   { key: "market", href: "/market", icon: "/piyasa.svg" },
 ];
 
@@ -22,33 +22,6 @@ const utilityMenuTargets = [
   { key: "profile", href: "/profile", icon: "/profil.svg" },
   { key: "settings", href: "/settings", icon: "/ayarlar.svg" },
 ];
-
-const fallbackTickerItems: PublicMarketTickerItem[] = [
-  { symbol: "USDTRY", label: "$/₺", value: 47.9128, currency: "TRY", change_percent: 0.02, source: "fallback" },
-  { symbol: "EURTRY", label: "€/₺", value: 55.4919, currency: "TRY", change_percent: 0.07, source: "fallback" },
-  { symbol: "GBPTRY", label: "£/₺", value: 64.8134, currency: "TRY", change_percent: -0.08, source: "fallback" },
-  { symbol: "XAUUSD", label: "XAU/USD", value: 4458, currency: "USD", change_percent: 0.46, source: "fallback" },
-  { symbol: "BTC", label: "BTC", value: 63583, currency: "USD", change_percent: 1.2, source: "fallback" },
-  { symbol: "BIST100", label: "BIST 100", value: 14158, currency: "TRY", change_percent: 0.18, source: "fallback" },
-];
-
-function getStoredTheme(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "light";
-  }
-
-  const htmlTheme = document.documentElement.dataset.theme;
-  if (htmlTheme === "light" || htmlTheme === "dark") {
-    return htmlTheme;
-  }
-
-  const savedTheme = window.localStorage.getItem("app-theme") ?? window.localStorage.getItem("landing-theme");
-  if (savedTheme === "light" || savedTheme === "dark") {
-    return savedTheme;
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
 
 const copy = {
   tr: {
@@ -61,7 +34,7 @@ const copy = {
     chatLoginRequired: "Soru sormadan önce giriş yapmalısınız.",
     close: "Kapat",
     utilityNav: ["Profil", "Ayarlar"],
-    nav: ["Genel Bakış", "Portföy", "Piyasa"],
+    nav: ["Genel Bakış", "Bülten", "Piyasa"],
     brand: "Finans Danışmanı",
     themeToLight: "Aydınlık moda geç",
     themeToDark: "Karanlık moda geç",
@@ -69,19 +42,11 @@ const copy = {
     features: [
       {
         key: "dashboard",
-        title: "Genel Bakış",
+        title: "Genel Bakış ve Portföy",
         metric: "1,64 Mn",
-        description: "Genel finans ekranı",
+        description: "Varlıklar, dağılım, risk ve işlemler",
         badge: "Önizleme",
         icon: "/analiz.svg",
-      },
-      {
-        key: "portfolio",
-        title: "Portföy",
-        metric: "3",
-        description: "Varlık ve risk özeti",
-        badge: "Önizleme",
-        icon: "/portfoy.svg",
       },
       {
         key: "market",
@@ -167,7 +132,7 @@ const copy = {
     chatLoginRequired: "You need to log in before asking a question.",
     close: "Close",
     utilityNav: ["Profile", "Settings"],
-    nav: ["Overview", "Portfolio", "Market"],
+    nav: ["Overview", "Newsletter", "Market"],
     brand: "Finance Advisor",
     themeToLight: "Switch to light mode",
     themeToDark: "Switch to dark mode",
@@ -175,19 +140,11 @@ const copy = {
     features: [
       {
         key: "dashboard",
-        title: "Overview",
+        title: "Overview and Portfolio",
         metric: "1.64M TRY",
-        description: "General finance screen",
+        description: "Assets, allocation, risk and transactions",
         badge: "Preview",
         icon: "/analiz.svg",
-      },
-      {
-        key: "portfolio",
-        title: "Portfolio",
-        metric: "3",
-        description: "Assets and risk summary",
-        badge: "Preview",
-        icon: "/portfoy.svg",
       },
       {
         key: "market",
@@ -265,13 +222,6 @@ const copy = {
   },
 };
 
-function formatValue(item: PublicMarketTickerItem, language: Language): string {
-  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
-    maximumFractionDigits: item.value > 1000 ? 0 : 4,
-    minimumFractionDigits: item.value > 1000 ? 0 : 2,
-  }).format(item.value);
-}
-
 function displayUpper(value: string, language: Language): string {
   return value.toLocaleUpperCase(language === "tr" ? "tr-TR" : "en-US");
 }
@@ -318,38 +268,6 @@ function AuthRequiredPopover({
         </button>
       </div>
     </div>
-  );
-}
-
-function ThemeToggle({ theme, onToggle, language }: { theme: ThemeMode; onToggle: () => void; language: Language }) {
-  const isDark = theme === "dark";
-
-  return (
-    <button
-      type="button"
-      aria-label={isDark ? copy[language].themeToLight : copy[language].themeToDark}
-      onClick={onToggle}
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border transition ${
-        isDark
-          ? "border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-chart-yellow)] hover:opacity-80"
-          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)] hover:opacity-80"
-      }`}
-    >
-      <span className="text-lg leading-none">{isDark ? "☀" : "☾"}</span>
-    </button>
-  );
-}
-
-function LanguageToggle({ language, onToggle }: { language: Language; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label={copy[language].languageLabel}
-      onClick={onToggle}
-      className="flex h-10 w-12 shrink-0 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-sm font-black text-[var(--color-heading)] transition hover:opacity-80"
-    >
-      {language === "tr" ? "EN" : "TR"}
-    </button>
   );
 }
 
@@ -473,113 +391,6 @@ function LandingSideMenu({
     </aside>
   );
 }
-function MarketTicker({
-  theme,
-  language,
-  onThemeToggle,
-  onLanguageToggle,
-}: {
-  theme: ThemeMode;
-  language: Language;
-  onThemeToggle: () => void;
-  onLanguageToggle: () => void;
-}) {
-  const [items, setItems] = useState<PublicMarketTickerItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const displayItems = items.length > 0 ? [...items, ...items] : [];
-
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        const response = await getPublicMarketTicker();
-        if (active) {
-          setItems(response.items);
-        }
-      } catch {
-        if (active) {
-          setItems((currentItems) => (currentItems.length > 0 ? currentItems : fallbackTickerItems));
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void load();
-    const timer = window.setInterval(load, 60000);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  return (
-    <>
-      <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
-      <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
-        <span
-          aria-hidden="true"
-          className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-        />
-        <span className="sr-only">{copy[language].brand}</span>
-      </Link>
-      <div className="flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 2xl:pl-60 2xl:pr-14">
-        <div className="hidden shrink-0 items-center gap-2 text-sm font-semibold tracking-wide text-[var(--color-market-muted)] md:flex">
-          <span
-            className="h-2 w-2 rotate-45 bg-[var(--color-accent)]"
-          />
-          {displayUpper(copy[language].marketData, language)}
-        </div>
-        <div className="relative min-w-0 flex-1 overflow-hidden py-3">
-          {loading && items.length === 0 ? (
-            <div className="flex gap-3">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="h-12 w-40 shrink-0 animate-pulse rounded-md bg-[var(--color-overlay-soft)]" />
-              ))}
-            </div>
-          ) : (
-            <div className="ticker-track flex w-max gap-3">
-              {displayItems.map((item, index) => {
-                const positive = (item.change_percent ?? 0) >= 0;
-                return (
-                  <div
-                    key={`${item.symbol}-${index}`}
-                    className="flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6"
-                  >
-                    <div>
-                      <div className="text-xs font-semibold text-[var(--color-market-muted)]">{displayUpper(item.label, language)}</div>
-                      <div className="mt-1 text-lg font-semibold">{formatValue(item, language)}</div>
-                    </div>
-                    <div className={`text-xs font-semibold ${positive ? "app-success" : "app-danger"}`}>
-                      {item.change_percent == null ? "-" : `${positive ? "+" : ""}${item.change_percent.toFixed(2)}%`}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <Link
-          href="/login"
-          className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
-        >
-          {copy[language].login}
-        </Link>
-        <div data-keep-sidebar-open className="flex shrink-0 items-center gap-3">
-          <ThemeToggle theme={theme} language={language} onToggle={onThemeToggle} />
-          <LanguageToggle language={language} onToggle={onLanguageToggle} />
-        </div>
-      </div>
-      </section>
-      <div aria-hidden="true" className="h-20" />
-    </>
-  );
-}
-
 function HeroVisual({ slideKey, language }: { slideKey: string; language: Language }) {
   const visual = copy[language].visual;
 
@@ -1160,13 +971,6 @@ function QuickAccessCards({
       };
     }
 
-    if (cardKey === "portfolio") {
-      return {
-        value: String(previewData?.holding_count ?? 3),
-        unit: language === "tr" ? "pozisyon" : "positions",
-      };
-    }
-
     return {
       value: fallback,
       unit: language === "tr" ? "öne çıkan" : "featured",
@@ -1175,7 +979,7 @@ function QuickAccessCards({
 
   return (
     <section id="ozellikler" className="border-t app-border app-card-muted py-14">
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-3">
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-2">
         {cards.map((card) => {
           const metric = cardMetric(card.key, card.metric);
 
@@ -1219,21 +1023,11 @@ function QuickAccessCards({
 export default function HomePage() {
   const auth = useAuth();
   const router = useRouter();
-  const [theme, setTheme] = useState<ThemeMode>("light");
-  const [language, setLanguage] = useState<Language>("tr");
+  const { language } = useLanguage();
   const [authRequiredPath, setAuthRequiredPath] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [activePreview, setActivePreview] = useState<PreviewKey | null>(null);
   const [previewData, setPreviewData] = useState<PublicLandingPreviewResponse | null>(null);
-
-  useEffect(() => {
-    const savedLanguage = window.localStorage.getItem("landing-language");
-    setTheme(getStoredTheme());
-
-    if (savedLanguage === "tr" || savedLanguage === "en") {
-      setLanguage(savedLanguage);
-    }
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1257,23 +1051,6 @@ export default function HomePage() {
       active = false;
     };
   }, []);
-
-  function toggleTheme() {
-    setTheme((current) => {
-      const nextTheme = current === "dark" ? "light" : "dark";
-      document.documentElement.dataset.theme = nextTheme;
-      window.localStorage.setItem("app-theme", nextTheme);
-      return nextTheme;
-    });
-  }
-
-  function toggleLanguage() {
-    setLanguage((current) => {
-      const nextLanguage = current === "tr" ? "en" : "tr";
-      window.localStorage.setItem("landing-language", nextLanguage);
-      return nextLanguage;
-    });
-  }
 
   function handleProtectedNavigate(href: string) {
     if (auth.loading) {
@@ -1299,14 +1076,7 @@ export default function HomePage() {
           onAuthPopoverClose={() => setAuthRequiredPath(null)}
         />
 
-        <div className="ml-24 w-[calc(100%-6rem)]">
-          <MarketTicker
-            theme={theme}
-            language={language}
-            onThemeToggle={toggleTheme}
-            onLanguageToggle={toggleLanguage}
-          />
-
+        <div className="ml-24 w-[calc(100%-6rem)] pt-20">
           <HeroSlider language={language} />
 
           <QuickAccessCards

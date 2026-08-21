@@ -95,7 +95,7 @@ class SahteKotaDeposu:
 
 
 def _yahoo_taklit(monkeypatch, fiyatlar=None, hata: Exception | None = None):
-    """`canli_fiyatlar` yerine sahte bir uygulama koyar; cagriyi kaydeder."""
+    """`canli_kotasyonlar` yerine sahte bir uygulama koyar; cagriyi kaydeder."""
     from app.market import yahoo
 
     cagrilar: list[list[str]] = []
@@ -104,9 +104,12 @@ def _yahoo_taklit(monkeypatch, fiyatlar=None, hata: Exception | None = None):
         cagrilar.append(list(db_symbols))
         if hata is not None:
             raise hata
-        return fiyatlar or {}
+        return {
+            symbol: {"price": price, "previous_close": None}
+            for symbol, price in (fiyatlar or {}).items()
+        }
 
-    monkeypatch.setattr(yahoo, "canli_fiyatlar", sahte)
+    monkeypatch.setattr(yahoo, "canli_kotasyonlar", sahte)
     return cagrilar
 
 
@@ -121,6 +124,18 @@ async def test_api_saglayici_yahoo_fiyatlarini_dondurur(monkeypatch):
         {"asset_id": 12, "price": 64227.97},
     ]
     assert saglayici.son_kaynak == "api"
+
+
+async def test_api_saglayici_onceki_kapanisi_repository_guncellemesine_tasir(monkeypatch):
+    from app.market import yahoo
+
+    async def sahte(_symbols):
+        return {"THYAO": {"price": 301.25, "previous_close": 298.0}}
+
+    monkeypatch.setattr(yahoo, "canli_kotasyonlar", sahte)
+    sonuc = await ApiMarketProvider(kota_deposu=SahteKotaDeposu()).next_prices(VARLIKLAR)
+
+    assert sonuc == [{"asset_id": 1, "price": 301.25, "previous_close": 298.0}]
 
 
 async def test_fiyati_alinamayan_varlik_atlanir(monkeypatch):

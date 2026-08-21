@@ -54,6 +54,12 @@ class PortfolioRepository(Protocol):
         self, user_id: int, portfolio_id: int | None = None, limit: int = 20
     ) -> list[dict]: ...
 
+    async def get_performance_history(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        """Mevcut pozisyonlarin gercek fiyat gecmisiyle TL bazli degeri."""
+        ...
+
 
 class MarketRepository(Protocol):
     async def list_assets(self, category: str | None = None) -> list[dict]: ...
@@ -71,7 +77,10 @@ class MarketRepository(Protocol):
     async def apply_price_updates(
         self, updates: list[dict], write_history: bool, source: str = "simulated"
     ) -> int:
-        """Uretilen fiyatlari yazar. `updates`: `{asset_id, price}` kayitlari.
+        """Uretilen fiyatlari yazar.
+
+        `updates`: `{asset_id, price, previous_close?}` kayitlari. Gercek veri
+        saglayicisi onceki piyasa kapanisini iletir; simulator bu alani atlar.
 
         `source` `price_history.source` sutununa yazilir ve GERCEKTEN
         kullanilan kaynagi belirtmelidir ("api" | "simulated"). Gercek veri

@@ -2,16 +2,15 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
+import { LanguageProvider } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
-import { Footer } from "./Footer";
-import { Header } from "./Header";
 import { MarketTicker } from "./MarketTicker";
 import { Sidebar } from "./Sidebar";
 import { SiteFooter } from "./SiteFooter";
 
-export function AppShell({ children }: { children: ReactNode }) {
+function AppShellContent({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -26,28 +25,43 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [auth.hasToken, auth.loading, auth.user, isPublic, router]);
 
-  if (isPublic) {
-    return (
-      <>
-        {children}
-        {!isLogin && <SiteFooter className={isLanding ? "ml-24 w-[calc(100%-6rem)]" : ""} />}
-      </>
-    );
+  if (isLogin) {
+    return children;
   }
 
   return (
-    <div className="flex min-h-screen flex-col app-bg">
-      <MarketTicker onSelect={setSelectedSymbol} />
-      <div className="flex flex-1">
-        <Sidebar user={auth.user} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header user={auth.user} onLogout={auth.logout} />
-          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">{children}</main>
-          <Footer />
-        </div>
-      </div>
-      {auth.user && <ChatWidget />}
-      {selectedSymbol && <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />}
+    <div className="min-h-screen app-bg">
+      <MarketTicker
+        onSelect={setSelectedSymbol}
+        onLogout={auth.logout}
+        isAuthenticated={Boolean(auth.user)}
+      />
+      {isLanding ? (
+        <>
+          {children}
+          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" />
+        </>
+      ) : (
+        <>
+          <Sidebar />
+          <div className="ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col pt-20">
+            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+            <SiteFooter />
+          </div>
+          {auth.user && <ChatWidget />}
+        </>
+      )}
+      {selectedSymbol ? (
+        <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />
+      ) : null}
     </div>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <LanguageProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </LanguageProvider>
   );
 }
