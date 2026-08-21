@@ -305,7 +305,7 @@ async def test_fiyat_tick_i_fiyatlari_gunceller():
         repository = get_market_repository()
         onceki = (await repository.get_quote("THYAO"))["price"]
 
-        sayi = await price_tick(SimulatedMarketProvider(seed=11), write_history=False)
+        sayi = await price_tick(SimulatedMarketProvider(seed=11), write_live=False)
 
         assert sayi > 0
         assert (await repository.get_quote("THYAO"))["price"] != onceki
@@ -320,7 +320,7 @@ async def test_fiyat_tick_i_gunluk_degisimi_yeniden_hesaplar():
         repository = get_market_repository()
         onceki = (await repository.get_quote("BTC"))["daily_change_pct"]
 
-        await price_tick(SimulatedMarketProvider(seed=13), write_history=False)
+        await price_tick(SimulatedMarketProvider(seed=13), write_live=False)
 
         assert (await repository.get_quote("BTC"))["daily_change_pct"] != onceki
 

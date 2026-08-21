@@ -296,9 +296,20 @@ class SqlMarketRepository(_SqlRepository):
         )
 
     async def apply_price_updates(
-        self, updates: list[dict], write_history: bool, source: str = "simulated"
+        self, updates: list[dict], write_live: bool, source: str = "simulated"
     ) -> int:
-        """Fiyatlari gunceller; istenirse `price_history`'ye de yazar.
+        """Fiyatlari gunceller; istenirse `live_prices`'a gun ici satir yazar.
+
+        GECMIS TABLOSUNA (`price_history`) BURADAN YAZILMAZ. 15 dakikalik
+        tick'ler dogrudan oraya aksaydi tablo gunde ~1.536 satirla siserdi;
+        grafikler icin gereken cozunurluk ise gunluk kapanistir. Bu yuzden
+        tick'ler `live_prices`'a birikir ve gun bitiminde yalnizca gunun son
+        fiyati `price_history`'ye tasinir (bkz. `close_out_day`).
+
+        `prev_close` her tick'te ilerletilmez; saglayicinin onceki kapanisi
+        varsa o deger, yoksa mevcut gun baslangic degeri korunur. Boylece
+        `daily_change_pct` son tick'e gore degil gun baslangicina gore kalir.
+        Gun kapanirken `close_out_day` bu degeri kesin kapanisla tazeler.
 
         `daily_change_pct` ve `weekly_change_pct` YENIDEN HESAPLANIR - aksi
         halde seed degerinde donar ve dashboard hep ayni yuzdeyi gosterir
@@ -307,6 +318,7 @@ class SqlMarketRepository(_SqlRepository):
         `source` cagiran tarafindan verilir ve GERCEKTEN kullanilan kaynagi
         belirtir: saglayici Yahoo'ya ulasamayip simulatore dustuyse "api"
         DEGIL "simulated" yazilir (bkz. `ApiMarketProvider.son_kaynak`).
+        Etiket `live_prices` uzerinden gun sonunda `price_history`'ye tasinir.
         """
         if not updates:
             return 0
@@ -351,15 +363,20 @@ class SqlMarketRepository(_SqlRepository):
                 {"payload": _json(updates), "market_timezone": settings.market_day_timezone},
             )
 
-            if write_history:
+            if write_live:
+                # Varligi olmayan asset_id'ye yazmayi FK engellerdi ve tum
+                # tick'i dusururdu; JOIN ile bastan eliyoruz.
                 await session.execute(
                     text(
                         """
-                        INSERT INTO price_history (asset_id, ts, price, source)
-                        SELECT (value->>'asset_id')::INT, date_trunc('second', now()),
-                               (value->>'price')::NUMERIC, :source
-                        FROM jsonb_array_elements(CAST(:payload AS JSONB))
-                        ON CONFLICT (asset_id, ts) DO NOTHING
+                        INSERT INTO live_prices (asset_id, price, source, created_at)
+                        SELECT a.id, v.price, :source, date_trunc('second', now())
+                        FROM (SELECT
+                                (value->>'asset_id')::INT  AS asset_id,
+                                (value->>'price')::NUMERIC AS price
+                              FROM jsonb_array_elements(CAST(:payload AS JSONB))) AS v
+                        JOIN assets a ON a.id = v.asset_id
+                        WHERE v.price > 0
                         """
                     ),
                     {"payload": _json(updates), "source": source},
@@ -384,6 +401,133 @@ class SqlMarketRepository(_SqlRepository):
             await session.commit()
 
         return len(updates)
+
+    # -- Gun devri ---------------------------------------------------------
+    #
+    # Gun siniri `settings.market_day_timezone` (Europe/Istanbul) ile
+    # belirlenir; veritabani sunucusu UTC calisir. Saat dilimi SQL'e bind
+    # parametresi olarak gecer, metne gomulmez.
+
+    async def pending_close_days(self) -> list[str]:
+        """Kapanisi bekleyen gunler (bugunden onceki her gun), eskiden yeniye.
+
+        Ayri bir "kapatildi mi" tablosu YOKTUR: `live_prices`'ta gecmis bir
+        gune ait satir kalmasi, o gunun henuz kapatilmadigi anlamina gelir.
+        Boylece uygulama hafta sonu kapali kalsa bile acilista bekleyen tum
+        gunler kendiliginden gorunur ve kapanislar geriye donuk tamamlanir.
+        """
+        satirlar = await self._rows(
+            """
+            SELECT DISTINCT
+                   CAST(created_at AT TIME ZONE CAST(:tz AS TEXT) AS DATE) AS gun
+            FROM live_prices
+            WHERE created_at < (
+                      date_trunc('day', now() AT TIME ZONE CAST(:tz AS TEXT))
+                  ) AT TIME ZONE CAST(:tz AS TEXT)
+            ORDER BY gun
+            """,
+            {"tz": settings.market_day_timezone},
+        )
+        return [str(satir["gun"]) for satir in satirlar]
+
+    async def close_out_day(self, day: str) -> int:
+        """Gunu kapatir: kapanisi yazar, `prev_close`'u tazeler, gunu siler.
+
+        Uc adim TEK transaction icindedir - arada bir hata olursa hicbiri
+        gerceklesmez ve gun bir sonraki tick'te yeniden denenir. SIRA
+        onemlidir: once `price_history`'ye yazilir, silme en sonda yapilir.
+        """
+        parametreler = {"gun": day, "tz": settings.market_day_timezone}
+
+        async with self._session_factory() as session:
+            # 1) Gunun SON canli fiyati -> price_history (gun kapanisi).
+            #
+            #    Kapanisin zaman damgasi gunun Turkiye saatiyle 00:00'idir:
+            #    yfinance'in gunluk barlari da gunu bu sekilde damgalar,
+            #    boylece backfill satirlariyla ayni izgaraya oturur ve
+            #    ON CONFLICT tahmini backfill degerini olculen kapanisla
+            #    degistirir.
+            #
+            #    Sahte veri gercegin uzerine YAZMAZ: 'simulated' bir kapanis,
+            #    mevcut satir da 'simulated' degilse guncellemeyi atlar.
+            sonuc = await session.execute(
+                text(
+                    """
+                    WITH sinir AS (
+                        SELECT CAST(CAST(:gun AS DATE) AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS bas,
+                               CAST(CAST(:gun AS DATE) + 1 AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS son
+                    ),
+                    kapanis AS (
+                        SELECT DISTINCT ON (lp.asset_id)
+                               lp.asset_id, lp.price, lp.source
+                        FROM live_prices lp, sinir s
+                        WHERE lp.created_at >= s.bas
+                          AND lp.created_at <  s.son
+                          AND lp.asset_id IS NOT NULL
+                          AND lp.price > 0
+                        ORDER BY lp.asset_id, lp.created_at DESC, lp.id DESC
+                    )
+                    INSERT INTO price_history (asset_id, ts, price, source)
+                    SELECT k.asset_id, s.bas, k.price, k.source
+                    FROM kapanis k, sinir s
+                    ON CONFLICT (asset_id, ts) DO UPDATE
+                        SET price  = EXCLUDED.price,
+                            source = EXCLUDED.source
+                        WHERE EXCLUDED.source <> 'simulated'
+                           OR price_history.source = 'simulated'
+                    """
+                ),
+                parametreler,
+            )
+            yazilan = sonuc.rowcount or 0
+
+            # 2) prev_close = gunun kapanisi.
+            #    `daily_change_pct`'in "dune gore" olmasinin tek dayanagi bu;
+            #    tick'ler artik prev_close'a dokunmuyor.
+            await session.execute(
+                text(
+                    """
+                    WITH sinir AS (
+                        SELECT CAST(CAST(:gun AS DATE) AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS bas
+                    )
+                    UPDATE assets a
+                    SET prev_close = ph.price
+                    FROM price_history ph, sinir s
+                    WHERE ph.asset_id = a.id
+                      AND ph.ts = s.bas
+                    """
+                ),
+                parametreler,
+            )
+
+            # 3) Yalnizca KAPANAN gunun satirlarini sil.
+            #    TRUNCATE degil: o an akan yeni gunun tick'leri korunur.
+            #    asset_id'si NULL olan artik satirlar da bu araliktaysa
+            #    temizlenir, yoksa gun sonsuza kadar "kapanmadi" gorunurdu.
+            await session.execute(
+                text(
+                    """
+                    WITH sinir AS (
+                        SELECT CAST(CAST(:gun AS DATE) AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS bas,
+                               CAST(CAST(:gun AS DATE) + 1 AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS son
+                    )
+                    DELETE FROM live_prices lp
+                    USING sinir s
+                    WHERE lp.created_at >= s.bas
+                      AND lp.created_at <  s.son
+                    """
+                ),
+                parametreler,
+            )
+
+            await session.commit()
+
+        return yazilan
 
     async def get_api_usage_today(self) -> int:
         """Bugun dis piyasa API'sine yapilan cagri sayisi."""

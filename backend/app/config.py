@@ -31,13 +31,13 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
 
     # --- RAG / Vector DB ------------------------------------------------
-    # EMBEDDING MODELI HENUZ SECILMEDI (mimari v4 bolum 16, madde 1).
-    # Bos oldugu surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla
-    # calisir; hibrit arama (dense + BM25 -> RRF) model secilince acilir.
-    # Model secildiginde `db/v5_schema_and_data.sql` icindeki vector(1024)
-    # boyutu IKI yerde birden guncellenmelidir.
+    # Model secildi: Cohere embed-v4 (output_dimension=1024 - vector(1024)
+    # semasiyla degisiklik gerekmeden eslesir). EMBEDDING_API_KEY bos oldugu
+    # surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla calisir;
+    # hibrit arama (dense + BM25 -> RRF) anahtar tanimlaninca acilir.
     embedding_model: str = ""
     embedding_dim: int = 1024
+    embedding_api_key: str = ""
 
     # --- LLM ------------------------------------------------------------
     # MODEL SECIMI HENUZ YAPILMADI: bu alanlar bilincli olarak BOS birakilir,
@@ -75,13 +75,24 @@ class Settings(BaseSettings):
 
     market_sim_seed: int = 20260813
 
-    #: Fiyat gorevi her N tick'te bir `price_history`'ye satir yazar.
+    #: Fiyat gorevi her N tick'te bir `live_prices`'a satir yazar.
     #: 1 = her tick (15 dakikada bir satir). Tick araligi 60 sn iken bu deger
     #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
+    #:
+    #: NOT: satir artik dogrudan `price_history`'ye DEGIL `live_prices`'a
+    #: gider; `price_history`'ye gun bitiminde yalnizca gunun KAPANISI yazilir
+    #: (bkz. `market_day_timezone` ve `app/market/scheduler.py`). Ortam
+    #: degiskeninin adi geriye donuk uyumluluk icin ayni birakildi.
     price_history_every_n_ticks: int = 1
 
-    #: Gunluk degisim icin piyasa gununun belirlendigi saat dilimi.
-    #: Sunucu UTC'de calissa bile onceki kapanis Turkiye gunune gore korunur.
+    #: Gun sinirinin belirlendigi saat dilimi. Bu saat diliminde gun
+    #: degistiginde `live_prices`'taki o gune ait satirlarin SONUNCUSU
+    #: `price_history`'ye gunun kapanisi olarak yazilir ve o gunun canli
+    #: satirlari silinir.
+    #:
+    #: Neden ayar: veritabani sunucusu UTC calisiyor (Supabase oyle), ama
+    #: kullanicilar ve BIST Turkiye saatinde. Gun sinirini UTC'ye birakmak
+    #: "kapanis"i saat 03:00'e kaydirirdi.
     market_day_timezone: str = "Europe/Istanbul"
 
     #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
