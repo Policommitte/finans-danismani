@@ -16,6 +16,7 @@ istegi disindan da cagrilir, dolayisiyla oturum bir request'e baglanamaz.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -23,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
+from app.ingestion.embeddings import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -455,16 +457,30 @@ class SqlMarketRepository(_SqlRepository):
 class SqlRagRepository(_SqlRepository):
     """Haber/rapor arama.
 
-    ⚠️ EMBEDDING MODELI SECILMEDIGI SURECE (mimari v4 bolum 16, madde 1)
-    hibrit aramanin DENSE ayagi calistirilamaz - sorgu vektore cevrilemez.
-    Bu yuzden varsayilan yol yalnizca BM25'tir. Model secilip
-    `EMBEDDING_MODEL` tanimlandiginda `rag.hybrid_search(...)` fonksiyonu
-    devreye girer; SQL zaten hazirdir ve bu sinifta yalnizca bir dal acilir.
+    Iki arama yolu vardir:
+      * `search()`        - yalnizca BM25 (tam eslesme/`content_tsv`).
+      * `hybrid_search()`  - dense (anlamsal) + BM25 -> RRF (`rag.hybrid_search`).
+        `rag_search` MCP tool'unun cagirdigi BIRINCIL yoldur.
+
+    `hybrid_search()` `search()`'in YERINE GECMEZ, UZERINE KURULUR: embedder
+    enjekte edilmediyse (`EMBEDDING_API_KEY`/`EMBEDDING_MODEL` tanimli degil)
+    ya da sorgu-zamani embedding cagrisi basarisiz/zaman asimina ugrarsa
+    dogrudan `search()`'e (BM25) duser - istek asla coker, yalnizca dense ayak
+    devre disi kalir. Bu yuzden `search()` bagimsiz, kalici bir sozlesme
+    olarak kalir (mimari v4 bolum 16, madde 1; roadmap Faz 4+5).
 
     BM25 sorgusunda `plainto_tsquery`'nin AND davranisi OR'a cevrilir: dogal
     dildeki bir sorunun TUM kelimelerinin ayni chunk'ta gecmesi neredeyse
     imkansizdir; cevrilmezse arama sessizce bos doner (db/README.md).
     """
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        embedder: Embedder | None = None,
+    ) -> None:
+        super().__init__(session_factory)
+        self._embedder = embedder
 
     async def search(
         self,
@@ -472,10 +488,9 @@ class SqlRagRepository(_SqlRepository):
         top_k: int = 5,
         sirket: str | None = None,
         tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> list[dict]:
-        if settings.embedding_model:
-            logger.debug("embedding modeli tanimli; hibrit arama dali acilabilir")
-
         return await self._rows(
             """
             WITH q AS (
@@ -505,10 +520,91 @@ class SqlRagRepository(_SqlRepository):
                    OR upper(a.name) = upper(:sirket)
                    OR d.baslik ILIKE '%' || :sirket || '%')
               AND (CAST(:tip AS TEXT) IS NULL OR d.tip = :tip)
+              AND (CAST(:date_from AS DATE) IS NULL OR d.tarih >= CAST(:date_from AS DATE))
+              AND (CAST(:date_to AS DATE) IS NULL OR d.tarih <= CAST(:date_to AS DATE))
             ORDER BY score DESC
             LIMIT :top_k
             """,
-            {"query": query, "sirket": sirket, "tip": tip, "top_k": top_k},
+            {
+                "query": query,
+                "sirket": sirket,
+                "tip": tip,
+                "date_from": date_from,
+                "date_to": date_to,
+                "top_k": top_k,
+            },
+        )
+
+    async def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 5,
+        sirket: str | None = None,
+        tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        if self._embedder is None:
+            logger.debug("embedder baglanmadi; BM25'e dusuluyor")
+            return await self.search(
+                query, top_k=top_k, sirket=sirket, tip=tip, date_from=date_from, date_to=date_to
+            )
+
+        try:
+            embedding = await asyncio.wait_for(
+                self._embedder.embed_query(query),
+                timeout=settings.rag_query_embedding_timeout_seconds,
+            )
+        except Exception:  # noqa: BLE001 - embedding basarisiz olsa da arama COKMEMELI
+            logger.warning(
+                "sorgu embedding'i basarisiz/zaman asimina ugradi; BM25'e dusuluyor",
+                exc_info=True,
+            )
+            return await self.search(
+                query, top_k=top_k, sirket=sirket, tip=tip, date_from=date_from, date_to=date_to
+            )
+
+        # `rag.hybrid_search()` `document_id`/`sirket` (KAYNAK) doner - `doc_id`
+        # (external_id) ve `symbol` icin `rag.documents`/`assets`'e geri
+        # JOIN edilir; boylece donus sekli `search()` ile BIREBIR aynidir
+        # (`_chunk_payload` ikisini ayirt etmeden isler).
+        #
+        # Isimli parametreler (`p_x => ...`) KULLANILIR: `p_asset_id` ve
+        # `p_k_rrf` varsayilanlarinda birakilir, pozisyonel cagrida aralarina
+        # NULL yazmaya gerek kalmaz.
+        #
+        # `:embedding` icin ACIK `CAST(... AS vector)` ZORUNLUDUR - aksi
+        # halde SQLAlchemy/psycopg parametreyi `double precision[]` olarak
+        # gonderir ve Postgres fonksiyon overload'unu bulamaz (bkz. embedding
+        # pipeline oturum notlari, 2026-08-19/20 - ayni hata local'de
+        # `rag.hybrid_search`'u dogrudan cagirirken de yasanmisti).
+        return await self._rows(
+            """
+            SELECT hs.chunk_id, d.external_id AS doc_id, hs.baslik, hs.sirket,
+                   a.symbol, to_char(hs.tarih, 'YYYY-MM-DD') AS tarih, hs.tip,
+                   hs.content, hs.score
+            FROM rag.hybrid_search(
+                     p_query     => CAST(:query AS TEXT),
+                     p_embedding => CAST(:embedding AS vector),
+                     p_top_k     => CAST(:top_k AS INT),
+                     p_sirket    => CAST(:sirket AS TEXT),
+                     p_tip       => CAST(:tip AS TEXT),
+                     p_date_from => CAST(:date_from AS DATE),
+                     p_date_to   => CAST(:date_to AS DATE)
+                 ) hs
+            JOIN rag.documents d ON d.id = hs.document_id
+            LEFT JOIN assets a   ON a.id = d.asset_id
+            ORDER BY hs.score DESC
+            """,
+            {
+                "query": query,
+                "embedding": embedding,
+                "top_k": top_k,
+                "sirket": sirket,
+                "tip": tip,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
         )
 
 

@@ -127,7 +127,32 @@ class RagRepository(Protocol):
         sirket: str | None = None,
         tip: str | None = None,
     ) -> list[dict]:
-        """Haber/rapor arama. Kaynak metadata'si YAPILANDIRILMIS doner (FR-RAG-04)."""
+        """Haber/rapor arama - yalnizca BM25 (tam eslesme). Kaynak metadata'si
+        YAPILANDIRILMIS doner (FR-RAG-04)."""
+        ...
+
+    async def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 5,
+        sirket: str | None = None,
+        tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        """Dense (anlamsal) + BM25 -> RRF birlesimi (`rag.hybrid_search`).
+
+        `rag_search` MCP tool'unun cagirdigi BIRINCIL yol budur - `search()`
+        yerini almaz, onun UZERINE kurulur: embedding modeli/anahtari tanimli
+        degilse ya da sorgu-zamani embedding cagrisi basarisiz/zaman asimina
+        ugrarsa DOGRUDAN `search()`'e (BM25) duser. Bu yuzden `search()` hala
+        kalici bir sozlesmedir, cagrilan yer degistirmez.
+
+        Donus seklinin `search()` ile AYNI olmasi zorunludur (FR-RAG-04):
+        `chunk_id`, `doc_id`, `baslik`, `sirket`, `symbol`, `tarih`, `tip`,
+        `content`, `score` - `mcp/server.py::_chunk_payload` ikisini de
+        ayirt etmeden isler.
+        """
         ...
 
 

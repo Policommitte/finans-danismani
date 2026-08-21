@@ -1,391 +1,336 @@
 # RAG Agent ve MCP Katmani — Backend & DB Ekipleri Icin Ozet
 
-Bu rapor, `RAG-Agent` dalinda su ana kadar eklenen iskeleti anlatir:
-`MarketResearchAgent`, paylasilan `MCPClient`/`MCPServer` yapisi, mock MCP
-sunuculari ve LLM istemci katmani. Amac; backend'in geri kalanini yazacak
-ekibin (Orchestrator, PortfolioAgent, RiskStrategyAgent, API katmani) ve
-veri/DB ekibinin (LlamaIndex indeksi, Postgres portfoy DB, KAP/Borsa
-entegrasyonu) neyin **sozlesme** olarak kaldigini, neyin **placeholder**
-oldugunu net gorebilmesidir.
+> **2026-08-20 guncellemesi:** Bu dosya ilk yazildiginda (RAG-Agent dalinin
+> iskelet asamasinda) `mcp/mock.py` ve `mcp/servers/{rag,market}.py` gibi
+> **mock** dosyalar tarif ediyordu. Bu dosyalar artik REPODA YOK - gercek
+> `mcp/server.py` (tek modul, TOOL_GROUPS kayit defteri) onlarin yerini aldi.
+> Asagidaki icerik GUNCEL koda gore yeniden yazildi; "kalici sozlesme" olarak
+> isaretlenen kisimlar hala gecerli, "placeholder" olanlar ise artik farkli
+> sekilde placeholder (bkz. §8).
+
+Bu rapor, backend'in RAG/MCP katmaninin **bugunku** halini anlatir:
+`MarketResearchAgent`, paylasilan `MCPClient`/`MCPServer` yapisi, gercek
+`mcp/server.py` tool kayit defteri, `SqlRagRepository`/`InMemoryRagRepository`
+ve LLM istemci katmani.
 
 ---
 
-## 1. Klasor Haritasi
+## 1. Klasor Haritasi (guncel)
 
 ```
 backend/app/
   agents/
-    base.py              # BaseAgent + AgentResult (sozlesme)
+    base.py              # BaseAgent + AgentError (sozlesme)
     market_research.py   # MarketResearchAgent (RAG + canli veri)
+    portfolio.py          # PortfolioAgent
+    risk_strategy.py      # RiskStrategyAgent
+    security_agent.py     # Guvenlik ajani (Kapi 1 + Kapi 2)
   core/
     llm.py               # LLMClient protokolu + GeminiLLMClient
+  ingestion/
+    chunking.py           # semantic_split -> chunk_document
+    embeddings.py          # Embedder protokolu + CohereEmbedder + get_embedder()
+    backfill.py            # rag.documents -> rag.chunks (+embedding) toplu isleme
   mcp/
-    client.py            # MCPClient, MCPServer, hata hiyerarsisi (sozlesme)
-    mock.py              # build_mock_mcp_client() — dev/test wiring
-    servers/
-      rag.py             # MCP Server 1 (LlamaIndex) icin mock
-      market.py          # MCP Server 3 (Borsa & KAP) icin mock
+    client.py             # MCPClient, MCPServer, hata hiyerarsisi (sozlesme)
+    context.py             # user_id contextvar (require_user_id)
+    server.py               # TEK gercek MCP sunucusu - TUM tool'lar burada kayitli
+    servers/                # BOS (yalnizca __pycache__) - eski mock modul artiklari,
+                             # silinmesi guvenli, hicbir yerden import edilmiyor
+  repositories/
+    base.py                 # Protocol'ler (UserRepository, ..., RagRepository, ...)
+    sql.py                   # PostgreSQL implementasyonlari - BIRINCIL
+    in_memory.py              # Bellek ici implementasyonlar - YEDEK
+    deps.py                    # Hangi implementasyon secilecek (TEK yer)
+  engine/
+    orchestrator.py            # LangGraph StateGraph, router, sentez, SSE
   tests/
     test_mcp_client.py
+    test_mcp_server.py
     test_market_research_agent.py
+    test_market_research_orchestration.py
+    test_hybrid_search.py       # SqlRagRepository.hybrid_search() (2026-08-20)
+    test_sql_repositories.py
 ```
 
-Eksik olan (bilerek, baska ekipler yazacak):
-- Orchestrator / router
-- `PortfolioAgent`, `RiskStrategyAgent`
-- MCP Server 2 (Portfoy DB / PostgreSQL) — **PortfolioAgent'in sorumlulugunda**
-- Gercek MCP transport (JSON-RPC / stdio / SSE)
-- API katmani (`app/api/routes/`)
+`Orchestrator`, `PortfolioAgent`, `RiskStrategyAgent`, gercek DB baglantisi,
+gercek embedding pipeline'i - bu raporun ilk halinde "baska ekipler yazacak"
+diye not edilen her sey artik yazildi. Hala eksik/acik olanlar §8 ve
+`docs/gelecek-isler.md`'de listelidir.
 
 ---
 
 ## 2. MCP Katmani
 
-### 2.1 Neden "MCP" ama gercek MCP degil
+### 2.1 Gercek MCP protokolu mu?
 
-`client.py` docstring'inde de belirtildigi gibi, su an hicbir MCP sunucusu
-ayri bir surecte calismiyor. LlamaIndex indeksi, Postgres, Borsa/KAP
-entegrasyonlari henuz yok. Bu yuzden `MCPClient`, gercek MCP protokolunun
+Hayir - `client.py` docstring'inde belirtildigi gibi hicbir MCP sunucusu ayri
+bir surecte calismiyor. `MCPClient`/`MCPServer` gercek MCP protokolunun
 (JSON-RPC / stdio / SSE) transport'unu **implemente etmez**; agent'larin
-bagimli olacagi **cagri sozlesmesini** saglayan **in-process bir
+bagimli oldugu **cagri sozlesmesini** saglayan **in-process bir
 yonlendirme/registry katmanidir**:
 
 ```python
 await mcp_client.call_tool(server="rag", tool="rag_search", arguments={...})
 ```
 
-Ileride gercek bir MCP sunucusuna baglanmak gerektiginde, o sunucu icin
-`MCPServer.call`'i JSON-RPC uzerinden proxy'leyen yeni bir `MCPServer` alt
-sinifi / adaptoru yazilir ve `register_server` ile eklenir. **`BaseAgent`
-ve `MarketResearchAgent`'in kullandigi arayuz degismez.**
+Bu tasarim kararinda degisiklik yok; ilk yazildigindan beri ayni.
 
 ### 2.2 Kalici siniflar (`app/mcp/client.py`)
 
 | Sinif | Rol |
 |---|---|
-| `MCPClient` | Agent'lara `constructor` uzerinden enjekte edilen paylasilan istemci. `call_tool(server, tool, arguments)` API'si. |
-| `MCPServer` | Tek bir mantiksal sunucu (`rag`, `market`, `portfolio`, ...) icin tool kayit defteri. `register_tool`, `has_tool`, `call`. |
+| `MCPClient` | Agent'lara constructor uzerinden enjekte edilen paylasilan istemci. `call_tool(server, tool, arguments)` API'si. |
+| `MCPServer` | Tek bir mantiksal sunucu (`core`, `rag`, `market`) icin tool kayit defteri. `register_tool`, `has_tool`, `call`. |
 | `MCPClientError` | Tum MCP kaynakli hatalarin ata sinifi. |
 | `MCPServerNotFoundError` | Bilinmeyen sunucu adi. |
 | `MCPToolNotFoundError` | Sunucuda olmayan tool. |
-| `MCPToolExecutionError` | Tool handler'in kendi hatasini sarar (`cause` alanindan orijinal exception erisilebilir). |
+| `MCPToolExecutionError` | Tool handler'in kendi hatasini sarar (`cause` alanindan orijinal exception erisilebilir). Onemli: handler icinde SQL/embedding gibi bir cagri patlarsa da bu hataya sarilir - bkz. §4.3. |
 
-Bu siniflarin **API'si** kalicidir. Orchestrator ve tum agent'lar bu
-arayuze karsi yazilmalidir.
-
-### 2.3 Sunucu adlari ve tool sozlesmeleri (kalici)
+### 2.3 Sunucu adlari ve tool sozlesmeleri (kalici) — `app/mcp/server.py`
 
 ```
+server = "core"      tool = "user_get_profile"
+server = "core"      tool = "portfolio_get_summary" | "portfolio_get_holdings"
+                              | "portfolio_get_allocation" | "portfolio_get_transactions"
+server = "market"    tool = "market_get_quote" | "market_get_history"
+                              | "market_get_kap_disclosures"
 server = "rag"       tool = "rag_search"
-server = "market"    tool = "market_get_quote"
-server = "market"    tool = "market_get_kap_disclosures"
-server = "portfolio" tool = ...   # PortfolioAgent ekibi tanimlayacak
 ```
 
-`RAG_SERVER_NAME` ve `MARKET_SERVER_NAME` sabitleri sunucu adlarini
-merkezilestirir; agent'lar bunlari import eder.
+`CORE_SERVER_NAME`, `RAG_SERVER_NAME`, `MARKET_SERVER_NAME` sabitleri sunucu
+adlarini merkezilestirir; ajanlar bunlari import eder. Tum tool'lar `TOOL_GROUPS`
+sozlugunde tek yerde kayitlidir; `build_servers()` bunu `MCPServer` nesnelerine
+cevirir. Yeni tool eklemek icin `TOOL_GROUPS`'a bir satir eklemek yeterlidir.
 
-### 2.4 Tool imzalari
-
-**`rag.rag_search`** — `app/mcp/servers/rag.py`
+### 2.4 `rag_search` tool imzasi (guncel)
 
 ```python
 async def rag_search(
     query: str,
     top_k: int = 5,
-    filters: dict[str, Any] | None = None,
+    sirket: str | None = None,
+    tip: str | None = None,
+    date_from: str | None = None,   # "YYYY-MM-DD" - 2026-08-20'de eklendi
+    date_to: str | None = None,     # "YYYY-MM-DD" - 2026-08-20'de eklendi
+    filters: dict[str, Any] | None = None,  # geriye donuk uyum
 ) -> dict[str, Any]:
-    # filters destekli anahtarlar: symbol, date_from (YYYY-MM-DD), date_to
+    ...
     return {"query": query, "chunks": [...]}
 ```
 
-Beklenen `chunks` elemani:
+`filters` sozlugu `{"sirket"|"symbol", "tip", "date_from", "date_to"}`
+kabul eder - `MarketResearchAgent._run_rag` bu yolu kullanir. **Onemli
+gecmis bug (2026-08-20'de bulunup duzeltildi):** `date_from`/`date_to`
+onceden hem dogrudan parametre hem `filters` icinde SESSIZCE DUSUYORDU;
+artik ikisi de `SqlRagRepository`'ye kadar dogru tasinir.
+
+Donen `chunks` elemani (degismedi):
 ```python
 {
-    "chunk_id": str,
-    "text": str,
-    "source": str,          # orn. "Dunya Gazetesi", "KAP"
-    "date": "YYYY-MM-DD",
-    "metadata": {"symbol": "THYAO", "topic": "earnings"},
-    "score": float,         # 0..1 arasi benzerlik skoru
+    "chunk_id": str, "doc_id": str, "baslik": str, "sirket": str | None,
+    "symbol": str | None, "tarih": str, "tip": str, "content": str,
+    "score": float,
+    # eski adlar (MarketResearchAgent geriye donuk uyum icin):
+    "title": str, "text": str, "source": str, "date": str, "metadata": dict,
 }
 ```
 
-**`market.market_get_quote`** — `app/mcp/servers/market.py`
+**`market.market_get_quote`** ve **`market.market_get_kap_disclosures`** —
+imzalar degismedi; govdeleri artik `SqlMarketRepository`/`SqlRagRepository`'ye
+baglaniyor (bkz. §2.5). `market_get_kap_disclosures` hala `rag.search()`'u
+(BM25) cagiriyor, `.hybrid_search()`'u DEGIL - bilincli, dokunulmadi (KAP
+bildirimleri tarihe gore siralanir, alaka skoruna gore degil).
 
-```python
-async def market_get_quote(symbol: str) -> dict[str, Any]:
-    # Bulunamazsa: {"symbol": ..., "found": False}
-    return {
-        "symbol": "THYAO",
-        "found": True,
-        "timestamp": "ISO-8601",
-        "price": 312.50,
-        "currency": "TRY",
-        "change_percent": 1.85,
-    }
-```
+### 2.5 Govdeler artik GERCEK, placeholder DEGIL
 
-**`market.market_get_kap_disclosures`**
-
-```python
-async def market_get_kap_disclosures(
-    symbol: str, since: str | None = None
-) -> dict[str, Any]:
-    return {
-        "symbol": "THYAO",
-        "disclosures": [
-            {
-                "disclosure_id": str,
-                "title": str,
-                "summary": str,
-                "date": "YYYY-MM-DD",  # en yeniden eskiye sirali
-            }
-        ],
-    }
-```
-
-**Onemli:** Tool **adlari, argument adlari ve donus sozlukleri** kalici
-sozlesmedir. Gercek entegrasyon (LlamaIndex, KAP API) hazir oldugunda
-sadece **govde** degisir, imza degismez.
-
-### 2.5 Placeholder olanlar
-
-| Yer | Placeholder mi? | Yerine ne gelecek |
+| Yer | Eski durum (ilk yazim) | Bugunku durum |
 |---|---|---|
-| `servers/rag.py::_MOCK_CHUNKS` | Evet | LlamaIndex indeksi + embedding pipeline |
-| `servers/rag.py::rag_search` govdesi | Evet (score'a gore siralayan filtre) | Gercek semantik arama |
-| `servers/market.py::_MOCK_QUOTES` | Evet | Borsa API baglantisi |
-| `servers/market.py::_MOCK_DISCLOSURES` | Evet | KAP API baglantisi |
-| `mock.py::build_mock_mcp_client()` | Kismen | Dev/test icin kalir; production'da Orchestrator kendi wiring'ini yapacak |
+| RAG arama govdesi | `_MOCK_CHUNKS` (mock.py) | `SqlRagRepository.search()`/`.hybrid_search()` - gercek Postgres BM25 + (varsa) Cohere embedding + `rag.hybrid_search()` SQL fonksiyonu (RRF) |
+| Borsa fiyati govdesi | `_MOCK_QUOTES` | `SqlMarketRepository.get_quote()` - Yahoo Finance (`ApiMarketProvider`) + simulator hibrit (mimari v4 §8) |
+| KAP bildirimi govdesi | `_MOCK_DISCLOSURES` | `rag.documents` icindeki `tip='duyuru'` satirlari (ayri bir KAP entegrasyonu YOK, bilincli tasarim) |
+| DB baglantisi yoksa | (yoktu) | `InMemoryRagRepository`/`InMemoryMarketRepository` - `repositories/deps.py::_veritabani_calisiyor()` baglanti kurulamazsa otomatik devreye girer, `/health` `data_source: in-memory` doner |
 
 ---
 
-## 3. Agent Katmani
+## 3. RAG Arama — iki yol, tek sozlesme
 
-### 3.1 `BaseAgent` ve `AgentResult` — kalici sozlesme
+`SqlRagRepository` (`app/repositories/sql.py`) iki metot sunar; `rag_search`
+MCP tool'u **`hybrid_search()`** cagirir, `search()` degil:
+
+```python
+async def search(query, top_k=5, sirket=None, tip=None,
+                  date_from=None, date_to=None) -> list[dict]:
+    """Yalnizca BM25 (content_tsv full-text). Embedding GEREKTIRMEZ."""
+
+async def hybrid_search(query, top_k=5, sirket=None, tip=None,
+                         date_from=None, date_to=None) -> list[dict]:
+    """Dense (Cohere embed-v4) + BM25 -> RRF (rag.hybrid_search SQL fonksiyonu).
+    `search()`'un YERINE GECMEZ, UZERINE KURULUR:
+      - embedder enjekte edilmediyse (EMBEDDING_API_KEY/EMBEDDING_MODEL yok)
+        -> DOGRUDAN search()'e duser.
+      - sorgu-zamani embedding cagrisi basarisiz/zaman asimina ugrarsa
+        (RAG_QUERY_EMBEDDING_TIMEOUT_SECONDS, varsayilan 3sn)
+        -> search()'e duser, istek COKMEZ.
+      - embedding basariliysa rag.hybrid_search() SQL fonksiyonu cagrilir.
+    Donus sekli search() ile BIREBIR ayni - cagiran taraf (mcp/server.py::
+    _chunk_payload) ikisini ayirt etmez.
+    """
+```
+
+`repositories/deps.py::get_rag_repository()` DB bagliysa `SqlRagRepository`'yi
+`app.ingestion.embeddings.get_embedder()` ile kurar (embedder `None` donerse
+sorun degil - yukaridaki ilk fallback devreye girer).
+
+**Kritik istisna:** yukaridaki fallback zinciri yalnizca EMBEDDING adimini
+kapsar. `rag.hybrid_search()` SQL fonksiyon cagrisinin kendisi patlarsa
+(orn. Supabase'de fonksiyon henuz guncellenmediyse - bkz. `gelecek-isler.md`
+madde 3) bu hata YAKALANMAZ, `MCPToolExecutionError` olarak yukari cikar ve
+`BaseAgent.run()` bunu `AgentError(error_type="tool_error")`'a cevirir -
+yani o turde `market_research` ajaninin RAG bacagi tamamen basarisiz olur
+(kismi basarisizlik, sohbet cokmez, ama veri de gelmez).
+
+---
+
+## 4. Agent Katmani
+
+### 4.1 `BaseAgent` — kalici sozlesme (degismedi)
 
 `app/agents/base.py`:
 
 ```python
-class AgentResult(BaseModel):
-    agent_name: str
-    data: dict[str, Any]
-    success: bool = True
-    error: str | None = None
-
 class BaseAgent(ABC):
-    def __init__(self, name: str, mcp_client: MCPClient) -> None: ...
-
+    name: str
+    def __init__(self, mcp_client, llm, timeout_seconds: int) -> None: ...
     @abstractmethod
-    async def run(self, task: dict[str, Any]) -> AgentResult: ...
+    async def _execute(self, state: AgentState) -> dict: ...
+    async def run(self, state: AgentState) -> dict:
+        """Timeout/hata yonetimi MERKEZI - alt siniflar yalnizca _execute yazar."""
+    async def call_tool(self, server: str, tool: str, arguments: dict) -> dict: ...
+    def is_requested(self, state: AgentState) -> bool: ...
 ```
 
-Prensipler:
-- **Dependency Injection:** Her agent kendi `MCPClient`'ini olusturmaz;
-  Orchestrator tek bir `MCPClient` olusturur ve tum agent'lara enjekte eder.
-- **Bagimsizlik:** Her agent, ayni istekte calisan diger agent'larin
-  durumunu/ciktisini varsaymaz. Router bu agent'i cagirmayabilir ya da tek
-  basina cagirabilir.
-- **`security_gate` icin:** `success`/`error` alanlari, senteze gecmeden
-  onceki guvenlik/uygunluk kapisinin sonucu isleme alip almayacagina karar
-  vermesi icindir.
+İlk yazımdaki `AgentResult` modeli artık kullanılmıyor; ajanlar
+`AgentState`'in DEĞİŞEN alanlarını doğrudan dict olarak döner (bkz.
+`orchestration/models.py`, mimari v4 §5.3-5.4). Prensipler aynı: dependency
+injection, ajan bağımsızlığı, `run()`'ın timeout/hata yakalamayı merkezileştirmesi.
 
-### 3.2 `MarketResearchAgent` — mimarideki yeri
+### 4.2 `MarketResearchAgent` — degismeyen kisimlar
 
-`app/agents/market_research.py`:
+- MCP Server "rag" ve "market" ile birlikte calisan tek ajandir.
+- Portfoy sunucusuna ("core") ASLA erismez (NFR-04).
+- `_resolve_mode` (rag/live/both), `_extract_symbol`, RAG/canli veri
+  ayristirmasi - hepsi ilk yazimdaki gibi calisiyor, degismedi.
+- `task` semasi (`query`, `mode`, `symbol`, `date_from`, `date_to`, `top_k`,
+  `include_disclosures`, `since`) hala PROVISIONAL - router hala yapilandirilmis
+  parametre uretmiyor (bkz. `docs/gelecek-isler.md` madde 1).
 
-- **MCP Server 1 (RAG)** ve **MCP Server 3 (Borsa & KAP)** ile **birlikte**
-  calisan **tek agent**tir.
-- **MCP Server 2 (Portfoy DB)'ye asla erismez** — o sunucu
-  `PortfolioAgent`'in sorumlulugundadir.
+### 4.3 Guvenlik notu (degismedi)
 
-### 3.3 Task sozlesmesi (provisional)
-
-Router/Orchestrator henuz repoda olmadigi icin sabitlenmis bir sema yok.
-Agent, router'in su sekilde bir sozluk gondermesini varsayar:
-
-```python
-task = {
-    "query": str,                        # zorunlu
-    "mode": "rag" | "live" | "both",     # opsiyonel; yoksa sorgudan cikarilir
-    "symbol": str | None,                # orn. "THYAO"
-    "date_from": str | None,             # "YYYY-MM-DD", RAG filtresi
-    "date_to": str | None,               # "YYYY-MM-DD", RAG filtresi
-    "top_k": int | None,                 # RAG icin chunk sayisi
-    "include_disclosures": bool | None,  # live modda KAP bildirimi de ekle
-    "since": str | None,                 # KAP filtresi (YYYY-MM-DD)
-}
-```
-
-Router farkli bir alan adi/sekli kullanirsa `market_research.py`
-guncellenmelidir.
-
-### 3.4 `run(task)` akisi
-
-1. **Dogrulama** — `task["query"]` bos ise `AgentResult(success=False)` doner.
-2. **Mode cozumu** — `_resolve_mode`: explicit `mode` verilmisse kullanir;
-   aksi halde Turkce anahtar kelime sezgisiyle karar verir
-   (`_LIVE_KEYWORDS` = "fiyat", "kac para", "guncel", "canli", "kap bildir";
-   `_CONTEXT_KEYWORDS` = "neden", "sebep", "nicin", "haber", "rapor",
-   "analiz"). `symbol` varsa canli veri gerekebilir.
-3. **RAG kolu (`_run_rag`)** —
-   - `filters` sozlugunu (`symbol`, `date_from`, `date_to`) kurar.
-   - `mcp.call_tool("rag", "rag_search", ...)` cagirir.
-   - Chunk yoksa `NO_RETRIEVAL_MESSAGE` (indekslenmis icerik yok) doner,
-     `confidence = 0`.
-   - Chunk varsa `_build_rag_prompt` ile **groundedness prompt**'u kurar
-     (LLM'e "sadece bu kaynaklardaki bilgiyi kullan, uydurma" der) ve
-     `LLMClient.generate` cagrir. `confidence`, chunk skorlarinin
-     ortalamasi olarak dondurulur.
-4. **Live kolu (`_run_live`)** —
-   - `symbol` zorunlu; yoksa uyari mesajiyla erken doner.
-   - `market.market_get_quote` cagrir.
-   - `include_disclosures = True` ise `market.market_get_kap_disclosures`
-     de cagrilir ve en yeni bildirim ozete eklenir.
-5. **Sonuc zarfi:**
-
-```python
-AgentResult(
-    agent_name="market_research",
-    data={
-        "summary": str,               # Turkce, kisa yanit
-        "sources": [                  # RAG kaynaklari
-            {"source": str, "excerpt": str, "date": str}
-        ],
-        "live_data": {                # varsa
-            "symbol": str, "price": float, "timestamp": str
-        } | None,
-        "confidence": float | None,   # RAG icin ortalama score
-    },
-    success=True,
-)
-```
-
-- Herhangi bir `MCPClientError` yakalanirsa `success=False`, `error=str(exc)`
-  ile donulur; agent icinde traceback sizmaz.
-
-### 3.5 Placeholder vs. kalici — `MarketResearchAgent`
-
-| Parca | Durum |
-|---|---|
-| Sinif adi ve konumu | Kalici |
-| `run(task) -> AgentResult` sozlesmesi | Kalici |
-| `data` sozlugunun anahtarlari (`summary`, `sources`, `live_data`, `confidence`) | Kalici |
-| MCP tool cagrilari (isim ve argumanlar) | Kalici |
-| `_resolve_mode` anahtar kelime sezgisi | **Placeholder** — router explicit `mode` gonderdiginde gereksizlesir |
-| `task` sema dokumantasyonu | **Provisional** — router sozlesmesi netlesince guncellenir |
-| `_build_rag_prompt` metni | Ayarlanabilir; sozlesme degil |
+RAG'den donen metin dis kaynaklidir; `security_gate` node'u sentezden once
+ham `market_data`'yi tarar (bkz. mimari v4 §11).
 
 ---
 
-## 4. LLM Katmani (`app/core/llm.py`)
+## 5. LLM Katmani (`app/core/llm.py`) — degismedi
 
 ```python
 class LLMClient(Protocol):
     async def generate(self, prompt: str, *, model: str | None = None) -> str: ...
 
-class GeminiLLMClient:
-    # google-genai SDK uzerinden Gemini'ye baglanan ince sarmalayici
-    ...
-
-def get_llm_client(agent: str) -> LLMClient:
-    # settings.model_for(agent) ile agent'a ozel model adi secilir
-    ...
+class GeminiLLMClient: ...
+def get_llm_client(agent: str) -> LLMClient: ...
 ```
 
-- Agent'lar dogrudan `GeminiLLMClient`'a **bagli degildir**; `LLMClient`
-  protokoluyle konusur. Bu sayede testlerde gercek API cagrisi yapilmadan
-  sahte bir `generate()` enjekte edilebilir (bkz. `test_market_research_agent.py`).
-- Saglayici olarak Google Gemini (`gemini-2.5-flash` varsayilan) secildi.
-  `.env` icinde `LLM_API_KEY` gerekir.
-- **`LLMClient` protokolu kalici**; saglayici degistirilebilir (baska bir
-  `LLMClient` implementasyonu yazilir, `get_llm_client` guncellenir).
+LLM modeli hala secilmedi (`docs/backend-kararlar.md` §11) - ajanlar
+LLM'siz de calisir, deterministik alinti/ozet uretirler.
 
 ---
 
-## 5. Backend Ekibi Icin Entegrasyon Noktalari
+## 6. Backend Ekibi Icin Entegrasyon Noktalari — GUNCEL DURUM
 
-Orchestrator / router yazilirken:
+Ilk yazimda "Orchestrator/router yazilirken yapilacaklar" listesiydi; hepsi
+artik yazildi:
 
-1. Uygulama basladiginda **tek bir `MCPClient`** olustur.
-2. Gercek `MCPServer`'lari (rag, market, portfolio) `register_server`
-   ile bagla. Mock kullaniliyorsa `build_mock_mcp_client()` cagrilabilir.
-3. Her istek icin router, hangi agent'larin kosacagina karar verir ve her
-   birine kendi `task` sozlugunu gonderir. Ayni `MCPClient` instance'i tum
-   agent'lara enjekte edilir.
-4. Agent'lardan gelen `AgentResult`'lar `security_gate` -> sentez adimina
-   verilir. `success=False` olanlar sentez asamasi tarafindan filtrelenir.
-5. `MarketResearchAgent` icin task uretirken §3.3'teki sema kullanilmali;
-   farkli bir sema secilirse agent guncellenmelidir.
-
----
-
-## 6. DB / Veri Ekibi Icin Entegrasyon Noktalari
-
-### 6.1 MCP Server 1 — LlamaIndex RAG
-
-Yerine gececek dosya: `app/mcp/servers/rag.py`.
-
-Yapilacak: `rag_search` **govdesini** gercek LlamaIndex indeksine baglamak.
-
-Uymasi gereken sozlesme:
-- Argumanlar: `query: str`, `top_k: int = 5`, `filters: dict | None`.
-- `filters` desteklenen anahtarlar: `symbol` (buyuk harfe cevrilir),
-  `date_from`, `date_to` (`YYYY-MM-DD`).
-- Donus: `{"query": query, "chunks": [ ... ]}` (§2.4'teki chunk sekliyle).
-- `score` alani 0..1 arasi olmali; agent bunun ortalamasindan `confidence`
-  uretir.
-
-### 6.2 MCP Server 3 — Borsa & KAP
-
-Yerine gececek dosya: `app/mcp/servers/market.py`.
-
-Yapilacak: `market_get_quote` ve `market_get_kap_disclosures` govdelerini
-gercek Borsa/KAP kaynaklarina baglamak.
-
-Uymasi gereken sozlesme:
-- `market_get_quote`: sembol bulunmazsa `{"symbol": ..., "found": False}`;
-  bulunursa §2.4'teki tam sozluk. `timestamp` ISO-8601 UTC.
-- `market_get_kap_disclosures`: `since` verilmisse `date >= since` filtresi.
-  `disclosures` **en yeniden eskiye** sirali olmali (agent `[0]`'i "son
-  bildirim" olarak kullanir).
-
-### 6.3 MCP Server 2 — Portfoy DB (bu klasorde yer almaz)
-
-Postgres semasi ve tool sozlesmesi `PortfolioAgent` ekibiyle birlikte
-tanimlanacaktir. Adlandirma icin oneri: `server="portfolio"`; tool adlari
-`portfolio_get_positions`, `portfolio_get_transactions`, vb. Kesin sozlesme
-`PortfolioAgent` PR'inda netlesecek.
+1. ✅ Tek `MCPClient`, uygulama basinda kuruluyor (`app/engine/factory.py`).
+2. ✅ Gercek `MCPServer`'lar (`build_servers()`) `register_server` ile baglaniyor.
+3. ✅ Router (`Orchestrator.route_intent`) her istekte hangi ajanlarin
+   calisacagina karar veriyor - kural tabanli (LLM'siz), Turkce anahtar
+   kelime eslesmesiyle.
+4. ✅ `AgentError`'lar `security_gate` -> sentez adimina isleniyor.
+5. `MarketResearchAgent` icin task uretimi hala §4.2'deki gibi provisional -
+   router yapilandirilmis parametre urettiginde ajan guncellenecek.
 
 ---
 
-## 7. Testler
+## 7. DB / Veri Ekibi Icin Entegrasyon Noktalari — GUNCEL DURUM
 
-- `backend/tests/test_mcp_client.py` — `MCPClient`/`MCPServer` kayit,
-  cagri ve hata yollari.
-- `backend/tests/test_market_research_agent.py` — `MarketResearchAgent`'in
-  RAG / live / both modlari, sahte bir `LLMClient` enjekte edilerek.
+### 7.1 RAG ingestion pipeline'i — YAZILDI (`app/ingestion/`)
 
-Gercek entegrasyon PR'lari **bu testleri kirmadan** gecirilmelidir; kirilirsa
-sozlesme degismis demektir ve agent tarafi da guncellenmelidir.
+`chunking.py` + `embeddings.py` (Cohere `embed-v4.0`) + `backfill.py` gercek
+bir pipeline'dir, mock degil. Supabase'de 234 doküman/917 chunk, yerel
+Docker DB'de 8 seed doküman/14 chunk gercek embedding tasiyor (bkz. embedding
+pipeline oturum notlari, 2026-08-19/20).
+
+Uymasi gereken sozlesme (degismedi):
+- `rag_search` argumanlari: `query`, `top_k`, `sirket`/`filters.symbol`,
+  `tip`, `date_from`, `date_to`.
+- `filtered` CTE'de `sirket` eslesmesi asla `rag.documents.sirket`'e bakmaz
+  (o kolon haberin KAYNAGI - "AA Ekonomi" gibi - haberin KONUSU degil);
+  yalnizca `assets.symbol`/`assets.name` join'i ve `baslik ILIKE` fallback'i
+  kullanilir. Bu kural hem `search()`'te hem `rag.hybrid_search()`'te aynidir.
+
+### 7.2 Borsa & KAP — YAZILDI
+
+`market_get_quote`/`market_get_history` gercek Yahoo Finance verisine
+baglandi (`ApiMarketProvider` + simulator hibrit, mimari v4 §8). KAP icin
+ayri bir entegrasyon yok, bilincli tasarim: `rag.documents.tip='duyuru'`
+satirlari kullaniliyor.
+
+### 7.3 Portfoy DB — YAZILDI
+
+`SqlPortfolioRepository` (`app/repositories/sql.py`), `PortfolioAgent`
+tarafindan kullaniliyor. Tool adlari: `portfolio_get_summary`,
+`portfolio_get_holdings`, `portfolio_get_allocation`, `portfolio_get_transactions`.
 
 ---
 
-## 8. Ozet Tablo: Placeholder vs. Kalici
+## 8. Testler
+
+- `test_mcp_client.py` — `MCPClient`/`MCPServer` kayit, cagri, hata yollari.
+- `test_mcp_server.py` — tum tool kataloğu, ortak zarf, `rag_search`'un
+  `date_from`/`date_to` dahil parametre kabulu (`@pytest.mark.db`).
+- `test_market_research_agent.py`, `test_market_research_orchestration.py` —
+  RAG/live/both modlari, sahte `LLMClient` (`@pytest.mark.db`).
+- `test_hybrid_search.py` (2026-08-20) — `SqlRagRepository.hybrid_search()`:
+  embeddersiz/hata/timeout durumunda BM25'e dusme, dense ayagin GERCEKTEN
+  calistigi (sahte ama gercek bir chunk'in embedding'iyle esleme), sirket/tip/
+  tarih filtreleri (`@pytest.mark.db`).
+- `test_sql_repositories.py` — SQL repository'lerin bellek ici ile AYNI
+  sozlesmeyi urettigini sinar.
+
+`@pytest.mark.db` testleri gercek bir Postgres ister (`TEST_DATABASE_URL`).
+`tests/conftest.py`'deki `_veritabani` fixture'i bu testler icin
+`embedding_api_key`'i BILEREK bosaltir - aksi halde `rag_search`'u dolayli
+cagiran her `db` testi gercek bir Cohere API cagrisi yapardi. Dense yolu
+kasitli sinayan tek yer `test_hybrid_search.py`'dir (sahte embedder enjekte
+eder, `get_embedder()`'i hic cagirmaz).
+
+---
+
+## 9. Ozet Tablo: Placeholder vs. Kalici (2026-08-20 itibarıyla)
 
 | Bilesen | Durum |
 |---|---|
-| `MCPClient`, `MCPServer`, hata siniflari | **Kalici (API)** |
-| Sunucu adlari (`rag`, `market`, `portfolio`) | **Kalici** |
-| Tool adlari ve imzalari (`rag_search`, `market_get_quote`, `market_get_kap_disclosures`) | **Kalici** |
-| Chunk / quote / disclosure sozluklerinin sekli | **Kalici** |
-| `BaseAgent`, `AgentResult` | **Kalici** |
-| `MarketResearchAgent.run` ve `data` sekli | **Kalici** |
-| `LLMClient` Protocol | **Kalici** |
-| `GeminiLLMClient` | Kalici (saglayici degisebilir) |
-| `_MOCK_CHUNKS`, `_MOCK_QUOTES`, `_MOCK_DISCLOSURES` | **Placeholder** |
-| `rag_search` / `market_*` **govdeleri** | **Placeholder** |
-| `_resolve_mode` anahtar kelime sezgisi | **Placeholder** (router explicit `mode` verecek) |
-| `task` sema dokumantasyonu | **Provisional** |
-| `build_mock_mcp_client()` | Dev/test icin kalir, prod wiring'i degildir |
+| `MCPClient`, `MCPServer`, hata siniflari | **Kalici (API)** — degismedi |
+| Sunucu adlari (`core`, `rag`, `market`) | **Kalici** — `portfolio` yerine `core` kullanildi (PortfolioAgent §7.3'te) |
+| Tool adlari ve imzalari | **Kalici** — `rag_search`'e `date_from`/`date_to` eklendi (uyumlu genisleme) |
+| `BaseAgent`, `AgentError` (`AgentResult` degil) | **Kalici** — model adı degisti, sozlesme prensibi ayni |
+| `MarketResearchAgent.run`/`_execute` ve `market_data` sekli | **Kalici** |
+| `LLMClient` Protocol, `GeminiLLMClient` | **Kalici** |
+| RAG/Borsa/KAP govdeleri | ✅ **ARTIK GERCEK** — mock degil (bkz. §2.5) |
+| `mcp/mock.py`, `mcp/servers/*.py` | **REPODA YOK** — bu dosya artik onlari tarif etmiyor |
+| `SqlRagRepository.search()` (BM25) | **Kalici, bagimsiz sozlesme** — `hybrid_search()`'un fallback hedefi |
+| `SqlRagRepository.hybrid_search()` | ✅ **YAZILDI** (2026-08-20) — Supabase'de fonksiyon guncellenene kadar oradaki DB'ye karsi hata verir (bkz. §3, `gelecek-isler.md`) |
+| `MarketResearchAgent._resolve_mode`, `task` semasi | Hala **Placeholder/Provisional** — router yapilandirilmis parametre uretmiyor |
+| `InMemoryRagRepository`/`InMemoryMarketRepository` | **Kalici YEDEK** — DB tanimli/erisilebilir degilse otomatik devreye girer |
