@@ -99,6 +99,28 @@ eşleşir.
 hesaplanır, sohbetteki risk ajanı da aynı fonksiyonu kullanır. Dashboard ile
 sohbet **aynı** skoru gösterir.
 
+### Lead motoru
+
+| Metot | Yol | Yanıt |
+|---|---|---|
+| GET | `/api/leads/bsd-queue?limit=` | `{items[], count, scan}` |
+| GET | `/api/leads/autonomous-queue?limit=` | `{items[], count, scan}` |
+| GET | `/api/leads/excluded?limit=` | `{items[], count, scan}` |
+| POST | `/api/leads/scan` | `{force?: bool}` → `LeadScanSummary` |
+
+`items[]` satırı: `user_id, first_name, last_name, email, decision,
+exclusion_reason, score, score_components, reasons[], total_value_try,
+monthly_income, days_since_activity, created_at`. `scan`, en son taramanın
+özetidir (`LeadScanSummary`), üç liste ucunda da aynı şekilde döner.
+
+`POST /scan`, asgari tarama aralığı dolmadıysa **hata değil**,
+`skipped: true` + `skip_reason` ile normal bir yanıt döner (`force: true`
+bu kontrolü atlar, soğutma kuralını atlamaz).
+
+Bu uçlar kimlik doğrulaması ister ama rol kontrolü **yapmaz** — herhangi
+bir giriş yapmış kullanıcı erişebilir.
+
+
 ### Sohbet
 
 | Metot | Yol | Yanıt |
