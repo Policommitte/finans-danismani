@@ -31,6 +31,7 @@ _USERS: list[dict] = [
         "password_hash": "$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW",
         "risk_tolerance": "HIGH",
         "monthly_income": 150000.0,
+        "marketing_consent": True,
     },
     {
         "id": 2,
@@ -40,6 +41,7 @@ _USERS: list[dict] = [
         "password_hash": "$2b$10$Yb8T7yJiAWQQD71v45o/EOpGCQVCWj9sAbJmjl5R6HKa39lyKW36S",
         "risk_tolerance": "LOW",
         "monthly_income": 75000.0,
+        "marketing_consent": True,
     },
 ]
 
@@ -294,6 +296,43 @@ _RAG_CHUNKS: list[dict] = [
         ),
     },
 ]
+
+#: Lead motorunun bellek ici durumu - surec omru boyunca birikir (DB'siz
+#: mod icin, kalicilik gerekmez). SQL tarafindaki lead_scans/
+#: lead_queue_entries/lead_contacts karsiligi.
+_LEAD_SCANS: list[dict] = []
+_LEAD_QUEUE_ENTRIES: list[dict] = []
+_LEAD_CONTACTS: list[dict] = []
+_next_scan_id = 1
+_next_contact_id = 1
+
+
+def _lead_signals() -> list[dict]:
+    """`v_lead_user_signals` karsiligi - SQL tarafiyla AYNI mantik,
+    yalnizca `lead_rules.py`'nin gercekten okudugu alanlarla sinirli."""
+    rows: list[dict] = []
+    for user in _USERS:
+        holdings = _holdings_valued(user["id"], None)
+        total_value = sum(h["market_value_try"] for h in holdings)
+        portfolio_ids = [p["id"] for p in _PORTFOLIOS if p["user_id"] == user["id"]]
+        gun_farklari = [
+            t["days_ago"] for t in _TRANSACTIONS if t["portfolio_id"] in portfolio_ids
+        ]
+        rows.append(
+            {
+                "user_id": user["id"],
+                "first_name": user["first_name"],
+                "last_name": user["last_name"],
+                "email": user["email"],
+                "monthly_income": user["monthly_income"],
+                "marketing_consent": user.get("marketing_consent", True),
+                "total_value_try": total_value,
+                "holding_count": len(holdings),
+                "days_since_activity": min(gun_farklari) if gun_farklari else None,
+            }
+        )
+    return rows
+
 
 
 def _now() -> datetime:
@@ -730,6 +769,171 @@ class InMemoryAuditRepository:
 
     async def log_security_event(self, record: dict) -> None:
         logger.warning("security_event", extra={"audit": _flatten(record)})
+
+
+class InMemoryLeadRepository:
+    """Lead motoru - DB yokken devreye giren yedek.
+
+    `claim_email_contact`/`record_bsd_handover`'daki "bugun zaten var mi"
+    kontrolu, SQL tarafindaki kismi unique index'in (`lead_contacts_gunluk_uidx`)
+    bellek ici karsiligidir.
+    """
+
+    async def list_lead_signals(self) -> list[dict]:
+        return _lead_signals()
+
+    async def last_contacted_map(self, cooldown_days: int) -> dict[int, datetime]:
+        sinir = _now() - timedelta(days=cooldown_days)
+        sonuc: dict[int, datetime] = {}
+        for contact in _LEAD_CONTACTS:
+            if contact["status"] != "SENT" or contact["created_at"] < sinir:
+                continue
+            mevcut = sonuc.get(contact["user_id"])
+            if mevcut is None or contact["created_at"] > mevcut:
+                sonuc[contact["user_id"]] = contact["created_at"]
+        return sonuc
+
+    async def start_scan(self, trigger: str) -> int:
+        global _next_scan_id
+        scan_id = _next_scan_id
+        _next_scan_id += 1
+        _LEAD_SCANS.append(
+            {
+                "id": scan_id,
+                "started_at": _now(),
+                "finished_at": None,
+                "trigger": trigger,
+                "scanned_count": 0,
+                "bsd_count": 0,
+                "autonomous_count": 0,
+                "excluded_count": 0,
+                "emailed_count": 0,
+                "error": None,
+            }
+        )
+        return scan_id
+
+    async def finish_scan(
+        self, scan_id: int, counts: dict[str, int], error: str | None = None
+    ) -> None:
+        for scan in _LEAD_SCANS:
+            if scan["id"] == scan_id:
+                scan["finished_at"] = _now()
+                scan.update(
+                    {
+                        "scanned_count": counts.get("scanned_count", 0),
+                        "bsd_count": counts.get("bsd_count", 0),
+                        "autonomous_count": counts.get("autonomous_count", 0),
+                        "excluded_count": counts.get("excluded_count", 0),
+                        "emailed_count": counts.get("emailed_count", 0),
+                        "error": error,
+                    }
+                )
+                return
+
+    async def latest_scan(self) -> dict | None:
+        bitmis = [s for s in _LEAD_SCANS if s["finished_at"] is not None]
+        if not bitmis:
+            return None
+        return dict(max(bitmis, key=lambda s: s["started_at"]))
+
+    async def minutes_since_last_scan(self) -> float | None:
+        son = await self.latest_scan()
+        if son is None:
+            return None
+        return (_now() - son["finished_at"]).total_seconds() / 60
+
+    async def record_decision(self, scan_id: int, entry: dict) -> None:
+        _LEAD_QUEUE_ENTRIES.append({"scan_id": scan_id, "created_at": _now(), **entry})
+
+    async def claim_email_contact(
+        self, user_id: int, scan_id: int, to_email: str, subject: str
+    ) -> int | None:
+        global _next_contact_id
+        bugun = _now().date()
+        for contact in _LEAD_CONTACTS:
+            if (
+                contact["user_id"] == user_id
+                and contact["channel"] == "EMAIL"
+                and contact["status"] == "SENT"
+                and contact["created_at"].date() == bugun
+            ):
+                return None
+        contact_id = _next_contact_id
+        _next_contact_id += 1
+        _LEAD_CONTACTS.append(
+            {
+                "id": contact_id,
+                "user_id": user_id,
+                "scan_id": scan_id,
+                "channel": "EMAIL",
+                "status": "SENT",
+                "to_email": to_email,
+                "subject": subject,
+                "error": None,
+                "created_at": _now(),
+            }
+        )
+        return contact_id
+
+    async def mark_contact_failed(self, contact_id: int, error: str) -> None:
+        for contact in _LEAD_CONTACTS:
+            if contact["id"] == contact_id:
+                contact["status"] = "FAILED"
+                contact["error"] = error
+                return
+
+    async def record_bsd_handover(self, user_id: int, scan_id: int) -> None:
+        global _next_contact_id
+        bugun = _now().date()
+        for contact in _LEAD_CONTACTS:
+            if (
+                contact["user_id"] == user_id
+                and contact["channel"] == "BSD_QUEUE"
+                and contact["status"] == "SENT"
+                and contact["created_at"].date() == bugun
+            ):
+                return
+        contact_id = _next_contact_id
+        _next_contact_id += 1
+        _LEAD_CONTACTS.append(
+            {
+                "id": contact_id,
+                "user_id": user_id,
+                "scan_id": scan_id,
+                "channel": "BSD_QUEUE",
+                "status": "SENT",
+                "to_email": None,
+                "subject": None,
+                "error": None,
+                "created_at": _now(),
+            }
+        )
+
+    async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
+        son = await self.latest_scan()
+        if son is None:
+            return []
+        rows = [
+            e for e in _LEAD_QUEUE_ENTRIES
+            if e["scan_id"] == son["id"] and e["decision"] == decision
+        ]
+        rows.sort(key=lambda e: e.get("score", 0), reverse=True)
+
+        sonuc = []
+        for row in rows[:limit]:
+            user = next((u for u in _USERS if u["id"] == row["user_id"]), None)
+            if user is None:
+                continue
+            sonuc.append(
+                {
+                    **row,
+                    "first_name": user["first_name"],
+                    "last_name": user["last_name"],
+                    "email": user["email"],
+                }
+            )
+        return sonuc
 
 
 _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")

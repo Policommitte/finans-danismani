@@ -27,6 +27,7 @@ from app.config import settings
 from app.repositories.base import (
     AuditRepository,
     ChatRepository,
+    LeadRepository,
     MarketRepository,
     PortfolioRepository,
     RagRepository,
@@ -35,6 +36,7 @@ from app.repositories.base import (
 from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
+    InMemoryLeadRepository,
     InMemoryMarketRepository,
     InMemoryPortfolioRepository,
     InMemoryRagRepository,
@@ -138,6 +140,13 @@ def get_chat_repository() -> ChatRepository:
         return SqlChatRepository(_session_factory())
     return InMemoryChatRepository()
 
+@lru_cache
+def get_lead_repository() -> LeadRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlLeadRepository
+
+        return SqlLeadRepository(_session_factory())
+    return InMemoryLeadRepository()
 
 @lru_cache
 def get_audit_repository() -> AuditRepository:
@@ -162,6 +171,7 @@ def reset_repositories() -> None:
         get_market_repository,
         get_rag_repository,
         get_chat_repository,
+        get_lead_repository,
         get_audit_repository,
     ):
         provider.cache_clear()

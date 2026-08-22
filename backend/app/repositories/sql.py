@@ -771,6 +771,179 @@ class SqlAuditRepository(_SqlRepository):
             logger.exception("security_events kaydi yazilamadi")
 
 
+class SqlLeadRepository(_SqlRepository):
+    """Lead motoru veri erisimi (`lead_scans`, `lead_queue_entries`,
+    `lead_contacts`, `v_lead_user_signals`).
+    """
+
+    async def list_lead_signals(self) -> list[dict]:
+        return await self._rows("SELECT * FROM v_lead_user_signals")
+
+    async def last_contacted_map(self, cooldown_days: int) -> dict[int, Any]:
+        rows = await self._rows(
+            """
+            SELECT user_id, MAX(created_at) AS last_contact_at
+            FROM lead_contacts
+            WHERE status = 'SENT'
+              AND created_at >= now() - make_interval(days => CAST(:cooldown_days AS INT))
+            GROUP BY user_id
+            """,
+            {"cooldown_days": cooldown_days},
+        )
+        return {row["user_id"]: row["last_contact_at"] for row in rows}
+
+    async def start_scan(self, trigger: str) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text("INSERT INTO lead_scans (trigger) VALUES (:trigger) RETURNING id"),
+                {"trigger": trigger},
+            )
+            await session.commit()
+            return int(result.scalar_one())
+
+    async def finish_scan(
+        self, scan_id: int, counts: dict[str, int], error: str | None = None
+    ) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    UPDATE lead_scans
+                    SET finished_at = now(),
+                        scanned_count = :scanned_count,
+                        bsd_count = :bsd_count,
+                        autonomous_count = :autonomous_count,
+                        excluded_count = :excluded_count,
+                        emailed_count = :emailed_count,
+                        error = :error
+                    WHERE id = :scan_id
+                    """
+                ),
+                {
+                    "scan_id": scan_id,
+                    "scanned_count": counts.get("scanned_count", 0),
+                    "bsd_count": counts.get("bsd_count", 0),
+                    "autonomous_count": counts.get("autonomous_count", 0),
+                    "excluded_count": counts.get("excluded_count", 0),
+                    "emailed_count": counts.get("emailed_count", 0),
+                    "error": error,
+                },
+            )
+            await session.commit()
+
+    async def latest_scan(self) -> dict | None:
+        return await self._row(
+            """
+            SELECT * FROM lead_scans
+            WHERE finished_at IS NOT NULL
+            ORDER BY started_at DESC
+            LIMIT 1
+            """
+        )
+
+    async def minutes_since_last_scan(self) -> float | None:
+        row = await self._row(
+            """
+            SELECT EXTRACT(EPOCH FROM (now() - MAX(finished_at))) / 60 AS dakika
+            FROM lead_scans
+            WHERE finished_at IS NOT NULL
+            """
+        )
+        return float(row["dakika"]) if row and row["dakika"] is not None else None
+
+    async def record_decision(self, scan_id: int, entry: dict) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO lead_queue_entries
+                        (scan_id, user_id, decision, exclusion_reason, score,
+                         score_components, reasons, total_value_try, monthly_income,
+                         days_since_activity)
+                    VALUES
+                        (:scan_id, :user_id, :decision, :exclusion_reason, :score,
+                         CAST(:score_components AS JSONB), CAST(:reasons AS JSONB),
+                         :total_value_try, :monthly_income, :days_since_activity)
+                    """
+                ),
+                {
+                    "scan_id": scan_id,
+                    "user_id": entry["user_id"],
+                    "decision": entry["decision"],
+                    "exclusion_reason": entry.get("exclusion_reason"),
+                    "score": entry.get("score", 0),
+                    "score_components": _json(entry.get("score_components") or {}),
+                    "reasons": _json(entry.get("reasons") or []),
+                    "total_value_try": entry.get("total_value_try", 0),
+                    "monthly_income": entry.get("monthly_income", 0),
+                    "days_since_activity": entry.get("days_since_activity"),
+                },
+            )
+            await session.commit()
+
+    async def claim_email_contact(
+        self, user_id: int, scan_id: int, to_email: str, subject: str
+    ) -> int | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO lead_contacts (user_id, scan_id, channel, status, to_email, subject)
+                    VALUES (:user_id, :scan_id, 'EMAIL', 'SENT', :to_email, :subject)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {"user_id": user_id, "scan_id": scan_id, "to_email": to_email, "subject": subject},
+            )
+            await session.commit()
+            row = result.first()
+            return int(row[0]) if row else None
+
+    async def mark_contact_failed(self, contact_id: int, error: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text("UPDATE lead_contacts SET status = 'FAILED', error = :error WHERE id = :id"),
+                {"id": contact_id, "error": error},
+            )
+            await session.commit()
+
+    async def record_bsd_handover(self, user_id: int, scan_id: int) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO lead_contacts (user_id, scan_id, channel, status)
+                    VALUES (:user_id, :scan_id, 'BSD_QUEUE', 'SENT')
+                    ON CONFLICT DO NOTHING
+                    """
+                ),
+                {"user_id": user_id, "scan_id": scan_id},
+            )
+            await session.commit()
+
+    async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT q.user_id, u.first_name, u.last_name, u.email,
+                   q.decision, q.exclusion_reason, q.score, q.score_components,
+                   q.reasons, q.total_value_try, q.monthly_income,
+                   q.days_since_activity, q.created_at
+            FROM lead_queue_entries q
+            JOIN users u ON u.id = q.user_id
+            WHERE q.decision = :decision
+              AND q.scan_id = (
+                    SELECT id FROM lead_scans
+                    WHERE finished_at IS NOT NULL
+                    ORDER BY started_at DESC LIMIT 1
+                  )
+            ORDER BY q.score DESC
+            LIMIT :limit
+            """,
+            {"decision": decision, "limit": limit},
+        )
+
+
 def _json(value: Any) -> str:
     import json
 

@@ -113,6 +113,35 @@ class Settings(BaseSettings):
     #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
     market_api_daily_quota: int = 2500
 
+    # --- Lead motoru (BSD kuyrugu / otonom davet) ------------------------
+    # Esik degerleri (varlik, gelir, hareketsizlik, sogutma) burada DEGIL,
+    # `app/services/lead_rules.py` icinde sabit - risk.py ile ayni desen
+    # (bkz. ASSET_CLASS_RISK). Burada yalnizca ZAMANLAMA ve DIS SERVIS
+    # (Gmail) ayarlari var.
+    lead_engine_enabled: bool = True
+
+    #: Acilistan sonra ilk taramanin baslamasi icin bekleme suresi. Fiyat
+    #: gorevinin ilk tick'iyle ayni saniyede yarismasin diye kucuk bir pay.
+    lead_scan_startup_delay_seconds: int = 10
+
+    #: Bu dakikadan daha yeni bir tarama varsa, yeni istek (acilis ya da
+    #: `force=false` ile POST) taramayi ATLAR. `run.py` `reload=True` ile
+    #: calistigi icin (her dosya kaydinda uygulama yeniden baslar) bu deger
+    #: olmadan bir gelistirme oturumu onlarca gereksiz tarama acardi.
+    lead_scan_min_interval_minutes: int = 60
+
+    # --- Gmail SMTP (bos ise mail GONDERILMEZ, uygulama dusmez) ----------
+    gmail_sender_email: str = ""
+    gmail_app_password: str = ""
+    gmail_smtp_host: str = "smtp.gmail.com"
+    gmail_smtp_port: int = 465
+    gmail_timeout_seconds: int = 15
+
+    #: Doluysa TUM lead mailleri bu adrese gider (asil alici govde icinde
+    #: yazar). Seed kullanicilarinin adresleri @example.com (teslim
+    #: edilemeyen ayrilmis alan adi) - demoda bu ayar pratikte ZORUNLUDUR.
+    lead_email_redirect_to: str = ""
+
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20
     synthesizer_timeout_seconds: int = 40
