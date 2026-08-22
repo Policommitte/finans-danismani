@@ -140,6 +140,7 @@ def get_chat_repository() -> ChatRepository:
         return SqlChatRepository(_session_factory())
     return InMemoryChatRepository()
 
+
 @lru_cache
 def get_lead_repository() -> LeadRepository:
     if _veritabani_calisiyor():
@@ -147,6 +148,7 @@ def get_lead_repository() -> LeadRepository:
 
         return SqlLeadRepository(_session_factory())
     return InMemoryLeadRepository()
+
 
 @lru_cache
 def get_audit_repository() -> AuditRepository:

@@ -315,9 +315,7 @@ def _lead_signals() -> list[dict]:
         holdings = _holdings_valued(user["id"], None)
         total_value = sum(h["market_value_try"] for h in holdings)
         portfolio_ids = [p["id"] for p in _PORTFOLIOS if p["user_id"] == user["id"]]
-        gun_farklari = [
-            t["days_ago"] for t in _TRANSACTIONS if t["portfolio_id"] in portfolio_ids
-        ]
+        gun_farklari = [t["days_ago"] for t in _TRANSACTIONS if t["portfolio_id"] in portfolio_ids]
         rows.append(
             {
                 "user_id": user["id"],
@@ -332,7 +330,6 @@ def _lead_signals() -> list[dict]:
             }
         )
     return rows
-
 
 
 def _now() -> datetime:
@@ -915,7 +912,8 @@ class InMemoryLeadRepository:
         if son is None:
             return []
         rows = [
-            e for e in _LEAD_QUEUE_ENTRIES
+            e
+            for e in _LEAD_QUEUE_ENTRIES
             if e["scan_id"] == son["id"] and e["decision"] == decision
         ]
         rows.sort(key=lambda e: e.get("score", 0), reverse=True)

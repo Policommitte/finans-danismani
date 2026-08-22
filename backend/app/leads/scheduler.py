@@ -49,8 +49,10 @@ async def schedule_startup_lead_scan() -> None:
         else:
             logger.info(
                 "lead taramasi bitti: tarandi=%s bsd=%s otonom=%s dislanan=%s mail=%s",
-                sonuc.get("scanned_count"), sonuc.get("bsd_count"),
-                sonuc.get("autonomous_count"), sonuc.get("excluded_count"),
+                sonuc.get("scanned_count"),
+                sonuc.get("bsd_count"),
+                sonuc.get("autonomous_count"),
+                sonuc.get("excluded_count"),
                 sonuc.get("emailed_count"),
             )
     except asyncio.CancelledError:

@@ -153,6 +153,7 @@ async def _kuyruk_getir(decision: str, limit: int) -> dict:
         "scan": _ozet(son, skipped=False, skip_reason=None),
     }
 
+
 def _ozet(scan: dict | None, skipped: bool, skip_reason: str | None) -> dict:
     if scan is None:
         return {

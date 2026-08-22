@@ -173,7 +173,6 @@ class AuditRepository(Protocol):
     async def log_security_event(self, record: dict) -> None: ...
 
 
-
 class LeadRepository(Protocol):
     """Lead motoru veri erisimi (`lead_scans`, `lead_queue_entries`,
     `lead_contacts`, `v_lead_user_signals`).
