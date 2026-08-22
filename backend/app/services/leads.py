@@ -147,8 +147,11 @@ async def _kuyruk_getir(decision: str, limit: int) -> dict:
     repository = get_lead_repository()
     items = await repository.list_queue(decision, limit=limit)
     son = await repository.latest_scan()
-    return {"items": items, "count": len(items), "scan": _ozet(son, skipped=False, skip_reason=None)}
-
+    return {
+        "items": items,
+        "count": len(items),
+        "scan": _ozet(son, skipped=False, skip_reason=None),
+    }
 
 def _ozet(scan: dict | None, skipped: bool, skip_reason: str | None) -> dict:
     if scan is None:
