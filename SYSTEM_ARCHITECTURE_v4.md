@@ -114,7 +114,7 @@ flowchart TB
 | İlişkisel DB | PostgreSQL 16 | pgvector eklentili imaj gerekli |
 | Tool katmanı | **Tek MCP sunucusu**, tool grupları | Üç ayrı sunucu değil |
 | LLM sağlayıcı | **Google Gemini** (`google-genai`) | v2.3'te NVIDIA yazıyordu; repo Gemini'ye geçti |
-| Embedding modeli | **KARAR VERİLMEDİ** — RAG grubu | Türkçe retrieval performansı belirleyici |
+| Embedding modeli | **Cohere `embed-v4.0`** (`output_dimension=1024`) — karar verildi (2026-08-19/20) | `vector(1024)` şemasıyla değişiklik gerekmeden eşleşir |
 | Sistem dili | **Türkçe** (arayüz, sorgu, doküman, yanıt) | |
 | Streaming | **SSE** (WebSocket değil) | Akış tek yönlü |
 | Deployment | **Tek container / modular monolith** | Ajanlar ayrı servis DEĞİL |
@@ -647,7 +647,14 @@ flowchart LR
     style D fill:#c8e6c9
 ```
 
-> **Kritik kural:** Embedding modeli seçilmeden **gerçek embedding üretilmez.** Yanlış modelle 200 doküman embed edilirse hepsi baştan embed edilir. `vector(1024)` boyutu **iki yerde** geçer (`rag.chunks.embedding` ve `rag.hybrid_search` parametresi) — model kararıyla ikisi birden değişir.
+> **Karar verildi, ingestion çalıştı (2026-08-19/20):** Embedding modeli Cohere
+> `embed-v4.0`. `backend/app/ingestion/{chunking,embeddings,backfill}.py` gerçek
+> pipeline'dır (mock değil); seed dokümanların `rag.chunks`'ı da bu pipeline'dan
+> geçirilerek yeniden üretildi (bkz. `aff0ecd`). Supabase'de 234 doküman/917
+> chunk gerçek embedding taşıyor; yerel Docker DB'de 8 seed doküman/14 chunk
+> aynı şekilde gerçek embedding taşıyor. `vector(1024)` boyutu iki yerde
+> geçer (`rag.chunks.embedding` ve `rag.hybrid_search` parametresi) — model
+> değişirse ikisi birden değişmeli, bu kısıt hâlâ geçerli.
 
 ## 7.2 Retrieval (çevrimiçi, istek anında)
 
@@ -666,6 +673,24 @@ flowchart TD
 **Neden hibrit:** saf vektör araması `THYAO`, `2026 Q2` gibi tam eşleşme gerektiren terimleri kaçırır.
 
 > **Türkçe tuzağı:** `plainto_tsquery` terimleri **AND**'ler; doğal dildeki bir sorunun tüm kelimelerinin aynı chunk'ta geçmesi neredeyse imkânsızdır. Sorgu OR'a çevrilmezse BM25 ayağı sessizce boş döner ve hibrit arama saf vektör aramasına düşer. (`db/v5_schema_and_data.sql` içinde düzeltilmiştir.)
+
+> **Durum (2026-08-20):** Bu diyagram artık hedef değil, çalışan koddur.
+> `rag.hybrid_search()` SQL fonksiyonu `p_sirket`/`p_tip`/`p_date_from`/
+> `p_date_to` filtreleriyle genişletildi (`p_sirket` `d.sirket`'e değil,
+> `assets` join'ine bakar — bkz. §9.1 ile aynı kural) ve
+> `SqlRagRepository.hybrid_search()` üzerinden `rag_search` MCP tool'una
+> bağlandı. Sorgu-zamanı embedding başarısız/zaman aşımına uğrarsa
+> (`RAG_QUERY_EMBEDDING_TIMEOUT_SECONDS`, varsayılan 3sn) istek düşmez,
+> doğrudan `SqlRagRepository.search()`'e (yalnızca BM25) döner — bu yüzden
+> `search()` bağımsız bir sözleşme olarak kalmaya devam ediyor.
+> **Açık kalan tek parça: Supabase'deki paylaşılan DB'nin
+> `rag.hybrid_search()` fonksiyonu bu genişletilmiş haliyle henüz
+> güncellenmedi** (yalnızca yerel Docker DB'de uygulandı) — güncellenene
+> kadar Supabase'e karşı çalışan istekler `UndefinedFunction` hatası alır,
+> bu da `MCPToolExecutionError` → `AgentError(error_type="tool_error")`
+> olarak kısmi başarısızlık şeklinde raporlanır (BM25'e OTOMATİK düşmez,
+> çünkü hata embedding adımında değil SQL çağrısında oluşur). Bkz.
+> `docs/gelecek-isler.md`.
 
 ## 7.3 LlamaIndex Sınırı
 
@@ -1011,25 +1036,37 @@ tests/
 
 ---
 
-# 14 · DOKÜMAN ↔ KOD FARKLARI (13 Ağustos 2026)
+# 14 · DOKÜMAN ↔ KOD FARKLARI
 
-Bugünkü kodun bu dokümandan saptığı yerler — her satır bir iş kalemidir.
+## 14.0 13 Ağustos 2026 listesi — yeniden doğrulandı, TAMAMI KAPANDI (2026-08-20)
+
+Aşağıdaki 13 madde bu bölümün ilk hâliydi. Hibrit arama kablolaması
+sırasında kod tabanı baştan tarandı ve her madde tek tek dosya/satır
+üzerinden doğrulandı: **hiçbiri açık değil.**
+
+| # | Konu | 13 Ağustos'taki durum | Doğrulanan bugünkü durum |
+|---|---|---|---|
+| 1 | Orchestrator HTTP'ye bağlı değil | `/api/chat/stream` yok | ✅ `app/api/routes/chat.py` var |
+| 2 | SSE `meta`/`done`/`agent_error` olayları | üretilmiyor | ✅ `engine/orchestrator.py::stream_request` üçünü de üretiyor |
+| 3 | `status` olayı `stage` alanı | `node` alanı taşıyor | ✅ `NODE_STAGES` eşlemesiyle `stage` üretiliyor |
+| 4 | Reducer'lı alanlar tur başında sıfırlanmıyor | `sources`/`agent_errors` birikiyor | ✅ `RESET` sentinel'i (`orchestration/models.py`) çözdü |
+| 5 | Güvenlik desenleri Türkçe injection'ı kaçırıyor | ASCII desenler, normalize yok | ✅ `security_agent.py` aynı `_TR_TRANSLATION` desenini kullanıyor |
+| 6 | `AgentState.user_id`/`thread_id` | `str` | ✅ İkisi de `int` |
+| 7 | `AgentState` eksik alanlar | `request_id`, `portfolio_id`, `intent` yok | ✅ Üçü de mevcut |
+| 8 | Kimlik doğrulama | yok | ✅ JWT + `get_current_user` (bkz. `backend-kararlar.md` §8) |
+| 9 | PortfolioAgent / RiskStrategyAgent | yazılmadı | ✅ `agents/portfolio.py`, `agents/risk_strategy.py` yazıldı |
+| 10 | MCP sunucusu | mock tool'lar (`mcp/mock.py`) | ✅ Gerçek `mcp/server.py` — `mcp/mock.py` ve `mcp/servers/*.py` artık repoda YOK |
+| 11 | DB bağlantısı | `db/session.py` yorumda, repository in-memory | ✅ Async SQLAlchemy engine çalışıyor; `DATABASE_URL` varsa `sql.py` birincil |
+| 12 | REST uçları | stub'lar farklı isimlerde (`/api/market/news`) | ✅ `api-sozlesmesi.md` ile birebir (`/api/market/search` dahil) |
+| 13 | `schema/` vs `schemas/` | yan yana | ✅ `schema/` → `orchestration/` olarak yeniden adlandırıldı |
+
+## 14.1 20 Ağustos 2026 listesi — hibrit arama kablolaması sonrası açık kalanlar
 
 | # | Konu | Bugünkü durum | Hedef |
 |---|---|---|---|
-| 1 | Orchestrator HTTP'ye bağlı değil | `/api/chat/stream` yok | Bölüm 10.2 |
-| 2 | SSE `meta` / `done` / `agent_error` olayları | üretilmiyor | Bölüm 10.1 |
-| 3 | `status` olayı `stage` alanı | `node` alanı taşıyor | Bölüm 10.1 |
-| 4 | Reducer'lı alanlar tur başında sıfırlanmıyor | `sources`/`agent_errors` birikiyor | Bölüm 5.3 uyarısı |
-| 5 | Güvenlik desenleri Türkçe injection'ı kaçırıyor | ASCII desenler, normalize yok | Bölüm 11 uyarısı |
-| 6 | `AgentState.user_id` / `thread_id` | `str` | `int` (5.3) |
-| 7 | `AgentState` eksik alanlar | `request_id`, `portfolio_id`, `intent` yok | Bölüm 5.3 |
-| 8 | Kimlik doğrulama | yok | JWT + `get_current_user` |
-| 9 | PortfolioAgent / RiskStrategyAgent | yazılmadı | Bölüm 5.5 |
-| 10 | MCP sunucusu | mock tool'lar (`mcp/mock.py`) | Bölüm 6.2 |
-| 11 | DB bağlantısı | `db/session.py` yorumda, repository in-memory | Bölüm 9 |
-| 12 | REST uçları | stub'lar farklı isimlerde (`/api/market/news`) | Bölüm 10.2 |
-| 13 | `schema/` vs `schemas/` | yan yana | Bölüm 12 |
+| 1 | Supabase'deki `rag.hybrid_search()` genişletilmiş imzayı taşımıyor | Yalnızca yerel Docker DB'de uygulandı; Supabase'e karşı hibrit çağrı `UndefinedFunction` ile başarısız olur (BM25'e otomatik düşmez — bkz. §7.2 durum notu) | Kullanıcının onayı bekleniyor — bkz. `docs/gelecek-isler.md` |
+| 2 | `date_from`/`date_to` hâlâ hiçbir yerde ÜRETİLMİYOR | MCP tool ve SQL katmanı artık bu alanları doğru taşıyor (2026-08-20 itibarıyla), ama router yapılandırılmış parametre üretmiyor ve doğal dilden tarih çıkarımı yok | `docs/gelecek-isler.md` madde 1 |
+| 3 | `/api/market/search` (REST) hâlâ yalnızca BM25 | `services/market.py` `SqlRagRepository.search()`'ü çağırıyor, `.hybrid_search()`'ü değil — yalnızca sohbet ajanının `rag_search` MCP tool yolu hibrit | Kapsam dışı bırakıldı, bilinçli not |
 
 ---
 
@@ -1082,7 +1119,7 @@ flowchart LR
 
 | # | Konu | Durum |
 |---|---|---|
-| 1 | **Embedding modeli** | RAG grubu kararlaştıracak — Türkçe retrieval belirleyici. Seçilmeden gerçek embedding üretilmez; `vector(1024)` iki yerde değişir |
+| 1 | **Embedding modeli** | ✅ Karar verildi (Cohere `embed-v4.0`, 2026-08-19/20) ve `hybrid_search` bağlandı. Açık kalan: Supabase'deki `rag.hybrid_search()` henüz genişletilmiş imzayla güncellenmedi (bkz. §7.2 durum notu, `docs/gelecek-isler.md`) |
 | 2 | ⚖️ SSE olay kümesi (10.1) | Bu dokümandaki hâli önerilmiştir; frontend ile onaylanacak |
 | 3 | ⚖️ REST uç listesi (10.2) | Aynı |
 | 4 | ⚖️ JSON alan adlandırma (10.3) | snake_case önerildi; frontend ile onaylanacak |
@@ -1098,4 +1135,4 @@ flowchart LR
 
 ---
 
-**Doküman durumu:** v4 — v2.3 ve v3 birleştirildi, dört kontrat çelişkisi tek sözleşmede toplandı, kod ile doküman arasındaki farklar bölüm 14'te listelendi.
+**Doküman durumu:** v4 — v2.3 ve v3 birleştirildi, dört kontrat çelişkisi tek sözleşmede toplandı, kod ile doküman arasındaki farklar bölüm 14'te listelendi. **2026-08-20:** hibrit arama (dense + BM25 → RRF) `rag_search` MCP tool'una bağlandı; embedding modeli kararı (§2, §16) ve 13 Ağustos'taki tüm kod/doküman farkları (§14.0) doğrulanıp kapatıldı; yeni açık madde listesi §14.1'de.
