@@ -17,7 +17,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isLogin = pathname === "/login";
   const isPublic = pathname === "/" || isLogin;
-  const isLanding = pathname === "/";
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,7 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return (
       <>
         {children}
-        {!isLogin && <SiteFooter className={isLanding ? "ml-24 w-[calc(100%-6rem)]" : ""} />}
+        {!isLogin && <SiteFooter />}
       </>
     );
   }

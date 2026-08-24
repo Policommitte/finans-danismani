@@ -1,8 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
 import { useAuth } from "../hooks/useAuth";
 import type { PublicLandingPreviewResponse, PublicMarketTickerItem } from "../models/market";
@@ -11,17 +10,6 @@ import { getPublicLandingPreview, getPublicMarketTicker } from "../services/mark
 type ThemeMode = "light" | "dark";
 type Language = "tr" | "en";
 type PreviewKey = "dashboard" | "portfolio" | "market";
-
-const publicMenuTargets = [
-  { key: "analysis", href: "/dashboard", icon: "/analiz.svg" },
-  { key: "portfolio", href: "/portfolio", icon: "/portfoy.svg" },
-  { key: "market", href: "/market", icon: "/piyasa.svg" },
-];
-
-const utilityMenuTargets = [
-  { key: "profile", href: "/profile", icon: "/profil.svg" },
-  { key: "settings", href: "/settings", icon: "/ayarlar.svg" },
-];
 
 const fallbackTickerItems: PublicMarketTickerItem[] = [
   { symbol: "USDTRY", label: "$/₺", value: 47.9128, currency: "TRY", change_percent: 0.02, source: "fallback" },
@@ -286,41 +274,6 @@ function MenuIcon({ src }: { src: string }) {
   );
 }
 
-function AuthRequiredPopover({
-  language,
-  nextPath,
-  onClose,
-}: {
-  language: Language;
-  nextPath: string;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      role="status"
-      className="absolute left-0 right-0 top-full z-[65] mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left shadow-xl md:left-full md:right-auto md:top-0 md:ml-3 md:mt-0 md:w-72"
-    >
-      <div className="text-sm font-black app-heading">{copy[language].authRequiredTitle}</div>
-      <p className="mt-2 text-sm leading-5 app-muted">{copy[language].authRequiredBody}</p>
-      <div className="mt-4 flex items-center gap-2">
-        <Link
-          href={`/login?next=${encodeURIComponent(nextPath)}`}
-          className="rounded-md app-primary px-3 py-2 text-xs font-bold"
-        >
-          {copy[language].authRequiredAction}
-        </Link>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border border-[var(--color-border)] px-3 py-2 text-xs font-bold app-muted transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-heading)]"
-        >
-          {copy[language].close}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ThemeToggle({ theme, onToggle, language }: { theme: ThemeMode; onToggle: () => void; language: Language }) {
   const isDark = theme === "dark";
 
@@ -353,126 +306,6 @@ function LanguageToggle({ language, onToggle }: { language: Language; onToggle: 
   );
 }
 
-function LandingSideMenu({
-  language,
-  authRequiredPath,
-  onNavigate,
-  onAuthPopoverClose,
-}: {
-  language: Language;
-  authRequiredPath: string | null;
-  onNavigate: (href: string) => void;
-  onAuthPopoverClose: () => void;
-}) {
-  const menuRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!authRequiredPath) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current || !(event.target instanceof Node)) {
-        return;
-      }
-
-      if (!menuRef.current.contains(event.target)) {
-        onAuthPopoverClose();
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [authRequiredPath, onAuthPopoverClose]);
-
-  const iconButtonClass =
-    "relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/10 bg-white/[0.06] px-0 font-black tracking-wide text-white/70 transition hover:border-white/30 hover:bg-white/15 hover:text-white";
-  const homeButtonClass =
-    "group relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/15 bg-white/10 px-0 font-black tracking-wide text-white/80";
-  const tooltipClass =
-    "pointer-events-none absolute left-1/2 -top-4 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[13px] font-bold leading-none text-white/70 transition-colors group-hover:text-white";
-
-  return (
-    <aside
-      ref={menuRef}
-      onPointerDown={(event) => {
-        if (!authRequiredPath || !(event.target instanceof Element)) {
-          return;
-        }
-
-        if (!event.target.closest("button,a,[role='status']")) {
-          onAuthPopoverClose();
-        }
-      }}
-      className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
-    >
-      <div aria-hidden="true" className="h-20" />
-
-      <nav className="mt-10 space-y-7">
-        <Link
-          href="/"
-          onClick={onAuthPopoverClose}
-          aria-current="page"
-          className={homeButtonClass}
-        >
-          <span className="absolute bottom-3 left-0 top-3 w-1 rounded-r-full bg-[var(--color-primary)]" />
-          <span className="absolute left-2 top-1/2 -translate-y-1/2">
-            <MenuIcon src="/ana-sayfa.svg" />
-          </span>
-          <span className={tooltipClass}>{copy[language].home}</span>
-        </Link>
-        {publicMenuTargets.map((target, index) => (
-          <div key={target.key} className="group relative">
-            {authRequiredPath === target.href ? (
-              <AuthRequiredPopover
-                language={language}
-                nextPath={target.href}
-                onClose={onAuthPopoverClose}
-              />
-            ) : null}
-            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
-              <span className="absolute left-2 top-1/2 -translate-y-1/2">
-                <MenuIcon src={target.icon} />
-              </span>
-            </button>
-            <span className={tooltipClass}>{copy[language].nav[index]}</span>
-          </div>
-        ))}
-      </nav>
-
-      <div className="mt-auto space-y-5 pt-6">
-        {utilityMenuTargets.map((target, index) => (
-          <div key={target.key} className="group relative">
-            {target.key !== "settings" && authRequiredPath === target.href ? (
-              <AuthRequiredPopover
-                language={language}
-                nextPath={target.href}
-                onClose={onAuthPopoverClose}
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                if (target.key === "settings") {
-                  onAuthPopoverClose();
-                  return;
-                }
-
-                onNavigate(target.href);
-              }}
-              className={iconButtonClass}
-            >
-              <span className="absolute left-2 top-1/2 -translate-y-1/2">
-                <MenuIcon src={target.icon} />
-              </span>
-            </button>
-            <span className={tooltipClass}>{copy[language].utilityNav[index]}</span>
-          </div>
-        ))}
-      </div>
-    </aside>
-  );
-}
 function MarketTicker({
   theme,
   language,
@@ -519,7 +352,7 @@ function MarketTicker({
 
   return (
     <>
-      <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
+      <section className="fixed left-0 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
       <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
         <span
           aria-hidden="true"
@@ -1218,10 +1051,8 @@ function QuickAccessCards({
 
 export default function HomePage() {
   const auth = useAuth();
-  const router = useRouter();
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [language, setLanguage] = useState<Language>("tr");
-  const [authRequiredPath, setAuthRequiredPath] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [activePreview, setActivePreview] = useState<PreviewKey | null>(null);
   const [previewData, setPreviewData] = useState<PublicLandingPreviewResponse | null>(null);
@@ -1275,46 +1106,23 @@ export default function HomePage() {
     });
   }
 
-  function handleProtectedNavigate(href: string) {
-    if (auth.loading) {
-      return;
-    }
-
-    if (auth.user) {
-      setAuthRequiredPath(null);
-      router.push(href);
-      return;
-    }
-
-    setAuthRequiredPath(href);
-  }
-
   return (
     <main className="min-h-screen overflow-x-hidden app-bg transition-colors">
       <div className={activePreview ? "pointer-events-none blur-sm transition" : "transition"}>
-        <LandingSideMenu
+        <MarketTicker
+          theme={theme}
           language={language}
-          authRequiredPath={authRequiredPath}
-          onNavigate={handleProtectedNavigate}
-          onAuthPopoverClose={() => setAuthRequiredPath(null)}
+          onThemeToggle={toggleTheme}
+          onLanguageToggle={toggleLanguage}
         />
 
-        <div className="ml-24 w-[calc(100%-6rem)]">
-          <MarketTicker
-            theme={theme}
-            language={language}
-            onThemeToggle={toggleTheme}
-            onLanguageToggle={toggleLanguage}
-          />
+        <HeroSlider language={language} />
 
-          <HeroSlider language={language} />
-
-          <QuickAccessCards
-            language={language}
-            previewData={previewData}
-            onOpenPreview={setActivePreview}
-          />
-        </div>
+        <QuickAccessCards
+          language={language}
+          previewData={previewData}
+          onOpenPreview={setActivePreview}
+        />
       </div>
 
       {activePreview ? (
