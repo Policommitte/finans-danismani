@@ -95,6 +95,8 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
                             await repository.mark_contact_failed(
                                 contact_id, sonuc["error"] or "bilinmeyen hata"
                             )
+                        elif sonuc["status"] == "SKIPPED":
+                            await repository.mark_contact_skipped(contact_id)
                 else:
                     logger.warning(
                         "lead_max_emails_per_scan asildi, mail atlandi",

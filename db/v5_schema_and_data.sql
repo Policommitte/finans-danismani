@@ -423,7 +423,8 @@ SELECT u.id AS user_id, u.first_name, u.last_name, u.email,
        GREATEST(si.last_transaction_at, sc.last_chat_at) AS last_activity_at,
        FLOOR(EXTRACT(EPOCH FROM (
            now() - GREATEST(si.last_transaction_at, sc.last_chat_at)
-       )) / 86400)::INT AS days_since_activity
+       )) / 86400)::INT AS days_since_activity,
+       u.likit_para
 FROM users u
 LEFT JOIN portfoy_degeri pd ON pd.user_id = u.id
 LEFT JOIN son_islem      si ON si.user_id = u.id

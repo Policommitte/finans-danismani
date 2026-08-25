@@ -272,6 +272,16 @@ class LeadRepository(Protocol):
         """
         ...
 
+    async def mark_contact_skipped(self, contact_id: int) -> None:
+        """Gmail yapilandirilmamisken claim'i serbest birakir (`status='SKIPPED'`).
+
+        `mark_contact_failed` ile ayni amac: kismi unique index yalnizca
+        `status='SENT'`'e baktigi icin, mail hic denenmediyse claim'i
+        kalici olarak "gonderildi" gibi birakmamak lazim - Gmail ayarlari
+        yapilandirildiginda sonraki taramada tekrar denenebilsin.
+        """
+        ...
+
     async def record_bsd_handover(self, user_id: int, scan_id: int) -> None:
         """BSD kuyruguna yazilan kullanici icin `lead_contacts` kaydi acar.
 

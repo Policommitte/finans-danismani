@@ -71,7 +71,6 @@ class SqlUserRepository(_SqlRepository):
         )
 
 
-
 class SqlPortfolioRepository(_SqlRepository):
     """Portfoy verisi - hesap YAPMAZ, view'lari okur.
 
@@ -1004,6 +1003,14 @@ class SqlLeadRepository(_SqlRepository):
             await session.execute(
                 text("UPDATE lead_contacts SET status = 'FAILED', error = :error WHERE id = :id"),
                 {"id": contact_id, "error": error},
+            )
+            await session.commit()
+
+    async def mark_contact_skipped(self, contact_id: int) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text("UPDATE lead_contacts SET status = 'SKIPPED' WHERE id = :id"),
+                {"id": contact_id},
             )
             await session.commit()
 

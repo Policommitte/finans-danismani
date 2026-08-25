@@ -337,6 +337,7 @@ def _lead_signals() -> list[dict]:
                 "email": user["email"],
                 "monthly_income": user["monthly_income"],
                 "marketing_consent": user.get("marketing_consent", True),
+                "likit_para": user.get("likit_para", 0.0),
                 "total_value_try": total_value,
                 "holding_count": len(holdings),
                 "days_since_activity": min(gun_farklari) if gun_farklari else None,
@@ -913,6 +914,12 @@ class InMemoryLeadRepository:
             if contact["id"] == contact_id:
                 contact["status"] = "FAILED"
                 contact["error"] = error
+                return
+
+    async def mark_contact_skipped(self, contact_id: int) -> None:
+        for contact in _LEAD_CONTACTS:
+            if contact["id"] == contact_id:
+                contact["status"] = "SKIPPED"
                 return
 
     async def record_bsd_handover(self, user_id: int, scan_id: int) -> None:
