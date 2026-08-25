@@ -161,8 +161,12 @@ geliştirici DB'li geliştiriciyle aynı ekranı görür.
 
 - LLM modeli seçilmedi — kodda hiçbir model adı sabit değil, `.env` boş olduğu
   sürece ajanlar LLM'siz çalışıyor.
-- Embedding modeli seçilmedi — `rag_search` şimdilik yalnızca BM25 ayağıyla
-  çalışıyor, hibrit arama karar sonrası açılacak.
+- Embedding modeli seçildi (Cohere `embed-v4.0`, 2026-08-19/20) ve
+  `rag_search` hibrit aramaya (dense + BM25 → RRF) bağlandı; embedder
+  tanımlı değilse veya sorgu embedding'i başarısız/zaman aşımına uğrarsa
+  BM25'e sessizce düşer. Supabase'deki paylaşılan DB'nin
+  `rag.hybrid_search()` fonksiyonu bu genişletilmiş haliyle henüz
+  güncellenmedi (bkz. `gelecek-isler.md`).
 - `/chat` isteğinde bağlam (seçili varlık, tarih aralığı) gönderilecek mi?
 - "Yeniden Dengele" ve "Detaylı Rapor" düz metin mi, yapısal veri mi
   döndürecek? (`POST /api/reports` Sprint 4'e ertelendi.)

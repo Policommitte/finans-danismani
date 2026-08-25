@@ -162,6 +162,29 @@ async def test_rag_search_filters_sozlugunu_de_kabul_eder():
 
 
 @pytest.mark.db
+async def test_rag_search_tarih_parametrelerini_kabul_eder(mcp):
+    """`date_from`/`date_to` dogrudan parametre olarak da gecerli olmali.
+
+    Onceden bu ikisi tool imzasinda hic yoktu ve sessizce dusuyordu (bkz.
+    MarketResearchAgent._run_rag'in ürettiği filters['date_from'] hicbir yerde
+    tuketilmiyordu).
+    """
+    sonuc = await mcp.call_tool(
+        RAG_SERVER_NAME, "rag_search", {"query": "piyasa", "date_from": "2026-08-01"}
+    )
+
+    assert all(c["tarih"] >= "2026-08-01" for c in sonuc["chunks"])
+
+
+@pytest.mark.db
+async def test_rag_search_filters_sozlugundeki_tarihi_de_kabul_eder():
+    """Ajanin urettigi `filters={"date_from": ..., "date_to": ...}` yolu."""
+    sonuc = await rag_search(query="piyasa", filters={"date_from": "2026-08-01"})
+
+    assert all(c["tarih"] >= "2026-08-01" for c in sonuc["data"]["chunks"])
+
+
+@pytest.mark.db
 async def test_market_get_history_ham_seri_yerine_ozet_doner(mcp):
     """LLM baglami sismesin diye (mimari v4 bolum 6.4)."""
     sonuc = await mcp.call_tool(

@@ -441,6 +441,8 @@ async def rag_search(
     top_k: int = 5,
     sirket: str | None = None,
     tip: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Haber/bilanco/rapor indeksinde arama.
@@ -448,23 +450,33 @@ async def rag_search(
     Sonuc YAPILANDIRILMIS doner (duz metin degil): kaynak metadata'si MCP
     sinirinda kaybolursa FR-RAG-04 izlenebilirligi karsilanamaz.
 
-    ⚠️ Embedding modeli secilene kadar arama yalnizca BM25 (tam eslesme)
-    ayagiyla calisir; hibrit arama (dense + BM25 -> RRF) model kararindan
-    sonra acilir. Bkz. `app/repositories/sql.py::SqlRagRepository`.
+    Hibrit arama (dense + BM25 -> RRF) kullanilir - bkz.
+    `app/repositories/sql.py::SqlRagRepository.hybrid_search`. Embedder
+    baglanmadiysa (EMBEDDING_API_KEY/EMBEDDING_MODEL tanimli degil) ya da
+    sorgu-zamani embedding cagrisi basarisiz/zaman asimina ugrarsa DOGRUDAN
+    BM25'e (`search()`) duser - bu tool'un sozlesmesi degismez, yalnizca
+    dense ayak sessizce devre disi kalir.
 
     Args:
         query: Dogal dilde arama sorgusu.
         top_k: Kac chunk donsun (1-20).
         sirket: Sirket/sembol filtresi (orn. "THYAO").
         tip: haber | bilanco | analist_raporu | duyuru
-        filters: Geriye donuk uyum - {"symbol": ..., "tip": ...} da kabul edilir.
+        date_from: "YYYY-MM-DD" - bu tarihten itibaren.
+        date_to: "YYYY-MM-DD" - bu tarihe kadar.
+        filters: Geriye donuk uyum - {"symbol"|"sirket", "tip", "date_from",
+            "date_to"} da kabul edilir (bkz. `MarketResearchAgent._run_rag`).
     """
     filters = filters or {}
     sirket = sirket or filters.get("sirket") or filters.get("symbol")
     tip = tip or filters.get("tip")
+    date_from = date_from or filters.get("date_from")
+    date_to = date_to or filters.get("date_to")
     top_k = max(1, min(int(top_k or 5), 20))
 
-    rows = await get_rag_repository().search(query=query, top_k=top_k, sirket=sirket, tip=tip)
+    rows = await get_rag_repository().hybrid_search(
+        query=query, top_k=top_k, sirket=sirket, tip=tip, date_from=date_from, date_to=date_to
+    )
 
     return ok({"query": query, "chunks": [_chunk_payload(r) for r in rows]})
 

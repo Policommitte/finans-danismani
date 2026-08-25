@@ -645,6 +645,8 @@ class InMemoryRagRepository:
         top_k: int = 5,
         sirket: str | None = None,
         tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> list[dict]:
         """Kelime ortusmesine dayali basit arama (BM25'in bellek ici karsiligi)."""
         terms = {t for t in _normalize(query).split() if len(t) > 2}
@@ -661,6 +663,12 @@ class InMemoryRagRepository:
                 continue
             if tip and chunk["tip"] != tip:
                 continue
+            # ISO "YYYY-AA-GG" formatinda leksikografik karsilastirma SQL
+            # tarafindaki `d.tarih >= :date_from` ile ayni sonucu verir.
+            if date_from and chunk["tarih"] < date_from:
+                continue
+            if date_to and chunk["tarih"] > date_to:
+                continue
 
             haystack = _normalize(f"{chunk['baslik']} {chunk['content']} {chunk['sirket'] or ''}")
             hits = sum(1 for term in terms if term in haystack)
@@ -670,6 +678,20 @@ class InMemoryRagRepository:
 
         rows.sort(key=lambda r: r["score"], reverse=True)
         return rows[:top_k]
+
+    async def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 5,
+        sirket: str | None = None,
+        tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        """Bellek ici veride embedding YOKTUR; `search()`'e trivial delegate."""
+        return await self.search(
+            query, top_k=top_k, sirket=sirket, tip=tip, date_from=date_from, date_to=date_to
+        )
 
 
 class InMemoryChatRepository:

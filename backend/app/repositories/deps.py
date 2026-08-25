@@ -124,9 +124,13 @@ def get_market_repository() -> MarketRepository:
 @lru_cache
 def get_rag_repository() -> RagRepository:
     if _veritabani_calisiyor():
+        from app.ingestion.embeddings import get_embedder
         from app.repositories.sql import SqlRagRepository
 
-        return SqlRagRepository(_session_factory())
+        # `get_embedder()` EMBEDDING_API_KEY/EMBEDDING_MODEL tanimli degilse
+        # `None` doner - bu bir hata DEGILDIR: `hybrid_search()` embedder'siz
+        # de calisir, yalnizca BM25'e duser (bkz. SqlRagRepository docstring).
+        return SqlRagRepository(_session_factory(), embedder=get_embedder())
     return InMemoryRagRepository()
 
 

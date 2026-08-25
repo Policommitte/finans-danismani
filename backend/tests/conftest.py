@@ -53,6 +53,17 @@ def _veritabani(request, monkeypatch):
     `autouse`: bir testin ayar degistirmesi digerlerini etkilemesin.
     `reset_repositories` onbellekleri temizler; aksi halde ilk baglanti tum
     test oturumu boyunca yapisir.
+
+    `embedding_api_key` de BILEREK BOSALTILIR: `backend/.env` gercek bir
+    Cohere anahtari tasiyabilir (bkz. `app/repositories/deps.py::get_rag_repository`
+    - `SqlRagRepository`'ye `get_embedder()` enjekte edilir). Bosaltilmazsa
+    `rag_search`'u DOLAYLI olarak cagiran her `db` testi (orn.
+    `test_mcp_server.py`, `test_market_research_agent.py`) sessizce GERCEK
+    bir Cohere API cagrisi yapardi - bu testler dense aramayi sinamak icin
+    yazilmadi, yalnizca BM25/tool zarfini sinar. Dense yolu KASITLI olarak
+    sinayan tek yer `test_hybrid_search.py`'dir; o dosya `get_embedder()`'i
+    hic cagirmaz, sahte bir `Embedder`'i dogrudan `SqlRagRepository`'ye
+    enjekte eder - bu yuzden buradaki bosaltmadan ETKILENMEZ.
     """
     if "db" not in request.keywords:
         yield
@@ -61,6 +72,7 @@ def _veritabani(request, monkeypatch):
     from app.repositories.deps import reset_repositories
 
     monkeypatch.setattr(settings, "database_url", TEST_DATABASE_URL)
+    monkeypatch.setattr(settings, "embedding_api_key", "")
     reset_repositories()
     yield
     reset_repositories()
