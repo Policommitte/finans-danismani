@@ -18,7 +18,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.security import decode_access_token
-from app.core.errors import AuthenticationError
+from app.core.errors import AuthenticationError, AuthorizationError
 from app.mcp.context import set_current_user_id
 from app.repositories.deps import get_user_repository
 
@@ -56,3 +56,18 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
+
+
+async def get_current_advisor(user: CurrentUser) -> dict:
+    """`CurrentUser` ile ayni, ustune role='advisor' kontrolu ekler.
+
+    Musteri hesabi bu bagimliligi kullanan bir endpoint'e istek atarsa 403
+    alir - lead motoru verilerine (isim/e-posta/gelir/portfoy) sadece
+    danisman rolundeki hesaplar erisebilir.
+    """
+    if user.get("role") != "advisor":
+        raise AuthorizationError("Bu kaynak yalnizca danismanlara aciktir.")
+    return user
+
+
+CurrentAdvisor = Annotated[dict, Depends(get_current_advisor)]

@@ -23,3 +23,4 @@ class UserResponse(BaseModel):
     email: str
     risk_tolerance: str | None = Field(default=None, description="LOW | MEDIUM | HIGH")
     monthly_income: float | None = Field(default=None, description="Aylik gelir (TRY)")
+    role: str = Field(default="customer", description="customer | advisor")

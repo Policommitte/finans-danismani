@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Query
 
-from app.auth.deps import CurrentUser
+from app.auth.deps import CurrentAdvisor
 from app.schemas.leads import LeadQueueResponse, LeadScanRequest, LeadScanSummary
 from app.services import leads as service
 
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/leads", tags=["leads"])
 
 @router.get("/bsd-queue", response_model=LeadQueueResponse)
 async def bsd_queue(
-    user: CurrentUser,
+    user: CurrentAdvisor,
     limit: int = Query(default=100, ge=1, le=500, description="Kac kayit donsun"),
 ) -> LeadQueueResponse:
     """BSD (insan danisman) kuyrugu - aranacak kisiler, skor sirali."""
@@ -20,7 +20,7 @@ async def bsd_queue(
 
 @router.get("/autonomous-queue", response_model=LeadQueueResponse)
 async def autonomous_queue(
-    user: CurrentUser,
+    user: CurrentAdvisor,
     limit: int = Query(default=100, ge=1, le=500, description="Kac kayit donsun"),
 ) -> LeadQueueResponse:
     """Otonom (mail gonderilen) kuyruk."""
@@ -29,7 +29,7 @@ async def autonomous_queue(
 
 @router.get("/excluded", response_model=LeadQueueResponse)
 async def excluded(
-    user: CurrentUser,
+    user: CurrentAdvisor,
     limit: int = Query(default=100, ge=1, le=500, description="Kac kayit donsun"),
 ) -> LeadQueueResponse:
     """Dislanan kullanicilar ve gerekceleri."""
@@ -37,7 +37,7 @@ async def excluded(
 
 
 @router.post("/scan", response_model=LeadScanSummary)
-async def scan(user: CurrentUser, payload: LeadScanRequest) -> LeadScanSummary:
+async def scan(user: CurrentAdvisor, payload: LeadScanRequest) -> LeadScanSummary:
     """Lead taramasini elle tetikler.
 
     Asgari aralik nedeniyle atlanirsa hata DEGIL, `skipped=True` doner.

@@ -49,6 +49,8 @@ CREATE TABLE users (
     risk_tolerance VARCHAR(20) DEFAULT 'MEDIUM',   -- LOW · MEDIUM · HIGH
     monthly_income NUMERIC DEFAULT 0.0,
     marketing_consent BOOLEAN NOT NULL DEFAULT TRUE, -- İYS yerine basitleştirilmiş rıza alanı; gerçek İYS entegrasyonu kapsam dışı
+    role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
+    likit_para DOUBLE PRECISION,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 

@@ -32,6 +32,7 @@ _USERS: list[dict] = [
         "risk_tolerance": "HIGH",
         "monthly_income": 150000.0,
         "marketing_consent": True,
+        "role": "customer",
     },
     {
         "id": 2,
@@ -42,6 +43,18 @@ _USERS: list[dict] = [
         "risk_tolerance": "LOW",
         "monthly_income": 75000.0,
         "marketing_consent": True,
+        "role": "customer",
+    },
+    {
+        "id": 3,
+        "first_name": "Deniz",
+        "last_name": "Danisman",
+        "email": "danisman@example.com",
+        "password_hash": "$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW",
+        "risk_tolerance": None,
+        "monthly_income": 0.0,
+        "marketing_consent": False,
+        "role": "advisor",
     },
 ]
 

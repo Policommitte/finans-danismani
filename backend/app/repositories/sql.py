@@ -53,7 +53,7 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income
+                   risk_tolerance, monthly_income, role
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -62,11 +62,12 @@ class SqlUserRepository(_SqlRepository):
     async def get_by_id(self, user_id: int) -> dict | None:
         return await self._row(
             """
-            SELECT id, first_name, last_name, email, risk_tolerance, monthly_income
+            SELECT id, first_name, last_name, email, risk_tolerance, monthly_income, role
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
         )
+
 
 
 class SqlPortfolioRepository(_SqlRepository):

@@ -27,11 +27,14 @@ from typing import Protocol
 
 class UserRepository(Protocol):
     async def get_by_email(self, email: str) -> dict | None:
-        """`password_hash` DAHIL kullanici kaydi (yalnizca auth katmani kullanir)."""
+        """`password_hash` DAHIL kullanici kaydi (yalnizca auth katmani kullanir).
+
+        Donen sozlukte `role` alani da vardir ('customer' | 'advisor').
+        """
         ...
 
     async def get_by_id(self, user_id: int) -> dict | None:
-        """Profil bilgisi - `password_hash` ICERMEZ."""
+        """Profil bilgisi - `password_hash` ICERMEZ, `role` alani vardir."""
         ...
 
 
