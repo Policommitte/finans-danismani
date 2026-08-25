@@ -8,12 +8,24 @@ AKIS
 ----
     START
       -> security_in       (girdi denetimi; guvensizse -> reject)
-      -> router            (niyet analizi, ajan secimi)
+      -> router            (KAPSAM + niyet analizi)
+           |-- finans disi --> small_talk   (tek cumlelik sabit yanit -> END)
+           |
       -> market_research + portfolio     (PARALEL fan-out)
       -> risk_strategy     (SIRALI; ikisinin verisini bekler)
       -> security_gate     (ham ajan verisi denetimi; sorunluysa -> safe_response)
       -> synthesizer       (sentez + STREAMING)
       -> END
+
+IKI FARKLI "HAYIR" YOLU VAR - KARISTIRMAYIN
+    reject      GUVENLIK karari: prompt injection, komut calistirma, sir
+                sizdirma girisimi. `security_agent` verir, ajanlar hic calismaz.
+    small_talk  KAPSAM karari: selamlama, tesekkur, kufur, baska bir alana ait
+                soru. Tehlike yoktur, sadece bu sistemin isi degildir.
+
+    Kufur eden bir kullanici SALDIRGAN degildir; `security_agent` onu bilincli
+    olarak gecirir (desenleri dar tutulmustur, bkz. o modulun docstring'i).
+    Kapsam karari bu yuzden ayri bir katmandir.
 
 PARALEL MI, SIRALI MI?
     LangGraph'ta sirali calisma varsayilandir, paralellik istisnadir. Kural:
@@ -37,9 +49,10 @@ AJANLARIN BAGLANMASI
 
 import asyncio
 import logging
+import re
 import time
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -47,6 +60,14 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
+from app.config import settings
+from app.engine.kapsam import (
+    KAPSAM_BELIRSIZ,
+    KISA_YANIT_KAPSAMLARI,
+    SEMBOL_DESENI,
+    kapsam_belirle,
+    kisa_yanit,
+)
 from app.orchestration.models import RESET, AgentError, AgentState, Source
 
 logger = logging.getLogger(__name__)
@@ -58,6 +79,7 @@ NODE_SECURITY_GATE = "security_gate"
 NODE_SYNTHESIZER = "synthesizer"
 NODE_REJECT = "reject"
 NODE_SAFE_RESPONSE = "safe_response"
+NODE_SMALL_TALK = "small_talk"
 
 # --- Ajan node adlari ---
 AGENT_MARKET_RESEARCH = "market_research"
@@ -70,6 +92,21 @@ PARALLEL_AGENTS: tuple[str, ...] = (AGENT_MARKET_RESEARCH, AGENT_PORTFOLIO)
 #: Baska ajanlarin ciktisina ihtiyac duyan ajanlar - paralel fazdan SONRA,
 #: tanimlandiklari sirayla zincirlenerek calisir.
 SEQUENTIAL_AGENTS: tuple[str, ...] = (AGENT_RISK_STRATEGY,)
+
+#: Ajan -> deterministik yanittaki bolum basligi. Sozlugun SIRASI ayni zamanda
+#: yedek siradir (router bir sey soylemediginde kullanilir).
+_BOLUM_BASLIKLARI: dict[str, str] = {
+    AGENT_MARKET_RESEARCH: "Piyasa araştırması",
+    AGENT_PORTFOLIO: "Portföy analizi",
+    AGENT_RISK_STRATEGY: "Risk değerlendirmesi",
+}
+
+#: Ajan -> o ajanin state'teki veri alanini okuyan islev.
+_AJAN_VERISI: dict[str, Callable[[AgentState], dict | None]] = {
+    AGENT_MARKET_RESEARCH: lambda s: s.market_data,
+    AGENT_PORTFOLIO: lambda s: s.portfolio_data,
+    AGENT_RISK_STRATEGY: lambda s: s.risk_data,
+}
 
 #: Kullaniciya SSE ile gonderilecek ilerleme mesajlari.
 #:
@@ -101,11 +138,23 @@ NODE_STAGES: dict[str, str] = {
 
 #: Niyet analizi icin anahtar kelimeler (ASCII'ye normalize edilmis halde).
 #: Sorguda bir ajanin kelimelerinden herhangi biri geciyorsa o ajan istenir.
+#:
+#: ESLESME KELIME BASINA SABITLIDIR (bkz. `_KELIME_DESENLERI`): kelime ortada
+#: degil, BASTA aranir. Duz `in` kontrolu kullanildiginda "bakarak" icindeki
+#: "kar" piyasa ajanini tetikliyordu - "bana bakarak tavsiye eder misin"
+#: sorusu piyasa arastirmasi baslatiyordu. Son ek serbesttir, yani "portfoy"
+#: hala "portfoyumdeki" ile eslesir.
 INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     AGENT_PORTFOLIO: (
         "portfoy",
         "varlik",
-        "hisse",
+        # "hisse" BILINCLI OLARAK YOK: herhangi bir hisse hakkindaki soru
+        # ("THYAO hissesinin son 1 yildaki karliligi") portfoy analizini de
+        # tetikliyordu - kullanicinin istemedigi bir bolum yaniti sisiriyor.
+        # Portfoyu kasteden kullanim iyelik ekiyle gelir, onu yakaliyoruz.
+        "hissem",
+        "hisselerim",
+        "elimdeki",
         "dagilim",
         "bakiye",
         "pozisyon",
@@ -126,18 +175,69 @@ INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "endeks",
         "faiz",
         "enflasyon",
+        # Performans/donem sorulari: bunlar olmadan "SASA hissesi neden
+        # dustu?" hicbir anahtar kelimeyle eslesmiyor ve guvenli varsayilan
+        # devreye girip TUM ajanlari kosturuyordu.
+        "performans",
+        "karlilik",
+        "yukseldi",
+        "dustu",
+        # Enstruman ve fiyat sorulari. Bunlarin YOKLUGU olculdu: "yaz
+        # baslamadan THYAO almayi dusunuyorum, tavsiye eder misin?" sorusu
+        # yalnizca "tavsiye" ile eslesip risk+portfoy ajanlarina gidiyor,
+        # piyasa ajani HIC calismiyordu - oysa sorunun cevabi (fiyat gecmisi,
+        # mevsimsellik) tam olarak o ajanda.
+        #
+        # "hisse" burada BILINCLI olarak var ama AGENT_PORTFOLIO'da yok: bir
+        # hisse hakkindaki soru piyasa sorusudur, portfoy sorusu degil.
+        "hisse",
+        "senet",
+        "fiyat",
+        "dolar",
+        "euro",
+        "altin",
+        "doviz",
+        "kripto",
+        "bitcoin",
+        "emtia",
+        "petrol",
+        "temettu",
+        # Bir varligin getirisi PIYASA sorusudur. Eskiden yalnizca risk
+        # ajaninin kelimesiydi ve "THYAO'nun getirisi ne?" sorusu portfoy+risk
+        # ajanlarini calistiriyordu.
+        "getiri",
+        # Mevsimsellik: "gecmis yillarin yaz aylarinda ne oldu?"
+        "mevsim",
+        "sezon",
     ),
     AGENT_RISK_STRATEGY: (
         "risk",
         "dengele",
         "strateji",
+        "cesitlendir",
+        # ⚠️ Asagidakiler TEK BASLARINA risk ajanini tetiklemeye YETMEZ -
+        # bkz. `_GENEL_TAVSIYE_KELIMELERI` ve `route_intent`.
         "oneri",
         "tavsiye",
-        "cesitlendir",
         "guvenli",
-        "getiri",
     ),
 }
+
+#: Risk ajanini tek baslarina tetiklememesi gereken GENEL tavsiye kelimeleri.
+#:
+#: Sorun: "THYAO almami tavsiye eder misin?" cumlesindeki "tavsiye" risk
+#: ajanini aciyor, risk ajani portfoy verisine bagimli oldugu icin portfoy de
+#: otomatik ekleniyordu. Sonuc: tek bir hisse sorusu portfoy dokumu + risk
+#: raporu uretiyordu. Kullanici bunu ust uste uc kez bildirdi.
+#:
+#: Kural: bu kelimeler piyasa sorusuyla BIRLIKTE geciyorsa tavsiye edilen sey
+#: kullanicinin portfoyu degil, sorulan enstrumandir - risk/portfoy eklenmez.
+#: Yalniz baslarina gecerlerse ("bana ne onerirsin?") kullanicinin kendi
+#: durumu kastediliyordur, eski davranis korunur.
+#:
+#: "getiri" bu listede DEGIL, AGENT_MARKET_RESEARCH'e tasindi: bir varligin
+#: getirisi bir piyasa sorusudur, risk sorusu degil.
+_GENEL_TAVSIYE_KELIMELERI: frozenset[str] = frozenset({"oneri", "tavsiye", "guvenli"})
 
 #: Turkce karakterleri ASCII karsiliklarina cevirir. Boylece anahtar kelime
 #: listesi tek bir yazimla ("portfoy") hem "portföy" hem "portfoy" girdisini
@@ -156,14 +256,44 @@ SAFE_RESPONSE_MESSAGE = (
 
 #: Synthesizer sistem prompt'u - uyum kurallarini tasir.
 SYNTHESIZER_SYSTEM_PROMPT = """Sen bir kişisel finans danışmanı asistanısın.
-Aşağıdaki uzman analizlerini tek ve akıcı bir Türkçe yanıtta birleştir.
+Elindeki uzman analizlerini, KULLANICININ SORDUĞU SORUYA cevap veren tek bir
+Türkçe yanıta dönüştür.
 
-Uymak zorunda olduğun kurallar:
-1. Yanıtının sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini ekle.
-2. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse bile maskele.
-3. Kullandığın bilgiyi hangi kaynağa dayandırdığını belirt.
-4. Bir uzmandan veri gelmediyse bunu dürüstçe söyle, veri uydurma.
-5. Sade ve anlaşılır bir dil kullan; gereksiz teknik jargon kullanma."""
+ÖNCE SORUYU CEVAPLA
+1. İlk cümle sorunun doğrudan cevabı olsun. Girişe, başlığa, "analizlerinize
+   göre" gibi hazırlık cümlelerine yer verme.
+2. Uzman analizleri senin HAM MALZEMEN; rapor değil. Hepsini sırayla anlatma.
+   Yalnızca soruyu cevaplamaya yarayan kısmı kullan, gerisini bırak.
+3. Kullanıcı portföyünü sormadıysa yanıta portföy dökümüyle BAŞLAMA. Portföy
+   bilgisi ancak cevabı değiştiriyorsa ve tek cümleyle girer.
+
+KISA TUT
+4. En fazla 150 kelime. Cevap net olduğunda 2-3 cümlede bitir.
+5. Madde listesi yalnızca gerçekten liste olan şeyler için (örn. birkaç yıllık
+   getiri). Üç maddeyi geçme.
+6. Aynı sayıyı iki kez yazma; tekrar eden cümle kurma.
+
+DÜRÜSTLÜK
+7. Sayıları uzmanlardan geldiği gibi kullan. YENİ SAYI ÜRETME, yuvarlayıp
+   değiştirme, veriden çıkarım yapıp rakam uydurma.
+8. Veri az ya da yetersizse bunu tek cümleyle açıkça söyle; uzmanın "yeterli
+   değildir" uyarısını YUTMA.
+9. Bir uzmandan veri gelmediyse dürüstçe belirt.
+10. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
+    bile maskele.
+11. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
+12. Sade dil kullan; gereksiz teknik jargondan kaçın.
+13. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
+    ekle."""
+
+
+#: Ajan adi -> "bu ajanin kelimelerinden biri kelime BASINDA geciyor mu"
+#: sorusunu tek geciste yanitlayan derlenmis desen.
+_KELIME_DESENLERI: dict[str, re.Pattern[str]] = {
+    ajan: re.compile("|".join(rf"\b{re.escape(kelime)}" for kelime in kelimeler))
+    for ajan, kelimeler in INTENT_KEYWORDS.items()
+    if kelimeler
+}
 
 
 def _normalize(text: str) -> str:
@@ -219,6 +349,9 @@ class Orchestrator:
         self.synthesizer_llm = synthesizer_llm
         self.synthesizer_timeout_seconds = synthesizer_timeout_seconds
         self.checkpointer = checkpointer if checkpointer is not None else MemorySaver()
+        #: Router'in KOSULLU olarak tetikledigi ilk katman. `_add_agent_edges`
+        #: doldurur, `_kapsam_dallanmasi` calisma aninda okur.
+        self._router_hedefleri: tuple[str, ...] = ()
         self.graph = self.build_graph().compile(checkpointer=self.checkpointer)
 
     # ------------------------------------------------------------------
@@ -243,6 +376,7 @@ class Orchestrator:
         builder.add_node(NODE_SYNTHESIZER, self.synthesize)
         builder.add_node(NODE_REJECT, self.reject_response)
         builder.add_node(NODE_SAFE_RESPONSE, self.safe_response)
+        builder.add_node(NODE_SMALL_TALK, self.small_talk_response)
 
         # --- Giris: once GUVENLIK, sonra routing ---
         # Kotu niyetli bir sorgu routing'e hic girmemelidir.
@@ -267,6 +401,9 @@ class Orchestrator:
         builder.add_edge(NODE_SYNTHESIZER, END)
         builder.add_edge(NODE_REJECT, END)
         builder.add_edge(NODE_SAFE_RESPONSE, END)
+        # Kapsam disi yanit ajanlari da SENTEZLEYICIYI de atlar: metin sabittir,
+        # LLM cagrisi yapilmaz. "Merhaba" demek bir model cagrisina mal olmaz.
+        builder.add_edge(NODE_SMALL_TALK, END)
 
         return builder
 
@@ -277,6 +414,11 @@ class Orchestrator:
         ve YALNIZCA kayitli ajanlar icin kenar uretilir. Bu sayede:
           - Henuz yazilmamis bir ajan graph'i bozmaz.
           - Yeni ajan eklemek icin sabit listeye bir satir eklemek yeterlidir.
+
+        Router'dan cikan kenar KOSULLUDUR: sorgu finans kapsaminin disindaysa
+        (`small_talk`) ajan katmanlarina hic girilmez. Geri kalan katmanlar
+        arasi kenarlar statiktir - bir kez ajan faznina girildikten sonra
+        topoloji her zaman ayni sekilde akar.
         """
         parallel = [name for name in PARALLEL_AGENTS if name in self.agents]
         sequential = [name for name in SEQUENTIAL_AGENTS if name in self.agents]
@@ -286,25 +428,35 @@ class Orchestrator:
         known = set(PARALLEL_AGENTS) | set(SEQUENTIAL_AGENTS)
         parallel.extend(name for name in self.agents if name not in known)
 
-        # FAN-OUT: bagimsiz ajanlarin hepsi router'dan ayni anda tetiklenir.
+        # Katman listesi: [paralel ajanlar] -> [sirali ajan] -> ... -> [gate]
+        # Hic ajan kayitli degilse tek katman kalir ve router dogrudan guvenlik
+        # kapisina baglanir - graph yine gecerlidir.
+        katmanlar: list[list[str]] = []
         if parallel:
-            for name in parallel:
-                builder.add_edge(NODE_ROUTER, name)
-            upstream: list[str] = parallel
-        else:
-            upstream = [NODE_ROUTER]
+            katmanlar.append(parallel)
+        katmanlar.extend([ad] for ad in sequential)
+        katmanlar.append([NODE_SECURITY_GATE])
 
-        # FAN-IN: sirali ajanlar bir onceki katmanin TAMAMINI bekler.
-        # LangGraph, bir node'a gelen tum kenarlar tamamlanmadan o node'u
-        # calistirmaz; bekleme mantigi otomatik yonetilir.
-        for name in sequential:
-            for parent in upstream:
-                builder.add_edge(parent, name)
-            upstream = [name]
+        # FAN-IN: her katman bir oncekinin TAMAMINI bekler. LangGraph, bir
+        # node'a gelen tum kenarlar tamamlanmadan o node'u calistirmaz;
+        # bekleme mantigi otomatik yonetilir.
+        onceki = katmanlar[0]
+        for katman in katmanlar[1:]:
+            for hedef in katman:
+                for ust in onceki:
+                    builder.add_edge(ust, hedef)
+            onceki = katman
 
-        # Son katman -> cikti guvenlik denetimi
-        for parent in upstream:
-            builder.add_edge(parent, NODE_SECURITY_GATE)
+        # FAN-OUT: ilk katmanin tamami router'dan AYNI ANDA tetiklenir.
+        # Kosullu kenar fonksiyonu liste dondurdugunde LangGraph bunu paralel
+        # fan-out olarak uygular - statik kenarla ayni topoloji, tek farki
+        # kapsam disi sorgularda hic tetiklenmemesi.
+        self._router_hedefleri = tuple(katmanlar[0])
+        builder.add_conditional_edges(
+            NODE_ROUTER,
+            self._kapsam_dallanmasi,
+            {NODE_SMALL_TALK: NODE_SMALL_TALK, **{ad: ad for ad in self._router_hedefleri}},
+        )
 
     # ------------------------------------------------------------------
     # Dallanma kararlari (conditional edges)
@@ -320,21 +472,66 @@ class Orchestrator:
         """Ham ajan verisi temizse sentezle, degilse guvenli yanit dondur."""
         return NODE_SYNTHESIZER if state.is_output_safe else NODE_SAFE_RESPONSE
 
+    def _kapsam_dallanmasi(self, state: AgentState) -> str | list[str]:
+        """Kapsam disi sorguyu kisa yanita, finans sorusunu ajanlara yollar.
+
+        Liste dondurmek LangGraph'ta PARALEL FAN-OUT demektir; finans yolunda
+        donen liste, kosullu kenar eklenmeden onceki statik kenarlarin birebir
+        karsiligidir.
+        """
+        if state.scope in KISA_YANIT_KAPSAMLARI:
+            return NODE_SMALL_TALK
+        return list(self._router_hedefleri)
+
     # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
 
     def route_node(self, state: AgentState) -> dict:
-        """Niyete gore hangi ajanlarin anlamli oldugunu isaretler.
+        """Once KAPSAM, sonra niyet karari verir.
 
-        NOT: Graph kenarlari STATIKTIR; bu node ajanlari devre disi birakmaz,
-        yalnizca `requested_agents` listesini doldurur. Ajanlar bu listeye
-        bakarak kendilerini erken sonlandirabilir (ucuz no-op) - bkz.
-        `BaseAgent.is_requested`. Risk ajani sirali konumda oldugu icin
-        atlansa bile graph akisi bozulmaz.
+        Iki asamalidir ve sira onemlidir:
+
+          1. KAPSAM - "bu soru bize mi?" Finans disiysa `requested_agents` bos
+             kalir ve `_kapsam_dallanmasi` akisi `small_talk`'a cevirir; hicbir
+             ajan, hicbir LLM calismaz.
+          2. NIYET - "hangi uzman?" Yalnizca finans sorularinda calisir.
+
+        NOT: Ajan katmanlari arasindaki kenarlar STATIKTIR; bu node ajanlari
+        tek tek devre disi birakmaz, yalnizca `requested_agents` listesini
+        doldurur. Ajanlar bu listeye bakarak kendilerini erken sonlandirabilir
+        (ucuz no-op) - bkz. `BaseAgent.is_requested`.
         """
+        kapsam = kapsam_belirle(state.user_query, devam_turu=self._devam_turu(state))
+
+        if kapsam in KISA_YANIT_KAPSAMLARI:
+            logger.info(
+                "sorgu finans kapsami disinda, ajanlar atlaniyor",
+                extra={"scope": kapsam, "request_id": state.request_id},
+            )
+            return {"requested_agents": [], "intent": "sohbet", "scope": kapsam}
+
         requested = self.route_intent(state)
-        return {"requested_agents": requested, "intent": self._intent_adi(requested)}
+        return {
+            "requested_agents": requested,
+            "intent": self._intent_adi(requested),
+            "scope": kapsam,
+        }
+
+    @staticmethod
+    def _devam_turu(state: AgentState) -> bool:
+        """Bu sohbette daha once en az bir tur yasandi mi?
+
+        `stream_request` her turun basinda kullanicinin mesajini listeye ekler;
+        onceki turlar checkpointer'dan geri gelir. Yani listede mevcut sorudan
+        BASKA bir sey varsa bu bir devam turudur.
+
+        Neden onemli: "Peki ya simdi?" ya da "Neden?" gibi devam sorulari tek
+        baslarina hicbir finans sinyali tasimaz. Kapsam siniflandirici bunlari
+        ilk turda netlestirme sorusuna yollar, devam turunda ise ajanlara
+        birakir - aksi halde cok turlu sohbet (FR-CHAT-03) kirilir.
+        """
+        return len(state.messages) > 1
 
     @staticmethod
     def _intent_adi(requested: list[str]) -> str:
@@ -354,33 +551,112 @@ class Orchestrator:
             AGENT_RISK_STRATEGY: "risk",
         }.get(next(iter(kume)), "belirsiz")
 
+    @staticmethod
+    def _piyasa_sinyali_var(ham_sorgu: str, requested: list[str]) -> bool:
+        """Sorgu belirli bir ENSTRUMANDAN mi soz ediyor?
+
+        Iki isaret: piyasa ajaninin kendi anahtar kelimeleri, ya da ham metinde
+        buyuk harfli bir BIST sembolu ("THYAO almami tavsiye eder misin" -
+        burada hicbir piyasa kelimesi yok ama soru acikca bir hisse hakkinda).
+
+        Kucuk harfle yazilan ciplak sembol yakalanmaz; onu cozmek sembol
+        listesini okumayi gerektirir ve router bilincli olarak LLM'siz ve
+        senkron tutuluyor (bkz. `kapsam.SEMBOL_DESENI`).
+        """
+        return AGENT_MARKET_RESEARCH in requested or bool(SEMBOL_DESENI.search(ham_sorgu))
+
+    @staticmethod
+    def _yalnizca_genel_tavsiye(normalized: str) -> bool:
+        """Risk ajani SADECE genel bir tavsiye kelimesiyle mi eslesti?
+
+        `True` ise sorguda "risk", "dengele", "cesitlendir", "strateji" gibi
+        gercek bir risk/portfoy stratejisi kelimesi YOKTUR - yalnizca "tavsiye"
+        ya da "oneri" gecmistir.
+        """
+        desen = _KELIME_DESENLERI.get(AGENT_RISK_STRATEGY)
+        if desen is None:
+            return False
+        eslesmeler = {e.group().strip() for e in desen.finditer(normalized)}
+        return bool(eslesmeler) and eslesmeler <= _GENEL_TAVSIYE_KELIMELERI
+
     def route_intent(self, state: AgentState) -> list[str]:
-        """Basit sorularda tum ajanlari tetiklememek icin niyet analizi.
+        """Bir FINANS sorusunda hangi uzmanlarin anlamli oldugunu secer.
 
         Kural tabanli calisir (LLM'siz): ucretsiz API kotasini korumak icin
-        bilincli bir tercihtir. Sorguda hicbir anahtar kelime eslesmezse
-        guvenli varsayilan olarak TUM kayitli ajanlar istenir - eksik yanit
-        vermektense biraz fazla calismak yeglenir.
+        bilincli bir tercihtir.
 
-        TODO(Sprint 3): Basit sohbet sorularinda ("merhaba") fan-out'u tamamen
-        atlayan kisa yol eklenecek.
+        Kapsam karari bu metottan ONCE verilmistir (bkz. `route_node`); burasi
+        artik yalnizca finans sorularini gorur. Hicbir anahtar kelime
+        eslesmediginde ne yapilacagi buna gore degisir - asagidaki iki dala
+        bakin.
         """
         normalized = _normalize(state.user_query)
 
         requested = [
             name
             for name in self.agents
-            if any(keyword in normalized for keyword in INTENT_KEYWORDS.get(name, ()))
+            if name in _KELIME_DESENLERI and _KELIME_DESENLERI[name].search(normalized)
         ]
 
         if not requested:
+            # Devam turu: baglam onceki turda, hangi uzmanin gerektigi buradan
+            # anlasilamaz ("Peki ya simdi?"). Eski guvenli varsayilan korunur -
+            # eksik yanit vermektense biraz fazla calis.
+            if self._devam_turu(state):
+                return list(self.agents)
+
+            # Ilk tur: finans sinyali VAR ama hangi uzman oldugu belirsiz
+            # ("THYAO ne kadar?"). Varsayilan PIYASA ARASTIRMASIDIR.
+            #
+            # ESKI DAVRANIS: burada da TUM ajanlar donuyordu. Sonuc, kullanici
+            # tek bir hisse sordugunda yanitin portfoy dokumuyle baslamasiydi -
+            # istenmeyen bir bolum, ustelik risk ajanini da tetikleyip
+            # `tool_error` uretiyordu. Piyasa ajaninin RAG geri donusu genel
+            # finans sorularini da karsiladigi icin dogru varsayilan odur.
+            if AGENT_MARKET_RESEARCH in self.agents:
+                return [AGENT_MARKET_RESEARCH]
             return list(self.agents)
 
-        # Risk ajani portfoy/piyasa verisine dayanir; sorguda dogrudan gecmese
-        # bile bu ajanlardan biri istendiyse risk analizi de anlamlidir.
-        if AGENT_RISK_STRATEGY in self.agents and AGENT_RISK_STRATEGY not in requested:
-            if any(name in requested for name in PARALLEL_AGENTS):
-                requested.append(AGENT_RISK_STRATEGY)
+        # Genel tavsiye kelimesi + piyasa sorusu = enstruman tavsiyesi.
+        # "THYAO almami tavsiye eder misin?" sorusunda tavsiye edilen sey
+        # kullanicinin portfoyu degil, sordugu hisse. Risk ajanini burada
+        # tutmak portfoy ajanini da zincirle getiriyor ve yanit istenmeyen bir
+        # portfoy dokumuyle sisiyordu.
+        if (
+            AGENT_RISK_STRATEGY in requested
+            and self._yalnizca_genel_tavsiye(normalized)
+            and self._piyasa_sinyali_var(state.user_query, requested)
+        ):
+            requested.remove(AGENT_RISK_STRATEGY)
+            if AGENT_MARKET_RESEARCH in self.agents and AGENT_MARKET_RESEARCH not in requested:
+                requested.append(AGENT_MARKET_RESEARCH)
+
+        # Risk ajani PORTFOY VERISINE bagimlidir: `risk_strategy.py::_execute`
+        # `state.portfolio_data is None` ise hesaplamayi reddedip
+        # `tool_error` uretir. Bu yuzden yalnizca portfoy ajani da
+        # istendiginde otomatik ekleniyor.
+        #
+        # ESKI DAVRANIS: "herhangi bir PARALLEL ajan istendiyse" ekleniyordu.
+        # Piyasa sorusu (portfoysuz) risk ajanini tetikliyor, o da portfoy
+        # verisi olmadigi icin patlayip kullaniciya "risk_strategy ajani
+        # gecici olarak tamamlanamadi" yaziyordu - hem gereksiz hem yaniltici.
+        if (
+            AGENT_RISK_STRATEGY in self.agents
+            and AGENT_RISK_STRATEGY not in requested
+            and AGENT_PORTFOLIO in requested
+        ):
+            requested.append(AGENT_RISK_STRATEGY)
+
+        # Ters yon: risk DOGRUDAN istendiyse ("riskim ne durumda?") portfoy
+        # ajani da sart - risk skoru `state.portfolio_data` uzerinden
+        # hesaplaniyor. Eklemezsek risk ajani portfoy verisi bulamayip
+        # `tool_error` uretir.
+        if (
+            AGENT_RISK_STRATEGY in requested
+            and AGENT_PORTFOLIO in self.agents
+            and AGENT_PORTFOLIO not in requested
+        ):
+            requested.append(AGENT_PORTFOLIO)
 
         return requested
 
@@ -410,6 +686,12 @@ class Orchestrator:
             return {"final_response": text, "messages": [AIMessage(content=text)]}
 
         messages = self._build_synthesis_messages(state)
+        # Sentez coktugunde kullanici deterministik ozete duser. Bu iyi bir
+        # kademeli bozulma AMA SESSIZDI: hata yalnizca loga yaziliyordu ve
+        # disaridan bakan "yanit neden boyle genel?" sorusunun cevabini
+        # bulamiyordu. Artik hata `agent_errors`'a da yaziliyor, yani SSE
+        # `agent_error` olayi olarak arayuze ulasiyor.
+        hatalar: list[AgentError] = []
 
         try:
             text = await asyncio.wait_for(
@@ -419,11 +701,24 @@ class Orchestrator:
         except asyncio.TimeoutError:
             logger.warning("synthesizer zaman asimina ugradi")
             text = self._fallback_response(state)
-        except Exception:  # noqa: BLE001 - sentez cokerse kullanici bos ekran gormesin
+            hatalar.append(
+                AgentError(
+                    agent_name=NODE_SYNTHESIZER,
+                    error_type="timeout",
+                    message=f"{self.synthesizer_timeout_seconds}s icinde tamamlanmadi",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - sentez cokerse kullanici bos ekran gormesin
             logger.exception("synthesizer beklenmeyen hata verdi")
             text = self._fallback_response(state)
+            hatalar.append(
+                AgentError(agent_name=NODE_SYNTHESIZER, error_type="llm_error", message=str(exc))
+            )
 
-        return {"final_response": text, "messages": [AIMessage(content=text)]}
+        guncelleme: dict = {"final_response": text, "messages": [AIMessage(content=text)]}
+        if hatalar:
+            guncelleme["agent_errors"] = hatalar
+        return guncelleme
 
     async def _stream_llm(self, messages: list, config: RunnableConfig | None = None) -> str:
         """LLM'i token token calistirir ve tam metni doner.
@@ -435,6 +730,14 @@ class Orchestrator:
         streaming SESSIZCE calismaz - yanit ancak tamamlandiktan sonra tek
         parca gider.
         """
+        # Tek seferlik istemciye (app.core.llm.GeminiLLMClient /
+        # NvidiaLLMClient) dusuldugunde `astream` YOKTUR. Sentez o durumda da
+        # LLM ile yapilmali - yalnizca akis olmaz. `stream_request` token
+        # uretilmeyen yollarda nihai metni tek token olayi olarak gonderdigi
+        # icin frontend sozlesmesi degismez.
+        if not hasattr(self.synthesizer_llm, "astream"):
+            return await self.synthesizer_llm.generate(_mesajlari_metne_cevir(messages))
+
         parts: list[str] = []
         async for chunk in self.synthesizer_llm.astream(messages, config=config):
             content = getattr(chunk, "content", chunk)
@@ -473,11 +776,60 @@ class Orchestrator:
             kaynaklar = "\n".join(f"- [{s.doc_id}] {s.baslik}" for s in state.sources)
             bolumler.append(f"\nKaynaklar:\n{kaynaklar}")
 
-        if state.agent_errors:
-            hatalar = "\n".join(f"- {e.agent_name}: {e.message}" for e in state.agent_errors)
+        eksikler = self._verisi_eksik_ajanlar(state)
+        if eksikler:
+            hatalar = "\n".join(f"- {ad}" for ad in eksikler)
             bolumler.append("\nUlasilamayan veriler (kullaniciya durustce belirt):\n" + hatalar)
 
         return "\n".join(bolumler)
+
+    @staticmethod
+    def _verisi_eksik_ajanlar(state: AgentState) -> list[str]:
+        """Hata veren ajanlardan GERCEKTEN veri uretemeyenler.
+
+        `agent_errors` listesinde olmak "veri yok" demek DEGILDIR. Ajanlar
+        kismi basari uretebiliyor: portfoy ajani rakamlari hesapladiktan sonra
+        LLM yorumu alamazsa deterministik ozetini korur ve yanina `llm_error`
+        ekler - veri tamdir, yalnizca cumleyi model kurmamistir.
+
+        Ayrimi yapmadan "su analizlere ulasilamadi" yazmak kullaniciyi
+        YANILTIR. Canlida birebir goruldu: yanit portfoy toplamini, risk
+        skorunu ve gerekcelerini eksiksiz yazdiktan sonra altina "Not: Su
+        analizlere su anda ulasilamadi: portfolio, risk_strategy" ekliyordu.
+        """
+        veri_alani = {
+            AGENT_PORTFOLIO: state.portfolio_data,
+            AGENT_MARKET_RESEARCH: state.market_data,
+            AGENT_RISK_STRATEGY: state.risk_data,
+        }
+        eksikler: list[str] = []
+        for hata in state.agent_errors:
+            ad = getattr(hata, "agent_name", None) or (
+                hata.get("agent_name") if isinstance(hata, dict) else None
+            )
+            # Sentezleyici bir VERI ajani degil; kendi hatasini "su analize
+            # ulasilamadi" diye kullaniciya yazmak anlamsiz olurdu.
+            if ad == NODE_SYNTHESIZER:
+                continue
+            if not ad or ad in eksikler:
+                continue
+            # Tanimadigimiz bir ajan icin guvenli varsayilan: eksik say.
+            if veri_alani.get(ad, None) is None:
+                eksikler.append(ad)
+        return sorted(eksikler)
+
+    @staticmethod
+    def _bolum_sirasi(state: AgentState) -> list[str]:
+        """Yanit bolumlerinin sirasi: once router'in istedikleri, sonra geri kalan.
+
+        Router `requested_agents`'i niyet sirasinda dolduruyor: "THYAO alayim
+        mi?" sorusunda piyasa arastirmasi basa, portfoy sona geliyor. Geri
+        kalan ajanlar (router istemedigi halde veri uretmisse) sabit sirayla
+        eklenir, boylece hicbir veri kaybolmaz.
+        """
+        sira = [ad for ad in state.requested_agents if ad in _BOLUM_BASLIKLARI]
+        sira += [ad for ad in _BOLUM_BASLIKLARI if ad not in sira]
+        return sira
 
     def _fallback_response(self, state: AgentState) -> str:
         """LLM olmadan uretilen deterministik yanit.
@@ -488,25 +840,28 @@ class Orchestrator:
 
         Uretilen metin de uyum kurallarina uyar: eksik veriyi durustce belirtir
         ve yatirim tavsiyesi ibaresini icerir.
+
+        BOLUM SIRASI ROUTER'IN SIRASIDIR. Sabit sira (once portfoy) kullanici
+        tek bir hisse sordugunda bile yaniti portfoy dokumuyle baslatiyordu -
+        sorunun cevabi en altta kaliyordu. `requested_agents` zaten niyet
+        sirasinda geliyor (bkz. `route_intent`), onu kullaniyoruz.
         """
         satirlar: list[str] = []
 
-        veri_alanlari = (
-            ("Portföy analizi", state.portfolio_data),
-            ("Piyasa araştırması", state.market_data),
-            ("Risk değerlendirmesi", state.risk_data),
-        )
-        for baslik, veri in veri_alanlari:
+        for ajan in self._bolum_sirasi(state):
+            baslik, veri = _BOLUM_BASLIKLARI[ajan], _AJAN_VERISI[ajan](state)
             if veri is not None:
                 satirlar.append(f"{baslik}: {_ajan_metni(veri)}")
 
         if not satirlar:
             satirlar.append("Şu anda görüntülenebilecek bir analiz sonucu bulunmuyor.")
 
-        # Kismi basarisizlik: hangi uzmandan veri gelmedigini durustce soyle.
-        if state.agent_errors:
-            eksikler = ", ".join(sorted({e.agent_name for e in state.agent_errors}))
-            satirlar.append(f"Not: Şu analizlere şu anda ulaşılamadı: {eksikler}.")
+        # Kismi basarisizlik: hangi uzmandan VERI GELMEDIGINI durustce soyle.
+        # Hata veren ama verisini yine de ureten ajan (orn. LLM yorumu
+        # alinamayan portfoy ajani) buraya GIRMEZ - bkz. `_verisi_eksik_ajanlar`.
+        eksik_ajanlar = self._verisi_eksik_ajanlar(state)
+        if eksik_ajanlar:
+            satirlar.append(f"Not: Şu analizlere şu anda ulaşılamadı: {', '.join(eksik_ajanlar)}.")
 
         if state.sources:
             kaynaklar = ", ".join(s.baslik for s in state.sources)
@@ -523,6 +878,24 @@ class Orchestrator:
         """
         logger.info("istek girdi denetiminde reddedildi", extra={"flags": state.security_flags})
         return {"final_response": REJECT_MESSAGE, "messages": [AIMessage(content=REJECT_MESSAGE)]}
+
+    def small_talk_response(self, state: AgentState) -> dict:
+        """Finans kapsami disindaki sorguya tek cumlelik sabit yanit.
+
+        Bu node'a gelindiginde hicbir ajan ve hicbir LLM calismamistir. Metin
+        `app.engine.kapsam` icindeki sabit tablodan gelir - yani "merhaba"
+        demek ne token ne de kota harcar.
+
+        `reject_response`'tan farki: orada bir GUVENLIK karari vardir, burada
+        yalnizca konu disi bir sorgu. Kullaniciya donen dil de buna gore
+        farklidir (bkz. modul docstring'i, "IKI FARKLI HAYIR YOLU").
+        """
+        metin = kisa_yanit(state.scope or KAPSAM_BELIRSIZ)
+        logger.info(
+            "kapsam disi sorgu kisa yanitla sonlandirildi",
+            extra={"scope": state.scope, "request_id": state.request_id},
+        )
+        return {"final_response": metin, "messages": [AIMessage(content=metin)]}
 
     def safe_response(self, state: AgentState) -> dict:
         """Ham veri denetimi basarisizsa: guvenli genel yanit.
@@ -600,6 +973,9 @@ class Orchestrator:
             "final_response": None,
             "is_input_safe": True,
             "is_output_safe": True,
+            # Router her turda yeniden yazar; yine de onceki turun kapsam
+            # etiketi bir an bile gorunmesin diye acikca sifirlaniyor.
+            "scope": None,
         }
         # LangGraph checkpointer'i thread_id'yi string bekler; DB'deki
         # `chat_sessions.id` ise int. Donusum sinirda TEK yerde yapilir.
@@ -699,22 +1075,46 @@ class Orchestrator:
         }
 
     @staticmethod
-    def _agent_error_olayi(hata) -> dict:
+    def _hata_ayrintisi_gonderilsin() -> bool:
+        """Ajan hatasinin METNI istemciye gitsin mi?
+
+        URETIMDE HAYIR: istisna metni ic ayrinti (tool adi, baglanti dizesi,
+        dosya yolu) tasiyabilir.
+
+        GELISTIRMEDE EVET. Sebep aci deneyimden geliyor: canlida her LLM
+        cagrisi patliyordu ve kullaniciya giden tek bilgi "llm_error"di. Bu
+        kelime hicbir sey soylemiyor - 400 mu, 404 mu, anahtar mi, kota mi
+        belli degil. Ayrinti loglara yaziliyordu ama hatayi arayan kisi
+        arayuze bakiyordu. Gelistirirken hatayi GORUNDUGU yerde gostermek,
+        sunucu loglarina inmekten cok daha hizli.
+        """
+        return (settings.app_env or "").strip().lower() not in ("production", "prod")
+
+    @classmethod
+    def _agent_error_olayi(cls, hata) -> dict:
         """`AgentError`'i SSE olayina cevirir.
 
-        Hata MESAJI istemciye gonderilmez: ic ayrinti (tool adi, baglanti
-        dizesi, istisna metni) tasiyabilir. Frontend'e ajan adi ve hata TURU
-        yeter - "piyasa verisine ulasilamadi" cumlesini bu ikisinden kurar.
+        Frontend'e ajan adi ve hata TURU yeter - "piyasa verisine ulasilamadi"
+        cumlesini bu ikisinden kurar. Hata METNI yalnizca uretim disinda
+        eklenir (bkz. `_hata_ayrintisi_gonderilsin`).
         """
         if isinstance(hata, AgentError):
-            return {"type": "agent_error", "agent": hata.agent_name, "error_type": hata.error_type}
-        if isinstance(hata, dict):
-            return {
+            olay = {"type": "agent_error", "agent": hata.agent_name, "error_type": hata.error_type}
+            mesaj = hata.message
+        elif isinstance(hata, dict):
+            olay = {
                 "type": "agent_error",
                 "agent": hata.get("agent_name", "bilinmiyor"),
                 "error_type": hata.get("error_type", "unknown"),
             }
-        return {"type": "agent_error", "agent": "bilinmiyor", "error_type": "unknown"}
+            mesaj = hata.get("message", "")
+        else:
+            olay = {"type": "agent_error", "agent": "bilinmiyor", "error_type": "unknown"}
+            mesaj = ""
+
+        if mesaj and cls._hata_ayrintisi_gonderilsin():
+            olay["message"] = str(mesaj)[:500]
+        return olay
 
     @staticmethod
     def _status_message(node_name: str, update) -> str | None:
@@ -724,11 +1124,16 @@ class Orchestrator:
         "denetimden gecti" demek kullaniciyi yaniltir. Bu durumda ilerleme
         mesaji hic gonderilmez; hemen ardindan gelen ret/guvenli yanit metni
         durumu zaten aciklar.
+
+        Ayni gerekce router icin de gecerli: kapsam disi bir sorguda "Ilgili
+        uzmanlar belirlendi." demek yanlistir - hicbir uzman calismayacak.
         """
         if isinstance(update, dict):
             if node_name == NODE_SECURITY_IN and update.get("is_input_safe") is False:
                 return None
             if node_name == NODE_SECURITY_GATE and update.get("is_output_safe") is False:
+                return None
+            if node_name == NODE_ROUTER and update.get("scope") in KISA_YANIT_KAPSAMLARI:
                 return None
 
         return NODE_STATUS_MESSAGES.get(node_name)
@@ -776,6 +1181,24 @@ class Orchestrator:
             elif hasattr(source, "model_dump"):
                 serialized.append(source.model_dump())
         return serialized
+
+
+def _mesajlari_metne_cevir(messages: Sequence) -> str:
+    """LangChain mesaj listesini duz metne cevirir.
+
+    Yalnizca `generate(prompt: str)` sunan tek seferlik istemciler icin
+    gerekli. Rol etiketleri korunur; aksi halde sistem prompt'undaki uyum
+    kurallari kullanici metniyle birbirine karisir.
+    """
+    _ROL = {"system": "SISTEM", "human": "KULLANICI", "ai": "ASISTAN"}
+    satirlar: list[str] = []
+    for mesaj in messages:
+        icerik = getattr(mesaj, "content", None)
+        if not icerik:
+            continue
+        rol = _ROL.get(getattr(mesaj, "type", ""), "KULLANICI")
+        satirlar.append(f"[{rol}]\n{icerik}")
+    return "\n\n".join(satirlar)
 
 
 def _ajan_metni(veri) -> str:

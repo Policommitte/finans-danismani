@@ -301,6 +301,26 @@ class SqlMarketRepository(_SqlRepository):
             {"symbol": symbol, "days": days},
         )
 
+    async def get_history_range(self, symbol: str, start: str, end: str) -> list[dict]:
+        """Iki tarih arasi gunluk kapanis serisi (her iki uc DAHIL).
+
+        `end` gunun kendisini de kapsasin diye `< end + 1 gun` yaziliyor:
+        `ph.ts` bir zaman damgasidir, `<= :end` yazilsaydi bitis gununun gun
+        ici saatleri disarida kalirdi.
+        """
+        return await self._rows(
+            """
+            SELECT ph.ts, ph.price
+            FROM price_history ph
+            JOIN assets a ON a.id = ph.asset_id
+            WHERE upper(a.symbol) = upper(:symbol)
+              AND ph.ts >= CAST(:start AS DATE)
+              AND ph.ts < CAST(:end AS DATE) + INTERVAL '1 day'
+            ORDER BY ph.ts
+            """,
+            {"symbol": symbol, "start": start, "end": end},
+        )
+
     async def get_prices_for_simulation(self) -> list[dict]:
         return await self._rows(
             """

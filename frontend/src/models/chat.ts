@@ -10,6 +10,15 @@ export type Source = {
 export type AgentError = {
   agent: string;
   error_type: "timeout" | "tool_error" | "llm_error" | "unknown";
+  /**
+   * Hatanin ham metni. YALNIZCA gelistirme ortaminda gelir - backend uretimde
+   * bu alani hic gondermez (istisna metni tool adi, baglanti dizesi, dosya
+   * yolu tasiyabilir; bkz. Orchestrator._hata_ayrintisi_gonderilsin).
+   *
+   * Gelistirirken kritik: "llm_error" tek basina 400 mu 404 mu kota mi
+   * soylemiyor ve hatayi arayan kisi arayuze bakiyor, sunucu loglarina degil.
+   */
+  message?: string;
 };
 
 export type ChatMessage = {
@@ -31,6 +40,6 @@ export type ChatEvent =
   | { type: "status"; stage: string; message: string }
   | { type: "sources"; items: Source[] }
   | { type: "token"; content: string }
-  | { type: "agent_error"; agent: string; error_type: AgentError["error_type"] }
+  | { type: "agent_error"; agent: string; error_type: AgentError["error_type"]; message?: string }
   | { type: "error"; code: string; message: string }
   | { type: "done"; message_id?: number; latency_ms: number };

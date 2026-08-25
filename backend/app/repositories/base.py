@@ -70,6 +70,19 @@ class MarketRepository(Protocol):
         """Zaman serisi: `[{"ts": ..., "price": ...}, ...]` (eskiden yeniye)."""
         ...
 
+    async def get_history_range(self, symbol: str, start: str, end: str) -> list[dict]:
+        """Iki TARIH ARASI zaman serisi (eskiden yeniye, her iki uc DAHIL).
+
+        `get_history` yalnizca "bugunden geriye N gun" penceresi verir; takvime
+        bagli sorular ("gecmis yillarin yaz aylari") bunu kullanamaz - o pencere
+        her zaman bugune yapisiktir. Ayni veriyi tarih araligiyla okumak icin
+        bu metot var.
+
+        Args:
+            start / end: "YYYY-AA-GG".
+        """
+        ...
+
     async def get_prices_for_simulation(self) -> list[dict]:
         """Fiyat gorevinin ihtiyaci: id, symbol, current_price, sim_volatility."""
         ...

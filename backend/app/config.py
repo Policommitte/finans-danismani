@@ -42,12 +42,32 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""
 
     # --- LLM ------------------------------------------------------------
-    # MODEL SECIMI HENUZ YAPILMADI: bu alanlar bilincli olarak BOS birakilir,
-    # koda hicbir model adi gomulmez. Anahtar veya model tanimli degilse
-    # ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) - sistem
-    # ayaga kalkar, yalnizca yanit kalitesi duser.
-    llm_api_key: str = ""
+    # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
+    # degilse ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) -
+    # sistem ayaga kalkar, yalnizca yanit kalitesi duser.
+    #
+    # SAGLAYICI MODEL ADINDAN ANLASILIR (bkz. app/core/llm.py):
+    #   gemini-3.5-flash-lite              -> gemini
+    #   nvidia/nemotron-3-super-120b-a12b  -> nvidia (NIM)
+    # NIM kimlikleri `yayinci/model` bicimindedir ve `/` icerir.
+    llm_api_key: str = ""  # geriye donuk: Gemini anahtari (GEMINI_API_KEY yoksa)
+    gemini_api_key: str = ""
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    #: Otomatik saglayici tespitini elle ezmek icin: "gemini" | "nvidia".
+    #: Normalde BOS birakilir.
+    llm_provider: str = ""
     default_model: str = ""
+
+    #: Ornekleme sicakligi. Bu uygulamada DUSUK tutulmali: ajan promptlari
+    #: "YENI SAYI URETME" ve "kaynakta olmayan bilgi uydurma" diyor, yuksek
+    #: sicaklik ikisini de zorlastirir. (Not: Nemotron model karti tum
+    #: gorevler icin 1.0 oneriyor - o modele gecerseniz olcup karar verin.)
+    llm_temperature: float = 0.2
+    llm_max_tokens: int = 2048
+    #: NIM isteklerine dusunmeyi kapatan ek govde alani EKLENMESIN.
+    #: Model o alani tanimayip 400 donerse true yapin (bkz. app/core/llm.py).
+    llm_nvidia_extra_body_off: bool = False
 
     # Ajan bazli model secimi: ucuz model ajanlarda, guclu model synthesizer'da.
     # Ucretsiz API kotasini korumak icin bilincli bir tercihtir.
@@ -115,7 +135,15 @@ class Settings(BaseSettings):
 
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20
-    synthesizer_timeout_seconds: int = 40
+
+    #: Sentez adiminin ust siniri. `asyncio.wait_for` TUM sentezi sarar, yani
+    #: ilk token'a varis degil TAMAMLANMA suresidir.
+    #:
+    #: 40 sn'den yukseltildi: model secim testinde olculen iki beyin modeli de
+    #: o siniri asiyordu ve asildiginda kullanici sessizce deterministik ozete
+    #: dusuyordu. Sentez token token aktigi icin uzun sinir kotu bir bekleme
+    #: yaratmaz - kullanici metnin yazildigini gorur.
+    synthesizer_timeout_seconds: int = 90
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -125,6 +153,16 @@ class Settings(BaseSettings):
     def database_enabled(self) -> bool:
         """DB bagli mi? Bagli degilse repository'ler bellek ici veriye duser."""
         return bool(self.database_url.strip())
+
+    def api_key_for(self, saglayici: str) -> str:
+        """Saglayiciya ait API anahtari.
+
+        `LLM_API_KEY` geriye donuk uyumluluk icin Gemini'nin yedegi olarak
+        duruyor: eski `.env` dosyalari onu kullaniyordu.
+        """
+        if saglayici == "nvidia":
+            return self.nvidia_api_key.strip()
+        return (self.gemini_api_key or self.llm_api_key).strip()
 
     def model_for(self, agent: str) -> str:
         """Ajana atanmis model adi; tanimli degilse `default_model`.
