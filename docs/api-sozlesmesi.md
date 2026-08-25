@@ -117,8 +117,8 @@ monthly_income, days_since_activity, created_at`. `scan`, en son taramanın
 `skipped: true` + `skip_reason` ile normal bir yanıt döner (`force: true`
 bu kontrolü atlar, soğutma kuralını atlamaz).
 
-Bu uçlar kimlik doğrulaması ister ama rol kontrolü **yapmaz** — herhangi
-bir giriş yapmış kullanıcı erişebilir.
+Bu uçlar yalnızca `role='advisor'` olan hesaplara açıktır — müşteri
+hesapları 403 alır (bkz. `backend/app/auth/deps.py::CurrentAdvisor`).
 
 
 ### Sohbet
