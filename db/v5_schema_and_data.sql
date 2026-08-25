@@ -440,6 +440,10 @@ CREATE OR REPLACE FUNCTION rag.hybrid_search(
     p_embedding vector(1024),                       -- ⚠️ EMBEDDING_DIM 2/2
     p_top_k     INT DEFAULT 5,
     p_asset_id  INT DEFAULT NULL,
+    p_sirket    TEXT DEFAULT NULL,
+    p_tip       VARCHAR DEFAULT NULL,
+    p_date_from DATE DEFAULT NULL,
+    p_date_to   DATE DEFAULT NULL,
     p_k_rrf     INT DEFAULT 60
 )
 RETURNS TABLE (chunk_id INT, document_id INT, content TEXT,
@@ -455,9 +459,25 @@ WITH q AS (
                           ' & ', ' | '), '')::tsquery AS tsq
 ),
 filtered AS (
+    -- p_sirket rag.documents.sirket KOLONUNA BAKMAZ: o kolon haberin
+    -- KAYNAĞINI tutar (örn. "AA Ekonomi", "BigPara Döviz"), sözü edilen
+    -- şirketi değil. Eşleşme yalnızca varlık sembolü/unvanı (assets JOIN'i)
+    -- ve başlık üzerinden yapılır - search()'ün BM25 dalındaki fallback ile
+    -- aynı mantık (bkz. app/repositories/sql.py::SqlRagRepository.search).
+    -- NOT: asset_id bugün neredeyse hiç doldurulmadığı için gerçek veride
+    -- bu filtre pratikte yalnızca başlık eşleşmesine dayanır.
     SELECT c.id, c.content, c.embedding, c.content_tsv, c.document_id
-    FROM rag.chunks c JOIN rag.documents d ON d.id = c.document_id
-    WHERE p_asset_id IS NULL OR d.asset_id = p_asset_id
+    FROM rag.chunks c
+    JOIN rag.documents d ON d.id = c.document_id
+    LEFT JOIN assets a   ON a.id = d.asset_id
+    WHERE (p_asset_id IS NULL OR d.asset_id = p_asset_id)
+      AND (p_sirket IS NULL
+           OR upper(a.symbol) = upper(p_sirket)
+           OR upper(a.name) = upper(p_sirket)
+           OR d.baslik ILIKE '%' || p_sirket || '%')
+      AND (p_tip IS NULL OR d.tip = p_tip)
+      AND (p_date_from IS NULL OR d.tarih >= p_date_from)
+      AND (p_date_to IS NULL OR d.tarih <= p_date_to)
 ),
 dense AS (
     SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> p_embedding) rnk
@@ -482,6 +502,11 @@ JOIN rag.documents doc ON doc.id = c.document_id
 ORDER BY f.rrf DESC LIMIT p_top_k;
 $$;
 -- score = RRF skorudur, kosinüs benzerliği DEĞİL.
+-- p_sirket / p_tip / p_date_from / p_date_to: sorgu bazlı filtrelerdir (şirket,
+-- doküman türü, tarih aralığı). p_k_rrf bir filtre DEĞİLDİR - RRF füzyon
+-- formülünün (1/(p_k_rrf+rank)) sabitidir; dense ve lexical sıralamalarının
+-- nihai skora ne kadar ağırlıkla katıldığını belirler, hangi satırların
+-- göründüğünü değil.
 
 
 -- =====================================================================

@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     embedding_api_key: str = ""
 
+    #: Sorgu-zamani embedding cagrisinin ust siniri. Ingestion'daki toplu
+    #: embedding'den (backfill.py) FARKLI bir kaygi: kullanici akan bir sohbette
+    #: bekliyor, bu yuzden kisa tutulur. Asilirsa/hata alirsa hibrit arama
+    #: sessizce BM25'e (`SqlRagRepository.search`) duser - istek asla coker.
+    rag_query_embedding_timeout_seconds: float = 3.0
+
     # --- LLM ------------------------------------------------------------
     # MODEL SECIMI HENUZ YAPILMADI: bu alanlar bilincli olarak BOS birakilir,
     # koda hicbir model adi gomulmez. Anahtar veya model tanimli degilse
