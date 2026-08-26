@@ -77,6 +77,29 @@ logger = logging.getLogger(__name__)
 #: (bkz. asagisi); kalici olarak kapatmak icin `LLM_NVIDIA_EXTRA_BODY_OFF=1`.
 _NIM_DUSUNME_KAPALI: dict[str, Any] = {"chat_template_kwargs": {"enable_thinking": False}}
 
+#: Bu bayragi ANLAYAN model ailesi. NIM katalogunda 22 yayincinin 83 modeli var
+#: (google/gemma-4, mistralai/..., deepseek-ai/..., openai/gpt-oss...) ve
+#: `enable_thinking` bunlarin hicbirinde YOK - Nemotron'a ozgu bir sohbet
+#: sablonu argumani.
+#:
+#: Herkese gondermek model degistirmeyi gereksizce riskli yapardi: bayragi
+#: tanimayan uc 400 doner. Tek seferlik yolda ek govdesiz tekrar denemesi var
+#: ama AKITAN yolda (ChatOpenAI) yok - sentez dogrudan duserdi.
+_DUSUNME_BAYRAGINI_ANLAYAN = "nemotron"
+
+
+def _nim_ek_govde(model: str) -> dict[str, Any]:
+    """Modele gore NIM `extra_body` alanlari; uymuyorsa BOS sozluk.
+
+    Bos donmesi "ayar unutuldu" degil, "bu model o bayragi tanimiyor"
+    demektir - Nemotron disindaki modellerde dogru davranis budur.
+    """
+    if settings.llm_nvidia_extra_body_off:
+        return {}
+    if _DUSUNME_BAYRAGINI_ANLAYAN not in (model or "").lower():
+        return {}
+    return dict(_NIM_DUSUNME_KAPALI)
+
 
 def _ek_govde_reddedildi(hata: Exception) -> bool:
     """Sunucu istegi EK GOVDE yuzunden mi reddetti?
@@ -162,9 +185,8 @@ class NvidiaLLMClient:
         )
 
     async def generate(self, prompt: str, *, model: str | None = None) -> str:
-        ek: dict[str, Any] = {}
-        if not settings.llm_nvidia_extra_body_off:
-            ek["extra_body"] = _NIM_DUSUNME_KAPALI
+        govde = _nim_ek_govde(model or self._default_model)
+        ek: dict[str, Any] = {"extra_body": govde} if govde else {}
 
         try:
             yanit = await self._cagir(model, prompt, ek)
@@ -235,9 +257,8 @@ def get_streaming_llm(agent: str = "synthesizer"):
         )
         return None
 
-    ek: dict[str, Any] = {}
-    if not settings.llm_nvidia_extra_body_off:
-        ek["extra_body"] = _NIM_DUSUNME_KAPALI
+    govde = _nim_ek_govde(model)
+    ek: dict[str, Any] = {"extra_body": govde} if govde else {}
 
     return ChatOpenAI(
         model=model,

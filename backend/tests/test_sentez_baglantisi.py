@@ -353,3 +353,65 @@ def test_mesajlar_rol_etiketiyle_duzlestirilir():
 
     assert "[SISTEM]" in metin and "[KULLANICI]" in metin
     assert metin.index("[SISTEM]") < metin.index("[KULLANICI]")
+
+
+# ---------------------------------------------------------------------------
+# Dusunme bayragi YALNIZCA Nemotron'a gonderilir
+#
+# NIM katalogunda 22 yayincinin 83 modeli var; `enable_thinking` yalnizca
+# Nemotron sohbet sablonunda tanimli. Bayragi herkese gondermek, model
+# degistirmeyi gereksizce riskli yapardi (akitan yolda 400 = sentez duser).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "google/gemma-4-31b-it",
+        "mistralai/mistral-large-2-instruct",
+        "openai/gpt-oss-120b",
+        "deepseek-ai/deepseek-v4-flash-0731",
+    ],
+)
+def test_nemotron_disi_modele_ek_govde_gonderilmez(ortam, model):
+    llm, _ = ortam(SYNTHESIZER_MODEL=model, NVIDIA_API_KEY="test")
+
+    assert not llm.get_streaming_llm("synthesizer").extra_body
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-lightning-30b-a3b"],
+)
+def test_nemotron_modeline_ek_govde_gonderilir(ortam, model):
+    llm, _ = ortam(SYNTHESIZER_MODEL=model, NVIDIA_API_KEY="test")
+
+    ek = llm.get_streaming_llm("synthesizer").extra_body
+    assert ek == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+async def test_tek_seferlik_yolda_da_modele_gore_karar_verilir(ortam):
+    """`generate()` ek govdeyi kendi model adina bakarak secmeli."""
+    llm, _ = ortam(NVIDIA_API_KEY="test")
+    gorulen: list[dict] = []
+
+    async def sahte(model, prompt, ek):
+        gorulen.append(ek)
+        return _SahteYanit()
+
+    gemma = llm.NvidiaLLMClient(
+        api_key="test", default_model="google/gemma-4-31b-it", base_url="http://ornek/v1"
+    )
+    gemma._cagir = sahte
+    await gemma.generate("selam")
+
+    nemotron = llm.NvidiaLLMClient(
+        api_key="test",
+        default_model="nvidia/nemotron-3-super-120b-a12b",
+        base_url="http://ornek/v1",
+    )
+    nemotron._cagir = sahte
+    await nemotron.generate("selam")
+
+    assert gorulen[0] == {}, "gemma'ya ek govde gitmemeli"
+    assert "extra_body" in gorulen[1], "nemotron'a gitmeli"
