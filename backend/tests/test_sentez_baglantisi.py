@@ -32,6 +32,14 @@ def ortam(monkeypatch):
 
     `Settings` ornegi modul yuklenirken bir kez okundugu icin `monkeypatch.setenv`
     tek basina yetmez - config ve llm modullerinin yeniden yuklenmesi gerekir.
+
+    ⚠️ DELENV YETMEZ, BOS STRING SART. `Settings` yalnizca ortam degiskenlerini
+    degil `backend/.env` DOSYASINI da okur (`env_file=".env"`). Degiskeni
+    silmek dosyadaki degeri ortaya cikarir: gercek bir NVIDIA anahtari ve
+    `DEFAULT_MODEL` tanimlamis bir gelistiricide "model tanimli degilse None
+    doner" testleri PATLAR - kod dogru olsa bile. Bos string atamak ise ortam
+    degiskeni olarak .env'i EZER (pydantic-settings onceligi) ve testi
+    gelistiricinin yerel kurulumundan bagimsiz kilar.
     """
 
     def _kur(**degiskenler: str):
@@ -42,9 +50,11 @@ def ortam(monkeypatch):
             "GEMINI_API_KEY",
             "LLM_API_KEY",
             "LLM_PROVIDER",
-            "LLM_NVIDIA_EXTRA_BODY_OFF",
         ):
-            monkeypatch.delenv(anahtar, raising=False)
+            monkeypatch.setenv(anahtar, "")
+        # Bu alan `bool`: bos string pydantic'te ayristirilamaz
+        # ("Input should be a valid boolean"), o yuzden "0" ile sifirlanir.
+        monkeypatch.setenv("LLM_NVIDIA_EXTRA_BODY_OFF", "0")
         for anahtar, deger in degiskenler.items():
             monkeypatch.setenv(anahtar, deger)
         importlib.reload(app.config)

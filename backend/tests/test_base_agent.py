@@ -192,3 +192,80 @@ def test_is_requested_ajan_listede_degilse_false_doner(state):
     ajan = BasariliAjan(mcp_client=None, llm=None, timeout_seconds=5)
 
     assert ajan.is_requested(state) is False
+
+
+# ---------------------------------------------------------------------------
+# IKI KADEMELI ZAMAN ASIMI
+# ---------------------------------------------------------------------------
+#
+# Bu bolum GERCEK bir uretim hatasini sabitler: ajanlar once veriyi HESAPLAR
+# (MCP tool'lari), sonra LLM'e yorum yazdirir. Tek bir DIS sinir `_execute`'un
+# tamamini sardigi icin, LLM yavas kaldiginda dis iptal devreye giriyor ve
+# `return` satirina hic ulasilamiyordu - yani zaten hesaplanmis DOGRU RAKAMLAR
+# da kayboluyordu. Ardindan risk ajani portfoy verisi bulamayip `tool_error`
+# veriyor, kullaniciya "veriye ulasilamadi" donuyordu.
+
+
+class _AsilanLLM:
+    """Hic yanit vermeyen model - asiri yuklu bir saglayiciyi taklit eder."""
+
+    async def generate(self, prompt: str, *, model: str | None = None) -> str:
+        await asyncio.sleep(3600)
+
+
+class VeriSonraYorumAjani(BaseAgent):
+    """Gercek ajanlarla AYNI sirayi izler: once veri, sonra LLM, sonra donus."""
+
+    name = "veri_sonra_yorum"
+
+    async def _execute(self, state: AgentState) -> dict:
+        veri = {"toplam": 2_160_634}  # hizli adim - "MCP tool'lari"
+        try:
+            veri["yorum"] = await self.generate("yorumla")
+        except Exception:  # noqa: BLE001 - LLM cokse de rakamlar korunmali
+            veri["yorum"] = "(deterministik ozet)"
+        return {"portfolio_data": veri}
+
+
+async def test_llm_asilirsa_hesaplanan_veri_KORUNUR():
+    """Ic sinir tetiklenir, ajan deterministik ozete duser, VERI DONER."""
+    ajan = VeriSonraYorumAjani(
+        mcp_client=None, llm=_AsilanLLM(), timeout_seconds=10, llm_timeout_seconds=1
+    )
+
+    sonuc = await ajan.run(AgentState(user_query="s", user_id=1, thread_id=1))
+
+    assert sonuc["portfolio_data"]["toplam"] == 2_160_634
+    assert sonuc["portfolio_data"]["yorum"] == "(deterministik ozet)"
+    # Ajan komple "timeout" olarak isaretlenmemeli - is BASARIYLA bitti.
+    assert "agent_errors" not in sonuc
+
+
+async def test_ic_sinir_her_zaman_dis_sinirdan_kucuktur():
+    """YAPISAL GUVENCE: dis iptalin veriyi yutmasi imkansiz olmali.
+
+    Cagiran taraf ic siniri dis sinirdan BUYUK verse bile kirpilir; aksi halde
+    dis iptal once devreye girer ve iki kademeli yapinin anlami kalmaz.
+    """
+    for dis in (5, 10, 20, 45, 90):
+        ajan = VeriSonraYorumAjani(
+            mcp_client=None, llm=_AsilanLLM(), timeout_seconds=dis, llm_timeout_seconds=9_999
+        )
+        assert ajan.llm_timeout_seconds < dis, f"dis={dis}"
+
+
+async def test_ic_sinir_asilsa_bile_dis_sinir_emniyet_subabi_kalir():
+    """Tool'lar ya da beklenmedik bir dongu asilirsa dis sinir yine calismali."""
+
+    class ToolAsanAjan(BaseAgent):
+        name = "tool_asan"
+
+        async def _execute(self, state: AgentState) -> dict:
+            await asyncio.sleep(3600)  # LLM degil - tool/dongu asiliyor
+            return {"portfolio_data": {}}
+
+    ajan = ToolAsanAjan(mcp_client=None, llm=None, timeout_seconds=1)
+
+    sonuc = await ajan.run(AgentState(user_query="s", user_id=1, thread_id=1))
+
+    assert sonuc["agent_errors"][0].error_type == "timeout"

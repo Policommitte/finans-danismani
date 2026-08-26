@@ -14,6 +14,7 @@ Iki yonlu risk vardir ve ikisi de sinaniyor:
 import pytest
 
 from app.engine.kapsam import (
+    KAPSAM_BASKA_KISI,
     KAPSAM_BELIRSIZ,
     KAPSAM_DISI,
     KAPSAM_FINANS,
@@ -224,3 +225,95 @@ def test_kufur_yaniti_hakarete_karsilik_vermez():
     metin = kisa_yanit(KAPSAM_KUFUR).lower()
     assert "küfür" not in metin and "hakaret" not in metin
     assert len(metin) < 200
+
+
+# ---------------------------------------------------------------------------
+# Baska kisinin verisi
+# ---------------------------------------------------------------------------
+#
+# Sizinti riski YOKTUR (kimlik contextvar'dan gelir, tool semasinda degil).
+# Buradaki dert YANLIS ATIF: sistem eskiden bu soruya giris yapmis
+# kullanicinin rakamlarini dondurup "Ayse'nin portfoyu ..." diyordu.
+#
+# ⚠️ TESPIT KUCUK/BUYUK HARFE DUYARSIZDIR. Once buyuk harfe dayanan bir
+# ayrim denendi (kisi adi = Baslik Bicimi, hisse kodu = TAMAMEN BUYUK) ama
+# canlida kirildi: kullanicilar sohbette neredeyse hep kucuk harf yazar
+# ("ayşenin portföy bilgilerini getirir misin?" hicbir ozel ad buyuk
+# yazilmadan geldi ve sistem soruyu normal finans sorusu sanip Mehmet'in
+# verisini "Ayse'nin" diye sundu). Asagidaki testlerin tamami hem buyuk hem
+# kucuk yazimla kapsanir.
+
+
+@pytest.mark.parametrize(
+    "sorgu",
+    [
+        # Buyuk harfle (Baslik Bicimi)
+        "Ayşe'nin portföyünü göster",
+        "Mehmet'in bakiyesi ne kadar",
+        "Zeynep'in risk durumu nedir",
+        "Can'ın toplam portföy değeri",
+        "Elifin yatırımlarını listele",
+        "Büşra'nın hesabını aç",
+        "Ahmet'in kazancı ne oldu",
+        # Kucuk harfle - GERCEK sohbette en sik gorulen yazim
+        "ayşenin portföy bilgilerini getirir misin?",
+        "mehmetin bakiyesi ne kadar",
+        "zeynepin risk durumu nedir",
+        "canın toplam portföy değeri",
+        "elifin yatırımlarını listele",
+        "büşranın hesabını aç",
+    ],
+)
+def test_baska_kisinin_verisi_reddedilir(sorgu):
+    assert kapsam_belirle(sorgu) == KAPSAM_BASKA_KISI
+
+
+@pytest.mark.parametrize(
+    "sorgu",
+    [
+        # Kendi verisi - normal akisa gitmeli.
+        "Portföyüm nasıl gidiyor?",
+        "Benim portföyümün riski ne",
+        "kendi portföyümü göster",
+        "Riskim ne durumda?",
+        # ⚠️ CUMLE BASINDA BUYUK HARF + IYELIK+TAMLAMA EKI UST USTE.
+        # "Portfoy-um-un" hem "benim portfoyumun" hem de yuzeysel olarak
+        # "Ozel ad + tamlayan eki" gibi gorunur. `_govde_dislaniyor_mu` bu
+        # cift-ek durumunu (iyelik CIKARILDIKTAN sonra KOK listesiyle
+        # eslesme) ele almazsa bu sorular BASKA KISI saniliyordu (olculdu).
+        "Portfoyumun riski nedir?",
+        "Portföyümün dağılımı nedir?",
+        "Hesabımın bakiyesi ne",
+        "hesabımın bakiyesi ne",
+        "Yatırımımın getirisi ne kadar",
+        "riskimin ne olduğunu söyle",
+        # ⚠️ HISSE/VARLIK KODLARI KISI SANILMAMALI - hem buyuk hem kucuk yazim.
+        "SASA'nın zararı ne durumda",
+        "sasanın zararı ne durumda",
+        "ASELS'in kazancı nedir",
+        "THYAO'nun fiyatı ne kadar",
+        "BTC'nin portföydeki payı",
+        "Bitcoin'in değeri ne",
+        "bitcoinin degeri ne",
+        "altının değeri ne",
+        "dolarin kuru ne",
+        # ⚠️ KURUM/PIYASA - insan degil, yanlis-atif riski tasimaz (MCP
+        # tool'lari zaten yalnizca giris yapmis kullaniciyi getirir).
+        "şirketin portföyü ne durumda",
+        "TCMB'nin kararı ne oldu",
+        "bankanın faiz oranı nedir",
+    ],
+)
+def test_kendi_verisi_ve_hisse_kodlari_etkilenmez(sorgu):
+    assert kapsam_belirle(sorgu) != KAPSAM_BASKA_KISI
+
+
+def test_baska_kisi_kisa_yanit_kapsamlarinda():
+    """Ajan fan-out'u ATLANMALI: soru hicbir ajana gitmemeli."""
+    assert KAPSAM_BASKA_KISI in KISA_YANIT_KAPSAMLARI
+
+
+def test_baska_kisi_yaniti_ne_yapabildigini_soyler():
+    metin = kisa_yanit(KAPSAM_BASKA_KISI)
+    assert "getiremem" in metin
+    assert "kendi" in metin.lower() or "giriş yapmış" in metin.lower()

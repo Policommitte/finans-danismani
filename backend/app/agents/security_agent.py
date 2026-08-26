@@ -125,6 +125,80 @@ SECURITY_RULES: dict[str, re.Pattern[str]] = {
 #: `classify_risk` bu esigin uzerinde skor dondurunse icerik GUVENSIZ sayilir.
 RISK_THRESHOLD = 0.5
 
+# ----------------------------------------------------------------------
+# Kisisel veri (PII) tespiti - DIGER KURALLARDAN FARKLI CALISIR
+# ----------------------------------------------------------------------
+#
+# NEDEN AYRI: `SECURITY_RULES` icindeki desenler bir SALDIRI GIRISIMI arar ve
+# tetiklendiginde karar LLM'e birakilir ("bu gercekten saldiri mi?"). TCKN
+# paylasimi ise bir saldiri degil, KULLANICININ KENDI hassas verisini sisteme
+# yazmasidir - ve bu bir olasilik degil, kesin bir olgudur. LLM'e "riskli mi?"
+# diye sormanin anlami yok: `_RISK_PROMPT` injection/sizdirma odakli yazildigi
+# icin TCKN'e buyuk olasilikla DUSUK skor verir ve veri iceri girer.
+# Bu yuzden bayrak tetiklendiginde LLM ATLANIR ve dogrudan bloklanir.
+#
+# NEDEN ONEMLI: TCKN bir kez sisteme girerse sohbet gecmisine (`chat.messages`),
+# denetim kaydina (`security_events.excerpt`) ve LLM saglayicisinin sunucusuna
+# (NVIDIA NIM / Google) kadar yayilir. Sonradan silmek bunlarin hicbirinden
+# geri almaz - tek dogru an, iceri girmeden ONCE durdurmaktir.
+
+#: Bu bayrak tetiklendiginde LLM'e sorulmadan dogrudan bloklanir.
+PII_FLAG = "pii_kimlik_no"
+
+#: 11 haneli TCKN adayi. Ilk hane 0 OLAMAZ (TCKN kurali).
+#:
+#: `\b` YERINE (?<!\d)/(?!\d): `\b` rakam-rakam sinirini gormez, yani 13 haneli
+#: bir sayinin icindeki 11 haneyi de yakalardi. Bu bicim sayinin TAM olarak 11
+#: haneli olmasini sart kosar - "2160634.27" gibi portfoy tutarlari eslesmez.
+_TCKN_ADAY_RE = re.compile(r"(?<!\d)[1-9]\d{10}(?!\d)")
+
+#: TCKN'den soz eden anahtar kelimeler. NORMALIZE EDILMIS metinde aranir
+#: ("TCKN'im" -> "tckn'im", "T.C. Kimlik No" -> "t.c. kimlik no").
+_TCKN_ANAHTAR_RE = re.compile(
+    rf"\btckn{_EK}|\btc\s*\.?\s*kimlik|\bkimlik\s*(no{_EK}|numara{_EK})"
+    rf"|\bvatandaslik\s*(no{_EK}|numara{_EK})"
+)
+
+
+def _tckn_saglama_gecerli(numara: str) -> bool:
+    """TCKN'in resmi saglama (checksum) kurallarini dogrular.
+
+    10. hane: (tek sirali hanelerin toplami * 7 - cift sirali hanelerin
+    toplami) mod 10. 11. hane: ilk 10 hanenin toplami mod 10.
+    """
+    haneler = [int(k) for k in numara]
+    tek_toplam = sum(haneler[0:9:2])  # 1., 3., 5., 7., 9. haneler
+    cift_toplam = sum(haneler[1:8:2])  # 2., 4., 6., 8. haneler
+    if (tek_toplam * 7 - cift_toplam) % 10 != haneler[9]:
+        return False
+    return sum(haneler[:10]) % 10 == haneler[10]
+
+
+def pii_kimlik_no_var_mi(normalized: str) -> bool:
+    """Metinde TCKN paylasimi var mi?
+
+    IKI YOLDAN BIRI yeterlidir - tek basina hicbiri yetmez:
+
+      1. SAGLAMASI GECERLI 11 haneli bir sayi. Anahtar kelime olmasa bile
+         gercek bir TCKN'dir (kullanici sadece numarayi yapistirmis olabilir).
+      2. TCKN'den SOZ EDEN bir kelime + herhangi bir 11 haneli sayi. Saglama
+         tutmasa bile kullanici o sayiyi kimlik numarasi olarak PAYLASIYOR;
+         uydurma/yanlis yazilmis olmasi veriyi az hassas yapmaz ve gercek
+         numaranin bir hane hatasiyla yazilmis hali de buraya duser.
+
+    Yalnizca saglamaya bakmak (1) yetmez: "TCKN'im 12345678901" ornegindeki
+    sayi saglamayi GECMEZ ama apacik bir TCKN paylasim girisimidir.
+    Yalnizca anahtar kelimeye bakmak da yetmez: "tckn nedir?" masum bir
+    sorudur ve icinde numara yoktur - o yuzden ikisinde de 11 haneli sayi
+    bulunmasi sarttir.
+    """
+    adaylar = _TCKN_ADAY_RE.findall(normalized)
+    if not adaylar:
+        return False
+    if _TCKN_ANAHTAR_RE.search(normalized):
+        return True
+    return any(_tckn_saglama_gecerli(aday) for aday in adaylar)
+
 
 class SecurityAgent(BaseAgent):
     """Girdi ve cikti denetimini yapan guvenlik ajani.
@@ -188,6 +262,16 @@ class SecurityAgent(BaseAgent):
             # Kural motoru temiz: LLM'e HIC gidilmez (kota tasarrufu).
             return {"is_input_safe": True}
 
+        if PII_FLAG in flags:
+            # KESIN BLOK - LLM'e sorulmaz. Gerekce icin bkz. `PII_FLAG`.
+            # Sorgunun kendisi TCKN icerdigi icin denetim kaydina ozeti DEGIL
+            # yalnizca bayrak gecer: aksi halde `security_events.excerpt`
+            # numarayi kalici olarak saklardi - engellemeye calistigimiz seyi
+            # veritabanina biz yazmis olurduk.
+            logger.warning("girdide kisisel veri tespit edildi", extra={"flags": flags})
+            await self._kaydet("input", state, flags, 1.0, True, "")
+            return {"is_input_safe": False, "security_flags": flags}
+
         # Kural motoru tetiklendi -> ikincil, LLM tabanli dogrulama.
         risk = await self.classify_risk(state.user_query)
         logger.warning(
@@ -223,6 +307,14 @@ class SecurityAgent(BaseAgent):
         if not flags:
             return {"is_output_safe": True}
 
+        if PII_FLAG in flags:
+            # Ajan verisinde TCKN: girdideki kadar kritik. Bir RAG dokumanina
+            # ya da DB satirina gomulu kimlik numarasi sentezlenip kullaniciya
+            # gosterilmemelidir (mimari v4 bolum 11, KAPI 2).
+            logger.warning("ajan verisinde kisisel veri tespit edildi", extra={"flags": flags})
+            await self._kaydet("output", state, flags, 1.0, True, "")
+            return {"is_output_safe": False, "security_flags": flags}
+
         risk = await self.classify_risk(payload)
         logger.warning(
             "cikti guvenlik kurali tetiklendi",
@@ -255,12 +347,21 @@ class SecurityAgent(BaseAgent):
 
         Returns:
             Tetiklenen kural adlarinin listesi. Bos liste = supheli desen yok.
+            Liste `PII_FLAG` iceriyorsa cagiran taraf LLM'e HIC gitmeden
+            bloklamalidir (bkz. `PII_FLAG` yanindaki gerekce).
         """
         if not text:
             return []
 
         normalized = normalize(text)
-        return [flag for flag, pattern in SECURITY_RULES.items() if pattern.search(normalized)]
+        flags = [flag for flag, pattern in SECURITY_RULES.items() if pattern.search(normalized)]
+
+        # PII tespiti regex sozlugunun DISINDA: saglama dogrulamasi ve
+        # anahtar-kelime birlikteligi tek bir desene sigmaz.
+        if pii_kimlik_no_var_mi(normalized):
+            flags.append(PII_FLAG)
+
+        return flags
 
     async def classify_risk(self, text: str) -> float:
         """IKINCIL filtre: kucuk/hizli model ile risk skorlamasi.

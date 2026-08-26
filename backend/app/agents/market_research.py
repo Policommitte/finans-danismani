@@ -66,7 +66,45 @@ logger = logging.getLogger(__name__)
 
 AGENT_NAME = "market_research"
 
-_LIVE_KEYWORDS = ("fiyat", "kac para", "guncel", "canli", "kap bildir", "kac tl", "kac lira")
+#: Canli fiyat yolunu (`market_get_quote`) acan ifadeler.
+#:
+#: ⚠️ "ne kadar" BURADA OLMAK ZORUNDA. Turkcede fiyat sormanin en dogal yolu
+#: budur ve listede olmadigi icin "THYAO ne kadar" sorusu haber indeksine
+#: dusuyordu: ajan `rag_search` cagirip "indekslenmis haber bulunamadi"
+#: diyordu - oysa fiyat `assets.current_price` icinde HAZIR duruyordu.
+#: Olculdu (26 Agustos 2026): "THYAO ne kadar" -> 71 sn, yanlis yanit;
+#: "THYAO fiyati ne kadar" -> 1.8 sn, dogru yanit (302,25 TL). Tek fark bu
+#: listeydi.
+#:
+#: Yanlis pozitif riski YOK: `_resolve_mode` bu listeye bakmadan once
+#: `task["symbol"]` dolu mu diye kontrol eder. Sembolsuz "portfoyum ne kadar"
+#: sorusu bu yuzden canli yolu acmaz, RAG'de kalir.
+_LIVE_KEYWORDS = (
+    "fiyat",
+    "kac para",
+    "guncel",
+    "canli",
+    "kap bildir",
+    "kac tl",
+    "kac lira",
+    "ne kadar",
+    "kac oldu",
+    "kacta",
+    "son durum",
+    "deger",
+)
+
+#: Alt dize (`in`) ile ARANMAMASI gereken ifadeler - kelime siniri sart.
+#:
+#: NEDEN AYRI: `_LIVE_KEYWORDS` duz `in` kontroluyle taranir. "kur" oraya
+#: konulsaydi "kurumlar vergisi", "kurul karari", "kurus" gibi masum
+#: kelimeleri de yakalardi ("kurumsal" icinde "kuru" bile geciyor). Doviz
+#: sorulari ("dolar kuru ne", "usd try kuru") canli yolu acmali, ama yalnizca
+#: kelime TAM eslestiginde.
+_LIVE_PATTERNS = (
+    re.compile(r"\bkur(u|lar|larda|unda)?\b"),
+    re.compile(r"\bkac\b"),
+)
 
 #: Bir DONEMIN performansini soran ifadeler. Bunlar `market_get_history`
 #: yolunu acar.
@@ -456,7 +494,13 @@ class MarketResearchAgent(BaseAgent):
 
     name = AGENT_NAME
 
-    def __init__(self, mcp_client, llm=None, timeout_seconds: int = 20) -> None:
+    def __init__(
+        self,
+        mcp_client,
+        llm=None,
+        timeout_seconds: int = 20,
+        llm_timeout_seconds: int | None = None,
+    ) -> None:
         """
         Args:
             mcp_client: Paylasilan MCP client ('rag' ve 'market' sunuculari
@@ -465,9 +509,16 @@ class MarketResearchAgent(BaseAgent):
                 `None` ise ajan LLM'siz calisir ve kaynak alintilarindan
                 deterministik bir ozet uretir (bilgi UYDURMAZ) - boylece API
                 anahtari olmadan da uctan uca test edilebilir.
-            timeout_seconds: `BaseAgent.run()` tarafindan uygulanan ust sinir.
+            timeout_seconds: `BaseAgent.run()` tarafindan uygulanan DIS sinir.
+            llm_timeout_seconds: Yalnizca LLM cagrisini saran IC sinir; asilirsa
+                ajan kaynaklardan deterministik ozet uretip devam eder.
         """
-        super().__init__(mcp_client=mcp_client, llm=llm, timeout_seconds=timeout_seconds)
+        super().__init__(
+            mcp_client=mcp_client,
+            llm=llm,
+            timeout_seconds=timeout_seconds,
+            llm_timeout_seconds=llm_timeout_seconds,
+        )
         #: `market_list_symbols` onbellegi - bkz. `_sembol_katalogu`.
         self._katalog: list[dict[str, Any]] | None = None
         self._katalog_zamani: float = 0.0
@@ -683,6 +734,8 @@ class MarketResearchAgent(BaseAgent):
         # haber indeksinde degil.
         canli_isteniyor = bool(task.get("symbol")) and (
             any(k in normalized for k in _LIVE_KEYWORDS)
+            # Kelime siniri gerektirenler ayri taranir (bkz. `_LIVE_PATTERNS`).
+            or any(p.search(normalized) for p in _LIVE_PATTERNS)
             or task.get("history_days") is not None
             # Mevsimsellik de bir fiyat gecmisi sorusudur; verisi
             # `price_history` tablosunda, haber indeksinde degil.
