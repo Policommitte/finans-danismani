@@ -10,7 +10,7 @@ langchain-core==1.5.4
 # Sentez adimi: NIM'e OpenAI sozlesmesiyle baglanan LangChain chat modeli.
 # LangGraph token akisi (stream_mode="messages") YALNIZCA LangChain chat
 # modelleriyle calisir - bkz. app/core/llm.py::get_streaming_llm.
-langchain-openai==1.6.0
+langchain-openai==1.5.1
 
 # Ajan LLM istemcisi (app/core/llm.py) - gecikmeli import edilir. MODEL KARARI
 # HENUZ VERILMEDI: anahtar veya model adi tanimli degilse ajanlar LLM'siz
@@ -21,7 +21,7 @@ google-genai==1.75.0
 # yuzden ayri bir SDK yok: `openai` paketi base_url degistirilerek
 # kullaniliyor (bkz. app/core/llm.py::NvidiaLLMClient). Gemini kotasi bu
 # benchmark/uretim hacmi icin dar kaldigindan ikinci saglayici sart oldu.
-openai==1.109.1
+openai==3.3.1
 
 # Veritabani (app/db/session.py, app/repositories/sql.py)
 # DATABASE_URL tanimli degilse hicbiri kullanilmaz; repository katmani bellek
