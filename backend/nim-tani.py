@@ -13,6 +13,8 @@ KULLANIM
     cd backend
     python nim-tani.py            # .env'deki modeli sina
     python nim-tani.py --tara     # ek olarak aday modelleri TOPLUCA sina
+    python nim-tani.py --akis     # SENTEZ akis yolunu birebir olc
+    python nim-tani.py --akis a/b,c/d   # verilen modelleri akista KARSILASTIR
 
 GUVENLIK
     API anahtari EKRANA BASILMAZ - yalnizca uzunlugu ve onekinin beklenen
@@ -21,6 +23,7 @@ GUVENLIK
 
 from __future__ import annotations
 
+import asyncio
 import os
 import pathlib
 import sys
@@ -192,6 +195,12 @@ def main() -> int:
     if "--tara" in sys.argv:
         adaylari_tara(anahtar, taban)
 
+    if "--akis" in sys.argv:
+        yer = sys.argv.index("--akis")
+        arkasi = sys.argv[yer + 1] if len(sys.argv) > yer + 1 else ""
+        modeller = [m.strip() for m in arkasi.split(",") if m.strip() and "/" in m]
+        akis_olc(modeller or None)
+
     baslik("5) Ozet")
     print(
         "  - Butun denemeler HATA verdiyse: model kimligi ya da anahtar sorunu (3. bolume bakin)."
@@ -277,6 +286,250 @@ def adaylari_tara(anahtar: str, taban: str) -> None:
     print(f"\n  {calisan}/{len(sonuclar)} model yanit verdi.")
     print("  Turkce ciktilarini karsilastirin: dogru dilbilgisi, dogru sayi (%12),")
     print("  tek cumle kurabilme. Hizli ama Turkcesi bozuk bir model ise yaramaz.")
+
+
+#: `--akis` icin sentez benzeri baglam.
+#:
+#: Kucuk bir prompt ile olcum YANILTIR: `--tara` Kimi K3'u 120 token ve tek
+#: cumlelik istekle 2.6 saniyede olctu, sentez ise ayni modelde 90 saniyeyi
+#: doldurdu. Fark prompt buyuklugunde ve `max_tokens`'ta; bu yuzden buradaki
+#: baglam gercek bir sentez isteginin boyutuna yakin tutulur.
+AKIS_BAGLAM = """Kullanicinin sorusu: Turk Hava Yollari hissesi ne kadar?
+
+--- Piyasa arastirmasi ---
+THYAO guncel fiyat: 309.75 TRY (+2.57%)
+Gunluk islem hacmi: 1.240.000 lot
+52 haftalik aralik: 241.10 - 336.80 TRY
+Son 1 ay getiri: +%8.4
+Sektor: Havacilik
+
+--- Portfoy analizi ---
+Toplam deger: 184.320 TRY
+THYAO pozisyonu: 120 adet, ortalama maliyet 268.40 TRY, guncel deger 37.170 TRY
+Portfoydeki agirligi: %20.2
+Diger pozisyonlar: ASELS %18.4, GARAN %15.1, nakit %12.0
+
+--- Risk degerlendirmesi ---
+Portfoy volatilitesi: orta-yuksek
+Havacilik sektoru yogunlasmasi dikkat gerektiriyor
+"""
+
+
+def _akis_istemcisi(model: str):
+    """Verilen model icin uretimdekiyle AYNI akitan istemciyi kurar.
+
+    `get_streaming_llm` modeli ayarlardan okur; karsilastirma yaparken ise
+    modeli disaridan vermek gerekiyor. Bu yuzden ayni yapilandirma burada
+    tekrarlanir - degistirirseniz `app/core/llm.py::get_streaming_llm` ile
+    BIRLIKTE degistirin, yoksa tani betigi uretimden farkli bir sey olcer.
+    """
+    from langchain_openai import ChatOpenAI
+
+    from app.config import settings
+    from app.core.llm import _nim_ek_govde
+
+    govde = _nim_ek_govde(model)
+    return ChatOpenAI(
+        model=model,
+        api_key=settings.api_key_for("nvidia"),
+        base_url=settings.nvidia_base_url,
+        temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
+        streaming=True,
+        **({"extra_body": govde} if govde else {}),
+    )
+
+
+async def _akis_kos(llm, mesajlar, sinir: float) -> dict:
+    """Tek bir modeli akitir ve zamanlama olcumlerini doner."""
+    olcum: dict = {
+        "ilk_parca": None,
+        "ilk_icerik": None,
+        "parca": 0,
+        "icerik": [],
+        "dusunce": 0,
+        "hata": None,
+        "kesildi": False,
+    }
+    bas = time.perf_counter()
+    try:
+        akis = llm.astream(mesajlar)
+        while True:
+            kalan = sinir - (time.perf_counter() - bas)
+            if kalan <= 0:
+                olcum["kesildi"] = True
+                break
+            try:
+                parca = await asyncio.wait_for(akis.__anext__(), timeout=kalan)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                olcum["kesildi"] = True
+                break
+
+            simdi = time.perf_counter() - bas
+            olcum["parca"] += 1
+            if olcum["ilk_parca"] is None:
+                olcum["ilk_parca"] = simdi
+
+            icerik = getattr(parca, "content", "") or ""
+            if icerik:
+                if olcum["ilk_icerik"] is None:
+                    olcum["ilk_icerik"] = simdi
+                olcum["icerik"].append(str(icerik))
+
+            ek = getattr(parca, "additional_kwargs", None) or {}
+            olcum["dusunce"] += len(ek.get("reasoning_content") or "")
+    except Exception as exc:  # noqa: BLE001
+        olcum["hata"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+
+    olcum["toplam"] = time.perf_counter() - bas
+    olcum["metin"] = "".join(olcum["icerik"])
+    uretim = olcum["toplam"] - (olcum["ilk_icerik"] or olcum["toplam"])
+    olcum["hiz"] = len(olcum["metin"]) / uretim if uretim > 0.05 else 0.0
+    return olcum
+
+
+def akis_olc(modeller: list[str] | None = None) -> None:
+    """Sentezin AKIS yolunu uretimdeki haliyle kosar ve zamanlamayi cikarir.
+
+    NEDEN AYRI BIR MOD
+    ------------------
+    `--tara` tek seferlik `chat.completions.create` cagirir. Sentez ise
+    LangChain `ChatOpenAI.astream` kullanir (bkz. `app/core/llm.py::
+    get_streaming_llm`). Ikisi FARKLI yollar ve olculen fark buyuk oldu:
+    Kimi K3 taramada 2.6 saniyede yanit verdi, akista ayni model 75 saniye
+    surdu. Bir modeli tek seferlik olcup akista kullanmak yaniltiyor.
+
+    EN ONEMLI SAYI: URETIM HIZI (karakter/saniye)
+    ---------------------------------------------
+    Toplam sure tek basina yaniltir - uzun yanit da yavas model de sureyi
+    buyutur. Hiz ikisini ayirir: ilk icerik geldikten SONRA saniyede kac
+    karakter aktigini olcer. Kimi K3'te bu 4.7 cikti; saglikli bir uc
+    50-150 arasi verir.
+
+    IKINCI SAYI: ILK ICERIGE KADAR GECEN SURE
+    -----------------------------------------
+    `Orchestrator._stream_llm` yalnizca `chunk.content` biriktirir. Dusunen
+    modeller dusunce zincirini AYRI alanda (`reasoning_content`) akitir; o
+    sirada `content` bos gelir ve disaridan model durmus gibi gorunur.
+    `reasoning` sutunu bunu ayirt eder.
+    """
+    baslik("7) Sentez akis yolu (uretimdeki `ChatOpenAI.astream`)")
+
+    try:
+        sys.path.insert(0, str(KOK))
+        from app.config import settings
+        from app.engine.orchestrator import SYNTHESIZER_SYSTEM_PROMPT
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [HATA] uygulama modulleri yuklenemedi: {type(exc).__name__}: {exc}")
+        print("        Bu modu backend/ dizininden calistirin.")
+        return
+
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    sinir = float(settings.synthesizer_timeout_seconds)
+    mesajlar = [
+        SystemMessage(content=SYNTHESIZER_SYSTEM_PROMPT),
+        HumanMessage(content=AKIS_BAGLAM),
+    ]
+
+    if modeller is None:
+        from app.core.llm import get_streaming_llm
+
+        if get_streaming_llm("synthesizer") is None:
+            print("  get_streaming_llm() None dondu -> sentez AKMAZ, tek seferlik")
+            print("  istemciye duser. Sebep: model tanimsiz, saglayici nvidia degil,")
+            print("  anahtar yok ya da langchain-openai kurulu degil.")
+            return
+        modeller = [settings.model_for("synthesizer")]
+
+    print(f"  max_tokens   : {settings.llm_max_tokens}")
+    print(f"  zaman siniri : {sinir:.0f} sn (SYNTHESIZER_TIMEOUT_SECONDS)")
+    print(
+        f"  baglam       : {len(AKIS_BAGLAM)} krkt + {len(SYNTHESIZER_SYSTEM_PROMPT)} krkt prompt"
+    )
+    if len(modeller) > 1:
+        print(f"\n  {len(modeller)} model SIRAYLA olculuyor - es zamanli kosmak")
+        print("  ayni hesabin hiz sinirini paylastirir ve olcumu bozardi.")
+
+    sonuclar: list[tuple[str, dict]] = []
+    for model in modeller:
+        print(f"\n  --- {model} ---")
+        try:
+            llm = _akis_istemcisi(model)
+        except Exception as exc:  # noqa: BLE001
+            print(f"      istemci kurulamadi: {type(exc).__name__}: {exc}")
+            continue
+
+        olcum = asyncio.run(_akis_kos(llm, mesajlar, sinir))
+        sonuclar.append((model, olcum))
+
+        def sn(deger) -> str:
+            return f"{deger:.1f} sn" if deger is not None else "HIC GELMEDI"
+
+        print(f"      ilk parca       : {sn(olcum['ilk_parca'])}")
+        print(f"      ilk ICERIK      : {sn(olcum['ilk_icerik'])}")
+        print(f"      toplam          : {olcum['toplam']:.1f} sn")
+        print(f"      uretim hizi     : {olcum['hiz']:.1f} krkt/sn")
+        print(f"      icerik / parca  : {len(olcum['metin'])} krkt / {olcum['parca']} parca")
+        if olcum["dusunce"]:
+            print(f"      reasoning       : {olcum['dusunce']} krkt")
+        if olcum["kesildi"]:
+            print(f"      >> {sinir:.0f} sn SINIRINDA KESILDI - canlida da timeout verir")
+        if olcum["hata"]:
+            print(f"      HATA            : {olcum['hata']}")
+        print(f"      metin: {olcum['metin'][:160].replace(chr(10), ' ') or '(bos)'}")
+
+    if not sonuclar:
+        return
+
+    if len(sonuclar) > 1:
+        baslik("8) Karsilastirma")
+        print(f"  {'model':<40} {'ilk icerik':>11} {'toplam':>8} {'hiz':>10} {'durum':>9}")
+        siralı = sorted(sonuclar, key=lambda s: (s[1]["kesildi"], -s[1]["hiz"]))
+        for model, o in siralı:
+            ilk = f"{o['ilk_icerik']:.1f} sn" if o["ilk_icerik"] is not None else "-"
+            durum = "KESILDI" if o["kesildi"] else ("HATA" if o["hata"] else "tamam")
+            print(
+                f"  {model:<40} {ilk:>11} {o['toplam']:>7.1f}s " f"{o['hiz']:>7.1f}/sn {durum:>9}"
+            )
+        print("\n  Secim olcutu: once KESILMEYENLER, sonra en yuksek uretim hizi.")
+        print("  Turkce kalitesini yukaridaki metin orneklerinden karsilastirin -")
+        print("  hizli ama Turkcesi bozuk bir model sentezde ise yaramaz.")
+        return
+
+    model, olcum = sonuclar[0]
+    baslik("8) Teshis")
+    if olcum["hata"]:
+        print("  Akis istisnayla dustu - yukaridaki hata metnine bakin.")
+    elif not olcum["metin"]:
+        print("  ICERIK HIC GELMEDI. Model yalnizca dusunce uretmis olabilir.")
+        print("  -> Bu modelde dusunmeyi kapatan bayragi bulup")
+        print("     app/core/llm.py::_nim_ek_govde icine ekleyin; bulunamazsa")
+        print("     SYNTHESIZER_MODEL'i dusunmeyen bir modele cevirin.")
+    elif olcum["kesildi"]:
+        print(f"  {sinir:.0f} saniyede bitmedi - canlida aldiginiz timeout budur.")
+        print(f"  Uretim hizi {olcum['hiz']:.1f} krkt/sn.")
+        print("  -> Sinir yukseltmek kullaniciyi daha uzun bekletir, cozmez.")
+        print("     Baska modelleri akista olcun:")
+        print("     python nim-tani.py --akis modelA,modelB,modelC")
+    elif olcum["hiz"] < 20:
+        print(f"  Akis TAMAMLANDI ama cok yavas: {olcum['hiz']:.1f} krkt/sn.")
+        print(f"  Saglikli bir uc 50-150 krkt/sn verir. {len(olcum['metin'])} karakterlik")
+        print(f"  kisa bir yanit {olcum['toplam']:.0f} saniye surduyse, biraz daha uzun")
+        print("  bir yanit siniri asar - yani bu model canlida guvenilmez.")
+        print("  -> Baska modelleri akista olcun:")
+        print("     python nim-tani.py --akis modelA,modelB,modelC")
+    elif olcum["ilk_icerik"] is not None and olcum["ilk_icerik"] > sinir * 0.5:
+        print(f"  Ilk icerik {olcum['ilk_icerik']:.0f}. saniyede geldi - sinirin yarisindan")
+        print(f"  sonra. Bu sirada {olcum['dusunce']} karakter dusunce akti.")
+        print("  -> Dusunmeyi kapatin ya da modeli degistirin.")
+    else:
+        print(f"  Akis saglikli: ilk icerik {olcum['ilk_icerik']:.1f} sn, toplam")
+        print(f"  {olcum['toplam']:.1f} sn, hiz {olcum['hiz']:.1f} krkt/sn.")
+        print("  Canlida yine de zaman asimi aliyorsaniz sorun modelde degil;")
+        print("  ajan asamasina ya da baglam boyutuna bakin.")
 
 
 if __name__ == "__main__":
