@@ -60,6 +60,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
+from app.agents.security_agent import PII_FLAG
 from app.config import settings
 from app.engine.kapsam import (
     KAPSAM_BELIRSIZ,
@@ -247,6 +248,18 @@ _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuC
 
 #: Girdi guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
 REJECT_MESSAGE = "Bu isteği işleyemiyorum. Lütfen finansal danışmanlık kapsamında bir soru sorun."
+
+#: Girdide kisisel veri (TCKN) bulundugunda donen mesaj.
+#:
+#: Genel `REJECT_MESSAGE`'tan AYRI: "finansal danismanlik kapsaminda soru
+#: sorun" demek burada yaniltici olurdu - kullanicinin sorusu zaten finansaldi,
+#: sorun sorunun KONUSU degil ICINDEKI VERI. Kullanici neyi duzeltmesi
+#: gerektigini bilmezse ayni numarayi tekrar yazar.
+PII_REJECT_MESSAGE = (
+    "Güvenliğiniz için kimlik numarası gibi kişisel verileri işleyemiyorum. "
+    "Lütfen sorunuzu bu bilgi olmadan tekrar yazın — portföyünüze zaten "
+    "hesabınız üzerinden erişebiliyorum."
+)
 
 #: Cikti guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
 SAFE_RESPONSE_MESSAGE = (
@@ -877,7 +890,8 @@ class Orchestrator:
         sisteme hic girmemis olur.
         """
         logger.info("istek girdi denetiminde reddedildi", extra={"flags": state.security_flags})
-        return {"final_response": REJECT_MESSAGE, "messages": [AIMessage(content=REJECT_MESSAGE)]}
+        mesaj = PII_REJECT_MESSAGE if PII_FLAG in (state.security_flags or []) else REJECT_MESSAGE
+        return {"final_response": mesaj, "messages": [AIMessage(content=mesaj)]}
 
     def small_talk_response(self, state: AgentState) -> dict:
         """Finans kapsami disindaki sorguya tek cumlelik sabit yanit.

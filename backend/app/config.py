@@ -140,7 +140,32 @@ class Settings(BaseSettings):
     market_api_daily_quota: int = 2500
 
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
-    agent_timeout_seconds: int = 20
+    #
+    # IKI KADEMELI. Neden tek bir sinir YETMIYOR:
+    #
+    #   Ajanlar once veriyi HESAPLAR (MCP tool'lari, hizli), sonra LLM'e
+    #   yorum yazdirir (yavas), en sonda dondururler. Tek bir dis sinir
+    #   `_execute`'un TAMAMINI sarar; LLM adimi butceyi asinca dis iptal
+    #   devreye girer ve `return` satirina HIC ULASILAMAZ - yani ilk adimda
+    #   zaten hesaplanmis DOGRU RAKAMLAR da cope gider. Ardindan risk ajani
+    #   portfoy verisi bulamayip `tool_error` verir, sentezleyici "veriye
+    #   ulasilamadi" der. Tek yavas LLM cagrisi, elde hazir duran veriyi
+    #   goturur.
+    #
+    #   Ic sinir (`agent_llm_timeout_seconds`) YALNIZCA LLM cagrisini sarar
+    #   (bkz. `BaseAgent.generate`). Sure asilirsa ajan kendi icinde yakalar,
+    #   deterministik ozete duser ve HESAPLANMIS VERIYI DONDURUR. Dis sinir
+    #   ise emniyet subabi olarak kalir: tool'lar ya da beklenmedik bir
+    #   dongu asilirsa yine devreye girer.
+    agent_timeout_seconds: int = 45
+
+    #: Ajan ICINDEKI LLM cagrisinin ust siniri. 0 = `agent_timeout_seconds`
+    #: uzerinden otomatik hesapla (bkz. `agent_llm_budget_seconds`).
+    #:
+    #: Elle deger verirken IC SINIR DIS SINIRDAN KUCUK OLMALI; aksi halde dis
+    #: iptal once devreye girer ve iki kademeli yapinin tum anlami kaybolur.
+    #: Bu yuzden deger `agent_llm_budget_seconds` icinde ayrica kirpilir.
+    agent_llm_timeout_seconds: int = 0
 
     #: Sentez adiminin ust siniri. `asyncio.wait_for` TUM sentezi sarar, yani
     #: ilk token'a varis degil TAMAMLANMA suresidir.
@@ -154,6 +179,24 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def agent_llm_budget_seconds(self) -> int:
+        """Ajan icindeki LLM cagrisina ayrilan sure.
+
+        HER ZAMAN dis sinirdan (`agent_timeout_seconds`) KUCUKTUR. Aradaki
+        pay bilincli: LLM'den once yapilan MCP tool cagrilari ve sonrasindaki
+        deterministik ozet uretimi de dis sinirin icinde kalmali, yoksa ic
+        sinir tetiklendigi halde dis iptal yine yetisip veriyi goturur.
+        """
+        pay = 5  # tool cagrilari + deterministik ozet + donus icin ayrilan pay
+        tavan = max(3, self.agent_timeout_seconds - pay)
+
+        if self.agent_llm_timeout_seconds > 0:
+            return min(self.agent_llm_timeout_seconds, tavan)
+
+        # Otomatik: dis sinirin %60'i. 45 sn -> 27 sn LLM, 18 sn pay.
+        return max(3, min(int(self.agent_timeout_seconds * 0.6), tavan))
 
     @property
     def database_enabled(self) -> bool:

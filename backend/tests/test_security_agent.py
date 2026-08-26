@@ -12,7 +12,7 @@ Iki sey ozellikle sinanir:
 
 import pytest
 
-from app.agents.security_agent import RISK_THRESHOLD, SecurityAgent
+from app.agents.security_agent import PII_FLAG, RISK_THRESHOLD, SecurityAgent
 from app.orchestration.models import AgentState
 
 
@@ -220,3 +220,98 @@ async def test_security_gate_none_alanlari_denetim_metnine_katmaz(agent):
 
     assert "None" not in payload
     assert "toplam" in payload
+
+
+# ---------------------------------------------------------------------------
+# Kisisel veri (PII / TCKN) tespiti
+# ---------------------------------------------------------------------------
+#
+# Bu kural digerlerinden FARKLI calisir: tetiklendiginde LLM'e HIC gidilmez,
+# dogrudan bloklanir. Sebep icin bkz. `security_agent.PII_FLAG`. Asagidaki
+# testler hem yakalamayi hem de "LLM atlaniyor mu" garantisini korur.
+
+
+@pytest.mark.parametrize(
+    "metin",
+    [
+        "TCKN'im 12345678901, portfoyume gore ne yapmaliyim?",
+        "TCKN im 12345678901",
+        "T.C. Kimlik No: 12345678901",
+        "kimlik numaram 12345678901",
+        "vatandaslik numaram 12345678901",
+        # Anahtar kelime YOK ama saglamasi gecerli gercek bir TCKN bicimi.
+        "10000000146",
+    ],
+)
+def test_apply_rules_kimlik_numarasini_yakalar(agent, metin):
+    assert PII_FLAG in agent.apply_rules(metin)
+
+
+@pytest.mark.parametrize(
+    "metin",
+    [
+        # Finans metinlerindeki tutarlar 11 haneli sayi DEGILDIR - yanlis
+        # alarm uretirse kullanici normal portfoy sorusunu soramaz hale gelir.
+        "Portfoy toplam degeri 2160634.27 TL",
+        "BTC fiyati 1846834.27 TL oldu",
+        # 15 haneli bir sayinin ICINDEKI 11 hane eslesmemeli.
+        "123456789012345 numarali islem",
+        # Telefon numarasi 0 ile baslar; TCKN'in ilk hanesi 0 olamaz.
+        "0532 123 45 67 numaram",
+        # Numara icermeyen, tamamen masum bir soru.
+        "TCKN nedir, neden sormuyorsunuz?",
+    ],
+)
+def test_apply_rules_masum_sayilarda_yanlis_alarm_vermez(agent, metin):
+    assert PII_FLAG not in agent.apply_rules(metin)
+
+
+async def test_kimlik_numarasi_llme_sorulmadan_engellenir():
+    """PII bayragi kesin bloktur: LLM 'guvenli' dese bile gecmemelidir.
+
+    `_RISK_PROMPT` injection/sizdirma odakli yazildigi icin TCKN'e dusuk skor
+    verebilir; bu test o yolun hic acilmadigini garanti eder.
+    """
+    agent = SayanSecurityAgent(risk_skoru=0.0)
+
+    sonuc = await agent.check_input_node(_state(user_query="TCKN'im 12345678901"))
+
+    assert sonuc["is_input_safe"] is False
+    assert PII_FLAG in sonuc["security_flags"]
+    assert agent.classify_cagri_sayisi == 0
+
+
+async def test_security_gate_ajan_verisindeki_kimlik_numarasini_engeller():
+    """RAG dokumanina/DB satirina gomulu TCKN sentezlenip gosterilmemelidir."""
+    agent = SayanSecurityAgent(risk_skoru=0.0)
+    state = _state(portfolio_data={"not": "musteri kimlik no 10000000146"})
+
+    sonuc = await agent.security_gate_node(state)
+
+    assert sonuc["is_output_safe"] is False
+    assert PII_FLAG in sonuc["security_flags"]
+    assert agent.classify_cagri_sayisi == 0
+
+
+async def test_kimlik_numarasi_denetim_kaydina_yazilmaz():
+    """Engelledigimiz veriyi denetim kaydina BIZ yazmamaliyiz.
+
+    `security_events.excerpt` normalde sorgunun ozetini tasir; PII yolunda
+    bos gecilir, yoksa numara veritabaninda kalici olarak saklanirdi.
+    """
+
+    class SahteDenetim:
+        def __init__(self):
+            self.kayitlar = []
+
+        async def log_security_event(self, record):
+            self.kayitlar.append(record)
+
+    denetim = SahteDenetim()
+    agent = SecurityAgent(audit=denetim)
+
+    await agent.check_input_node(_state(user_query="TCKN'im 12345678901"))
+
+    assert len(denetim.kayitlar) == 1
+    assert "12345678901" not in denetim.kayitlar[0]["excerpt"]
+    assert denetim.kayitlar[0]["action"] == "block"

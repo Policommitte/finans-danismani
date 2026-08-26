@@ -6,7 +6,9 @@ email-validator==2.2.0
 
 # Orkestrasyon katmani (app/engine/orchestrator.py)
 langgraph==1.2.11
-langchain-core==1.5.4
+# langchain-openai==1.6.0 en az langchain-core==1.6.0 istiyor (1.5.4 ile
+# CAKISIR - pip "ResolutionImpossible" verir). Bu yuzden 1.6.0'a sabitlendi.
+langchain-core==1.6.0
 # Sentez adimi: NIM'e OpenAI sozlesmesiyle baglanan LangChain chat modeli.
 # LangGraph token akisi (stream_mode="messages") YALNIZCA LangChain chat
 # modelleriyle calisir - bkz. app/core/llm.py::get_streaming_llm.
@@ -21,7 +23,11 @@ google-genai==1.75.0
 # yuzden ayri bir SDK yok: `openai` paketi base_url degistirilerek
 # kullaniliyor (bkz. app/core/llm.py::NvidiaLLMClient). Gemini kotasi bu
 # benchmark/uretim hacmi icin dar kaldigindan ikinci saglayici sart oldu.
-openai==1.109.1
+#
+# 1.109.1 DEGIL: langchain-openai==1.6.0 openai>=2.45.0,<4.0.0 istiyor, 1.x ile
+# CAKISIR (pip "ResolutionImpossible" verir). AsyncOpenAI().chat.completions
+# .create() sozlesmesi 2.x'te de ayni (dogrulandi), NvidiaLLMClient degismedi.
+openai==2.54.0
 
 # Veritabani (app/db/session.py, app/repositories/sql.py)
 # DATABASE_URL tanimli degilse hicbiri kullanilmaz; repository katmani bellek

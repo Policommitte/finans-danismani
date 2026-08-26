@@ -67,6 +67,8 @@ KAPSAM_TESEKKUR = "tesekkur"
 KAPSAM_VEDA = "veda"
 KAPSAM_KUFUR = "kufur"
 KAPSAM_DISI = "kapsam_disi"
+#: BASKA BIR KISININ kisisel finans verisi istendi ("Ayse'nin portfoyunu goster").
+KAPSAM_BASKA_KISI = "baska_kisi"
 #: Ne finans sinyali ne de taninan bir kalip var - netlestirme istenir.
 KAPSAM_BELIRSIZ = "belirsiz"
 
@@ -78,6 +80,7 @@ KISA_YANIT_KAPSAMLARI: frozenset[str] = frozenset(
         KAPSAM_VEDA,
         KAPSAM_KUFUR,
         KAPSAM_DISI,
+        KAPSAM_BASKA_KISI,
         KAPSAM_BELIRSIZ,
     }
 )
@@ -327,6 +330,169 @@ _KAPSAM_DISI = re.compile(
 )
 
 
+# --- Baska kisinin verisi -------------------------------------------------
+#
+# NEDEN VAR: kimlik `user_id` contextvar'indan gelir, MCP tool semasinda YER
+# ALMAZ (bkz. `app/mcp/context.py`) - yani "Ayse'nin portfoyunu goster"
+# istegi BASKASININ verisini asla okuyamaz, tool her zaman giris yapmis
+# kullaniciyi getirir. Sizinti riski yoktur.
+#
+# SORUN SIZINTI DEGIL, YANLIS ATIF: sistem eskiden bu soruya kendi
+# portfoyunun rakamlarini dondurup "Ayse'nin portfoyu 2,21 milyon TL"
+# diyordu. Kullanici bunu baskasinin verisi saniyor - uydurulmus bir atif.
+# Dogru davranis: soruyu ajanlara HIC gondermeden, ne yapabildigimizi
+# acikca soyleyip reddetmek.
+
+#: Kisiye ait finansal veri isimleri. Yalnizca bir INSAN icin anlamlidirlar:
+#: "Bitcoin'in degeri" mesru bir sorudur ama "Bitcoin'in portfoyu" degildir.
+#: Liste bu yuzden dar tutulur - varlik adlarini yanlislikla yakalamasin.
+_KISISEL_VERI = (
+    r"portfoy\w*|portf\w*|bakiye\w*|hesab\w*|hesap\w*|varlik\w*|"
+    r"yatirim\w*|pozisyon\w*|kazanc\w*|zarar\w*|risk\w*|butce\w*|gelir\w*"
+)
+
+#: "<Isim>'in <kisisel veri>" kalibi - NORMALIZE EDILMIS (ASCII+kucuk harf)
+#: metin uzerinde calisir.
+#:
+#: ⚠️ BUYUK/KUCUK HARF AYRIMI ARTIK KULLANILMAZ - once denendi, canlida
+#: kirildi: kullanicilar sohbette neredeyse hep kucuk harf yazar
+#: ("ayşenin portföy bilgilerini getirir misin?" hicbir ozel ad buyuk
+#: yazilmadan geldi ve desen hic tetiklenmedi). Ayrim artik `_KISI_DEGIL_KOK`
+#: dislama listesine dayanir: govde bilinen bir hisse/varlik/kurum kelimesi
+#: DEGILSE, "<govde>+iyelik eki> <kisisel veri kelimesi>" kalibi bir KISI
+#: sorusu sayilir.
+#: ⚠️ YALNIZCA ASCII KARAKTER SINIFLARI. Bu desen `normalize()` CIKTISI
+#: uzerinde calisir (bkz. `baska_kisi_sorusu_mu`), yani girdi zaten Turkce
+#: harf tasimaz: ı/ü sirasiyla i/u'ya cevrilmis olur (bkz. `_TR_TRANSLATION`).
+#: Bu yuzden "nın/nin" ve "nun/nün" ayrimi normalize sonrasi zaten tek forma
+#: (nin/nun) duser - ayri varyant yazmaya gerek yok.
+#:
+#: ⚠️ GRUP TEMBEL (`{2,}?`), ACGOZLU DEGIL. Turkcede unluyle biten kok +
+#: tamlama eki arada bir "n" tamponu alir ("sasa" + "nin" = "sasanin").
+#: Acgozlu grup EN UZUN govdeyi once dener ve "sasan" + "in" gibi (grameri
+#: BOZUK ama regex icin gecerli) bir ayrima once ulasip orada durur - "sasa"
+#: KOK listesindeyken "sasan" degil, bu yuzden SASA bir kisi saniliyordu
+#: (olculdu). Tembel grup EN KISA govdeyi once dener, boylece doğru ayrima
+#: ("sasa"+"nin") acgozlu versiyondan ONCE ulasir.
+_BASKA_KISI = re.compile(
+    r"\b([a-z]{2,}?)['’]?" r"(?:nin|nun|in|un)\b" r"(?:\s+\w+){0,2}\s+" rf"(?:{_KISISEL_VERI})"
+)
+
+
+def _govde_dislaniyor_mu(govde: str) -> bool:
+    """Yakalanan govde bilinen bir varlik/kurum/kisisel-veri kokune mi denk geliyor?
+
+    Iki katman aranir - govdenin kendisi VE govde 1. tekil sahis iyelik
+    ekiyle (-im/-um) bitiyorsa o ek cikarilmis hali. IKINCI katman sart:
+    Turkcede iyelik + tamlama USTUSTE biner ("portfoy-um-un" = "benim
+    portfoyumun"), regex yalnizca SON eki (tamlama, "-un") ayirir - kalan
+    "portfoyum" hala iyelik ekini tasir ve KOK listesindeki cikpiplak
+    "portfoy" ile birebir eslesmez. Bu katman olmadan "Portfoyumun riski
+    nedir?" gibi tamamen masum, kendi-hakkinda sorular BASKA KISI saniliyordu
+    (dort testte olculdu).
+    """
+    if govde in _KISI_DEGIL_KOK:
+        return True
+    if govde.endswith(("im", "um")) and len(govde) > 4:
+        return govde[:-2] in _KISI_DEGIL_KOK
+    return False
+
+
+#: Govdesi bu listede olan bir kelime asla KISI ADI sayilmaz. Uc kaynaktan
+#: gelir:
+#:
+#:   1. `_KISISEL_VERI`'nin KENDI kokleri - "portfoyumun riski" ifadesinde
+#:      govde "portfoy", hedef "riski"dir; govde kendisi kisisel-veri
+#:      sozcuguyse bu REFLEKSIF bir cumledir ("benim portfoyumun riski"),
+#:      baska birinin adi degil. Bu olmadan "Portfoyumun riski nedir?" bir
+#:      KISI sorusu saniliyordu (dort testte olculdu).
+#:   2. Varlik sembolleri ve adlari (`db/v5_schema_and_data.sql::assets`) -
+#:      "sasanin zarari", "bitcoinin degeri" bir HISSE/KRIPTO sorusudur.
+#:   3. Genel kurum/piyasa sozcukleri - "sirketin portfoyu", "TCMB'nin
+#:      karari" bir INSAN degil kurumdur; MCP tool'lari zaten yalnizca
+#:      giris yapmis kullaniciyi getirdigi icin bunlar dogal olarak
+#:      "veri bulunamadi"ya duser, yanlis-atif riski tasimazlar.
+_KISI_DEGIL_KOK = frozenset(
+    {
+        # (1) kisisel-veri kokleri - refleksif cumleleri elemek icin
+        "portfoy",
+        "portf",
+        "bakiye",
+        "hesab",
+        "hesap",
+        "varlik",
+        "yatirim",
+        "pozisyon",
+        "kazanc",
+        "zarar",
+        "risk",
+        "butce",
+        "gelir",
+        # (2) varlik sembolleri (kucuk harf) + yaygin adlari
+        "aapl",
+        "asels",
+        "aselsan",
+        "btc",
+        "bitcoin",
+        "eregl",
+        "erdemir",
+        "eth",
+        "ethereum",
+        "euro",
+        "garan",
+        "garanti",
+        "nvda",
+        "nvidia",
+        "sasa",
+        "sol",
+        "solana",
+        "tcell",
+        "turkcell",
+        "thyao",
+        "tesla",
+        "altin",
+        "gumus",
+        "dolar",
+        "tahvil",
+        "kripto",
+        "hisse",
+        "endeks",
+        "bist",
+        # (3) kurum/piyasa - insan degil
+        "sirket",
+        "sirketin",
+        "kurum",
+        "banka",
+        "devlet",
+        "piyasa",
+        "borsa",
+        "hukumet",
+        "tcmb",
+        "kurul",
+        "merkez",
+    }
+)
+
+#: Kendi verisini kastettigi acik olan birinci tekil sahis ifadeleri.
+#: Bunlar varsa desen tetiklense bile KISI sorusu SAYILMAZ - "Benim
+#: portfoyum" gibi bir cumlede basta bir ozel ad gecmis olabilir.
+_BIRINCI_SAHIS = re.compile(r"\b(benim|kendi|bana|banim)\b")
+
+
+def baska_kisi_sorusu_mu(sorgu: str) -> bool:
+    """Sorgu BASKA birinin kisisel finans verisini mi istiyor?
+
+    Ayrim govde-dislama listesine dayanir - `_BASKA_KISI` ve
+    `_KISI_DEGIL_KOK` docstring'lerine bakin. Eslesen HER aday govde
+    dislama listesinde ise `False` doner; ilk domain-disi govde bulunduysa
+    `True` doner.
+    """
+    n = normalize(sorgu)
+    if _BIRINCI_SAHIS.search(n):
+        return False
+    return any(not _govde_dislaniyor_mu(m.group(1)) for m in _BASKA_KISI.finditer(n))
+
+
 # --- Sabit yanitlar -------------------------------------------------------
 
 #: Kapsam -> kullaniciya donen tek parca metin.
@@ -347,6 +513,12 @@ KAPSAM_YANITLARI: dict[str, str] = {
     KAPSAM_DISI: (
         "Bu konuda yardımcı olamıyorum. Yalnızca kişisel finans alanında "
         "(portföy, piyasa, risk ve yatırım) destek verebiliyorum."
+    ),
+    KAPSAM_BASKA_KISI: (
+        "Başka bir kişiyle ilgili finansal bilgileri getiremem. Yalnızca giriş "
+        "yapmış olduğunuz hesaba ait portföy, risk ve yatırım bilgilerini "
+        "görüntüleyebilirim. Kendi portföyünüzü sormak isterseniz yardımcı "
+        "olabilirim."
     ),
     KAPSAM_BELIRSIZ: (
         "Sorunuzu tam olarak anlayamadım. Portföyünüz, piyasa gelişmeleri veya "
@@ -377,7 +549,15 @@ def kapsam_belirle(sorgu: str, *, devam_turu: bool = False) -> str:
     if _KUFUR_A.search(n):
         return KAPSAM_KUFUR
 
-    # 2) Finans sinyali: bundan sonrasi yalnizca finans DISI metinleri gorur.
+    # 2) Baska birinin kisisel verisi: FINANS SINYALINDEN ONCE bakilir.
+    #    "Ayse'nin portfoyunu goster" icinde "portfoy" gectigi icin bir sonraki
+    #    adim bunu normal bir finans sorusu sayar ve ajanlara gonderirdi;
+    #    ajanlar da giris yapmis kullanicinin verisini getirip Ayse'nin
+    #    sanilmasina yol acardi.
+    if baska_kisi_sorusu_mu(sorgu):
+        return KAPSAM_BASKA_KISI
+
+    # 3) Finans sinyali: bundan sonrasi yalnizca finans DISI metinleri gorur.
     #    Selamlama/kapsam-disi kaliplari bu adimdan SONRA gelir; "merhaba,
     #    portfoyum nasil?" sorusunun sohbete dusmemesi buna bagli.
     if _FINANS_DESENI.search(n):

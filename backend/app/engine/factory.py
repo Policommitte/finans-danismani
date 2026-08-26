@@ -106,16 +106,19 @@ def build_agents(mcp_client: MCPClient) -> dict[str, BaseAgent]:
             mcp_client=mcp_client,
             llm=build_agent_llm("market"),
             timeout_seconds=settings.agent_timeout_seconds,
+            llm_timeout_seconds=settings.agent_llm_budget_seconds,
         ),
         AGENT_PORTFOLIO: PortfolioAgent(
             mcp_client=mcp_client,
             llm=build_agent_llm("portfolio"),
             timeout_seconds=settings.agent_timeout_seconds,
+            llm_timeout_seconds=settings.agent_llm_budget_seconds,
         ),
         AGENT_RISK_STRATEGY: RiskStrategyAgent(
             mcp_client=mcp_client,
             llm=build_agent_llm("risk"),
             timeout_seconds=settings.agent_timeout_seconds,
+            llm_timeout_seconds=settings.agent_llm_budget_seconds,
         ),
     }
 
