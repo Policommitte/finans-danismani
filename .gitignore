@@ -28,3 +28,8 @@ data/generated/
 .vscode/
 .idea/
 .DS_Store
+
+# Yerel .env yedekleri: CANLI API anahtari, JWT gizli anahtari ve DB
+# baglanti dizesi icerir. `git add -A backend` bunlari bir kez surukledi.
+.env.yedek*
+*.env.yedek*
