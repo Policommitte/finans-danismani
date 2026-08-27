@@ -43,9 +43,7 @@ async def emir_onizle(
     row = await get_trading_repository().get_order_context(user_id, symbol)
     if row is None:
         raise NotFoundError(f"'{symbol.upper()}' hissesi bulunamadi.")
-    _context_validate(
-        row, side, quantity, order_type, limit_price, validity, stop_loss_price
-    )
+    _context_validate(row, side, quantity, order_type, limit_price, validity, stop_loss_price)
 
     price = float(row["current_price"])
     calculation_price = float(limit_price) if order_type == "LIMIT" else price

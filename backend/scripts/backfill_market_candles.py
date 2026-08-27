@@ -15,9 +15,7 @@ from app.repositories.deps import get_market_repository
 async def main(selected_interval: str = "all") -> None:
     repository = get_market_repository()
     assets = await repository.get_assets_for_price_update()
-    symbols = [
-        asset["symbol"] for asset in assets if asset["symbol"] in yahoo.YAHOO_TICKERS
-    ]
+    symbols = [asset["symbol"] for asset in assets if asset["symbol"] in yahoo.YAHOO_TICKERS]
     ticker_count = len(yahoo.gerekli_tickerlar(symbols))
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     one_minute_jobs = []

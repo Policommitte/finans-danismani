@@ -196,10 +196,7 @@ def _ohlcv_mumlari(
 
         frame = frame.dropna(subset=["Open", "High", "Low", "Close"])
         frame = frame[
-            (frame["Open"] > 0)
-            & (frame["High"] > 0)
-            & (frame["Low"] > 0)
-            & (frame["Close"] > 0)
+            (frame["Open"] > 0) & (frame["High"] > 0) & (frame["Low"] > 0) & (frame["Close"] > 0)
         ]
         if frame.empty:
             continue
@@ -313,17 +310,11 @@ def _gecmis_mum_paketi(
         options["period"] = period
     df = yf.download(" ".join(tickerlar), **options)
     if interval == "1m":
-        return _ohlcv_mumlari(
-            df, ticker_to_symbol, interval="1m", resample_rule="1min"
-        )
+        return _ohlcv_mumlari(df, ticker_to_symbol, interval="1m", resample_rule="1min")
     if interval == "5m":
-        return _ohlcv_mumlari(
-            df, ticker_to_symbol, interval="5m", resample_rule="5min"
-        )
+        return _ohlcv_mumlari(df, ticker_to_symbol, interval="5m", resample_rule="5min")
     if interval == "1d":
-        return _ohlcv_mumlari(
-            df, ticker_to_symbol, interval="1d", resample_rule="1D"
-        )
+        return _ohlcv_mumlari(df, ticker_to_symbol, interval="1d", resample_rule="1D")
     raise ValueError(f"desteklenmeyen gecmis mum araligi: {interval}")
 
 
@@ -337,9 +328,7 @@ async def gecmis_mumlari_indir(
 ) -> list[dict]:
     """Tarihsel mumlari indirir; sayfa istekleri bu fonksiyonu cagiramaz."""
     ticker_to_symbol = {
-        ticker: symbol
-        for symbol, ticker in YAHOO_TICKERS.items()
-        if symbol in db_symbols
+        ticker: symbol for symbol, ticker in YAHOO_TICKERS.items() if symbol in db_symbols
     }
     return await asyncio.wait_for(
         asyncio.to_thread(
@@ -469,9 +458,7 @@ async def canli_kotasyonlar(
     global _SON_INDIRILEN_MUMLAR
     _SON_INDIRILEN_MUMLAR = []
     ters_esleme = {
-        ticker: symbol
-        for symbol, ticker in YAHOO_TICKERS.items()
-        if symbol in db_symbols
+        ticker: symbol for symbol, ticker in YAHOO_TICKERS.items() if symbol in db_symbols
     }
     ham, mumlar = await asyncio.wait_for(
         asyncio.to_thread(_indir_paket, tickerlar, ters_esleme),

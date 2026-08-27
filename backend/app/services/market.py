@@ -73,9 +73,7 @@ async def mumlar_getir(symbol: str, interval: str, range_key: str) -> CandlesRes
     # Tarih secimi ilk gorunen pencereyi belirler. Daha eski mumlari da
     # yukleyerek grafigin sola kaydirilabilmesini saglariz.
     days = max(RANGE_DAYS[range_key], HISTORY_BUFFER_DAYS[kaynak_interval])
-    ohlcv_rows = await repository.get_candles(
-        symbol, interval=kaynak_interval, days=days
-    )
+    ohlcv_rows = await repository.get_candles(symbol, interval=kaynak_interval, days=days)
     if ohlcv_rows:
         return CandlesResponse(
             symbol=symbol.upper(),

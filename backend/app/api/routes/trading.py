@@ -24,8 +24,14 @@ async def account(user: CurrentUser) -> TradingAccount:
 @router.post("/orders/preview", response_model=OrderPreview)
 async def preview(user: CurrentUser, payload: OrderPreviewRequest) -> OrderPreview:
     return await service.emir_onizle(
-        user["id"], payload.symbol, payload.side, payload.quantity,
-        payload.order_type, payload.limit_price, payload.validity, payload.stop_loss_price,
+        user["id"],
+        payload.symbol,
+        payload.side,
+        payload.quantity,
+        payload.order_type,
+        payload.limit_price,
+        payload.validity,
+        payload.stop_loss_price,
     )
 
 
