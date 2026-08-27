@@ -45,4 +45,5 @@ async def me(user: CurrentUser) -> UserResponse:
         email=user["email"],
         risk_tolerance=user.get("risk_tolerance"),
         monthly_income=float(user["monthly_income"]) if user.get("monthly_income") else None,
+        role=user.get("role", "customer"),
     )

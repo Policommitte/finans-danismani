@@ -1,5 +1,6 @@
 "use client";
 import { FormEvent, ReactNode, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -249,6 +250,15 @@ export default function LoginPage() {
             <SocialButton label="Apple ile devam et" onClick={noopSocialLogin}>
               <AppleIcon />
             </SocialButton>
+          </div>
+
+          <div className="mt-6 text-center">
+            <Link
+              href="/danisman-giris"
+              className="text-xs font-medium text-slate-500 transition hover:text-slate-700"
+            >
+              Danışman Girişi
+            </Link>
           </div>
         </div>
       </div>
