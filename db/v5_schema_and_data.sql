@@ -230,6 +230,7 @@ CREATE TABLE lead_queue_entries (
     reasons JSONB NOT NULL DEFAULT '[]'::jsonb,      -- insan-okunur TR gerekceler
     total_value_try NUMERIC NOT NULL DEFAULT 0,      -- karar anindaki anlik goruntu
     monthly_income NUMERIC NOT NULL DEFAULT 0,
+    likit_para NUMERIC NOT NULL DEFAULT 0,           -- karar anindaki atil bakiye
     days_since_activity INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (scan_id, user_id)
@@ -239,7 +240,12 @@ CREATE TABLE lead_contacts (
     id BIGSERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     scan_id BIGINT REFERENCES lead_scans(id) ON DELETE SET NULL,
-    channel VARCHAR(20) NOT NULL                    -- EMAIL · BSD_QUEUE
+    -- Pratikte yalnizca EMAIL yazilir. BSD_QUEUE, "BSD kuyruguna dusmek de
+    -- bir temastir" varsayimindan kalmadir; o varsayim kaldirildi (kimse
+    -- aramasa bile kisi 180 gun sogutmaya giriyor ve kuyruktan sessizce
+    -- kayboluyordu). Deger, ESKI KAYITLAR okunabilsin diye CHECK'te
+    -- korunuyor - bkz. app/services/leads.py, BSD dali.
+    channel VARCHAR(20) NOT NULL                    -- EMAIL (BSD_QUEUE: tarihsel)
             CHECK (channel IN ('EMAIL','BSD_QUEUE')),
     status VARCHAR(20) NOT NULL                     -- SENT · FAILED · SKIPPED
            CHECK (status IN ('SENT','FAILED','SKIPPED')),
@@ -428,7 +434,8 @@ SELECT u.id AS user_id, u.first_name, u.last_name, u.email,
 FROM users u
 LEFT JOIN portfoy_degeri pd ON pd.user_id = u.id
 LEFT JOIN son_islem      si ON si.user_id = u.id
-LEFT JOIN son_sohbet     sc ON sc.user_id = u.id;
+LEFT JOIN son_sohbet     sc ON sc.user_id = u.id
+WHERE u.role = 'customer';
 
 
 -- =====================================================================
@@ -552,17 +559,35 @@ UPDATE assets SET prev_close = ROUND(current_price / (1 + daily_change_pct/100.0
 -- Şifre hepsinde: demo1234
 -- created_at kademeli verildi: hepsi ayni anda "az once kayit olmus"
 -- gorunmesin diye (lead motorunun hareketsizlik kurali icin onemli).
-INSERT INTO users (first_name, last_name, email, password_hash, risk_tolerance, monthly_income, created_at) VALUES
-('Mehmet','Yılmaz','mehmet@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW','HIGH',150000.0, now() - INTERVAL '400 days'),
-('Ayşe','Kaya','ayse@example.com','$2b$10$Yb8T7yJiAWQQD71v45o/EOpGCQVCWj9sAbJmjl5R6HKa39lyKW36S','LOW',75000.0, now() - INTERVAL '370 days'),
-('Can','Öztürk','can@example.com','$2b$10$tFWB6HyIOE91rFskCogI1.n8WmSV4zqdJ/Y2rbOzAIOZwcutolnZq','HIGH',45000.0, now() - INTERVAL '340 days'),
-('Zeynep','Demir','zeynep@example.com','$2b$10$bYkcSp99rikfo9Xqc0vWjO03J832PUdeC4orqCO.AJTIY1yJmnC4e','MEDIUM',95000.0, now() - INTERVAL '310 days'),
-('Ahmet','Şahin','ahmet@example.com','$2b$10$OStPyyZDG6togEcTURO7NOPmNQoyjtzcx.LUaArmpU9LHX0ICXHre','LOW',40000.0, now() - INTERVAL '280 days'),
-('Elif','Çelik','elif@example.com','$2b$10$U92TKkQv7nXd39NVPKYXFOVT0BEM9ltkUNaYGExj5SSuj77m2Nyou','HIGH',250000.0, now() - INTERVAL '250 days'),
-('Burak','Tekin','burak@example.com','$2b$10$5NrnZAcGw5PZ7xSl8upei.87KMfLCacEPhUwj.DoFNizbMhbkQ9.K','MEDIUM',60000.0, now() - INTERVAL '200 days'),
-('Selin','Aydın','selin@example.com','$2b$10$5cTFiUiaaDlCeL9vT3/1cuK5Wu/gqhOnRLDJTEeiYLNgrAmtrT3Je','MEDIUM',85000.0, now() - INTERVAL '150 days'),
-('Kemal','Yıldız','kemal@example.com','$2b$10$tSimnfkYhkhV/dSs/t4gteqrGgWs6ut9DuCet2nihoL3w0khrswOu','LOW',30000.0, now() - INTERVAL '90 days'),
-('Büşra','Koç','busra@example.com','$2b$10$.35my8JfMBBHGpo/AbH/0Ogb1FbMPHXuRnB8P5fuCKojKK2014GvW','HIGH',120000.0, now() - INTERVAL '20 days');
+-- likit_para (atıl banka bakiyesi) lead motorunun HEDEFLEME kriteridir:
+-- 120K-1M arası + hiç yatırım yapmamış (portföyü boş) + 90 gün hareketsiz
+-- kullanıcılar kuyruğa düşer. Aşağıdaki değerler fresh/CI veritabanında
+-- motorun her dalını test edilebilir kılacak şekilde seçildi:
+--   Ahmet (5)  → 250K, portföyü yok   → OTONOM (mail)
+--   Burak (7)  → 180K, portföyü yok   → OTONOM (mail)
+--   Selin (8)  → 650K, portföyü yok   → BSD (aranacak)
+--   Kemal (9)  →  90K                 → dışlanır: balance_below_threshold
+--   Büşra (10) → 1,2M                 → dışlanır: above_upper_limit
+--   1,2,3,4,6  → portföyleri var      → dışlanır: already_invested
+INSERT INTO users (first_name, last_name, email, password_hash, risk_tolerance, monthly_income, likit_para, role, created_at) VALUES
+('Mehmet','Yılmaz','mehmet@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW','HIGH',150000.0, 200000, 'customer', now() - INTERVAL '400 days'),
+('Ayşe','Kaya','ayse@example.com','$2b$10$Yb8T7yJiAWQQD71v45o/EOpGCQVCWj9sAbJmjl5R6HKa39lyKW36S','LOW',75000.0, 150000, 'customer', now() - INTERVAL '370 days'),
+('Can','Öztürk','can@example.com','$2b$10$tFWB6HyIOE91rFskCogI1.n8WmSV4zqdJ/Y2rbOzAIOZwcutolnZq','HIGH',45000.0, 300000, 'customer', now() - INTERVAL '340 days'),
+('Zeynep','Demir','zeynep@example.com','$2b$10$bYkcSp99rikfo9Xqc0vWjO03J832PUdeC4orqCO.AJTIY1yJmnC4e','MEDIUM',95000.0, 400000, 'customer', now() - INTERVAL '310 days'),
+('Ahmet','Şahin','ahmet@example.com','$2b$10$OStPyyZDG6togEcTURO7NOPmNQoyjtzcx.LUaArmpU9LHX0ICXHre','LOW',40000.0, 250000, 'customer', now() - INTERVAL '280 days'),
+('Elif','Çelik','elif@example.com','$2b$10$U92TKkQv7nXd39NVPKYXFOVT0BEM9ltkUNaYGExj5SSuj77m2Nyou','HIGH',250000.0, 800000, 'customer', now() - INTERVAL '250 days'),
+('Burak','Tekin','burak@example.com','$2b$10$5NrnZAcGw5PZ7xSl8upei.87KMfLCacEPhUwj.DoFNizbMhbkQ9.K','MEDIUM',60000.0, 180000, 'customer', now() - INTERVAL '200 days'),
+('Selin','Aydın','selin@example.com','$2b$10$5cTFiUiaaDlCeL9vT3/1cuK5Wu/gqhOnRLDJTEeiYLNgrAmtrT3Je','MEDIUM',85000.0, 650000, 'customer', now() - INTERVAL '150 days'),
+('Kemal','Yıldız','kemal@example.com','$2b$10$tSimnfkYhkhV/dSs/t4gteqrGgWs6ut9DuCet2nihoL3w0khrswOu','LOW',30000.0, 90000, 'customer', now() - INTERVAL '90 days'),
+('Büşra','Koç','busra@example.com','$2b$10$.35my8JfMBBHGpo/AbH/0Ogb1FbMPHXuRnB8P5fuCKojKK2014GvW','HIGH',120000.0, 1200000, 'customer', now() - INTERVAL '20 days'),
+-- Danışman hesabı: /danisman-giris ekranından girer, /api/leads/* uçlarına
+-- yalnızca bu rol erişebilir. Şifresi diğer demo kullanıcılarla aynı:
+-- "demo1234". marketing_consent=FALSE çünkü bir müşteri değil - lead
+-- taraması bu hesabı hedeflememeli (role filtresi zaten eliyor, bu ikinci
+-- savunma).
+('Deniz','Danışman','danisman@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW',NULL,0.0, 0, 'advisor', now() - INTERVAL '410 days');
+
+UPDATE users SET marketing_consent = FALSE WHERE role = 'advisor';
 
 INSERT INTO portfolios (user_id, name, is_default) VALUES
 (1, 'Agresif BIST & Kripto',      TRUE),

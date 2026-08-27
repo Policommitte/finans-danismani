@@ -2,6 +2,12 @@ import type { LeadQueueItem } from "../../models/leads";
 import Badge from "../ui/Badge";
 import Card from "../ui/Card";
 
+const paraFormat = new Intl.NumberFormat("tr-TR", {
+  style: "currency",
+  currency: "TRY",
+  maximumFractionDigits: 0,
+});
+
 export function LeadQueueTable({
   title,
   items,
@@ -26,9 +32,20 @@ export function LeadQueueTable({
                 <span className="app-muted">{item.email}</span>
               </span>
               <span className="flex items-center gap-3">
+                <span className="app-muted">Atıl bakiye: {paraFormat.format(item.likit_para)}</span>
                 <span className="app-muted">Skor: {item.score}</span>
-                <Badge className={variant === "bsd" ? "app-warning-box border" : "app-primary-soft"}>
-                  {variant === "bsd" ? "Aranacak" : "Mail gönderildi"}
+                <Badge
+                  className={
+                    variant === "bsd" || !item.mail_gonderildi
+                      ? "app-warning-box border"
+                      : "app-primary-soft"
+                  }
+                >
+                  {variant === "bsd"
+                    ? "Aranacak"
+                    : item.mail_gonderildi
+                      ? "Mail gönderildi"
+                      : "Mail bekliyor"}
                 </Badge>
               </span>
             </div>

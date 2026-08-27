@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     # `app/services/lead_rules.py` icinde sabit - risk.py ile ayni desen
     # (bkz. ASSET_CLASS_RISK). Burada yalnizca ZAMANLAMA ve DIS SERVIS
     # (Gmail) ayarlari var.
-    lead_engine_enabled: bool = True
+    lead_engine_enabled: bool = False
 
     #: Acilistan sonra ilk taramanin baslamasi icin bekleme suresi. Fiyat
     #: gorevinin ilk tick'iyle ayni saniyede yarismasin diye kucuk bir pay.

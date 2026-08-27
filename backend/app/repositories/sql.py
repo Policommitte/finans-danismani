@@ -882,7 +882,8 @@ class SqlLeadRepository(_SqlRepository):
             """
             SELECT user_id, MAX(created_at) AS last_contact_at
             FROM lead_contacts
-            WHERE status = 'SENT'
+            WHERE channel = 'EMAIL'
+              AND status = 'SENT'
               AND created_at >= now() - make_interval(days => CAST(:cooldown_days AS INT))
             GROUP BY user_id
             """,
@@ -957,11 +958,12 @@ class SqlLeadRepository(_SqlRepository):
                     INSERT INTO lead_queue_entries
                         (scan_id, user_id, decision, exclusion_reason, score,
                          score_components, reasons, total_value_try, monthly_income,
-                         days_since_activity)
+                         likit_para, days_since_activity)
                     VALUES
                         (:scan_id, :user_id, :decision, :exclusion_reason, :score,
                          CAST(:score_components AS JSONB), CAST(:reasons AS JSONB),
-                         :total_value_try, :monthly_income, :days_since_activity)
+                         :total_value_try, :monthly_income, :likit_para,
+                         :days_since_activity)
                     """
                 ),
                 {
@@ -974,6 +976,7 @@ class SqlLeadRepository(_SqlRepository):
                     "reasons": _json(entry.get("reasons") or []),
                     "total_value_try": entry.get("total_value_try", 0),
                     "monthly_income": entry.get("monthly_income", 0),
+                    "likit_para": entry.get("likit_para", 0),
                     "days_since_activity": entry.get("days_since_activity"),
                 },
             )
@@ -1014,26 +1017,12 @@ class SqlLeadRepository(_SqlRepository):
             )
             await session.commit()
 
-    async def record_bsd_handover(self, user_id: int, scan_id: int) -> None:
-        async with self._session_factory() as session:
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO lead_contacts (user_id, scan_id, channel, status)
-                    VALUES (:user_id, :scan_id, 'BSD_QUEUE', 'SENT')
-                    ON CONFLICT DO NOTHING
-                    """
-                ),
-                {"user_id": user_id, "scan_id": scan_id},
-            )
-            await session.commit()
-
     async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
         return await self._rows(
             """
             SELECT q.user_id, u.first_name, u.last_name, u.email,
                    q.decision, q.exclusion_reason, q.score, q.score_components,
-                   q.reasons, q.total_value_try, q.monthly_income,
+                   q.reasons, q.total_value_try, q.monthly_income, q.likit_para,
                    q.days_since_activity, q.created_at
             FROM lead_queue_entries q
             JOIN users u ON u.id = q.user_id
@@ -1047,6 +1036,40 @@ class SqlLeadRepository(_SqlRepository):
             LIMIT :limit
             """,
             {"decision": decision, "limit": limit},
+        )
+
+    async def list_emailed(self, days: int, limit: int = 100) -> list[dict]:
+        # Skor/bakiye bilgisi mailin gonderildigi TARAMANIN karar satirindan
+        # gelir (LEFT JOIN): temas kaydi kalicidir, o taramanin satiri
+        # silinmis olsa bile satir dusmez.
+        return await self._rows(
+            """
+            SELECT * FROM (
+                SELECT DISTINCT ON (c.user_id)
+                       c.user_id, u.first_name, u.last_name, u.email,
+                       'AUTONOMOUS' AS decision,
+                       CAST(NULL AS VARCHAR) AS exclusion_reason,
+                       COALESCE(q.score, 0) AS score,
+                       COALESCE(q.score_components, '{}'::jsonb) AS score_components,
+                       COALESCE(q.reasons, '[]'::jsonb) AS reasons,
+                       COALESCE(q.total_value_try, 0) AS total_value_try,
+                       COALESCE(q.monthly_income, 0) AS monthly_income,
+                       COALESCE(q.likit_para, 0) AS likit_para,
+                       q.days_since_activity,
+                       c.created_at
+                FROM lead_contacts c
+                JOIN users u ON u.id = c.user_id
+                LEFT JOIN lead_queue_entries q
+                       ON q.scan_id = c.scan_id AND q.user_id = c.user_id
+                WHERE c.channel = 'EMAIL'
+                  AND c.status = 'SENT'
+                  AND c.created_at >= now() - make_interval(days => CAST(:days AS INT))
+                ORDER BY c.user_id, c.created_at DESC
+            ) t
+            ORDER BY t.created_at DESC
+            LIMIT :limit
+            """,
+            {"days": days, "limit": limit},
         )
 
 

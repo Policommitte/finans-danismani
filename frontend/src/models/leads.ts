@@ -10,7 +10,9 @@ export type LeadQueueItem = {
   reasons: string[];
   total_value_try: number;
   monthly_income: number;
+  likit_para: number;
   days_since_activity: number | null;
+  mail_gonderildi: boolean;
   created_at: string;
 };
 

@@ -216,9 +216,15 @@ class LeadRepository(Protocol):
     async def last_contacted_map(self, cooldown_days: int) -> dict[int, object]:
         """Soğutma penceresi icindeki en son temas tarihleri.
 
-        Yalnizca `status = 'SENT'` olan ve `cooldown_days` icinde kalan
-        satirlar dahildir. Donen sozluk `{user_id: created_at}` bicimindedir;
-        soğutma disindaki/hic temas edilmemis kullanicilar sozlukte YOKTUR.
+        Yalnizca `channel = 'EMAIL'` VE `status = 'SENT'` olan, `cooldown_days`
+        icinde kalan satirlar dahildir. Donen sozluk `{user_id: created_at}`
+        bicimindedir; soğutma disindaki/hic temas edilmemis kullanicilar
+        sozlukte YOKTUR.
+
+        Kanal filtresi onemli: BSD kuyruguna dusmek artik `lead_contacts`'a
+        kayit acmaz, ama eski taramalardan kalmis `BSD_QUEUE` satirlari
+        veritabaninda durabilir - filtre olmasa o kisiler hic mail
+        almadiklari halde 180 gun boyunca sogutmada kalirdi.
         """
         ...
 
@@ -282,15 +288,21 @@ class LeadRepository(Protocol):
         """
         ...
 
-    async def record_bsd_handover(self, user_id: int, scan_id: int) -> None:
-        """BSD kuyruguna yazilan kullanici icin `lead_contacts` kaydi acar.
-
-        Kanal `BSD_QUEUE`, durum dogrudan `SENT` - insan aramasa bile
-        soğutma penceresi bu andan itibaren islemeye baslar.
-        """
-        ...
-
     async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
         """En son taramadaki `decision` (`BSD`|`AUTONOMOUS`|`EXCLUDED`)
         satirlarini, kullanici bilgisiyle birlikte doner."""
+        ...
+
+    async def list_emailed(self, days: int, limit: int = 100) -> list[dict]:
+        """Son `days` gun icinde GERCEKTEN mail gonderilen kullanicilar.
+
+        `list_queue("AUTONOMOUS", ...)`'dan farki: kaynak `lead_contacts`
+        (fiilen gonderilmis mailler), en son tarama DEGIL. Mail gonderilen
+        kisi sogutma penceresine girdigi icin sonraki taramalarda
+        `EXCLUDED` olur ve son taramanin AUTONOMOUS listesinden duserdi -
+        oysa danisman "kime mail gitti" listesini gormeye devam etmeli.
+
+        Kullanici basina EN SON mail kaydi doner; siralama gonderim
+        tarihine gore (en yeni ustte).
+        """
         ...

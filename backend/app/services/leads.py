@@ -25,8 +25,19 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
 
     `force=False` iken son taramadan bu yana yeterli sure gecmediyse
     tarama ATLANIR (hata degil, `skipped=True` ile normal bir sonuc).
+
+    `LEAD_ENGINE_ENABLED=false` iken tarama HICBIR SEKILDE calismaz - ne
+    otomatik acilis gorevi ne elle `POST /api/leads/scan` (force=true
+    dahil). `force`, yalnizca asgari aralik kontrolunu atlar; motor
+    kapaliyken bir anlami yoktur.
     """
     repository = get_lead_repository()
+
+    if not settings.lead_engine_enabled:
+        son = await repository.latest_scan()
+        return _ozet(
+            son, skipped=True, skip_reason="lead motoru devre disi (LEAD_ENGINE_ENABLED=false)"
+        )
 
     if not force:
         gecen_dakika = await repository.minutes_since_last_scan()
@@ -47,6 +58,20 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
         "emailed_count": 0,
     }
     hata: str | None = None
+
+    #: Kota SONUCU degil DENEMEYI sayar: yalnizca `emailed_count`'a
+    #: bakilsaydi SMTP surekli hata verdiginde sayac hic artmaz ve tarama
+    #: otonom kuyruktaki HER kullanici icin (her biri timeout suresi kadar)
+    #: SMTP denerdi - kota bir ust sinir olmaktan cikardi.
+    deneme_sayisi = 0
+    ardisik_hata = 0
+
+    #: Gmail hic yapilandirilmamissa tek tek denemenin anlami yok: her
+    #: kullanici icin bos yere claim + SKIPPED yazmak yerine bastan bir kez
+    #: kontrol edilir. Kuyruklar yine dolar, yalnizca mail denenmez.
+    mail_gonderilebilir = mailer.is_configured()
+    if not mail_gonderilebilir:
+        logger.warning("Gmail ayarlari bos; bu taramada hic mail denenmeyecek")
 
     try:
         sinyaller = await repository.list_lead_signals()
@@ -70,6 +95,7 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
                         "reasons": [],
                         "total_value_try": signal.get("total_value_try", 0),
                         "monthly_income": signal.get("monthly_income", 0),
+                        "likit_para": signal.get("likit_para") or 0,
                         "days_since_activity": signal.get("days_since_activity"),
                     },
                 )
@@ -79,29 +105,49 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
             kuyruk = rules.kuyruk_sec(signal)
 
             if kuyruk == "BSD":
+                # BSD kuyruguna dusmek bir TEMAS DEGIL, bir ONERIDIR: gercek
+                # temas ancak danisman kisiyi aradiginda olur ve bunu takip
+                # etmiyoruz (kapsam disi). Bu yuzden `lead_contacts`'a kayit
+                # ACILMAZ - aksi halde kisi sogutma penceresine girer ve bir
+                # sonraki taramada kuyruktan sessizce kaybolurdu.
                 sayaclar["bsd_count"] += 1
-                await repository.record_bsd_handover(signal["user_id"], scan_id)
             else:
                 sayaclar["autonomous_count"] += 1
-                if sayaclar["emailed_count"] < rules.MAX_EMAILS_PER_SCAN:
+                if (
+                    mail_gonderilebilir
+                    and deneme_sayisi < rules.MAX_EMAILS_PER_SCAN
+                    and ardisik_hata < rules.MAX_ARDISIK_MAIL_HATASI
+                ):
                     contact_id = await repository.claim_email_contact(
                         signal["user_id"], scan_id, signal["email"], mailer.KONU
                     )
                     if contact_id is not None:
+                        deneme_sayisi += 1
                         sonuc = await mailer.send_lead_email(signal["email"], signal["first_name"])
                         if sonuc["status"] == "SENT":
                             sayaclar["emailed_count"] += 1
+                            ardisik_hata = 0
                         elif sonuc["status"] == "FAILED":
+                            ardisik_hata += 1
                             await repository.mark_contact_failed(
                                 contact_id, sonuc["error"] or "bilinmeyen hata"
                             )
+                            if ardisik_hata >= rules.MAX_ARDISIK_MAIL_HATASI:
+                                # SMTP tamamen cokmus olabilir: her denemenin
+                                # timeout suresi kadar surdugu bir donguyu
+                                # sonuna kadar isletmek taramayi dakikalarca
+                                # asili birakir. Kuyruk yazimi devam eder.
+                                logger.error(
+                                    "ust uste %s mail hatasi - bu taramada gonderim durduruldu",
+                                    ardisik_hata,
+                                )
                         elif sonuc["status"] == "SKIPPED":
+                            # Bu dala normalde ULASILMAZ: `mail_gonderilebilir`
+                            # kontrolu zaten yukarida yapiliyor. Emniyet supabi
+                            # olarak duruyor - `send_lead_email` ileride baska
+                            # bir nedenle SKIPPED donerse claim `SENT` olarak
+                            # kalmasin (kullanici 180 gun bosuna kilitlenirdi).
                             await repository.mark_contact_skipped(contact_id)
-                else:
-                    logger.warning(
-                        "lead_max_emails_per_scan asildi, mail atlandi",
-                        extra={"user_id": signal["user_id"], "limit": rules.MAX_EMAILS_PER_SCAN},
-                    )
 
             await repository.record_decision(
                 scan_id,
@@ -114,6 +160,7 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
                     "reasons": skor_sonucu["reasons"],
                     "total_value_try": signal.get("total_value_try", 0),
                     "monthly_income": signal.get("monthly_income", 0),
+                    "likit_para": signal.get("likit_para") or 0,
                     "days_since_activity": signal.get("days_since_activity"),
                 },
             )
@@ -132,7 +179,37 @@ async def bsd_kuyrugu_getir(limit: int = 100) -> dict:
 
 
 async def otonom_kuyruk_getir(limit: int = 100) -> dict:
-    return await _kuyruk_getir("AUTONOMOUS", limit)
+    """Otonom kuyruk - IKI kaynagin birlesimi.
+
+    1. `lead_contacts`: son `COOLDOWN_DAYS` gun icinde GERCEKTEN mail
+       gonderilenler. Mail gonderilen kisi sogutmaya girdigi icin sonraki
+       taramalarda `EXCLUDED` olur ve son taramanin AUTONOMOUS listesinden
+       duserdi - oysa danisman "kime mail gitti"yi gormeye devam etmeli.
+    2. Son taramanin `AUTONOMOUS` kararlari: kota dolduysa, ardisik hata
+       freni devreye girdiyse ya da Gmail hic yapilandirilmamissa kisi
+       otonom kuyruga girer ama mail GITMEZ - yalnizca (1)'e bakilsaydi bu
+       kisiler hicbir listede gorunmez, ekranda sessiz bir bosluk olurdu.
+
+    Kullanici basina TEK satir doner; `mail_gonderildi` alani hangi durumda
+    oldugunu soyler.
+    """
+    repository = get_lead_repository()
+    mail_gidenler = await repository.list_emailed(rules.COOLDOWN_DAYS, limit=limit)
+    son_karar = await repository.list_queue("AUTONOMOUS", limit=limit)
+
+    # Ayni kullanici iki kaynakta da olabilir; GERCEK temas kaydi kazanir.
+    birlesik: dict[int, dict] = {
+        item["user_id"]: {**item, "mail_gonderildi": False} for item in son_karar
+    }
+    birlesik.update({item["user_id"]: {**item, "mail_gonderildi": True} for item in mail_gidenler})
+
+    items = sorted(birlesik.values(), key=lambda i: i.get("score") or 0, reverse=True)[:limit]
+    son = await repository.latest_scan()
+    return {
+        "items": items,
+        "count": len(items),
+        "scan": _ozet(son, skipped=False, skip_reason=None),
+    }
 
 
 async def dislananlar_getir(limit: int = 100) -> dict:

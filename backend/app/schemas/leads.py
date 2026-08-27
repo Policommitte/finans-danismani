@@ -24,7 +24,13 @@ class LeadQueueItem(BaseModel):
     reasons: list[str] = Field(default_factory=list, description="Turkce gerekceler")
     total_value_try: float
     monthly_income: float
+    likit_para: float
     days_since_activity: int | None = None
+    mail_gonderildi: bool = Field(
+        default=False,
+        description="Otonom kuyrukta anlamli: mail fiilen gonderildi mi, yoksa "
+        "kota/hata freni/Gmail ayari nedeniyle beklemede mi",
+    )
     created_at: datetime
 
 

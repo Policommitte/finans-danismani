@@ -65,11 +65,15 @@ def _mesaj_olustur(to_email: str, first_name: str, orijinal_alici: str) -> Email
     mesaj["To"] = to_email
     mesaj["Subject"] = KONU
 
+    # Alici, tanimi geregi HIC YATIRIM YAPMAMIS bir musteridir
+    # (`lead_rules.uygunluk_degerlendir` -> already_invested ile yatirimi
+    # olanlar dislanir). Bu yuzden metin "portfoyunuz" gibi var olmayan bir
+    # seye ATIF YAPMAZ; birikimi degerlendirmeye davet eder.
     govde = (
         f"Merhaba {first_name},\n\n"
-        "Portföyünüzü değerlendirdik ve sizin için uygun olabilecek bir "
-        "yatırım danışmanlığı fırsatımız var. Detaylar için bizimle "
-        "iletişime geçebilirsiniz.\n\n"
+        "Hesabınızdaki birikiminizi değerlendirmek için size uygun "
+        "yatırım seçeneklerimiz olabilir. Dilerseniz bir yatırım "
+        "danışmanımızla görüşerek seçenekleri birlikte inceleyebiliriz.\n\n"
         "Bu bir taslak mesajdır, içerik ürün ekibi tarafından "
         "netleştirilecektir.\n"
     )

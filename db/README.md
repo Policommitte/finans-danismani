@@ -38,8 +38,6 @@ psql -U finans -d finans -f db/v5_schema_and_data.sql
 
 ## Test durumu
 
-## Test durumu
-
 Şema PostgreSQL 16.13 + pgvector 0.6.0 üzerinde uçtan uca çalıştırıldı: hatasız
 yüklendi, doğrulama sorguları (a) ve (b) boş döndü, `rag.hybrid_search` her iki
 ayakla (dense + BM25) sonuç üretti.

@@ -23,10 +23,12 @@ logger = logging.getLogger(__name__)
 async def run_lead_scan_once(trigger: str = "manual", force: bool = False) -> dict:
     """Tek bir tarama calistirir; sonucu (`LeadScanSummary` benzeri dict) doner.
 
-    Hata olursa istisna YUKARI FIRLATILIR - `POST /api/leads/scan` bunu
-    yakalayip 500'e cevirir. `schedule_startup_lead_scan` ise kendi
-    try/except'i icinde bu fonksiyonu cagirir, acilis sirasinda hicbir
-    istisna uygulamayi dusurmez.
+    Yalnizca `schedule_startup_lead_scan` cagirir; `POST /api/leads/scan`
+    servis katmanini (`services.leads.tarama_calistir`) DOGRUDAN cagirir.
+
+    Hata olursa istisna YUKARI FIRLATILIR; `schedule_startup_lead_scan`
+    kendi try/except'i icinde yakalar, acilis sirasinda hicbir istisna
+    uygulamayi dusurmez.
     """
     from app.services import leads as service
 

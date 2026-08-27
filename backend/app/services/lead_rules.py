@@ -59,9 +59,16 @@ MIN_INACTIVITY_DAYS = 90
 #: docstring'i): yanit bagimsiz, salt zaman bazli.
 COOLDOWN_DAYS = 180
 
-#: Bir tarama basina gonderilebilecek AZAMI otonom mail sayisi - kota
-#: korumasi (patlama yaricapi).
+#: Bir tarama basina AZAMI mail DENEMESI - kota korumasi (patlama
+#: yaricapi). Basarili gonderim degil DENEME sayilir; aksi halde SMTP
+#: surekli hata verdiginde sinir hic devreye girmezdi.
 MAX_EMAILS_PER_SCAN = 20
+
+#: Ust uste bu kadar gonderim basarisiz olursa o taramada mail gonderimi
+#: BIRAKILIR (kuyruk yazimi devam eder). SMTP tamamen cokmusse her deneme
+#: timeout suresi kadar surer; 20 denemeyi sonuna kadar isletmek taramayi
+#: dakikalarca asili birakir.
+MAX_ARDISIK_MAIL_HATASI = 3
 
 
 def uygunluk_degerlendir(
@@ -156,7 +163,13 @@ def potansiyel_skoru_hesapla(signal: dict) -> dict:
 
     varlik = _kirp(atil_bakiye / BSD_ESIK_TRY * 45, 0, 45)
     gelir = _kirp(monthly_income / 500_000 * 30, 0, 30)
-    hareketsizlik = _kirp((days_since_activity or 180) / 180 * 15, 0, 15)
+    # `or 180` DEGIL `is None` kontrolu: bugun aktif olan bir kullanicinin
+    # `days_since_activity` degeri 0'dir ve Python'da 0 falsy'dir - `or 180`
+    # yazimi onu "hic aktivite yok" sayip TAVAN hareketsizlik puani verirdi.
+    # Bugun bu yola `recently_active` kurali yuzunden hic ulasilmiyor, ama
+    # kural sirasi/esikleri degisirse sessizce yanlis skor uretirdi.
+    gun = 180 if days_since_activity is None else days_since_activity
+    hareketsizlik = _kirp(gun / 180 * 15, 0, 15)
 
     skor = round(varlik + gelir + hareketsizlik)
 
