@@ -6,7 +6,7 @@ from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from app.core.errors import BusinessRuleError, NotFoundError
-from app.core.quantity import adet_gecerli_mi
+from app.core.quantity import adet_gecerli_mi, gecersiz_adet_mesaji
 from app.repositories.deps import get_trading_repository
 from app.schemas.trading import (
     OrderPreview,
@@ -152,7 +152,7 @@ def _context_validate(
     # Hisse ve ETF bolunmez: 1,18 adet INTC diye bir sey yok. Kontrol
     # ARAYUZDE DEGIL burada: istemci dogrulamasi atlanabilir.
     if not adet_gecerli_mi(quantity, row.get("asset_class")):
-        raise BusinessRuleError("Hisse ve ETF emirleri tam adet olmalidir.")
+        raise BusinessRuleError(gecersiz_adet_mesaji(row.get("asset_class")))
     if row["asset_class"] == "INDEX":
         raise BusinessRuleError("Endeksler dogrudan alinip satilamaz.")
     if float(row["current_price"] or 0) <= 0:

@@ -46,10 +46,17 @@ const TRADING_ERRORS: Array<{ includes: string; message: MessagePair }> = [
     },
   },
   {
-    includes: "hisse ve etf emirleri tam adet olmalidir",
+    includes: "bu varlik tam adet alinip satilir",
     message: {
-      tr: "Hisse ve ETF emirleri tam adet olmalıdır.",
-      en: "Stock and ETF orders must be whole units.",
+      tr: "Bu varlık tam adet alınıp satılır.",
+      en: "This asset can only be traded in whole units.",
+    },
+  },
+  {
+    includes: "doviz emirleri 0,25'in katlari olmalidir",
+    message: {
+      tr: "Döviz emirleri 0,25'in katları olmalıdır.",
+      en: "Currency orders must be in multiples of 0.25.",
     },
   },
   {

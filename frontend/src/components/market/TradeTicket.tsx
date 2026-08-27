@@ -14,7 +14,7 @@ import type {
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { adetGecerliMi, bolunmezMi } from "../../utils/assetQuantity";
+import { adetAdimi, adetGecerliMi, gecersizAdetMesaji } from "../../utils/assetQuantity";
 
 const ASSET_CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   STOCK: { tr: "Hisse", en: "Stock" },
@@ -326,8 +326,8 @@ export function TradeTicket({
             <input
               className="mt-2 w-full rounded-md border app-input px-3 py-2.5 text-sm outline-none"
               type="number"
-              min={bolunmezMi(asset.asset_class) ? "1" : "0.000001"}
-              step={bolunmezMi(asset.asset_class) ? "1" : "any"}
+              min={adetAdimi(asset.asset_class) === "any" ? "0.000001" : adetAdimi(asset.asset_class)}
+              step={adetAdimi(asset.asset_class)}
               max={isSell ? sellableQuantity : undefined}
               value={quantity}
               onChange={(event) => changeQuantity(event.target.value)}
@@ -350,9 +350,7 @@ export function TradeTicket({
             )}
             {kusuratHatasi && (
               <span className="mt-1.5 block text-xs font-normal normal-case tracking-normal app-danger">
-                {language === "tr"
-                  ? "Hisse ve ETF emirleri tam adet olmalıdır."
-                  : "Stock and ETF orders must be whole units."}
+                {gecersizAdetMesaji(asset.asset_class, language)}
               </span>
             )}
             {exceedsHolding && (

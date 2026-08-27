@@ -40,8 +40,7 @@ logger = logging.getLogger(__name__)
 #: Metin sunucudan gider; istemcinin kendi uyarisini uydurmasi beklenmez.
 SPK_UYARISI = (
     "Bu icerik yatirim tavsiyesi degildir. Burada yer alan bilgiler genel "
-    "nitelikte olup kisisel yatirim hedeflerinize uygun olmayabilir. Islemler "
-    "simulasyon ortaminda gerceklesir."
+    "nitelikte olup kisisel yatirim hedeflerinize uygun olmayabilir."
 )
 
 #: Risk profiline gore izin verilmeyen varlik siniflari ve asgari guven.

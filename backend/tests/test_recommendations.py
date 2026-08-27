@@ -269,8 +269,10 @@ def test_oneri_karti_zorunlu_alanlari_tasir():
         ("USA_STOCK", 57222.76, 0.0),  # LLY: tek adet bile butceyi asiyor
         ("STOCK", 305.00, 16.0),  # THYAO
         ("ETF", 1200.00, 4.0),
-        ("CRYPTO", 3822612.11, 0.001308),  # BTC: kusurat sart
-        ("GOLD", 7176.87, 0.6966),  # gram altin bolunebilir
+        ("GOLD", 1000.00, 5.0),  # gram altin TAM gram
+        ("COMMODITY", 4213.24, 1.0),  # emtia tam adet
+        ("CRYPTO", 3822612.11, 0.001308),  # kripto: tek kusurat istisnasi
+        ("FOREX", 41.20, 121.25),  # doviz: 0,25'in katlari
     ],
 )
 def test_adet_sinifa_gore_yuvarlanir(sinif, fiyat, beklenen):
@@ -278,10 +280,15 @@ def test_adet_sinifa_gore_yuvarlanir(sinif, fiyat, beklenen):
     assert adet_yuvarla(5000 / fiyat, sinif) == beklenen
 
 
-def test_hisse_kusuratli_alinamaz():
+def test_kusurat_yalnizca_kripto_ve_doviz_icin_gecerli():
+    """Doviz disinda kusurat yok; doviz de yalnizca 0,25'in katlari."""
     assert adet_gecerli_mi(1.5, "STOCK") is False
     assert adet_gecerli_mi(2.0, "STOCK") is True
-    assert adet_gecerli_mi(0.0013, "CRYPTO") is True
+    assert adet_gecerli_mi(0.3871, "GOLD") is False  # gram altin tam gram
+    assert adet_gecerli_mi(1.1867, "COMMODITY") is False  # emtia tam adet
+    assert adet_gecerli_mi(0.0013, "CRYPTO") is True  # tek istisna
+    assert adet_gecerli_mi(0.75, "FOREX") is True
+    assert adet_gecerli_mi(0.30, "FOREX") is False
 
 
 def test_tek_adet_butceye_sigmiyorsa_oneri_uretilmez():
@@ -309,6 +316,12 @@ def test_hisse_onerisi_tam_adet_uretir():
     )
     assert yuk is not None
     assert float(yuk["quantity"]).is_integer()
+
+
+def test_uyari_metni_simulasyon_cumlesi_tasimaz():
+    """Urun karari: kart uyarisi yalnizca yatirim tavsiyesi ibaresini tasir."""
+    assert "yatirim tavsiyesi degildir" in service.SPK_UYARISI
+    assert "simulasyon" not in service.SPK_UYARISI.lower()
 
 
 # ------------------------------------------------------------- sessiz saat

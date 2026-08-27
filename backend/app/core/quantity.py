@@ -12,30 +12,50 @@ BOLUNEBILIRLIK FIYATA GORE DEGIL SINIFA GORE BELIRLENIR
 -------------------------------------------------------
 Ilk surum "fiyat >= 1000 ise kusuratli" diyordu; bu YANLISTI. INTC 4.246 TL
 oldugu icin kusuratli sayildi ve 1,18 adet onerildi - oysa hisse senedi
-bolunemez. Dogru olcut enstrumanin kendisidir: hisse ve ETF tam adet alinir,
-kripto ve gram altin bolunebilir.
+bolunemez. Dogru olcut enstrumanin kendisidir.
+
+UC KOVA
+-------
+1. TAM ADET  - hisse, ETF, gram altin, emtia, tahvil.
+   Gram altin "0,3871 gram" diye alinmaz; emtia sozlesmesi de bolunmez.
+2. CEYREK ADIM - yalnizca doviz. 0,25'in katlari (0,25 / 0,50 / 1,75 ...).
+3. SERBEST   - yalnizca kripto. Tam adet zorunlu olsaydi BTC (3,8 milyon TL)
+   5.000 TL'lik tek islem limitiyle HIC alinamazdi; kripto gercek hayatta da
+   bolunerek alinir.
 """
 
 from __future__ import annotations
 
 import math
 
-#: Tam adet alinan siniflar - kusuratli islem GERCEK HAYATTA YOK.
-BOLUNMEZ_SINIFLAR = frozenset({"STOCK", "USA_STOCK", "EU_STOCK", "ETF"})
+#: Tam adet alinan siniflar - kusuratli islem gercek hayatta yok.
+BOLUNMEZ_SINIFLAR = frozenset(
+    {"STOCK", "USA_STOCK", "EU_STOCK", "ETF", "GOLD", "COMMODITY", "BOND"}
+)
 
-#: Bolunebilir siniflar ve gosterilecek ondalik basamak sayisi.
-BOLUNEBILIR_BASAMAK: dict[str, int] = {
-    "CRYPTO": 6,
-    "GOLD": 4,
-    "COMMODITY": 4,
-    "BOND": 4,
-    "FOREX": 2,
-}
-VARSAYILAN_BASAMAK = 4
+#: Yalnizca doviz: 0,25'in katlari.
+CEYREK_ADIMLI_SINIFLAR = frozenset({"FOREX"})
+CEYREK_ADIM = 0.25
+
+#: Yalnizca kripto: serbest ondalik.
+SERBEST_SINIFLAR = frozenset({"CRYPTO"})
+KRIPTO_BASAMAK = 6
+
+#: Kayan nokta karsilastirmasinda tolerans (0.75 gibi degerler ikilik
+#: tabanda tam temsil edilmez).
+_TOLERANS = 1e-9
+
+
+def _sinif(asset_class: str | None) -> str:
+    return (asset_class or "").upper()
 
 
 def bolunmez_mi(asset_class: str | None) -> bool:
-    return (asset_class or "").upper() in BOLUNMEZ_SINIFLAR
+    return _sinif(asset_class) in BOLUNMEZ_SINIFLAR
+
+
+def ceyrek_adimli_mi(asset_class: str | None) -> bool:
+    return _sinif(asset_class) in CEYREK_ADIMLI_SINIFLAR
 
 
 def adet_yuvarla(ham: float, asset_class: str | None) -> float:
@@ -44,22 +64,36 @@ def adet_yuvarla(ham: float, asset_class: str | None) -> float:
     Asagi yuvarlanir cunku adet bir BUTCEDEN turetilir; yukari yuvarlamak
     kullanicinin limitini ya da nakdini asardi.
 
-    Bolunmez bir sinifta sonuc 0 cikabilir (orn. tek islem limiti 5.000 TL
-    iken LLY 57.222 TL). Bu bir hata degildir: cagiran 0'i "bu varlik bu
-    butceyle alinamaz" olarak yorumlamalidir.
+    Sonuc 0 cikabilir (orn. tek islem limiti 5.000 TL iken LLY 57.222 TL).
+    Bu bir hata degildir: cagiran 0'i "bu varlik bu butceyle alinamaz"
+    olarak yorumlamalidir.
     """
     if ham <= 0:
         return 0.0
     if bolunmez_mi(asset_class):
-        return float(math.floor(ham))
-    basamak = BOLUNEBILIR_BASAMAK.get((asset_class or "").upper(), VARSAYILAN_BASAMAK)
-    return math.floor(ham * 10**basamak) / 10**basamak
+        return float(math.floor(ham + _TOLERANS))
+    if ceyrek_adimli_mi(asset_class):
+        return math.floor(ham / CEYREK_ADIM + _TOLERANS) * CEYREK_ADIM
+    if _sinif(asset_class) in SERBEST_SINIFLAR:
+        carpan = 10**KRIPTO_BASAMAK
+        return math.floor(ham * carpan) / carpan
+    # Tanimsiz bir sinif gelirse EN KISITLAYICI kural uygulanir: tam adet.
+    return float(math.floor(ham + _TOLERANS))
 
 
 def adet_gecerli_mi(adet: float, asset_class: str | None) -> bool:
     """Kullanicinin girdigi adet bu sinif icin gecerli mi?"""
     if adet <= 0:
         return False
-    if bolunmez_mi(asset_class):
-        return float(adet).is_integer()
-    return True
+    if ceyrek_adimli_mi(asset_class):
+        return abs(adet / CEYREK_ADIM - round(adet / CEYREK_ADIM)) < 1e-6
+    if _sinif(asset_class) in SERBEST_SINIFLAR:
+        return True
+    return abs(adet - round(adet)) < 1e-9
+
+
+def gecersiz_adet_mesaji(asset_class: str | None) -> str:
+    """Kullaniciya gosterilecek hata metni (frontend cevirisiyle eslesir)."""
+    if ceyrek_adimli_mi(asset_class):
+        return "Doviz emirleri 0,25'in katlari olmalidir."
+    return "Bu varlik tam adet alinip satilir."
