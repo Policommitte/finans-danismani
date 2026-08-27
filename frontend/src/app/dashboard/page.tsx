@@ -80,7 +80,9 @@ export default function DashboardPage() {
           performanceLoading={performance.loading}
           performanceError={performance.error}
         />
-        <AssetTable items={data.holdings} />
+        <div data-tour="portfolio-section">
+          <AssetTable items={data.holdings} />
+        </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[.8fr_1.2fr]">

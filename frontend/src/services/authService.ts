@@ -1,4 +1,10 @@
-import type { LoginRequest, TokenResponse, User } from "../models/auth";
+import type {
+  LoginRequest,
+  OnboardingCompleteRequest,
+  RegisterRequest,
+  TokenResponse,
+  User,
+} from "../models/auth";
 import { apiRequest, clearAccessToken, setAccessToken } from "./apiClient";
 
 export async function login(payload: LoginRequest): Promise<TokenResponse> {
@@ -11,8 +17,35 @@ export async function login(payload: LoginRequest): Promise<TokenResponse> {
   return token;
 }
 
+export async function loginWithGoogleAccessToken(accessToken: string): Promise<TokenResponse> {
+  const token = await apiRequest<TokenResponse>("/api/auth/google", {
+    method: "POST",
+    auth: false,
+    body: JSON.stringify({ access_token: accessToken }),
+  });
+  setAccessToken(token.access_token);
+  return token;
+}
+
+export async function register(payload: RegisterRequest): Promise<TokenResponse> {
+  const token = await apiRequest<TokenResponse>("/api/auth/register", {
+    method: "POST",
+    auth: false,
+    body: JSON.stringify(payload),
+  });
+  setAccessToken(token.access_token);
+  return token;
+}
+
 export async function getMe(): Promise<User> {
   return apiRequest<User>("/api/auth/me");
+}
+
+export async function completeOnboarding(payload: OnboardingCompleteRequest): Promise<User> {
+  return apiRequest<User>("/api/auth/onboarding/complete", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function logout(): void {

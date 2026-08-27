@@ -53,7 +53,7 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income
+                   risk_tolerance, monthly_income, onboarding_completed
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -62,11 +62,53 @@ class SqlUserRepository(_SqlRepository):
     async def get_by_id(self, user_id: int) -> dict | None:
         return await self._row(
             """
-            SELECT id, first_name, last_name, email, risk_tolerance, monthly_income
+            SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
+                   onboarding_completed
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
         )
+
+    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO users
+                        (first_name, last_name, email, password_hash, onboarding_completed)
+                    VALUES (:first_name, :last_name, :email, :password_hash, false)
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed
+                    """
+                ),
+                {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": email,
+                    "password_hash": password_hash,
+                },
+            )
+            row = result.mappings().one()
+            await session.commit()
+            return dict(row)
+
+    async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET risk_tolerance = :risk_tolerance, onboarding_completed = true
+                    WHERE id = :user_id
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed
+                    """
+                ),
+                {"user_id": user_id, "risk_tolerance": risk_tolerance},
+            )
+            row = result.mappings().first()
+            await session.commit()
+            return dict(row) if row else None
 
 
 class SqlPortfolioRepository(_SqlRepository):
@@ -635,6 +677,29 @@ class SqlRagRepository(_SqlRepository):
             """,
             {"query": query, "sirket": sirket, "tip": tip, "top_k": top_k},
         )
+
+    async def list_news(self, limit: int = 20, kategori: str | None = None) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT d.id, d.baslik, d.sirket, a.symbol,
+                   to_char(d.tarih, 'YYYY-MM-DD') AS tarih, d.tip, d.kategori,
+                   d.kaynak_url, d.raw_text, d.image_url
+            FROM rag.documents d
+            LEFT JOIN assets a ON a.id = d.asset_id
+            WHERE CAST(:kategori AS TEXT) IS NULL OR d.kategori = :kategori
+            ORDER BY d.tarih DESC NULLS LAST, d.id DESC
+            LIMIT :limit
+            """,
+            {"kategori": kategori, "limit": limit},
+        )
+
+    async def set_news_image(self, document_id: int, image_url: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text("UPDATE rag.documents SET image_url = :image_url WHERE id = :id"),
+                {"id": document_id, "image_url": image_url},
+            )
+            await session.commit()
 
 
 class SqlChatRepository(_SqlRepository):

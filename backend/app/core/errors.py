@@ -45,6 +45,13 @@ class AuthorizationError(AppError):
     status_code = 403
 
 
+class ConflictError(AppError):
+    """Kaynak zaten var (orn. e-posta kayitli)."""
+
+    code = "conflict"
+    status_code = 409
+
+
 def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", str(uuid.uuid4()))
 

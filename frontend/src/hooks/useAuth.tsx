@@ -3,7 +3,12 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import type { User } from "../models/auth";
 import { getAccessToken } from "../services/apiClient";
-import { getMe, login as loginRequest, logout as logoutRequest } from "../services/authService";
+import {
+  getMe,
+  login as loginRequest,
+  loginWithGoogleAccessToken,
+  logout as logoutRequest,
+} from "../services/authService";
 
 type AuthContextValue = {
   user: User | null;
@@ -11,6 +16,7 @@ type AuthContextValue = {
   error: string | null;
   hasToken: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (accessToken: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 };
@@ -58,6 +64,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function loginWithGoogle(accessToken: string) {
+    setLoading(true);
+    try {
+      await loginWithGoogleAccessToken(accessToken);
+      setHasToken(true);
+      await refresh();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function logout() {
     logoutRequest();
     setUser(null);
@@ -69,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, error, hasToken, login, logout, refresh }),
+    () => ({ user, loading, error, hasToken, login, loginWithGoogle, logout, refresh }),
     [user, loading, error, hasToken],
   );
 

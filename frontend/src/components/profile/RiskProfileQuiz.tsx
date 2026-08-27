@@ -3,6 +3,16 @@
 import { useState } from "react";
 import Button from "../ui/Button";
 
+function BarChartIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20V10" />
+      <path d="M12 20V4" />
+      <path d="M20 20v-7" />
+    </svg>
+  );
+}
+
 type QuizOption = {
   label: string;
   points: 1 | 2 | 3;
@@ -66,7 +76,24 @@ function tierFor(score: number): { label: string; color: string } {
   return { label: "Yüksek", color: "var(--color-success)" };
 }
 
-export function RiskProfileQuiz() {
+//: tierFor()'un gosterim esikleriyle (<=6 / <=9 / uzeri) BIREBIR ayni -
+//: kullanicinin ekranda gordugu "Dusuk/Orta/Yuksek" etiketiyle backend'e
+//: yazilan enum her zaman uyusmali.
+function tierEnumFor(score: number): "LOW" | "MEDIUM" | "HIGH" {
+  if (score <= 6) {
+    return "LOW";
+  }
+  if (score <= 9) {
+    return "MEDIUM";
+  }
+  return "HIGH";
+}
+
+export function RiskProfileQuiz({
+  onComplete,
+}: {
+  onComplete?: (tier: "LOW" | "MEDIUM" | "HIGH") => void;
+} = {}) {
   const [answers, setAnswers] = useState<Record<string, 1 | 2 | 3>>({});
   const [score, setScore] = useState<number | null>(null);
 
@@ -82,6 +109,7 @@ export function RiskProfileQuiz() {
     }
     const total = quizQuestions.reduce((sum, q) => sum + (answers[q.id] ?? 0), 0);
     setScore(total);
+    onComplete?.(tierEnumFor(total));
   }
 
   function handleRetake() {
@@ -90,15 +118,26 @@ export function RiskProfileQuiz() {
   }
 
   return (
-    <div className="rounded-xl border app-card p-5 shadow-sm">
-      <h2 className="text-base font-semibold app-heading">📊 Risk Profilim</h2>
-      <p className="mt-1 text-sm app-muted">Birkaç soruyu yanıtla, yatırım risk toleransını görelim.</p>
+    <div className="rounded-2xl border app-card p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+          style={{
+            background: "color-mix(in srgb, var(--color-primary) 15%, var(--color-surface))",
+            color: "var(--color-primary)",
+          }}
+        >
+          <BarChartIcon />
+        </span>
+        <h2 className="text-base font-semibold app-heading">Risk Profilim</h2>
+      </div>
+      <p className="mt-2 text-sm app-muted">Birkaç soruyu yanıtla, yatırım risk toleransını görelim.</p>
 
       {score === null ? (
         <>
           <div className="mt-4 space-y-3">
             {quizQuestions.map((q, index) => (
-              <div key={q.id} className="rounded-lg app-card-muted p-4">
+              <div key={q.id} className="rounded-xl app-card-muted p-4">
                 <p className="text-sm font-medium app-heading">
                   {index + 1}. {q.question}
                 </p>
@@ -131,7 +170,7 @@ export function RiskProfileQuiz() {
           </Button>
         </>
       ) : (
-        <div className="mt-4 rounded-lg app-card-muted p-4">
+        <div className="mt-4 rounded-xl app-card-muted p-4">
           <div className="relative mt-2">
             <div className="flex h-3 overflow-hidden rounded-full">
               <div className="flex-1" style={{ background: "var(--color-cta)" }} />
