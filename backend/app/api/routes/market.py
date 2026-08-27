@@ -8,8 +8,11 @@ from app.schemas.market import (
     HistoryResponse,
     MarketSearchRequest,
     MarketSearchResponse,
+    NewsListResponse,
+    OhlcResponse,
 )
 from app.services import market as service
+from app.services import news as news_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -44,6 +47,20 @@ async def history(
     return await service.gecmis_getir(symbol, days=days)
 
 
+@router.get("/ohlc", response_model=OhlcResponse)
+async def ohlc(
+    user: CurrentUser,
+    symbol: str = Query(description="Varlik kodu (orn. GARAN)"),
+    days: int = Query(default=30, ge=1, le=MAX_HISTORY_GUN),
+) -> OhlcResponse:
+    """Mum grafik icin GERCEK gunluk OHLC serisi - Yahoo'dan canli cekilir.
+
+    Sadece dogrudan bir Yahoo ticker'i olan semboller desteklenir; digerleri
+    icin bos `candles` doner (404 DEGIL - frontend cizgi grafige duser).
+    """
+    return await service.ohlc_getir(symbol, days=days)
+
+
 @router.post("/search", response_model=MarketSearchResponse)
 async def search(user: CurrentUser, payload: MarketSearchRequest) -> MarketSearchResponse:
     """Haber/bilanco/rapor aramasi.
@@ -54,3 +71,17 @@ async def search(user: CurrentUser, payload: MarketSearchRequest) -> MarketSearc
     return await service.arama_yap(
         query=payload.query, top_k=payload.top_k, sirket=payload.sirket, tip=payload.tip
     )
+
+
+@router.get("/news", response_model=NewsListResponse)
+async def news(
+    user: CurrentUser,
+    limit: int = Query(default=20, ge=1, le=100),
+    kategori: str | None = Query(default=None, description="doviz | ekonomi | hisse | altin | piyasa"),
+) -> NewsListResponse:
+    """Bulten sayfasi icin en yeni haberler (duz liste, arama degil).
+
+    Her haberin `image_url`'i doludur: gercek gorsel yoksa kategoriye/basliga
+    gore otomatik atanir (bkz. app/services/news.py -> get_fallback_image).
+    """
+    return await news_service.haberler_getir(limit=limit, kategori=kategori)

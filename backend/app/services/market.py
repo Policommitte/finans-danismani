@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from app.core.errors import NotFoundError
+from app.market.yahoo import gunluk_ohlc
 from app.repositories.deps import get_market_repository, get_rag_repository
 from app.schemas.market import (
     Asset,
     AssetsResponse,
     HistoryResponse,
     MarketSearchResponse,
+    OhlcCandle,
+    OhlcResponse,
     PricePoint,
     SearchHit,
 )
@@ -23,13 +26,23 @@ async def varliklar_getir(category: str | None = None) -> AssetsResponse:
     return AssetsResponse(items=[_asset(row) for row in rows])
 
 
+#: `price_history` GUNLUK granulerlikte tutulur ve her satirin zaman damgasi
+#: O GUNUN GECE YARISIDIR (bkz. sql.py close_out_day). Bu yuzden `days=1`
+#: (1G sekmesi) ile sorgulanirsa `now() - 1 gun` siniri DUN'un kapanisini bile
+#: DISLAR (dun 00:00, "simdi - 1 gun"den her zaman ONCE gelir) - sonuc HER
+#: SEMBOLDE, HER ZAMAN bos doner ve 404 firlatilirdi. Sorgu penceresi burada
+#: taban degerle genisletilir; DONEN `days` alani yine kullanicinin istedigi
+#: deger olarak kalir (sadece veritabani sorgusu genisler).
+_MIN_SORGU_GUN = 3
+
+
 async def gecmis_getir(symbol: str, days: int = 30) -> HistoryResponse:
     """PriceChart icin HAM zaman serisi.
 
     MCP tool'undan (`market_get_history`) farkli olarak burada ozetleme yoktur:
     grafik tum noktalara ihtiyac duyar, LLM ise duymaz.
     """
-    rows = await get_market_repository().get_history(symbol, days=days)
+    rows = await get_market_repository().get_history(symbol, days=max(days, _MIN_SORGU_GUN))
     if not rows:
         raise NotFoundError(f"'{symbol}' icin fiyat gecmisi bulunamadi.")
 
@@ -37,6 +50,21 @@ async def gecmis_getir(symbol: str, days: int = 30) -> HistoryResponse:
         symbol=symbol.upper(),
         days=days,
         points=[PricePoint(ts=str(row["ts"]), price=round(float(row["price"]), 4)) for row in rows],
+    )
+
+
+async def ohlc_getir(symbol: str, days: int = 30) -> OhlcResponse:
+    """Mum grafik icin GERCEK gunluk OHLC serisi (bkz. app/market/yahoo.py).
+
+    Veri alinamazsa (turetilmis sembol, ag hatasi) bos `candles` doner -
+    404 FIRLATILMAZ: frontend bunu "bu sembol icin mum grafigi yok, cizgiye
+    duş" olarak yorumlar, bu beklenen/gecerli bir durumdur.
+    """
+    mumlar = await gunluk_ohlc(symbol.upper(), days)
+    return OhlcResponse(
+        symbol=symbol.upper(),
+        days=days,
+        candles=[OhlcCandle(**mum) for mum in (mumlar or [])],
     )
 
 

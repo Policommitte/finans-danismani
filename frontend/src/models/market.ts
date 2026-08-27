@@ -24,6 +24,20 @@ export type HistoryResponse = {
   points: PricePoint[];
 };
 
+export type OhlcCandle = {
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+export type OhlcResponse = {
+  symbol: string;
+  days: number;
+  candles: OhlcCandle[];
+};
+
 export type MarketSearchRequest = {
   query: string;
   top_k?: number;
@@ -45,6 +59,25 @@ export type SearchHit = {
 export type MarketSearchResponse = {
   query: string;
   items: SearchHit[];
+};
+
+export type NewsArticle = {
+  id: string;
+  baslik: string;
+  sirket: string | null;
+  symbol: string | null;
+  tarih: string | null;
+  tip: string | null;
+  kategori: string | null;
+  kaynak_url: string | null;
+  excerpt: string;
+  body: string[];
+  image_url: string;
+  related_change_pct: number | null;
+};
+
+export type NewsListResponse = {
+  items: NewsArticle[];
 };
 
 export type PublicMarketTickerItem = {

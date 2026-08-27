@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -281,3 +282,104 @@ async def canli_fiyatlar(db_symbols: list[str]) -> dict[str, float]:
     kotasyonlar = await canli_kotasyonlar(db_symbols)
     fiyatlar = {sembol: float(quote["price"]) for sembol, quote in kotasyonlar.items()}
     return fiyatlar
+
+
+# --- OHLC (mum grafik) -------------------------------------------------------
+#
+# `canli_fiyatlar`'in aksine burada GECMIS mumlar cekilir (Open/High/Low/
+# Close). Yahoo'nun `yf.download`/`Ticker.history` cagrisi bu kolonlari zaten
+# dondurur - sadece `_son_kotasyonlar` bugune kadar yalnizca `Close`'u
+# kullaniyordu.
+#
+# GRANULERLIK: sabit "1d" yerine araliga gore secilir - Yahoo'nun gun-ici
+# mumlari kisa donemlerde COK daha akici bir grafik verir:
+#   <= 7 gun   -> 15 dakikalik mumlar (Yahoo'nun <=60 gunluk 15m siniri icinde)
+#   <= 60 gun  -> saatlik mumlar      (Yahoo'nun <=730 gunluk 1h siniri icinde)
+#   diger      -> gunluk mumlar       (uzun araliklarda binlerce gun-ici mum
+#                                       hem gereksiz hem grafigi yavaslatirdi)
+#
+# TURETILMIS semboller (GRAM_ALTIN, GUMUS) DESTEKLENMEZ: bunlarin OHLC'si iki
+# ayri seriden (metal + USDTRY) turetilmesi gerekir ve bir mumun ic-mum en
+# yuksek/en dusuk noktalarinin ayni anda mi olustugu bilinmez - bu, gercek
+# olmayan bir "gorunum" uretir. Bu yuzden bu semboller icin `None` donulur;
+# frontend cizgi grafige duser.
+#
+# ONBELLEK: her (sembol, gun) kombinasyonu 5 dakika onbelleklenir - paylasilan
+# gunluk API kotasini (MARKET_API_DAILY_QUOTA) modal her acildiginda/mum moduna
+# gecildiginde tuketmemek icin. Sadece bu surec icindir, DB'ye yazilmaz.
+_OHLC_ONBELLEK_SANIYE = 300
+_ohlc_onbellek: dict[tuple[str, int], tuple[float, list[dict[str, float | str]]]] = {}
+
+
+def _mum_araligi(gun: int) -> str:
+    """Istenen gun sayisina gore Yahoo `interval` degeri secer."""
+    if gun <= 7:
+        return "15m"
+    if gun <= 60:
+        return "1h"
+    return "1d"
+
+
+def _indir_mumlar(ticker: str, gun: int) -> Any:
+    """SENKRON OHLC indirme - `asyncio.to_thread` icinden cagrilir."""
+    import yfinance as yf
+
+    # En az birkac mum donsun diye alt sinir; ust sinirda Yahoo kendisi
+    # mevcut en eski veriyle keser (hata vermez, kismi sonuc doner).
+    period_gun = max(gun, 5)
+    return yf.Ticker(ticker).history(
+        period=f"{period_gun}d", interval=_mum_araligi(gun), timeout=YFINANCE_TIMEOUT_SANIYE
+    )
+
+
+async def gunluk_ohlc(sembol: str, gun: int) -> list[dict[str, float | str]] | None:
+    """Verilen `assets.symbol` icin GERCEK OHLC mumlarini doner.
+
+    Granulerlik `_mum_araligi()` ile araliga gore secilir (kisa araliklarda
+    gun-ici mumlar). Sadece dogrudan bir Yahoo ticker'i olan semboller (bkz.
+    `YAHOO_TICKERS`) desteklenir. Veri alinamazsa (ag hatasi, bilinmeyen
+    sembol, bos seri) `None` doner - frontend bu durumda cizgi grafige duser,
+    UYDURMA veri ASLA uretilmez.
+    """
+    ticker = YAHOO_TICKERS.get(sembol)
+    if not ticker:
+        return None
+
+    onbellek_anahtari = (sembol, gun)
+    simdi = time.monotonic()
+    onbellenmis = _ohlc_onbellek.get(onbellek_anahtari)
+    if onbellenmis and simdi - onbellenmis[0] < _OHLC_ONBELLEK_SANIYE:
+        return onbellenmis[1]
+
+    try:
+        df = await asyncio.wait_for(
+            asyncio.to_thread(_indir_mumlar, ticker, gun),
+            timeout=ISTEK_TIMEOUT_SANIYE,
+        )
+    except Exception:  # noqa: BLE001 - ag/format hatasi grafik yerine bos donmeli
+        logger.warning("OHLC alinamadi", extra={"sembol": sembol, "ticker": ticker})
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    mumlar: list[dict[str, float | str]] = []
+    for zaman_damgasi, satir in df.iterrows():
+        kapanis = float(satir["Close"])
+        if kapanis <= 0:
+            continue
+        mumlar.append(
+            {
+                "ts": zaman_damgasi.isoformat(),
+                "open": round(float(satir["Open"]), 4),
+                "high": round(float(satir["High"]), 4),
+                "low": round(float(satir["Low"]), 4),
+                "close": round(kapanis, 4),
+            }
+        )
+
+    if not mumlar:
+        return None
+
+    _ohlc_onbellek[onbellek_anahtari] = (simdi, mumlar)
+    return mumlar
