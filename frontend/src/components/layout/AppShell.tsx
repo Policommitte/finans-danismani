@@ -6,6 +6,7 @@ import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
+import { OnboardingFlow } from "../onboarding/OnboardingFlow";
 import { ProductTour } from "../tour/ProductTour";
 import { MarketTicker } from "./MarketTicker";
 import { Sidebar } from "./Sidebar";
@@ -20,6 +21,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isPublic = pathname === "/" || isLogin;
   const isLanding = pathname === "/";
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
+  //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
+  //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
+  //: Bayragi dogrudan kosul yapsaydik, refresh() aninda OnboardingFlow
+  //: unmount olur ve tur hic gorunmezdi. Bu yuzden akis SADECE kendi
+  //: `onDone` cagrisiyla kapanir. `ProductTour` (asagida) BUNDAN AYRI, tekrar
+  //: baslatilabilir bir urun turu - ilk-giris zorunlu akisiyla cakismaz.
+  const [onboardingActive, setOnboardingActive] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [logoutNoticeName, setLogoutNoticeName] = useState<string | null>(null);
   const explicitLogoutRef = useRef(false);
@@ -73,6 +82,20 @@ function AppShellContent({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    if (auth.user && auth.user.onboarding_completed === false) {
+      setOnboardingActive(true);
+    }
+  }, [auth.user]);
+
+  useEffect(() => {
+    if (onboardingActive && isLanding) {
+      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
+      // olmasi icin kullaniciyi dashboard'a tasiriz.
+      requestPageTransition("/dashboard", true);
+    }
+  }, [onboardingActive, isLanding]);
+
   if (isLogin) {
     return children;
   }
@@ -87,14 +110,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {isLanding ? (
         <>
           {children}
-          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" />
+          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" onStartTour={() => setTourOpen(true)} />
         </>
       ) : (
         <>
-          <Sidebar onStartTour={() => setTourOpen(true)} />
+          <Sidebar />
           <div className="ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col pt-20">
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
-            <SiteFooter />
+            <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
           {auth.user && <ChatWidget />}
         </>
@@ -102,6 +125,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {selectedSymbol ? (
         <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />
       ) : null}
+      {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
       {auth.user ? (
         <ProductTour
           open={tourOpen}

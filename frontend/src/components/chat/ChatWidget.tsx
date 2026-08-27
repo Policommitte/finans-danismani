@@ -9,7 +9,7 @@ import { useChatStream } from "../../hooks/useChatStream";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
-function ChatAvatar() {
+export function ChatAvatar() {
   return (
     <span className="flex h-full w-full shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-panel-dark)]">
       <span className="block h-[118%] w-[118%] [&_svg]:h-full [&_svg]:w-full">

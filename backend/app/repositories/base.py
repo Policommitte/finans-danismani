@@ -34,6 +34,17 @@ class UserRepository(Protocol):
         """Profil bilgisi - `password_hash` ICERMEZ."""
         ...
 
+    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+        """Yeni kullanici olusturur; `onboarding_completed=false` ile baslar.
+
+        Donen sozlukte `password_hash` YOKTUR.
+        """
+        ...
+
+    async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
+        """`risk_tolerance` yazar ve `onboarding_completed`'i tek islemde true yapar."""
+        ...
+
 
 class PortfolioRepository(Protocol):
     async def get_default_portfolio_id(self, user_id: int) -> int | None: ...
@@ -197,6 +208,24 @@ class RagRepository(Protocol):
         tip: str | None = None,
     ) -> list[dict]:
         """Haber/rapor arama. Kaynak metadata'si YAPILANDIRILMIS doner (FR-RAG-04)."""
+        ...
+
+    async def list_news(self, limit: int = 20, kategori: str | None = None) -> list[dict]:
+        """Bulten sayfasi icin en yeni haberler (arama DEGIL, duz liste).
+
+        `rag.documents` satirlarini tarihe gore azalan sirayla doner. Her
+        satir: id, baslik, sirket, symbol, tarih, tip, kategori, kaynak_url,
+        raw_text, image_url.
+        """
+        ...
+
+    async def set_news_image(self, document_id: int, image_url: str) -> None:
+        """Pexels'ten cozulen gorseli kalici olarak `image_url`'e yazar.
+
+        Bu ayni zamanda cache mekanizmasidir: bir sonraki `list_news`
+        cagrisinda satirin `image_url`'i artik dolu gelir, Pexels'e TEKRAR
+        istek atilmaz (ucretsiz plan kotasini korur).
+        """
         ...
 
 

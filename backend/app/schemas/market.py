@@ -31,6 +31,27 @@ class HistoryResponse(BaseModel):
     points: list[PricePoint]
 
 
+class OhlcCandle(BaseModel):
+    ts: str = Field(description="ISO-8601 zaman damgasi")
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+class OhlcResponse(BaseModel):
+    """Mum grafik icin GERCEK gunluk OHLC serisi (bkz. app/market/yahoo.py).
+
+    `candles` bos donebilir: sembolun dogrudan bir Yahoo ticker'i yoksa
+    (turetilmis GRAM_ALTIN/GUMUS gibi) veya veri gecici olarak alinamadiysa.
+    Frontend bu durumda cizgi grafige duser - UYDURMA mum ASLA uretilmez.
+    """
+
+    symbol: str
+    days: int
+    candles: list[OhlcCandle]
+
+
 class Candle(BaseModel):
     time: int = Field(description="Mum baslangici, Unix saniyesi (UTC)")
     open: float
@@ -68,3 +89,29 @@ class SearchHit(BaseModel):
 class MarketSearchResponse(BaseModel):
     query: str
     items: list[SearchHit]
+
+
+class NewsArticle(BaseModel):
+    id: str
+    baslik: str
+    sirket: str | None = None
+    symbol: str | None = None
+    tarih: str | None = None
+    tip: str | None = None
+    kategori: str | None = None
+    kaynak_url: str | None = None
+    excerpt: str = Field(description="raw_text'in kirpilmis hali")
+    body: list[str] = Field(description="raw_text paragraf paragraf")
+    image_url: str = Field(description="Gercek gorsel varsa o, yoksa kategoriye gore otomatik atanan gorsel")
+    related_change_pct: float | None = Field(
+        default=None,
+        description=(
+            "Haberin ilgili oldugu varligin (kategori/baslikta gecen sirket adindan "
+            "cikarilir - orn. altin haberi -> GRAM_ALTIN) CANLI gunluk degisim yuzdesi. "
+            "Guvenilir bir eslesme yoksa None doner; frontend bu durumda rozet gostermez."
+        ),
+    )
+
+
+class NewsListResponse(BaseModel):
+    items: list[NewsArticle]

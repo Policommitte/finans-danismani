@@ -32,6 +32,7 @@ _USERS: list[dict] = [
         "password_hash": "$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW",
         "risk_tolerance": "HIGH",
         "monthly_income": 150000.0,
+        "onboarding_completed": True,
     },
     {
         "id": 2,
@@ -41,6 +42,7 @@ _USERS: list[dict] = [
         "password_hash": "$2b$10$Yb8T7yJiAWQQD71v45o/EOpGCQVCWj9sAbJmjl5R6HKa39lyKW36S",
         "risk_tolerance": "LOW",
         "monthly_income": 75000.0,
+        "onboarding_completed": True,
     },
 ]
 
@@ -467,6 +469,29 @@ class InMemoryUserRepository:
     async def get_by_id(self, user_id: int) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
+                return {k: v for k, v in user.items() if k != "password_hash"}
+        return None
+
+    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+        new_id = max((user["id"] for user in _USERS), default=0) + 1
+        user = {
+            "id": new_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "password_hash": password_hash,
+            "risk_tolerance": None,
+            "monthly_income": 0.0,
+            "onboarding_completed": False,
+        }
+        _USERS.append(user)
+        return {k: v for k, v in user.items() if k != "password_hash"}
+
+    async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
+        for user in _USERS:
+            if user["id"] == user_id:
+                user["risk_tolerance"] = risk_tolerance
+                user["onboarding_completed"] = True
                 return {k: v for k, v in user.items() if k != "password_hash"}
         return None
 
@@ -1132,6 +1157,40 @@ class InMemoryRagRepository:
 
         rows.sort(key=lambda r: r["score"], reverse=True)
         return rows[:top_k]
+
+    async def list_news(self, limit: int = 20, kategori: str | None = None) -> list[dict]:
+        # _RAG_CHUNKS chunk-bazli oldugu icin doc_id'ye gore tekillestiriyoruz
+        # (bulten sayfasi makale ister, chunk degil).
+        seen: set[str] = set()
+        rows: list[dict] = []
+        for chunk in _RAG_CHUNKS:
+            doc_id = chunk["doc_id"]
+            if doc_id in seen:
+                continue
+            if kategori and chunk.get("kategori") != kategori:
+                continue
+            seen.add(doc_id)
+            rows.append(
+                {
+                    "id": chunk["chunk_id"],
+                    "baslik": chunk["baslik"],
+                    "sirket": chunk["sirket"],
+                    "symbol": chunk["symbol"],
+                    "tarih": chunk["tarih"],
+                    "tip": chunk["tip"],
+                    "kategori": chunk.get("kategori"),
+                    "kaynak_url": None,
+                    "raw_text": chunk["content"],
+                    "image_url": chunk.get("image_url"),
+                }
+            )
+        rows.sort(key=lambda r: r["tarih"] or "", reverse=True)
+        return rows[:limit]
+
+    async def set_news_image(self, document_id: int, image_url: str) -> None:
+        for chunk in _RAG_CHUNKS:
+            if chunk["chunk_id"] == document_id:
+                chunk["image_url"] = image_url
 
 
 class InMemoryChatRepository:

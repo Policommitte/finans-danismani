@@ -49,6 +49,7 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     risk_tolerance VARCHAR(20) DEFAULT 'MEDIUM',   -- LOW · MEDIUM · HIGH
     monthly_income NUMERIC DEFAULT 0.0,
+    onboarding_completed BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 

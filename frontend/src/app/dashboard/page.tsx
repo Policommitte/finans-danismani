@@ -141,7 +141,7 @@ export default function DashboardPage() {
           onDisplayCurrencyChange={setDisplayCurrency}
           fxRates={fxRates}
         />
-        <div className="portfolio-assets-panel min-w-0">
+        <div className="portfolio-assets-panel min-w-0" data-tour="portfolio-section">
           <AssetTable
             items={data.holdings}
             cashAccount={data.cash_account}

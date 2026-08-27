@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
+import { mainNavItems, utilityNavItems } from "../components/layout/navItems";
 import { requestPageTransition } from "../components/layout/transitionEvents";
 import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../hooks/useAuth";
@@ -12,16 +13,10 @@ import { getPublicLandingPreview } from "../services/marketService";
 type Language = "tr" | "en";
 type PreviewKey = "dashboard" | "portfolio" | "market";
 
-const publicMenuTargets = [
-  { key: "analysis", href: "/dashboard", icon: "/analiz.svg" },
-  { key: "newsletter", href: "/bulten", icon: "/bulten.svg" },
-  { key: "market", href: "/market", icon: "/piyasa.svg" },
-];
-
-const utilityMenuTargets = [
-  { key: "profile", href: "/profile", icon: "/profil.svg" },
-  { key: "settings", href: "/settings", icon: "/ayarlar.svg" },
-];
+//: Sidebar.tsx ile AYNI kaynaktan (navItems.ts) beslenir - giris yapilmis ve
+//: yapilmamis durumda farkli menu ogeleri/etiketleri gorunmesin diye.
+const publicMenuTargets = mainNavItems.filter((item) => item.key !== "home");
+const utilityMenuTargets = utilityNavItems;
 
 const copy = {
   tr: {
@@ -33,8 +28,6 @@ const copy = {
     authRequiredAction: "Giriş yap",
     chatLoginRequired: "Soru sormadan önce giriş yapmalısınız.",
     close: "Kapat",
-    utilityNav: ["Profil", "Ayarlar"],
-    nav: ["Genel Bakış", "Bülten", "Piyasa"],
     brand: "Finans Danışmanı",
     themeToLight: "Aydınlık moda geç",
     themeToDark: "Karanlık moda geç",
@@ -55,6 +48,14 @@ const copy = {
         description: "Canlı piyasa görünümü",
         badge: "Önizleme",
         icon: "/piyasa.svg",
+      },
+      {
+        key: "newsletter",
+        title: "Bülten",
+        metric: "Güncel",
+        description: "Piyasa haberleri ve şirket bültenlerini takip edin",
+        badge: "Canlı",
+        icon: "/bulten.svg",
       },
     ],
     slides: [
@@ -144,8 +145,6 @@ const copy = {
     authRequiredAction: "Log in",
     chatLoginRequired: "You need to log in before asking a question.",
     close: "Close",
-    utilityNav: ["Profile", "Settings"],
-    nav: ["Overview", "Newsletter", "Market"],
     brand: "Finance Advisor",
     themeToLight: "Switch to light mode",
     themeToDark: "Switch to dark mode",
@@ -166,6 +165,14 @@ const copy = {
         description: "Live market view",
         badge: "Preview",
         icon: "/piyasa.svg",
+      },
+      {
+        key: "newsletter",
+        title: "Newsletter",
+        metric: "Live",
+        description: "Follow market news and company bulletins",
+        badge: "Live",
+        icon: "/bulten.svg",
       },
     ],
     slides: [
@@ -365,7 +372,7 @@ function LandingSideMenu({
           </span>
           <span className={tooltipClass}>{copy[language].home}</span>
         </Link>
-        {publicMenuTargets.map((target, index) => (
+        {publicMenuTargets.map((target) => (
           <div key={target.key} className="group relative">
             {authRequiredPath === target.href ? (
               <AuthRequiredPopover
@@ -379,44 +386,34 @@ function LandingSideMenu({
                 <MenuIcon src={target.icon} />
               </span>
             </button>
-            <span className={tooltipClass}>{copy[language].nav[index]}</span>
+            <span className={tooltipClass}>{target.label[language]}</span>
           </div>
         ))}
       </nav>
 
       <div className="mt-auto space-y-5 pt-6">
-        {utilityMenuTargets.map((target, index) => (
+        {utilityMenuTargets.map((target) => (
           <div key={target.key} className="group relative">
-            {target.key !== "settings" && authRequiredPath === target.href ? (
+            {authRequiredPath === target.href ? (
               <AuthRequiredPopover
                 language={language}
                 nextPath={target.href}
                 onClose={onAuthPopoverClose}
               />
             ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                if (target.key === "settings") {
-                  onAuthPopoverClose();
-                  return;
-                }
-
-                onNavigate(target.href);
-              }}
-              className={iconButtonClass}
-            >
+            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
               <span className="absolute left-2 top-1/2 -translate-y-1/2">
                 <MenuIcon src={target.icon} />
               </span>
             </button>
-            <span className={tooltipClass}>{copy[language].utilityNav[index]}</span>
+            <span className={tooltipClass}>{target.label[language]}</span>
           </div>
         ))}
       </div>
     </aside>
   );
 }
+
 function HeroVisual({ slideKey, language }: { slideKey: string; language: Language }) {
   const visual = copy[language].visual;
 
@@ -1040,10 +1037,12 @@ function QuickAccessCards({
   language,
   previewData,
   onOpenPreview,
+  onNavigate,
 }: {
   language: Language;
   previewData: PublicLandingPreviewResponse | null;
   onOpenPreview: (preview: PreviewKey) => void;
+  onNavigate: (href: string) => void;
 }) {
   const cards = copy[language].features;
 
@@ -1055,6 +1054,13 @@ function QuickAccessCards({
       };
     }
 
+    if (cardKey === "newsletter") {
+      return {
+        value: fallback,
+        unit: language === "tr" ? "haber akışı" : "news feed",
+      };
+    }
+
     return {
       value: fallback,
       unit: language === "tr" ? "öne çıkan" : "featured",
@@ -1063,7 +1069,7 @@ function QuickAccessCards({
 
   return (
     <section id="ozellikler" className="border-t app-border app-card-muted py-14">
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-2">
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-3">
         {cards.map((card) => {
           const metric = cardMetric(card.key, card.metric);
 
@@ -1071,7 +1077,13 @@ function QuickAccessCards({
             <button
               key={card.key}
               type="button"
-              onClick={() => onOpenPreview(card.key as PreviewKey)}
+              onClick={() => {
+                if (card.key === "newsletter") {
+                  onNavigate("/bulten");
+                  return;
+                }
+                onOpenPreview(card.key as PreviewKey);
+              }}
               className="group flex min-h-44 w-full flex-col justify-between rounded-md border app-card p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-[var(--color-primary)] hover:shadow-xl"
             >
             <div className="flex items-start justify-between gap-4">
@@ -1166,6 +1178,7 @@ export default function HomePage() {
             language={language}
             previewData={previewData}
             onOpenPreview={setActivePreview}
+            onNavigate={handleProtectedNavigate}
           />
         </div>
       </div>

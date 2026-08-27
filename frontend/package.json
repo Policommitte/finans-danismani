@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@react-oauth/google": "^0.13.5",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -12,6 +13,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "blobatar": "^2.1.0",
+    "driver.js": "^1.8.0",
     "lightweight-charts": "^5.2.1",
     "next": "^16.0.0",
     "react": "^19.2.8",

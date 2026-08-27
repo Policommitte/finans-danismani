@@ -1,7 +1,10 @@
 "use client";
 import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { GoogleOAuthProvider, useGoogleLogin } from "@react-oauth/google";
 import { requestPageTransition } from "../../components/layout/transitionEvents";
 import { useAuth } from "../../hooks/useAuth";
+
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
 const allowedNextPaths = new Set([
   "/dashboard",
@@ -99,7 +102,7 @@ function SocialButton({ label, onClick, children }: { label: string; onClick: ()
   );
 }
 
-export default function LoginPage() {
+function LoginPageContent() {
   const auth = useAuth();
   const [email, setEmail] = useState("mehmet@example.com");
   const [password, setPassword] = useState("demo1234");
@@ -126,6 +129,19 @@ export default function LoginPage() {
   function noopSocialLogin() {
     setError("Bu giris yontemi henuz aktif degil. E-posta ve sifre ile devam et.");
   }
+
+  const googleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setError(null);
+      try {
+        await auth.loginWithGoogle(tokenResponse.access_token);
+        requestPageTransition(getSafeNextPath(), true);
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : "Google ile giris yapilamadi.");
+      }
+    },
+    onError: () => setError("Google ile giris yapilamadi."),
+  });
 
   return (
     <main
@@ -239,7 +255,10 @@ export default function LoginPage() {
           </div>
 
           <div className="flex justify-center gap-6">
-            <SocialButton label="Google ile devam et" onClick={noopSocialLogin}>
+            <SocialButton
+              label="Google ile devam et"
+              onClick={GOOGLE_CLIENT_ID ? () => googleLogin() : noopSocialLogin}
+            >
               <GoogleIcon />
             </SocialButton>
             <SocialButton label="LinkedIn ile devam et" onClick={noopSocialLogin}>
@@ -252,5 +271,18 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  // `useGoogleLogin` (LoginPageContent icinde, kosulsuz cagrilir) GoogleOAuthProvider
+  // OLMADAN "must be used within GoogleOAuthProvider" hatasi firlatir - client ID bos
+  // olsa bile provider HER ZAMAN sarmalar; buton yine de noopSocialLogin'e duser
+  // (asagida googleLogin yerine noopSocialLogin secilir), boylece bos script yuklemesi
+  // kullaniciya hicbir sekilde yansimaz.
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <LoginPageContent />
+    </GoogleOAuthProvider>
   );
 }
