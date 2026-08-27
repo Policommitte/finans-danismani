@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
+from app.core.errors import BusinessRuleError, NotFoundError
+
 logger = logging.getLogger(__name__)
 
 # --- users ------------------------------------------------------------------
@@ -185,6 +187,14 @@ def reset_data() -> None:
         change = float(asset.get("daily_change_pct") or 0) / 100
         asset["prev_close"] = float(asset["current_price"]) / (1 + change)
     _API_USAGE.clear()
+    _CASH_ACCOUNTS.clear()
+    _CASH_ACCOUNTS.extend(dict(row) for row in _SEED_CASH_ACCOUNTS)
+    _PORTFOLIO_ASSETS.clear()
+    _PORTFOLIO_ASSETS.extend(dict(row) for row in _SEED_PORTFOLIO_ASSETS)
+    _TRANSACTIONS.clear()
+    _TRANSACTIONS.extend(dict(row) for row in _SEED_TRANSACTIONS)
+    _ORDERS.clear()
+    _ORDER_FILLS.clear()
 
 
 _PORTFOLIOS: list[dict] = [
@@ -192,14 +202,15 @@ _PORTFOLIOS: list[dict] = [
     {"id": 2, "user_id": 2, "name": "Guvenli Liman (Emeklilik)", "is_default": True},
 ]
 
-_PORTFOLIO_ASSETS: list[dict] = [
+_SEED_PORTFOLIO_ASSETS: list[dict] = [
     {"portfolio_id": 1, "asset_id": 1, "quantity": 1000, "average_buy_price": 290.00},
     {"portfolio_id": 1, "asset_id": 4, "quantity": 5000, "average_buy_price": 52.00},
     {"portfolio_id": 1, "asset_id": 12, "quantity": 0.5, "average_buy_price": 60000.00},
     {"portfolio_id": 2, "asset_id": 7, "quantity": 200, "average_buy_price": 2300.00},
 ]
+_PORTFOLIO_ASSETS: list[dict] = [dict(row) for row in _SEED_PORTFOLIO_ASSETS]
 
-_TRANSACTIONS: list[dict] = [
+_SEED_TRANSACTIONS: list[dict] = [
     {
         "id": 1,
         "portfolio_id": 1,
@@ -237,6 +248,27 @@ _TRANSACTIONS: list[dict] = [
         "days_ago": 80,
     },
 ]
+_TRANSACTIONS: list[dict] = [dict(row) for row in _SEED_TRANSACTIONS]
+
+_SEED_CASH_ACCOUNTS: list[dict] = [
+    {
+        "id": 1,
+        "portfolio_id": 1,
+        "currency": "TRY",
+        "available_balance": 100000.0,
+        "reserved_balance": 0.0,
+    },
+    {
+        "id": 2,
+        "portfolio_id": 2,
+        "currency": "TRY",
+        "available_balance": 75000.0,
+        "reserved_balance": 0.0,
+    },
+]
+_CASH_ACCOUNTS: list[dict] = [dict(row) for row in _SEED_CASH_ACCOUNTS]
+_ORDERS: list[dict] = []
+_ORDER_FILLS: list[dict] = []
 
 #: rag.documents + rag.chunks karsiligi. Embedding YOKTUR: model secilmedigi
 #: icin bellek ici arama da kelime eslesmesiyle calisir (SQL tarafinda BM25).
@@ -510,6 +542,17 @@ class InMemoryMarketRepository:
         # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
         return []
 
+    async def get_candles(
+        self, symbol: str, interval: str = "5m", days: int = 5
+    ) -> list[dict]:
+        return []
+
+    async def upsert_candles(self, candles: list[dict], source: str = "yahoo") -> int:
+        return 0
+
+    async def prune_candles(self, interval: str, keep_days: int) -> int:
+        return 0
+
     async def get_assets_for_price_update(self) -> list[dict]:
         return [
             {
@@ -579,6 +622,392 @@ class InMemoryMarketRepository:
             return
         bugun = _bugun()
         _API_USAGE[bugun] = _API_USAGE.get(bugun, 0) + calls
+
+
+class InMemoryTradingRepository:
+    async def get_account(self, user_id: int) -> dict | None:
+        portfolio = _default_portfolio(user_id)
+        if not portfolio:
+            return None
+        account = next(
+            (a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None
+        )
+        if not account:
+            return None
+        return {**account, "portfolio_name": portfolio["name"]}
+
+    async def get_order_context(self, user_id: int, symbol: str) -> dict | None:
+        portfolio = _default_portfolio(user_id)
+        asset = next((a for a in _ASSETS if a["symbol"].upper() == symbol.upper()), None)
+        if not portfolio or not asset:
+            return None
+        account = next(
+            (a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None
+        )
+        if not account:
+            return None
+        holding = next(
+            (
+                h
+                for h in _PORTFOLIO_ASSETS
+                if h["portfolio_id"] == portfolio["id"] and h["asset_id"] == asset["id"]
+            ),
+            None,
+        )
+        pending_sell = sum(
+            float(o["quantity"]) - float(o["filled_quantity"])
+            for o in _ORDERS
+            if o["portfolio_id"] == portfolio["id"]
+            and o["asset_id"] == asset["id"]
+            and o["side"] == "SELL"
+            and o["status"] == "PENDING"
+            and o.get("order_type") != "STOP_MARKET"
+        )
+        return {
+            "portfolio_id": portfolio["id"],
+            "asset_id": asset["id"],
+            "symbol": asset["symbol"],
+            "asset_name": asset["name"],
+            "asset_class": asset["asset_class"],
+            "currency": asset["currency"],
+            "current_price": float(asset["current_price"]) * _fx_rate(asset["currency"]),
+            "price_updated_at": asset.get("price_updated_at"),
+            "available_balance": account["available_balance"],
+            "reserved_balance": account["reserved_balance"],
+            "holding_quantity": float(holding["quantity"]) if holding else 0.0,
+            "pending_sell_quantity": pending_sell,
+        }
+
+    async def create_market_order(
+        self,
+        user_id: int,
+        symbol: str,
+        side: str,
+        quantity: float,
+        idempotency_key: str,
+        commission_rate: float,
+        order_type: str = "MARKET",
+        limit_price: float | None = None,
+        validity: str = "GTC",
+        expires_at: object | None = None,
+        stop_loss_price: float | None = None,
+    ) -> dict:
+        existing = next(
+            (
+                o
+                for o in _ORDERS
+                if o["user_id"] == user_id and o["idempotency_key"] == idempotency_key
+            ),
+            None,
+        )
+        if existing:
+            return dict(existing)
+        context = await self.get_order_context(user_id, symbol)
+        if not context:
+            raise NotFoundError(f"'{symbol.upper()}' hissesi veya paper hesabi bulunamadi.")
+        if context["asset_class"] == "INDEX":
+            raise BusinessRuleError("Endeksler dogrudan alinip satilamaz.")
+        if side not in {"BUY", "SELL"} or quantity <= 0:
+            raise BusinessRuleError("Gecersiz emir bilgisi.")
+        if order_type not in {"MARKET", "LIMIT"}:
+            raise BusinessRuleError("Gecersiz emir tipi.")
+        if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
+            raise BusinessRuleError("Limit fiyati sifirdan buyuk olmalidir.")
+        if validity not in {"DAY", "GTC"}:
+            raise BusinessRuleError("Gecersiz emir gecerliligi.")
+        if stop_loss_price is not None:
+            reference = float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+            if side != "BUY" or stop_loss_price <= 0 or stop_loss_price >= reference:
+                raise BusinessRuleError("Stop-loss fiyati alim referans fiyatindan dusuk olmalidir.")
+
+        account = next(a for a in _CASH_ACCOUNTS if a["portfolio_id"] == context["portfolio_id"])
+        reserve_price = float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+        gross = reserve_price * quantity
+        reserve = round(
+            gross * (1 if order_type == "LIMIT" else 1.02) + gross * commission_rate,
+            2,
+        ) if side == "BUY" else 0.0
+        if side == "BUY":
+            if account["available_balance"] < reserve:
+                raise BusinessRuleError(
+                    "Fiyat tamponu dahil bu alim emri icin sanal bakiye yetersiz."
+                )
+            account["available_balance"] -= reserve
+            account["reserved_balance"] += reserve
+        elif context["holding_quantity"] - context["pending_sell_quantity"] < quantity:
+            raise BusinessRuleError(
+                "Bekleyen emirler dusuldugunde satilabilir hisse adedi yetersiz."
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        order = {
+            "id": len(_ORDERS) + 1,
+            "user_id": user_id,
+            "portfolio_id": context["portfolio_id"],
+            "asset_id": context["asset_id"],
+            "symbol": context["symbol"],
+            "asset_name": context["asset_name"],
+            "side": side,
+            "order_type": order_type,
+            "limit_price": limit_price,
+            "stop_loss_price": stop_loss_price,
+            "parent_order_id": None,
+            "validity": validity,
+            "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
+            "quantity": quantity,
+            "quoted_price": context["current_price"],
+            "status": "PENDING",
+            "filled_quantity": 0.0,
+            "average_fill_price": None,
+            "commission": 0.0,
+            "reserved_amount": reserve,
+            "rejection_reason": None,
+            "idempotency_key": idempotency_key,
+            "created_at": now,
+            "filled_at": None,
+        }
+        _ORDERS.append(order)
+        return dict(order)
+
+    async def list_orders(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [dict(o) for o in _ORDERS if o["user_id"] == user_id]
+        rows.sort(key=lambda o: (o["created_at"], o["id"]), reverse=True)
+        return rows[:limit]
+
+    async def cancel_order(self, user_id: int, order_id: int) -> dict:
+        order = next(
+            (row for row in _ORDERS if row["id"] == order_id and row["user_id"] == user_id),
+            None,
+        )
+        if not order:
+            raise NotFoundError("Emir bulunamadi.")
+        if order["status"] != "PENDING":
+            raise BusinessRuleError("Yalnizca bekleyen emirler iptal edilebilir.")
+        account = next(a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"])
+        reserve = float(order.get("reserved_amount") or 0)
+        account["available_balance"] += reserve
+        account["reserved_balance"] -= reserve
+        order.update(status="CANCELLED", reserved_amount=0.0)
+        return dict(order)
+
+    async def process_pending_orders(self, updates: list[dict], commission_rate: float) -> int:
+        prices = {
+            int(u["asset_id"]): float(u["price"])
+            for u in updates
+            if float(u.get("price") or 0) > 0
+        }
+        completed = 0
+        pending_snapshot = sorted(
+            list(_ORDERS),
+            key=lambda row: (row.get("order_type") == "STOP_MARKET", row["created_at"], row["id"]),
+        )
+        for order in pending_snapshot:
+            expires_at = order.get("expires_at")
+            if order["status"] == "PENDING" and expires_at:
+                expiry = datetime.fromisoformat(str(expires_at))
+                if expiry <= datetime.now(timezone.utc):
+                    account = next(
+                        a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"]
+                    )
+                    reserve = float(order.get("reserved_amount") or 0)
+                    account["available_balance"] += reserve
+                    account["reserved_balance"] -= reserve
+                    order.update(status="CANCELLED", reserved_amount=0.0)
+                    continue
+            if order["status"] != "PENDING" or order["asset_id"] not in prices:
+                continue
+            asset = _asset(order["asset_id"])
+            native_price = prices[order["asset_id"]]
+            price = native_price * _fx_rate(asset["currency"])
+            if order["order_type"] == "LIMIT":
+                limit = float(order["limit_price"])
+                if order["side"] == "BUY" and price > limit:
+                    continue
+                if order["side"] == "SELL" and price < limit:
+                    continue
+            elif order["order_type"] == "STOP_MARKET":
+                if price > float(order["stop_loss_price"]):
+                    continue
+                current_holding = next(
+                    (
+                        h for h in _PORTFOLIO_ASSETS
+                        if h["portfolio_id"] == order["portfolio_id"]
+                        and h["asset_id"] == order["asset_id"]
+                    ),
+                    None,
+                )
+                manual_pending = sum(
+                    float(other["quantity"]) - float(other["filled_quantity"])
+                    for other in _ORDERS
+                    if other["portfolio_id"] == order["portfolio_id"]
+                    and other["asset_id"] == order["asset_id"]
+                    and other["side"] == "SELL"
+                    and other["status"] == "PENDING"
+                    and other.get("order_type") != "STOP_MARKET"
+                )
+                effective = min(
+                    float(order["quantity"]),
+                    max(float(current_holding["quantity"]) - manual_pending, 0)
+                    if current_holding else 0,
+                )
+                if effective <= 0:
+                    continue
+                order["quantity"] = effective
+            gross = round(price * float(order["quantity"]), 2)
+            commission = round(gross * commission_rate, 2)
+            account = next(
+                a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"]
+            )
+            holding = next(
+                (
+                    h
+                    for h in _PORTFOLIO_ASSETS
+                    if h["portfolio_id"] == order["portfolio_id"]
+                    and h["asset_id"] == order["asset_id"]
+                ),
+                None,
+            )
+            if order["side"] == "BUY":
+                total = gross + commission
+                reserve = float(order["reserved_amount"])
+                if account["available_balance"] + reserve < total:
+                    account["available_balance"] += reserve
+                    account["reserved_balance"] -= reserve
+                    order["status"] = "REJECTED"
+                    order["rejection_reason"] = "Yeni fiyatta kullanilabilir bakiye yetersiz."
+                    continue
+                account["available_balance"] += reserve - total
+                account["reserved_balance"] -= reserve
+                if holding:
+                    old_qty = float(holding["quantity"])
+                    new_qty = old_qty + float(order["quantity"])
+                    holding["average_buy_price"] = (
+                        old_qty * float(holding["average_buy_price"])
+                        + float(order["quantity"]) * native_price
+                    ) / new_qty
+                    holding["quantity"] = new_qty
+                else:
+                    _PORTFOLIO_ASSETS.append(
+                        {
+                            "portfolio_id": order["portfolio_id"],
+                            "asset_id": order["asset_id"],
+                            "quantity": order["quantity"],
+                            "average_buy_price": native_price,
+                        }
+                    )
+            else:
+                if not holding or float(holding["quantity"]) < float(order["quantity"]):
+                    order["status"] = "REJECTED"
+                    order["rejection_reason"] = "Gerceklesme aninda satilabilir adet yetersiz."
+                    continue
+                holding["quantity"] = float(holding["quantity"]) - float(order["quantity"])
+                if holding["quantity"] == 0:
+                    _PORTFOLIO_ASSETS.remove(holding)
+                account["available_balance"] += gross - commission
+
+            _TRANSACTIONS.append(
+                {
+                    "id": max((row["id"] for row in _TRANSACTIONS), default=0) + 1,
+                    "portfolio_id": order["portfolio_id"],
+                    "asset_id": order["asset_id"],
+                    "transaction_type": order["side"],
+                    "quantity": order["quantity"],
+                    "unit_price": native_price,
+                    "days_ago": 0,
+                }
+            )
+
+            now = datetime.now(timezone.utc).isoformat()
+            order.update(
+                status="FILLED",
+                filled_quantity=order["quantity"],
+                average_fill_price=price,
+                commission=commission,
+                filled_at=now,
+            )
+            if order["side"] == "BUY" and order.get("stop_loss_price") is not None:
+                _ORDERS.append(
+                    {
+                        "id": max((row["id"] for row in _ORDERS), default=0) + 1,
+                        "user_id": order["user_id"],
+                        "portfolio_id": order["portfolio_id"],
+                        "asset_id": order["asset_id"],
+                        "symbol": order["symbol"],
+                        "asset_name": order["asset_name"],
+                        "side": "SELL",
+                        "order_type": "STOP_MARKET",
+                        "limit_price": None,
+                        "stop_loss_price": order["stop_loss_price"],
+                        "parent_order_id": order["id"],
+                        "validity": "GTC",
+                        "expires_at": None,
+                        "quantity": order["quantity"],
+                        "quoted_price": price,
+                        "status": "PENDING",
+                        "filled_quantity": 0.0,
+                        "average_fill_price": None,
+                        "commission": 0.0,
+                        "reserved_amount": 0.0,
+                        "rejection_reason": None,
+                        "idempotency_key": f"attached-stop-{order['id']}",
+                        "created_at": now,
+                        "filled_at": None,
+                    }
+                )
+            if order["side"] == "SELL" and order["order_type"] != "STOP_MARKET":
+                self._normalize_stop_orders(
+                    order["portfolio_id"], order["asset_id"], float(order["quantity"])
+                )
+            _ORDER_FILLS.append(
+                {
+                    "order_id": order["id"],
+                    "quantity": order["quantity"],
+                    "price": price,
+                    "commission": commission,
+                    "executed_at": now,
+                }
+            )
+            completed += 1
+        return completed
+
+    @staticmethod
+    def _normalize_stop_orders(
+        portfolio_id: int, asset_id: int, sold_quantity: float
+    ) -> None:
+        holding = next(
+            (
+                row for row in _PORTFOLIO_ASSETS
+                if row["portfolio_id"] == portfolio_id and row["asset_id"] == asset_id
+            ),
+            None,
+        )
+        available = float(holding["quantity"]) if holding else 0.0
+        manual_reduction = sold_quantity
+        stops = sorted(
+            (
+                row for row in _ORDERS
+                if row["portfolio_id"] == portfolio_id
+                and row["asset_id"] == asset_id
+                and row.get("order_type") == "STOP_MARKET"
+                and row["status"] == "PENDING"
+            ),
+            key=lambda row: (row["created_at"], row["id"]),
+        )
+        for stop in stops:
+            original = float(stop["quantity"])
+            reduction = min(original, manual_reduction)
+            manual_reduction -= reduction
+            protected = min(original - reduction, available)
+            if protected <= 0:
+                stop["status"] = "CANCELLED"
+            else:
+                stop["quantity"] = protected
+            available -= protected
+
+
+def _default_portfolio(user_id: int) -> dict | None:
+    rows = [p for p in _PORTFOLIOS if p["user_id"] == user_id]
+    return next((p for p in rows if p["is_default"]), rows[0] if rows else None)
 
 
 class InMemoryRagRepository:

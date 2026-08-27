@@ -1,6 +1,7 @@
 import type { DashboardSummaryResponse } from "../../models/dashboard";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { getRiskTone } from "../risk/riskTone";
+import type { DisplayCurrency } from "../portfolio/PortfolioVisualization";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
   dusuk: "Düşük risk bandında",
@@ -38,13 +39,26 @@ function RiskGauge({ score, color }: { score: number; color: string }) {
   );
 }
 
-export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
+export function SummaryCards({
+  data,
+  displayCurrency,
+  conversionDivisor,
+}: {
+  data: DashboardSummaryResponse;
+  displayCurrency: DisplayCurrency;
+  conversionDivisor: number;
+}) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
-  const currency = new Intl.NumberFormat(locale, { style: "currency", currency: "TRY", maximumFractionDigits: 0 });
+  const currency = new Intl.NumberFormat(locale, { style: "currency", currency: displayCurrency, maximumFractionDigits: 0 });
   const pct = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const summary = data.summary;
   const isUp = (summary?.total_pnl_try ?? 0) >= 0;
+  const availableCash = data.cash_account?.available_balance ?? 0;
+  const reservedCash = data.cash_account?.reserved_balance ?? 0;
+  const totalCash = availableCash + reservedCash;
+  const investedValue = summary?.total_value_try ?? 0;
+  const netWorth = investedValue + totalCash;
 
   const dailyChangeTry = summary?.daily_change_try ?? 0;
   const dailyChangePct = summary?.daily_change_pct ?? null;
@@ -64,7 +78,7 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
   const levelColor = getRiskTone(levelKey);
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <div className="relative overflow-hidden rounded-xl bg-[var(--color-panel-dark)] p-5 text-white shadow-lg">
         <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
         <div className="relative flex items-center gap-2 text-xs font-medium text-white/70">
@@ -77,14 +91,21 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
           </span>
           {language === "tr" ? "Toplam Portföy Değeri" : "Total Portfolio Value"}
         </div>
-        <div className="relative mt-3 text-2xl font-semibold">{summary ? currency.format(summary.total_value_try) : "—"}</div>
+        <div className="relative mt-3 text-2xl font-semibold">
+          {summary || data.cash_account ? currency.format(netWorth / conversionDivisor) : "—"}
+        </div>
+        {(summary || data.cash_account) && (
+          <p className="relative mt-1 text-xs text-white/65">
+            {language === "tr" ? "Varlıklar" : "Assets"}: {currency.format(investedValue / conversionDivisor)} · {language === "tr" ? "Nakit" : "Cash"}: {currency.format(totalCash / conversionDivisor)}
+          </p>
+        )}
         {summary && (
           <span
             className={`relative mt-3 inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold ${
               isUp ? "app-success" : "app-danger"
             }`}
           >
-            {isUp ? "▲" : "▼"} {currency.format(Math.abs(summary.total_pnl_try))}
+            {isUp ? "▲" : "▼"} {currency.format(Math.abs(summary.total_pnl_try) / conversionDivisor)}
             {summary.total_pnl_pct != null && ` · %${pct.format(Math.abs(summary.total_pnl_pct))}`}
           </span>
         )}
@@ -102,13 +123,41 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
           {language === "tr" ? "Günlük Değişim" : "Daily Change"}
         </div>
         <div className="mt-3 text-2xl font-semibold app-heading">
-          {summary ? `${dailyUp ? "+" : ""}${currency.format(dailyChangeTry)}` : "—"}
+          {summary ? `${dailyUp ? "+" : ""}${currency.format(dailyChangeTry / conversionDivisor)}` : "—"}
         </div>
         <span className={`mt-3 inline-flex items-center gap-1 text-sm font-semibold ${dailyUp ? "app-success" : "app-danger"}`}>
           {dailyChangePct == null
             ? language === "tr" ? "Veri yok" : "No data"
             : `${dailyUp ? "▲" : "▼"} %${pct.format(Math.abs(dailyChangePct))}`}
         </span>
+      </div>
+
+      <div className="rounded-xl border app-card p-5 shadow-sm">
+        <div className="flex items-center gap-2 text-xs font-medium app-muted">
+          <span className="grid h-8 w-8 place-items-center rounded-lg app-primary-soft">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="6" width="18" height="13" rx="2" />
+              <path d="M16 11h5v4h-5a2 2 0 0 1 0-4Z" />
+              <path d="M7 6V4h10v2" />
+            </svg>
+          </span>
+          {language === "tr" ? "Toplam Likit Para" : "Total Liquid Cash"}
+        </div>
+        <div className="mt-3 text-2xl font-semibold app-heading">
+          {data.cash_account ? currency.format(totalCash / conversionDivisor) : "—"}
+        </div>
+        {data.cash_account && (
+          <div className="mt-3 space-y-1 text-xs app-muted">
+            <div className="flex justify-between gap-3">
+              <span>{language === "tr" ? "Kullanılabilir" : "Available"}</span>
+              <strong className="app-heading">{currency.format(availableCash / conversionDivisor)}</strong>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>{language === "tr" ? "Emirlerde bloke" : "Reserved for orders"}</span>
+              <strong className="app-heading">{currency.format(reservedCash / conversionDivisor)}</strong>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="relative overflow-hidden rounded-xl border app-card p-5 shadow-sm">

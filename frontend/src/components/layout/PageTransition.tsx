@@ -1,0 +1,245 @@
+"use client";
+
+import { usePathname, useRouter } from "next/navigation";
+import { ReactNode, useEffect, useRef, useState } from "react";
+import {
+  DASHBOARD_READY_EVENT,
+  MARKET_PAGE_READY_EVENT,
+  MARKET_TICKER_READY_EVENT,
+  PAGE_TRANSITION_REQUEST_EVENT,
+  type PageTransitionNavigation,
+} from "./transitionEvents";
+
+const COVER_DURATION_MS = 900;
+const REVEAL_DELAY_MS = 80;
+const TICKER_READY_TIMEOUT_MS = 8000;
+
+type TransitionPhase = "idle" | "covering" | "covered" | "revealing";
+
+export function PageTransition({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [phase, setPhase] = useState<TransitionPhase>("covered");
+  const phaseRef = useRef<TransitionPhase>("covered");
+  const destinationRef = useRef<string | null>(null);
+  const navigationTimerRef = useRef<number | null>(null);
+  const revealTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    let revealStarted = false;
+    let tickerWaitExpired = false;
+
+    function revealPage() {
+      if (revealStarted) {
+        return;
+      }
+
+      revealStarted = true;
+      revealTimerRef.current = window.setTimeout(() => {
+        phaseRef.current = "revealing";
+        setPhase("revealing");
+        destinationRef.current = null;
+      }, REVEAL_DELAY_MS);
+    }
+
+    function requiredDataIsReady() {
+      const tickerIsReady = document.documentElement.dataset.marketTickerReady === "true";
+      const dashboardIsReady = document.documentElement.dataset.dashboardReady === "true";
+      const marketPageIsReady = document.documentElement.dataset.marketPageReady === "true";
+      const pageHasTicker = pathname !== "/login";
+      const pageNeedsDashboard = pathname === "/dashboard" || pathname === "/portfolio";
+      const pageNeedsMarket = pathname === "/market";
+
+      return (
+        (!pageHasTicker || tickerIsReady || tickerWaitExpired) &&
+        (!pageNeedsDashboard || dashboardIsReady) &&
+        (!pageNeedsMarket || marketPageIsReady)
+      );
+    }
+
+    function handleDataReady() {
+      if (requiredDataIsReady()) {
+        revealPage();
+      }
+    }
+
+    let tickerReadyTimeout: number | null = null;
+
+    if (!requiredDataIsReady()) {
+      window.addEventListener(MARKET_TICKER_READY_EVENT, handleDataReady);
+      window.addEventListener(DASHBOARD_READY_EVENT, handleDataReady);
+      window.addEventListener(MARKET_PAGE_READY_EVENT, handleDataReady);
+      tickerReadyTimeout = window.setTimeout(() => {
+        tickerWaitExpired = true;
+        handleDataReady();
+      }, TICKER_READY_TIMEOUT_MS);
+    } else {
+      revealPage();
+    }
+
+    return () => {
+      window.removeEventListener(MARKET_TICKER_READY_EVENT, handleDataReady);
+      window.removeEventListener(DASHBOARD_READY_EVENT, handleDataReady);
+      window.removeEventListener(MARKET_PAGE_READY_EVENT, handleDataReady);
+      if (tickerReadyTimeout !== null) {
+        window.clearTimeout(tickerReadyTimeout);
+      }
+      if (revealTimerRef.current !== null) {
+        window.clearTimeout(revealTimerRef.current);
+      }
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    if (phase !== "revealing") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setPhase("idle"), COVER_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase]);
+
+  useEffect(() => {
+    function beginNavigation(destination: string, replace = false) {
+      if (phaseRef.current === "covering") {
+        return;
+      }
+
+      if (phaseRef.current === "covered") {
+        destinationRef.current = destination;
+        if (replace) {
+          router.replace(destination);
+        } else {
+          router.push(destination);
+        }
+        return;
+      }
+
+      const destinationUrl = new URL(destination, window.location.href);
+      const currentUrl = new URL(window.location.href);
+      const isSameLocation =
+        destinationUrl.pathname === currentUrl.pathname &&
+        destinationUrl.search === currentUrl.search &&
+        destinationUrl.hash === currentUrl.hash;
+
+      if (isSameLocation) {
+        destinationRef.current = null;
+        phaseRef.current = "idle";
+        setPhase("idle");
+        return;
+      }
+
+      if (destinationUrl.pathname === "/dashboard" || destinationUrl.pathname === "/portfolio") {
+        delete document.documentElement.dataset.dashboardReady;
+      }
+      if (destinationUrl.pathname === "/market") {
+        delete document.documentElement.dataset.marketPageReady;
+      }
+
+      destinationRef.current = destination;
+      phaseRef.current = "covering";
+      setPhase("covering");
+
+      navigationTimerRef.current = window.setTimeout(() => {
+        phaseRef.current = "covered";
+        setPhase("covered");
+
+        if (replace) {
+          router.replace(destinationRef.current ?? "/");
+        } else {
+          router.push(destinationRef.current ?? "/");
+        }
+      }, COVER_DURATION_MS);
+    }
+
+    function handleTransitionRequest(event: Event) {
+      const navigationEvent = event as CustomEvent<PageTransitionNavigation>;
+      const { href, replace = false } = navigationEvent.detail;
+      beginNavigation(href, replace);
+    }
+
+    function handleDocumentClick(event: MouseEvent) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        phaseRef.current === "covering" ||
+        phaseRef.current === "covered"
+      ) {
+        return;
+      }
+
+      const target = event.target;
+      const anchor = target instanceof Element ? target.closest("a") : null;
+
+      if (
+        !(anchor instanceof HTMLAnchorElement) ||
+        anchor.target === "_blank" ||
+        anchor.hasAttribute("download") ||
+        anchor.dataset.noPageTransition === "true"
+      ) {
+        return;
+      }
+
+      const destination = new URL(anchor.href, window.location.href);
+      const current = new URL(window.location.href);
+      const isSameDocumentHash =
+        destination.pathname === current.pathname &&
+        destination.search === current.search &&
+        destination.hash !== current.hash;
+
+      if (
+        destination.origin !== current.origin ||
+        !["http:", "https:"].includes(destination.protocol) ||
+        isSameDocumentHash ||
+        destination.href === current.href
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      beginNavigation(`${destination.pathname}${destination.search}${destination.hash}`);
+    }
+
+    document.addEventListener("click", handleDocumentClick, true);
+    window.addEventListener(PAGE_TRANSITION_REQUEST_EVENT, handleTransitionRequest);
+    return () => {
+      document.removeEventListener("click", handleDocumentClick, true);
+      window.removeEventListener(PAGE_TRANSITION_REQUEST_EVENT, handleTransitionRequest);
+      if (navigationTimerRef.current !== null) {
+        window.clearTimeout(navigationTimerRef.current);
+      }
+    };
+  }, [router]);
+
+  const overlayVisible = phase !== "idle";
+  const tilesCovered = phase === "covering" || phase === "covered";
+
+  return (
+    <>
+      {children}
+      <div
+        aria-hidden="true"
+        data-phase={phase}
+        className={`page-transition ${overlayVisible ? "page-transition--visible" : ""} ${
+          tilesCovered ? "page-transition--covered" : ""
+        }`}
+      >
+        <div className="page-transition__brand">
+          <span className="page-transition__logo" />
+          <span className="page-transition__spinner" />
+        </div>
+        {Array.from({ length: 5 }, (_, index) => (
+          <span key={index} className="page-transition__tile" />
+        ))}
+      </div>
+    </>
+  );
+}

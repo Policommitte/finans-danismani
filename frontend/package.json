@@ -12,6 +12,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "blobatar": "^2.1.0",
+    "lightweight-charts": "^5.2.1",
     "next": "^16.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

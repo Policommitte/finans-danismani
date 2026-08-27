@@ -21,6 +21,11 @@ DROP TABLE IF EXISTS watchlists CASCADE;
 DROP TABLE IF EXISTS live_prices CASCADE;
 DROP TABLE IF EXISTS price_history CASCADE;
 DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS cash_ledger CASCADE;
+DROP TABLE IF EXISTS order_fills CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS paper_positions CASCADE;
+DROP TABLE IF EXISTS cash_accounts CASCADE;
 DROP TABLE IF EXISTS portfolio_assets CASCADE;
 DROP TABLE IF EXISTS portfolios CASCADE;
 DROP TABLE IF EXISTS assets CASCADE;
@@ -133,6 +138,102 @@ CREATE TABLE transactions (
     quantity NUMERIC NOT NULL,
     unit_price NUMERIC NOT NULL,
     transaction_date TIMESTAMPTZ DEFAULT now()
+);
+
+-- Gercek OHLCV mumlari. `live_prices` tekil fiyat anlik goruntuleridir;
+-- bu tablo ise Yahoo'nun zaman araligindaki open/high/low/close/volume
+-- degerlerini saklar.
+CREATE TABLE market_candles (
+    asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    interval VARCHAR(8) NOT NULL CHECK (interval IN ('5m','1d')),
+    ts TIMESTAMPTZ NOT NULL,
+    open NUMERIC NOT NULL CHECK (open > 0),
+    high NUMERIC NOT NULL CHECK (high > 0),
+    low NUMERIC NOT NULL CHECK (low > 0),
+    close NUMERIC NOT NULL CHECK (close > 0),
+    volume NUMERIC,
+    source VARCHAR(20) NOT NULL DEFAULT 'yahoo',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (asset_id, interval, ts),
+    CHECK (high >= GREATEST(open, close, low)),
+    CHECK (low <= LEAST(open, close, high))
+);
+
+CREATE TABLE cash_accounts (
+    id SERIAL PRIMARY KEY,
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    currency VARCHAR(10) NOT NULL DEFAULT 'TRY',
+    available_balance NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (available_balance >= 0),
+    reserved_balance NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (reserved_balance >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (portfolio_id, currency)
+);
+
+CREATE TABLE paper_positions (
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES assets(id),
+    quantity NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    average_buy_price NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (average_buy_price >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (portfolio_id, asset_id)
+);
+
+CREATE TABLE orders (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES assets(id),
+    side VARCHAR(4) NOT NULL CHECK (side IN ('BUY','SELL')),
+    order_type VARCHAR(12) NOT NULL DEFAULT 'MARKET'
+        CHECK (order_type IN ('MARKET','LIMIT','STOP_MARKET')),
+    quantity NUMERIC(20,6) NOT NULL CHECK (quantity > 0),
+    quoted_price NUMERIC(20,6) NOT NULL CHECK (quoted_price > 0),
+    limit_price NUMERIC(20,6),
+    stop_loss_price NUMERIC(20,6),
+    parent_order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+    validity VARCHAR(4) NOT NULL DEFAULT 'GTC' CHECK (validity IN ('DAY','GTC')),
+    expires_at TIMESTAMPTZ,
+    status VARCHAR(12) NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','FILLED','REJECTED','CANCELLED')),
+    filled_quantity NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (filled_quantity >= 0),
+    average_fill_price NUMERIC(20,6),
+    commission NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (commission >= 0),
+    reserved_amount NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (reserved_amount >= 0),
+    rejection_reason TEXT,
+    idempotency_key VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    filled_at TIMESTAMPTZ,
+    UNIQUE (user_id, idempotency_key),
+    CHECK (
+        (order_type IN ('MARKET','STOP_MARKET') AND limit_price IS NULL)
+        OR (order_type = 'LIMIT' AND limit_price > 0)
+    ),
+    CHECK (
+        (order_type = 'STOP_MARKET' AND side = 'SELL' AND stop_loss_price > 0
+         AND parent_order_id IS NOT NULL)
+        OR order_type <> 'STOP_MARKET'
+    )
+);
+
+CREATE TABLE order_fills (
+    id BIGSERIAL PRIMARY KEY,
+    order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    quantity NUMERIC(20,6) NOT NULL CHECK (quantity > 0),
+    price NUMERIC(20,6) NOT NULL CHECK (price > 0),
+    commission NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (commission >= 0),
+    executed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE cash_ledger (
+    id BIGSERIAL PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES cash_accounts(id) ON DELETE CASCADE,
+    order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+    entry_type VARCHAR(20) NOT NULL
+        CHECK (entry_type IN ('DEPOSIT','BUY_FILL','SELL_PROCEEDS','ADJUSTMENT')),
+    amount NUMERIC(18,2) NOT NULL,
+    balance_after NUMERIC(18,2) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 
@@ -261,9 +362,16 @@ CREATE INDEX assets_name_trgm_idx      ON assets USING gin (name gin_trgm_ops);
 CREATE INDEX price_history_asset_ts_idx ON price_history (asset_id, ts DESC);
 CREATE INDEX live_prices_asset_created_idx ON live_prices (asset_id, created_at DESC);
 CREATE INDEX live_prices_created_idx     ON live_prices (created_at);
+CREATE INDEX market_candles_asset_interval_ts_idx
+    ON market_candles (asset_id, interval, ts DESC);
 CREATE INDEX portfolios_user_idx       ON portfolios (user_id);
 CREATE INDEX portfolio_assets_pf_idx   ON portfolio_assets (portfolio_id);
 CREATE INDEX transactions_pf_date_idx  ON transactions (portfolio_id, transaction_date DESC);
+CREATE INDEX orders_user_created_idx   ON orders (user_id, created_at DESC);
+CREATE INDEX orders_pending_asset_idx  ON orders (asset_id, created_at) WHERE status = 'PENDING';
+CREATE INDEX order_fills_order_idx     ON order_fills (order_id, executed_at);
+CREATE INDEX cash_ledger_account_idx   ON cash_ledger (account_id, created_at DESC);
+CREATE INDEX paper_positions_portfolio_idx ON paper_positions (portfolio_id);
 CREATE INDEX chat_sessions_user_idx    ON chat_sessions (user_id, updated_at DESC);
 CREATE INDEX chat_messages_session_idx ON chat_messages (session_id, created_at);
 CREATE INDEX tool_calls_request_idx    ON tool_calls (request_id);
@@ -437,6 +545,13 @@ INSERT INTO portfolios (user_id, name, is_default) VALUES
 (6, 'Global Teknoloji Fonu',      TRUE),
 (6, 'Yüksek Riskli Altcoinler',   FALSE),
 (10,'Temettü Portföyü',           TRUE);       -- kasıtlı BOŞ: edge case
+
+INSERT INTO cash_accounts (portfolio_id, currency, available_balance)
+SELECT p.id, 'TRY', CASE WHEN p.user_id = 1 THEN 100000.00 ELSE 75000.00 END
+FROM portfolios p;
+
+INSERT INTO cash_ledger (account_id, entry_type, amount, balance_after)
+SELECT id, 'DEPOSIT', available_balance, available_balance FROM cash_accounts;
 
 INSERT INTO transactions (portfolio_id, asset_id, transaction_type, quantity, unit_price, transaction_date) VALUES
 (1, 1,'BUY',1000,  290.00, now() - INTERVAL '75 days'),

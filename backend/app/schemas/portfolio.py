@@ -20,6 +20,18 @@ class PortfolioSummary(BaseModel):
     daily_change_pct: float | None = Field(
         default=None, description="Onceki kapanisa gore portfoy degisim yuzdesi"
     )
+    weekly_change_try: float | None = Field(
+        default=None, description="Yedi gun onceki dogrulanmis degere gore degisim (TRY)"
+    )
+    weekly_change_pct: float | None = Field(
+        default=None, description="Yedi gun onceki dogrulanmis degere gore degisim yuzdesi"
+    )
+    monthly_change_try: float | None = Field(
+        default=None, description="Otuz gun onceki dogrulanmis degere gore degisim (TRY)"
+    )
+    monthly_change_pct: float | None = Field(
+        default=None, description="Otuz gun onceki dogrulanmis degere gore degisim yuzdesi"
+    )
 
 
 class Holding(BaseModel):

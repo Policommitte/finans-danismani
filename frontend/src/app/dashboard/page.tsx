@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SummaryCards } from "../../components/dashboard/SummaryCards";
+import { CompletedTrades } from "../../components/dashboard/CompletedTrades";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { AssetTable } from "../../components/portfolio/AssetTable";
 import {
   PortfolioVisualization,
+  type DisplayCurrency,
+  type PortfolioFxRates,
   type PortfolioViewMode,
 } from "../../components/portfolio/PortfolioVisualization";
 import { RecommendationList } from "../../components/risk/RecommendationList";
@@ -15,6 +18,8 @@ import { useAuth } from "../../hooks/useAuth";
 import { useDashboard } from "../../hooks/useDashboard";
 import { usePortfolioPerformance } from "../../hooks/usePortfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { DASHBOARD_READY_EVENT } from "../../components/layout/transitionEvents";
+import { getPublicMarketTicker } from "../../services/marketService";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
   dusuk: "düşük",
@@ -27,9 +32,53 @@ const RISK_LEVEL_LABEL: Record<string, string> = {
 export default function DashboardPage() {
   const { language } = useLanguage();
   const [portfolioViewMode, setPortfolioViewMode] = useState<PortfolioViewMode>("line");
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>("TRY");
+  const [fxRates, setFxRates] = useState<PortfolioFxRates>({ USD: null, EUR: null });
   const auth = useAuth();
   const dashboard = useDashboard();
   const performance = usePortfolioPerformance(24);
+  const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadFxRates() {
+      try {
+        const response = await getPublicMarketTicker();
+        const findRate = (symbol: string) => response.items.find(
+          (item) => item.symbol.replace(/[^A-Z]/gi, "").toUpperCase() === symbol,
+        )?.value;
+        const usdTry = findRate("USDTRY");
+        const eurTry = findRate("EURTRY");
+
+        if (active && usdTry && eurTry) {
+          setFxRates({ USD: usdTry, EUR: eurTry });
+        }
+      } catch {
+        // TRY remains available when current FX rates cannot be loaded.
+      }
+    }
+
+    void loadFxRates();
+    const timer = window.setInterval(loadFxRates, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (dashboard.loading || performance.loading) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.dataset.dashboardReady = "true";
+      window.dispatchEvent(new Event(DASHBOARD_READY_EVENT));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [dashboard.loading, performance.loading]);
 
   if (dashboard.loading) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
@@ -73,19 +122,32 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <SummaryCards data={data} />
+      <SummaryCards
+        data={data}
+        displayCurrency={displayCurrency}
+        conversionDivisor={conversionDivisor}
+      />
 
       <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
         <PortfolioVisualization
           holdings={data.holdings}
+          cashTotalTry={(data.cash_account?.available_balance ?? 0) + (data.cash_account?.reserved_balance ?? 0)}
           performancePoints={performance.data?.points ?? []}
           performanceLoading={performance.loading}
           performanceError={performance.error}
           mode={portfolioViewMode}
           onModeChange={setPortfolioViewMode}
+          displayCurrency={displayCurrency}
+          onDisplayCurrencyChange={setDisplayCurrency}
+          fxRates={fxRates}
         />
         <div className="portfolio-assets-panel min-w-0">
-          <AssetTable items={data.holdings} />
+          <AssetTable
+            items={data.holdings}
+            cashAccount={data.cash_account}
+            displayCurrency={displayCurrency}
+            conversionDivisor={conversionDivisor}
+          />
         </div>
       </div>
 
@@ -93,6 +155,8 @@ export default function DashboardPage() {
         <RiskScoreCard risk={data.risk} />
         <RecommendationList risk={data.risk} />
       </div>
+
+      <CompletedTrades items={data.filled_orders} />
     </div>
   );
 }

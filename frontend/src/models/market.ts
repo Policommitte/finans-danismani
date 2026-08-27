@@ -60,6 +60,25 @@ export type PublicMarketTickerResponse = {
   items: PublicMarketTickerItem[];
 };
 
+export type ChartInterval = "5m" | "15m" | "1h" | "4h" | "1d";
+export type ChartRange = "1d" | "5d" | "1m" | "3m" | "1y";
+
+export type Candle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+};
+
+export type CandlesResponse = {
+  symbol: string;
+  interval: ChartInterval;
+  range: ChartRange;
+  candles: Candle[];
+};
+
 export type PublicLandingAllocationItem = {
   asset_class: string;
   class_value_try: number;

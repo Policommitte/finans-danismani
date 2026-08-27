@@ -22,6 +22,7 @@ KORUMALI_UCLAR = [
     "/api/portfolio/allocation",
     "/api/portfolio/transactions",
     "/api/market/assets",
+    "/api/trading/account",
     "/api/risk/profile",
     "/api/conversations",
 ]

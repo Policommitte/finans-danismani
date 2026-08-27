@@ -121,6 +121,7 @@ export function ChatWidget({
       )}
       <button
         type="button"
+        data-tour="chat-assistant"
         className="relative z-30 h-16 w-16 rounded-full bg-[var(--color-panel-dark)] p-0 shadow-lg transition hover:-translate-y-0.5 hover:brightness-110"
         aria-label={open ? "Sohbeti kapat" : "Yatırım Asistanı'nı aç"}
         onClick={() => setOpen(!open)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type AsyncState<T> = {
   data: T | null;
@@ -14,18 +14,25 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []):
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const latestRequest = useRef(0);
 
   const load = useCallback(async (showLoading: boolean) => {
+    const requestId = ++latestRequest.current;
     if (showLoading) {
       setLoading(true);
     }
     setError(null);
     try {
-      setData(await loader());
+      const nextData = await loader();
+      if (requestId === latestRequest.current) {
+        setData(nextData);
+      }
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Veri alinamadi.");
+      if (requestId === latestRequest.current) {
+        setError(exc instanceof Error ? exc.message : "Veri alinamadi.");
+      }
     } finally {
-      if (showLoading) {
+      if (requestId === latestRequest.current) {
         setLoading(false);
       }
     }

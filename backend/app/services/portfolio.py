@@ -12,6 +12,7 @@ cevirme yapilir.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 from app.core.errors import NotFoundError
 from app.repositories.deps import get_portfolio_repository
@@ -28,7 +29,12 @@ from app.schemas.portfolio import (
 )
 
 
-async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> PortfolioSummary:
+async def ozet_getir(
+    user_id: int,
+    portfolio_id: int | None = None,
+    *,
+    include_period_changes: bool = False,
+) -> PortfolioSummary:
     repository = get_portfolio_repository()
     summary, holdings = await asyncio.gather(
         repository.get_summary(user_id, portfolio_id),
@@ -39,6 +45,15 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Portfolio
 
     daily_change_try = sum(float(row.get("daily_change_try") or 0) for row in holdings)
     previous_total = float(summary["total_value_try"]) - daily_change_try
+    total_value_try = float(summary["total_value_try"])
+    weekly_change: tuple[float | None, float | None] = (None, None)
+    monthly_change: tuple[float | None, float | None] = (None, None)
+    if include_period_changes:
+        weekly_change, monthly_change = await donem_degisiklikleri_getir(
+            user_id,
+            total_value_try,
+            portfolio_id,
+        )
 
     return PortfolioSummary(
         portfolio_id=summary.get("portfolio_id"),
@@ -51,6 +66,30 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Portfolio
         daily_change_pct=(
             round(daily_change_try / previous_total * 100, 2) if previous_total > 0 else None
         ),
+        weekly_change_try=weekly_change[0],
+        weekly_change_pct=weekly_change[1],
+        monthly_change_try=monthly_change[0],
+        monthly_change_pct=monthly_change[1],
+    )
+
+
+async def donem_degisiklikleri_getir(
+    user_id: int,
+    current_total: float,
+    portfolio_id: int | None = None,
+) -> tuple[
+    tuple[float | None, float | None],
+    tuple[float | None, float | None],
+]:
+    """Haftalik ve aylik portfoy degisimlerini tek gecmis sorgusundan uretir."""
+    rows = await get_portfolio_repository().get_performance_history(
+        user_id,
+        portfolio_id,
+        hours=31 * 24,
+    )
+    return (
+        _period_change(rows, current_total, days=7),
+        _period_change(rows, current_total, days=30),
     )
 
 
@@ -181,3 +220,47 @@ def _iso_timestamp(value) -> str:
 
 def _f_opt(value) -> float | None:
     return None if value is None else round(float(value), 2)
+
+
+def _period_change(
+    rows: list[dict], current_total: float, *, days: int
+) -> tuple[float | None, float | None]:
+    """Guncel portfoyu donem basindaki son eksiksiz fiyat kaydiyla karsilastirir."""
+    dated_rows: list[tuple[datetime, dict]] = []
+    for row in rows:
+        if not row.get("is_complete", True):
+            continue
+        timestamp = _as_datetime(row.get("ts"))
+        reference_value = float(row.get("total_value_try") or 0)
+        if timestamp is not None and reference_value > 0:
+            dated_rows.append((timestamp, row))
+
+    if not dated_rows:
+        return None, None
+
+    dated_rows.sort(key=lambda item: item[0])
+    target = dated_rows[-1][0] - timedelta(days=days)
+    reference = next(
+        (row for timestamp, row in reversed(dated_rows) if timestamp <= target),
+        None,
+    )
+    if reference is None:
+        return None, None
+
+    reference_total = float(reference["total_value_try"])
+    change_try = current_total - reference_total
+    return round(change_try, 2), round(change_try / reference_total * 100, 2)
+
+
+def _as_datetime(value) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)

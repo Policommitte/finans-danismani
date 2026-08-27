@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 import type { PublicMarketTickerItem } from "../../models/market";
 import { getPublicMarketTicker } from "../../services/marketService";
 import { ThemeToggle } from "../ui/ThemeToggle";
+import { MARKET_TICKER_READY_EVENT } from "./transitionEvents";
 
 let cachedTickerItems: PublicMarketTickerItem[] = [];
 
@@ -26,8 +27,15 @@ export function MarketTicker({
   isAuthenticated: boolean;
 }) {
   const [items, setItems] = useState<PublicMarketTickerItem[]>(() => cachedTickerItems);
+  const tickerTrackRef = useRef<HTMLDivElement>(null);
   const { language, toggleLanguage } = useLanguage();
   const displayItems = items.length > 0 ? [...items, ...items] : [];
+
+  function setTickerPlaybackRate(rate: number) {
+    tickerTrackRef.current?.getAnimations().forEach((animation) => {
+      animation.updatePlaybackRate(rate);
+    });
+  }
 
   useEffect(() => {
     let active = true;
@@ -56,6 +64,19 @@ export function MarketTicker({
     };
   }, []);
 
+  useEffect(() => {
+    if (items.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.dataset.marketTickerReady = "true";
+      window.dispatchEvent(new Event(MARKET_TICKER_READY_EVENT));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [items.length]);
+
   return (
     <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
       <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
@@ -72,8 +93,8 @@ export function MarketTicker({
           {language === "tr" ? "PİYASA VERİLERİ" : "MARKET DATA"}
         </div>
 
-        <div className="relative min-w-0 flex-1 overflow-hidden py-3">
-          <div className="ticker-track flex w-max gap-3">
+        <div className="relative min-w-0 flex-1 overflow-hidden py-3" data-tour="market-stream">
+          <div ref={tickerTrackRef} className="ticker-track flex w-max gap-3">
             {displayItems.map((item, index) => {
               const positive = (item.change_percent ?? 0) >= 0;
               return (
@@ -81,7 +102,9 @@ export function MarketTicker({
                   key={`${item.symbol}-${index}`}
                   type="button"
                   onClick={() => onSelect(item.symbol)}
-                  className="flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6 text-left"
+                  onPointerEnter={() => setTickerPlaybackRate(0.28)}
+                  onPointerLeave={() => setTickerPlaybackRate(1)}
+                  className="ticker-item flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6 text-left"
                 >
                   <span>
                     <span className="block text-xs font-semibold text-[var(--color-market-muted)]">
@@ -104,19 +127,19 @@ export function MarketTicker({
           <button
             type="button"
             onClick={onLogout}
-            className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
+            className="flex h-20 w-24 shrink-0 items-center justify-center rounded-none bg-[var(--color-cta)] text-sm font-bold text-[var(--color-market-text)] hover:bg-[var(--color-cta-hover)] md:w-28"
           >
             {language === "tr" ? "Çıkış" : "Logout"}
           </button>
         ) : (
           <Link
             href="/login"
-            className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
+            className="flex h-20 w-24 shrink-0 items-center justify-center rounded-none bg-[var(--color-cta)] text-sm font-bold text-[var(--color-market-text)] hover:bg-[var(--color-cta-hover)] md:w-28"
           >
             {language === "tr" ? "Giriş" : "Login"}
           </Link>
         )}
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3" data-tour="appearance-controls">
           <ThemeToggle className="rounded-md" />
           <button
             type="button"

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from app.core.errors import NotFoundError
 from app.repositories.deps import get_market_repository, get_rag_repository
 from app.schemas.market import (
     Asset,
     AssetsResponse,
+    Candle,
+    CandlesResponse,
     HistoryResponse,
     MarketSearchResponse,
     PricePoint,
@@ -16,6 +21,27 @@ from app.schemas.market import (
 #: Arama sonucunda gonderilen metin uzunlugu. Tam chunk gonderilmez: kart
 #: arayuzunde okunmuyor ve yanit gövdesini gereksiz sisiriyor.
 EXCERPT_LENGTH = 400
+
+INTERVAL_SECONDS = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "1h": 3600,
+    "4h": 14400,
+    "1d": 86400,
+}
+RANGE_DAYS = {"1d": 1, "5d": 5, "1m": 30, "3m": 90, "1y": 365}
+HISTORY_BUFFER_DAYS = {"1m": 30, "5m": 60, "1d": 730}
+CHART_TIME_ZONE = ZoneInfo("Europe/Istanbul")
+
+
+def _kaynak_mum_araligi(interval: str, range_key: str) -> str:
+    """Istenen grafik icin depodaki en ayrintili uygun mum serisini secer."""
+    if interval == "1m":
+        return "1m"
+    if interval == "1d":
+        return "1d"
+    return "5m"
 
 
 async def varliklar_getir(category: str | None = None) -> AssetsResponse:
@@ -38,6 +64,107 @@ async def gecmis_getir(symbol: str, days: int = 30) -> HistoryResponse:
         days=days,
         points=[PricePoint(ts=str(row["ts"]), price=round(float(row["price"]), 4)) for row in rows],
     )
+
+
+async def mumlar_getir(symbol: str, interval: str, range_key: str) -> CandlesResponse:
+    """Dogrulanmis fiyat noktalarini OHLC zaman kovalarina toplar."""
+    repository = get_market_repository()
+    kaynak_interval = _kaynak_mum_araligi(interval, range_key)
+    # Tarih secimi ilk gorunen pencereyi belirler. Daha eski mumlari da
+    # yukleyerek grafigin sola kaydirilabilmesini saglariz.
+    days = max(RANGE_DAYS[range_key], HISTORY_BUFFER_DAYS[kaynak_interval])
+    ohlcv_rows = await repository.get_candles(
+        symbol, interval=kaynak_interval, days=days
+    )
+    if ohlcv_rows:
+        return CandlesResponse(
+            symbol=symbol.upper(),
+            interval=interval,
+            range=range_key,
+            candles=_ohlcv_topla(ohlcv_rows, INTERVAL_SECONDS[interval]),
+        )
+
+    # OHLCV tablosu henuz dolmadiysa eski tekil fiyat serisine geri dus.
+    rows = await repository.get_history(symbol, days=days)
+    if not rows:
+        raise NotFoundError(f"'{symbol}' icin fiyat gecmisi bulunamadi.")
+
+    bucket_seconds = INTERVAL_SECONDS[interval]
+    buckets: dict[int, dict[str, float]] = {}
+    for row in rows:
+        timestamp = _unix_seconds(row["ts"])
+        bucket = _standart_mum_kovasi(timestamp, bucket_seconds)
+        price = float(row["price"])
+        candle = buckets.get(bucket)
+        if candle is None:
+            buckets[bucket] = {"open": price, "high": price, "low": price, "close": price}
+            continue
+        candle["high"] = max(candle["high"], price)
+        candle["low"] = min(candle["low"], price)
+        candle["close"] = price
+
+    return CandlesResponse(
+        symbol=symbol.upper(),
+        interval=interval,
+        range=range_key,
+        candles=[
+            Candle(
+                time=bucket,
+                open=round(values["open"], 4),
+                high=round(values["high"], 4),
+                low=round(values["low"], 4),
+                close=round(values["close"], 4),
+            )
+            for bucket, values in sorted(buckets.items())
+        ],
+    )
+
+
+def _ohlcv_topla(rows: list[dict], bucket_seconds: int) -> list[Candle]:
+    buckets: dict[int, dict] = {}
+    for row in rows:
+        timestamp = _unix_seconds(row["ts"])
+        bucket = _standart_mum_kovasi(timestamp, bucket_seconds)
+        candle = buckets.get(bucket)
+        volume = None if row.get("volume") is None else float(row["volume"])
+        if candle is None:
+            buckets[bucket] = {
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": volume,
+            }
+            continue
+        candle["high"] = max(candle["high"], float(row["high"]))
+        candle["low"] = min(candle["low"], float(row["low"]))
+        candle["close"] = float(row["close"])
+        if volume is not None:
+            candle["volume"] = (candle["volume"] or 0) + volume
+
+    return [
+        Candle(
+            time=bucket,
+            open=round(values["open"], 4),
+            high=round(values["high"], 4),
+            low=round(values["low"], 4),
+            close=round(values["close"], 4),
+            volume=(round(values["volume"], 4) if values["volume"] is not None else None),
+        )
+        for bucket, values in sorted(buckets.items())
+    ]
+
+
+def _standart_mum_kovasi(timestamp: int, bucket_seconds: int) -> int:
+    """Gun ici mumlari grafikte gosterilen Istanbul saatine hizalar."""
+    if bucket_seconds >= INTERVAL_SECONDS["1d"]:
+        return timestamp - timestamp % bucket_seconds
+
+    local_time = datetime.fromtimestamp(timestamp, tz=CHART_TIME_ZONE)
+    local_midnight = local_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    seconds_since_midnight = int((local_time - local_midnight).total_seconds())
+    bucket_start = seconds_since_midnight - seconds_since_midnight % bucket_seconds
+    return int((local_midnight + timedelta(seconds=bucket_start)).timestamp())
 
 
 async def arama_yap(
@@ -90,3 +217,13 @@ def _asset(row: dict) -> Asset:
 
 def _f_opt(value) -> float | None:
     return None if value is None else round(float(value), 4)
+
+
+def _unix_seconds(value) -> int:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp())

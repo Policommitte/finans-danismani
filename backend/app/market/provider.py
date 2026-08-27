@@ -72,6 +72,8 @@ class ApiMarketProvider(MarketDataProvider):
         #: Son `next_prices` cagrisinda GERCEKTEN kullanilan kaynak.
         #: `price_history.source` bu degerden yazilir.
         self.son_kaynak: str = self.name
+        self.son_mumlar: list[dict] = []
+        self._ilk_mum_paketi = True
 
     def _depo(self):
         if self._kota_deposu is not None:
@@ -120,6 +122,7 @@ class ApiMarketProvider(MarketDataProvider):
         from app.market import yahoo
 
         self.son_kaynak = self.name
+        self.son_mumlar = []
 
         if await self._kota_doldu_mu():
             return await self._veri_yok()
@@ -137,6 +140,7 @@ class ApiMarketProvider(MarketDataProvider):
         cagri_sayisi = len(yahoo.gerekli_tickerlar(semboller))
 
         try:
+            yahoo.mum_onbellegini_temizle()
             kotasyonlar = await yahoo.canli_kotasyonlar(semboller)
         except Exception as exc:  # noqa: BLE001 - ag hatasi gorevi durdurmamali
             logger.warning(
@@ -152,6 +156,13 @@ class ApiMarketProvider(MarketDataProvider):
         if not kotasyonlar:
             logger.warning("yahoo bos sonuc dondurdu, son fiyatlar korunuyor")
             return await self._veri_yok()
+
+        indirilen_mumlar = yahoo.son_indirilen_mumlar()
+        if self._ilk_mum_paketi:
+            self.son_mumlar = indirilen_mumlar
+            self._ilk_mum_paketi = False
+        else:
+            self.son_mumlar = yahoo.son_mumlari_daralt(indirilen_mumlar)
 
         # Fiyati alinamayan varlik listeye EKLENMEZ; eski fiyati korunur.
         updates: list[dict] = []

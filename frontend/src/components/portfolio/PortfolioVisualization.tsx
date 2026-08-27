@@ -21,6 +21,8 @@ import type { Holding, PortfolioPerformancePoint } from "../../models/portfolio"
 import Card from "../ui/Card";
 
 export type PortfolioViewMode = "line" | "candlestick" | "pie";
+export type DisplayCurrency = "TRY" | "USD" | "EUR";
+export type PortfolioFxRates = { USD: number | null; EUR: number | null };
 
 type CandlePoint = {
   ts: string;
@@ -55,14 +57,14 @@ function formatTime(value: string, language: "tr" | "en"): string {
   }).format(new Date(value));
 }
 
-function buildHourlyCandles(points: PortfolioPerformancePoint[]): CandlePoint[] {
+function buildHalfHourlyCandles(points: PortfolioPerformancePoint[]): CandlePoint[] {
   const buckets = new Map<number, CandlePoint>();
 
   [...points]
     .sort((left, right) => new Date(left.ts).getTime() - new Date(right.ts).getTime())
     .forEach((point) => {
       const timestamp = new Date(point.ts).getTime();
-      const bucketTimestamp = Math.floor(timestamp / 3_600_000) * 3_600_000;
+      const bucketTimestamp = Math.floor(timestamp / 1_800_000) * 1_800_000;
       const value = point.total_value_try;
       const existing = buckets.get(bucketTimestamp);
 
@@ -206,49 +208,135 @@ function ViewToggle({
   );
 }
 
+function CurrencyToggle({
+  currency,
+  onChange,
+  ratesReady,
+  language,
+}: {
+  currency: DisplayCurrency;
+  onChange: (currency: DisplayCurrency) => void;
+  ratesReady: boolean;
+  language: "tr" | "en";
+}) {
+  const options: Array<{ code: DisplayCurrency; symbol: string; tr: string; en: string }> = [
+    { code: "TRY", symbol: "₺", tr: "Türk lirası", en: "Turkish lira" },
+    { code: "USD", symbol: "$", tr: "Amerikan doları", en: "US dollar" },
+    { code: "EUR", symbol: "€", tr: "Euro", en: "Euro" },
+  ];
+
+  return (
+    <div
+      className="flex shrink-0 rounded-md border app-border app-card-muted p-1"
+      role="group"
+      aria-label={language === "tr" ? "Gösterim para birimi" : "Display currency"}
+    >
+      {options.map((option) => {
+        const disabled = option.code !== "TRY" && !ratesReady;
+        return (
+          <button
+            key={option.code}
+            type="button"
+            disabled={disabled}
+            aria-pressed={currency === option.code}
+            aria-label={option[language]}
+            title={option[language]}
+            onClick={() => onChange(option.code)}
+            className={`flex h-9 w-10 items-center justify-center rounded-md text-base font-semibold transition ${
+              currency === option.code
+                ? "bg-[var(--color-panel-dark)] text-white shadow-sm"
+                : "app-muted hover:text-[var(--color-heading)] disabled:cursor-not-allowed disabled:opacity-35"
+            }`}
+          >
+            {option.symbol}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PortfolioVisualization({
   holdings,
+  cashTotalTry = 0,
   performancePoints,
   performanceLoading = false,
   performanceError = null,
   mode,
   onModeChange,
+  displayCurrency,
+  onDisplayCurrencyChange,
+  fxRates,
 }: {
   holdings: Holding[];
+  cashTotalTry?: number;
   performancePoints: PortfolioPerformancePoint[];
   performanceLoading?: boolean;
   performanceError?: string | null;
   mode: PortfolioViewMode;
   onModeChange: (mode: PortfolioViewMode) => void;
+  displayCurrency: DisplayCurrency;
+  onDisplayCurrencyChange: (currency: DisplayCurrency) => void;
+  fxRates: PortfolioFxRates;
 }) {
   const { language } = useLanguage();
   const [chartAnimationKey, setChartAnimationKey] = useState(0);
   const [pieAnimationKey, setPieAnimationKey] = useState(0);
   const [pieReady, setPieReady] = useState(false);
   const locale = language === "tr" ? "tr-TR" : "en-US";
+  const displayCurrencyLabel = displayCurrency === "TRY"
+    ? language === "tr" ? "TL" : "TRY"
+    : displayCurrency;
+  const ratesReady = fxRates.USD != null && fxRates.EUR != null;
+  const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
   const currency = new Intl.NumberFormat(locale, {
     style: "currency",
-    currency: "TRY",
+    currency: displayCurrency,
     maximumFractionDigits: 0,
   });
   const compactCurrency = new Intl.NumberFormat(locale, {
     style: "currency",
-    currency: "TRY",
+    currency: displayCurrency,
     notation: "compact",
     maximumFractionDigits: 1,
   });
   const quantityFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 4 });
   const chartPoints = useMemo(
-    () => performancePoints.filter((point) => !Number.isNaN(new Date(point.ts).getTime())),
-    [performancePoints],
+    () => performancePoints
+      .filter((point) => !Number.isNaN(new Date(point.ts).getTime()))
+      .map((point) => ({
+        ...point,
+        total_value_try: (point.total_value_try + cashTotalTry) / conversionDivisor,
+        bist100_value_try: point.bist100_value_try == null ? null : point.bist100_value_try / conversionDivisor,
+      })),
+    [cashTotalTry, conversionDivisor, performancePoints],
   );
-  const totalValue = holdings.reduce((sum, item) => sum + item.market_value_try, 0);
-  const pieData = holdings
+  const totalValueTry = holdings.reduce((sum, item) => sum + item.market_value_try, 0) + cashTotalTry;
+  const totalValue = totalValueTry / conversionDivisor;
+  const pieData = [
+    ...holdings,
+    ...(cashTotalTry > 0 ? [{
+      symbol: language === "tr" ? "NAKİT" : "CASH",
+      asset_name: language === "tr" ? "Likit para" : "Liquid cash",
+      asset_class: "CASH",
+      currency: "TRY",
+      quantity: 1,
+      average_buy_price: cashTotalTry,
+      current_price: cashTotalTry,
+      daily_change_pct: 0,
+      daily_change_try: 0,
+      daily_change_pct_try: 0,
+      market_value_try: cashTotalTry,
+      cost_basis_try: cashTotalTry,
+      pnl_try: 0,
+      pnl_pct: 0,
+    }] : []),
+  ]
     .filter((item) => item.market_value_try > 0)
     .map((item) => ({
       ...item,
-      value: item.market_value_try,
-      percent: totalValue > 0 ? (item.market_value_try / totalValue) * 100 : 0,
+      value: item.market_value_try / conversionDivisor,
+      percent: totalValueTry > 0 ? (item.market_value_try / totalValueTry) * 100 : 0,
     }));
 
   const first = chartPoints[0]?.total_value_try ?? 0;
@@ -285,7 +373,7 @@ export function PortfolioVisualization({
     stops.push({ offset: 100, color: segmentColors.at(-1) ?? success });
     return stops;
   }, [chartPoints]);
-  const candlePoints = useMemo(() => buildHourlyCandles(chartPoints), [chartPoints]);
+  const candlePoints = useMemo(() => buildHalfHourlyCandles(chartPoints), [chartPoints]);
   const candleMinimum = candlePoints.length > 0 ? Math.min(...candlePoints.map((point) => point.low)) : current;
   const candleMaximum = candlePoints.length > 0 ? Math.max(...candlePoints.map((point) => point.high)) : current;
 
@@ -301,11 +389,12 @@ export function PortfolioVisualization({
   }, [mode, pieAnimationKey]);
 
   function formatCurrentPrice(item: Holding): string {
+    const unitPriceTry = item.quantity > 0 ? item.market_value_try / item.quantity : 0;
     return new Intl.NumberFormat(locale, {
       style: "currency",
-      currency: item.currency || "TRY",
-      maximumFractionDigits: item.current_price < 10 ? 4 : 2,
-    }).format(item.current_price);
+      currency: displayCurrency,
+      maximumFractionDigits: unitPriceTry / conversionDivisor < 10 ? 4 : 2,
+    }).format(unitPriceTry / conversionDivisor);
   }
 
   function handleModeChange(nextMode: PortfolioViewMode) {
@@ -335,13 +424,21 @@ export function PortfolioVisualization({
           </h2>
           <p className="mt-1 text-xs app-muted">
             {mode === "line"
-              ? language === "tr" ? "Bugün · TL bazlı" : "Today · TRY based"
+              ? language === "tr" ? `Bugün · ${displayCurrencyLabel} bazlı` : `Today · ${displayCurrencyLabel} based`
               : mode === "candlestick"
-                ? language === "tr" ? "Saatlik · TL bazlı" : "Hourly · TRY based"
+                ? language === "tr" ? `30 dakikalık · ${displayCurrencyLabel} bazlı` : `30-minute · ${displayCurrencyLabel} based`
               : language === "tr" ? "Portföydeki varlık oranları ve değerleri" : "Portfolio asset weights and values"}
           </p>
         </div>
-        <ViewToggle mode={mode} onChange={handleModeChange} language={language} />
+        <div className="flex items-center gap-2">
+          <CurrencyToggle
+            currency={displayCurrency}
+            onChange={onDisplayCurrencyChange}
+            ratesReady={ratesReady}
+            language={language}
+          />
+          <ViewToggle mode={mode} onChange={handleModeChange} language={language} />
+        </div>
       </div>
 
       <div
@@ -419,12 +516,16 @@ export function PortfolioVisualization({
                           ) : null}
                         </div>
                         <div className="mt-1 text-xs app-muted">
-                          {quantityFormatter.format(item.quantity)} {language === "tr" ? "adet" : "units"} · {formatCurrentPrice(item)}
+                          {item.asset_class === "CASH"
+                            ? language === "tr" ? "Kullanılabilir ve bloke bakiye" : "Available and reserved balance"
+                            : `${quantityFormatter.format(item.quantity)} ${language === "tr" ? "adet" : "units"} · ${formatCurrentPrice(item)}`}
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-semibold app-heading">{currency.format(item.market_value_try)}</div>
+                      <div className="text-sm font-semibold app-heading">
+                        {currency.format(item.market_value_try / conversionDivisor)}
+                      </div>
                       <div className="mt-1 text-xs font-semibold app-success">%{item.percent.toFixed(2)}</div>
                     </div>
                   </div>

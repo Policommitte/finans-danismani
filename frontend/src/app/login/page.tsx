@@ -1,6 +1,6 @@
 "use client";
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { requestPageTransition } from "../../components/layout/transitionEvents";
 import { useAuth } from "../../hooks/useAuth";
 
 const allowedNextPaths = new Set([
@@ -100,7 +100,6 @@ function SocialButton({ label, onClick, children }: { label: string; onClick: ()
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const auth = useAuth();
   const [email, setEmail] = useState("mehmet@example.com");
   const [password, setPassword] = useState("demo1234");
@@ -109,16 +108,16 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!auth.loading && auth.user) {
-      router.replace(getSafeNextPath());
+      requestPageTransition(getSafeNextPath(), true);
     }
-  }, [auth.loading, auth.user, router]);
+  }, [auth.loading, auth.user]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     try {
       await auth.login(email, password);
-      router.replace(getSafeNextPath());
+      requestPageTransition(getSafeNextPath(), true);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Giris yapilamadi.");
     }
