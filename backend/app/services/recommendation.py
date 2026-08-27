@@ -19,12 +19,12 @@ KARAR MANTIGI SAF FONKSIYONDADIR
 from __future__ import annotations
 
 import logging
-import math
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.config import settings
 from app.core.errors import BusinessRuleError, NotFoundError
+from app.core.quantity import adet_yuvarla
 from app.repositories.deps import get_recommendation_repository
 from app.schemas.recommendation import (
     RET_GEREKCELERI,
@@ -32,7 +32,7 @@ from app.schemas.recommendation import (
     RecommendationListResponse,
 )
 from app.services import trading as trading_service
-from app.signals import sinyal_uret
+from app.signals import kural_adi, sinyal_uret
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def kisisellestir(
             return None, "kullanicinin bu varlikta pozisyonu yok"
         # Pozisyonun bir bolumu onerilir; tamamini kapatmak otonom bir
         # akisin tek basina verecegi karar degildir.
-        adet = _adet_yuvarla(elde * 0.30, fiyat)
+        adet = adet_yuvarla(elde * 0.30, sinif)
         if adet <= 0:
             return None, "onerilebilecek anlamli bir satis adedi yok"
         tutar = adet * fiyat
@@ -143,9 +143,15 @@ def kisisellestir(
         )
         if tavan <= 0:
             return None, "kullanilabilir nakit ya da limit yetersiz"
-        adet = _adet_yuvarla(tavan / fiyat, fiyat)
+        adet = adet_yuvarla(tavan / fiyat, sinif)
         if adet <= 0:
-            return None, "limitler bir adet almaya yetmiyor"
+            # Bolunmez bir enstrumanda tek adedin fiyati butceyi asiyor
+            # (orn. tek islem limiti 5.000 TL iken LLY 57.222 TL). Kusuratli
+            # hisse onermek yerine oneri HIC uretilmez.
+            return None, (
+                f"tek adet {fiyat:,.2f} TRY; kullanilabilir butce "
+                f"{tavan:,.2f} TRY bir adede yetmiyor"
+            )
         tutar = adet * fiyat
 
     return (
@@ -165,6 +171,7 @@ def kisisellestir(
             "personalization": {
                 "risk_profile": profil,
                 "rule_code": signal["rule_code"],
+                "rule_name": kural_adi(signal["rule_code"]),
                 "engine_version": signal.get("engine_version"),
                 "holding_quantity": elde,
                 "available_balance": float(user["available_balance"]),
@@ -177,26 +184,21 @@ def kisisellestir(
     )
 
 
-def _adet_yuvarla(ham: float, fiyat: float) -> float:
-    """Pahali enstrumanda ondalik, ucuzda tam adet.
-
-    Hisse icin kesirli adet anlamsiz; kripto icin tam adet cok buyuk bir
-    tutar demek olurdu.
-    """
-    if ham <= 0:
-        return 0.0
-    if fiyat >= 1000:
-        return round(ham, 4)
-    return float(math.floor(ham))
-
-
 def _risk_notu(signal: dict, profil: str) -> str:
     yon = "alim" if signal["direction"] == "BUY" else "satis"
     return (
-        f"Bu {yon} onerisi {signal['rule_code']} kuralindan uretildi ve "
+        f"Bu {yon} onerisi \"{kural_adi(signal['rule_code'])}\" kuralindan uretildi ve "
         f"{profil} risk profiline gore filtrelendi. Gecmis fiyat hareketi "
         f"gelecegi garanti etmez; fiyat ters yonde hareket edebilir."
     )
+
+
+def _yuzde_metni(value) -> str:
+    try:
+        sayi = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"%{sayi:+.1f}".replace(".", ",")
 
 
 def _kaynaklar(signal: dict) -> list[dict]:
@@ -204,17 +206,19 @@ def _kaynaklar(signal: dict) -> list[dict]:
     kanit = signal.get("evidence") or {}
     return [
         {
-            "label": f"Kural: {signal['rule_code']}",
+            "label": f"Kural: {kural_adi(signal['rule_code'])}",
             "kind": "rule",
             "url": None,
         },
         {
+            # Yuzdeler TEK ONDALIGA yuvarlanir: "%-4.2006" gibi ham bir sayi
+            # kaynak satirini okunmaz yapiyordu.
             "label": (
-                "Piyasa verisi "
-                f"(gunluk %{kanit.get('daily_change_pct')}, "
-                f"haftalik %{kanit.get('weekly_change_pct')}, "
-                f"yillik %{kanit.get('yearly_change_pct')}) "
-                f"as-of {kanit.get('price_as_of', '')[:19]}"
+                "Piyasa verisi — "
+                f"gunluk {_yuzde_metni(kanit.get('daily_change_pct'))}, "
+                f"haftalik {_yuzde_metni(kanit.get('weekly_change_pct'))}, "
+                f"yillik {_yuzde_metni(kanit.get('yearly_change_pct'))}"
+                f" (veri: {str(kanit.get('price_as_of', ''))[:16].replace('T', ' ')})"
             ),
             "kind": "market",
             "url": None,
@@ -275,7 +279,14 @@ async def oneri_uret(now: datetime | None = None) -> dict:
     if not yayinlanan:
         return sayac
 
-    for user in await repo.autonomous_users():
+    # Kullanici listesi tick basina sinirlanir; siradakiler sonraki turda
+    # islenir. Sinir olmadan ilk tur fiyat gorevini dakikalarca mesgul ediyordu.
+    tum_kullanicilar = await repo.autonomous_users()
+    islenecek = tum_kullanicilar[: max(settings.recommendation_users_per_tick, 1)]
+    sayac["users_scanned"] = len(islenecek)
+    sayac["users_deferred"] = len(tum_kullanicilar) - len(islenecek)
+
+    for user in islenecek:
         # SIRA ONEMLI: gunluk sayac EN UCUZ sorgudur ve kullanicilarin cogu
         # ilk tick'ten sonra kotasini doldurmus olur. Once o bakilirsa
         # kalan tick'lerde kullanici basina UC sorgu yerine BIR sorgu atilir.

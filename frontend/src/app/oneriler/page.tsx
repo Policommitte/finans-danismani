@@ -29,6 +29,11 @@ export default function RecommendationsPage() {
   const rec = useRecommendations();
   const [aktif, setAktif] = useState("open");
 
+  const locale = language === "tr" ? "tr-TR" : "en-US";
+  const money = useMemo(
+    () => new Intl.NumberFormat(locale, { style: "currency", currency: "TRY" }),
+    [locale],
+  );
   const sekme = SEKMELER.find((s) => s.key === aktif) ?? SEKMELER[0];
   const items = useMemo(
     () => (rec.data?.items ?? []).filter((item) => sekme.statuses.includes(item.status)),
@@ -64,6 +69,35 @@ export default function RecommendationsPage() {
             : "Recommendations generated from your portfolio and risk profile. No order is placed without your approval."}
         </p>
       </div>
+
+      {rec.data.account && (
+        <div className="grid gap-3 rounded-xl border app-border p-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs app-muted">
+              {language === "tr" ? "Kullanılabilir likit para" : "Available cash"}
+            </p>
+            <p className="mt-1 text-lg font-semibold app-heading">
+              {money.format(rec.data.account.available_balance)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs app-muted">
+              {language === "tr" ? "Emirlerde bloke" : "Reserved for orders"}
+            </p>
+            <p className="mt-1 text-lg font-semibold app-heading">
+              {money.format(rec.data.account.reserved_balance)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs app-muted">{language === "tr" ? "Toplam" : "Total"}</p>
+            <p className="mt-1 text-lg font-semibold app-heading">
+              {money.format(
+                rec.data.account.available_balance + rec.data.account.reserved_balance,
+              )}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 rounded-xl app-card-muted p-1">
         {SEKMELER.map((item) => {

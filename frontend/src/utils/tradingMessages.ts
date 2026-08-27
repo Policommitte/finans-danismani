@@ -46,6 +46,13 @@ const TRADING_ERRORS: Array<{ includes: string; message: MessagePair }> = [
     },
   },
   {
+    includes: "hisse ve etf emirleri tam adet olmalidir",
+    message: {
+      tr: "Hisse ve ETF emirleri tam adet olmalıdır.",
+      en: "Stock and ETF orders must be whole units.",
+    },
+  },
+  {
     includes: "emir adedi sifirdan buyuk olmalidir",
     message: {
       tr: "Emir adedi sıfırdan büyük olmalıdır.",

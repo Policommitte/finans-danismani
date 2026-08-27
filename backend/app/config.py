@@ -134,6 +134,15 @@ class Settings(BaseSettings):
     quiet_hours_start: int = 22
     quiet_hours_end: int = 8
 
+    #: Tek tick'te en fazla kac kullanici taranir.
+    #:
+    #: NEDEN SINIR VAR: her kullanici icin en az bir, oneri uretilen her
+    #: kullanici icin birkac veritabani gidis-donusu gerekiyor. 14 kullanicida
+    #: ilk tur ~40 saniye suruyordu; fiyat gorevi bu sure boyunca bir sonraki
+    #: tick'e gecemez. Kalan kullanicilar SONRAKI tick'te islenir - 5 dakikalik
+    #: aralikta herkes birkac tur icinde kapsanir.
+    recommendation_users_per_tick: int = 5
+
     #: Onerilen tutarin portfoy buyuklugune orani (ust sinir da limitlerden).
     recommendation_position_pct: float = 0.05
 

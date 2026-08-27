@@ -14,6 +14,7 @@ import type {
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { adetGecerliMi, bolunmezMi } from "../../utils/assetQuantity";
 
 const ASSET_CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   STOCK: { tr: "Hisse", en: "Stock" },
@@ -190,6 +191,10 @@ export function TradeTicket({
 
   const parsedQuantity = Number(quantity);
   const exceedsHolding = isSell && Number.isFinite(parsedQuantity) && parsedQuantity > sellableQuantity;
+  // Hisse ve ETF bolunmez: 1,18 adet INTC diye bir sey yok.
+  const kusuratHatasi = !adetGecerliMi(parsedQuantity, asset.asset_class)
+    && Number.isFinite(parsedQuantity)
+    && parsedQuantity > 0;
   const parsedLimitPrice = Number(limitPrice);
   const parsedStopLossPrice = Number(stopLossPrice);
   const validLimitPrice = orderType === "MARKET"
@@ -321,8 +326,8 @@ export function TradeTicket({
             <input
               className="mt-2 w-full rounded-md border app-input px-3 py-2.5 text-sm outline-none"
               type="number"
-              min="0.000001"
-              step="1"
+              min={bolunmezMi(asset.asset_class) ? "1" : "0.000001"}
+              step={bolunmezMi(asset.asset_class) ? "1" : "any"}
               max={isSell ? sellableQuantity : undefined}
               value={quantity}
               onChange={(event) => changeQuantity(event.target.value)}
@@ -341,6 +346,13 @@ export function TradeTicket({
                 >
                   {language === "tr" ? "Tümü" : "Max"}
                 </button>
+              </span>
+            )}
+            {kusuratHatasi && (
+              <span className="mt-1.5 block text-xs font-normal normal-case tracking-normal app-danger">
+                {language === "tr"
+                  ? "Hisse ve ETF emirleri tam adet olmalıdır."
+                  : "Stock and ETF orders must be whole units."}
               </span>
             )}
             {exceedsHolding && (
@@ -479,7 +491,7 @@ export function TradeTicket({
             ) : (
               <Button
                 className={`h-12 w-full !rounded-xl text-base shadow-lg ${side === "BUY" ? "!bg-emerald-600 hover:!bg-emerald-700" : "!bg-rose-600 hover:!bg-rose-700"}`}
-                disabled={submitting || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || exceedsHolding || !validLimitPrice || !validStopLoss}
+                disabled={submitting || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || exceedsHolding || kusuratHatasi || !validLimitPrice || !validStopLoss}
                 onClick={() => onPreview(
                   asset.symbol,
                   side,

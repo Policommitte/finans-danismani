@@ -14,6 +14,79 @@ const RET_GEREKCELERI: Array<{ value: RejectionReason; tr: string; en: string }>
   { value: "NOT_UNDERSTOOD", tr: "Anlamadım", en: "I didn't understand it" },
 ];
 
+const PROFIL_ADLARI: Record<string, { tr: string; en: string }> = {
+  LOW: { tr: "Düşük risk", en: "Low risk" },
+  MEDIUM: { tr: "Orta risk", en: "Medium risk" },
+  HIGH: { tr: "Yüksek risk", en: "High risk" },
+};
+
+/**
+ * "Neden bana geldi?" bolumunu CUMLE olarak uretir.
+ *
+ * Onceki surum `Object.entries(personalization)` dokuyordu ve kullaniciya
+ * `rule_code: PULLBACK_IN_UPTREND` / `engine_version: scan-v1` gibi ham
+ * anahtarlar gorunuyordu. Motorun ic alanlari (engine_version, rule_code)
+ * artik GOSTERILMEZ; kullaniciyi ilgilendiren dort sey birakildi.
+ */
+function nedenBanaGeldi(
+  personalization: Record<string, unknown>,
+  confidence: number,
+  money: Intl.NumberFormat,
+  language: string,
+): string[] {
+  const tr = language === "tr";
+  const satirlar: string[] = [];
+
+  const kural = personalization.rule_name ?? personalization.rule_code;
+  if (kural) {
+    satirlar.push(
+      tr
+        ? `Bu öneri "${kural}" kuralından üretildi.`
+        : `This recommendation came from the "${kural}" rule.`,
+    );
+  }
+
+  const profil = String(personalization.risk_profile ?? "");
+  const gereken = Number(personalization.confidence_required ?? 0);
+  if (profil) {
+    const ad = PROFIL_ADLARI[profil]?.[tr ? "tr" : "en"] ?? profil;
+    satirlar.push(
+      tr
+        ? `Risk profilin “${ad}”. Bu profilde bir önerinin yayınlanması için en az %${Math.round(
+            gereken * 100,
+          )} güven gerekiyor; bu önerinin güveni %${Math.round(confidence * 100)}.`
+        : `Your risk profile is “${ad}”. It requires at least ${Math.round(
+            gereken * 100,
+          )}% confidence; this one is at ${Math.round(confidence * 100)}%.`,
+    );
+  }
+
+  const elde = Number(personalization.holding_quantity ?? 0);
+  satirlar.push(
+    elde > 0
+      ? tr
+        ? `Bu varlıkta zaten ${elde} adet pozisyonun var.`
+        : `You already hold ${elde} units of this asset.`
+      : tr
+        ? "Bu varlıkta henüz pozisyonun yok."
+        : "You have no position in this asset yet.",
+  );
+
+  const bakiye = Number(personalization.available_balance ?? 0);
+  const limit = Number(personalization.per_order_limit_try ?? 0);
+  satirlar.push(
+    tr
+      ? `Adet, kullanılabilir bakiyene (${money.format(bakiye)}) ve tek işlem limitine (${money.format(
+          limit,
+        )}) göre hesaplandı.`
+      : `The quantity was sized against your available balance (${money.format(
+          bakiye,
+        )}) and per-order limit (${money.format(limit)}).`,
+  );
+
+  return satirlar;
+}
+
 function kalanSure(expiresAt: string, language: string): string {
   const kalan = new Date(expiresAt).getTime() - Date.now();
   if (kalan <= 0) return language === "tr" ? "süresi doldu" : "expired";
@@ -36,7 +109,6 @@ export function RecommendationCard({ recommendation, submitting, onApprove, onRe
   const money = new Intl.NumberFormat(locale, { style: "currency", currency: "TRY" });
   const [quantity, setQuantity] = useState(String(recommendation.quantity));
   const [rejecting, setRejecting] = useState(false);
-  const [nedenAcik, setNedenAcik] = useState(false);
   const [kalan, setKalan] = useState(() => kalanSure(recommendation.expires_at, language));
 
   // TTL geri sayimi: kart acikken sure dolabilir, kullanici bunu gormeli.
@@ -107,15 +179,17 @@ export function RecommendationCard({ recommendation, submitting, onApprove, onRe
       <details className="mt-3">
         <summary
           className="cursor-pointer text-xs font-semibold text-emerald-700 dark:text-emerald-400"
-          onClick={() => setNedenAcik((v) => !v)}
         >
           {language === "tr" ? "Neden bana geldi?" : "Why did I get this?"}
         </summary>
-        <div className="mt-2 space-y-1 text-xs app-muted">
-          {Object.entries(recommendation.personalization).map(([anahtar, deger]) => (
-            <p key={anahtar}>
-              <span className="font-medium">{anahtar}:</span> {String(deger)}
-            </p>
+        <div className="mt-2 space-y-1.5 text-xs app-muted">
+          {nedenBanaGeldi(
+            recommendation.personalization,
+            recommendation.confidence,
+            money,
+            language,
+          ).map((satir) => (
+            <p key={satir}>{satir}</p>
           ))}
           <p className="pt-1 font-medium">{language === "tr" ? "Kaynaklar" : "Sources"}</p>
           {recommendation.sources.map((kaynak) => (

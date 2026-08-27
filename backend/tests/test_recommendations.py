@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.core.errors import BusinessRuleError
+from app.core.quantity import adet_gecerli_mi, adet_yuvarla
 from app.repositories import in_memory
 from app.repositories.in_memory import InMemoryRecommendationRepository, reset_data
 from app.services import recommendation as service
@@ -256,6 +257,58 @@ def test_oneri_karti_zorunlu_alanlari_tasir():
     assert yuk["risk_note"]
     assert yuk["sources"]
     assert yuk["personalization"]["risk_profile"] == "MEDIUM"
+
+
+# ------------------------------------------------------------------ adet
+
+
+@pytest.mark.parametrize(
+    "sinif, fiyat, beklenen",
+    [
+        ("USA_STOCK", 4246.92, 1.0),  # INTC: 5.000 TL -> 1,17 -> 1 adet
+        ("USA_STOCK", 57222.76, 0.0),  # LLY: tek adet bile butceyi asiyor
+        ("STOCK", 305.00, 16.0),  # THYAO
+        ("ETF", 1200.00, 4.0),
+        ("CRYPTO", 3822612.11, 0.001308),  # BTC: kusurat sart
+        ("GOLD", 7176.87, 0.6966),  # gram altin bolunebilir
+    ],
+)
+def test_adet_sinifa_gore_yuvarlanir(sinif, fiyat, beklenen):
+    """Bolunebilirlik FIYATA degil SINIFA baglidir."""
+    assert adet_yuvarla(5000 / fiyat, sinif) == beklenen
+
+
+def test_hisse_kusuratli_alinamaz():
+    assert adet_gecerli_mi(1.5, "STOCK") is False
+    assert adet_gecerli_mi(2.0, "STOCK") is True
+    assert adet_gecerli_mi(0.0013, "CRYPTO") is True
+
+
+def test_tek_adet_butceye_sigmiyorsa_oneri_uretilmez():
+    """LLY 57.222 TL; tek islem limiti 5.000 TL -> kusuratli oneri YERINE hic oneri."""
+    yuk, gerekce = service.kisisellestir(
+        _sinyal(asset_class="USA_STOCK", reference_price=57_222.76),
+        _kullanici(),
+        {},
+        gunluk_adet=0,
+        gunluk_tutar=0,
+        acik_varliklar=set(),
+    )
+    assert yuk is None
+    assert "bir adede yetmiyor" in gerekce
+
+
+def test_hisse_onerisi_tam_adet_uretir():
+    yuk, _ = service.kisisellestir(
+        _sinyal(asset_class="USA_STOCK", reference_price=4_246.92),
+        _kullanici(),
+        {},
+        gunluk_adet=0,
+        gunluk_tutar=0,
+        acik_varliklar=set(),
+    )
+    assert yuk is not None
+    assert float(yuk["quantity"]).is_integer()
 
 
 # ------------------------------------------------------------- sessiz saat

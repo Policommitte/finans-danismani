@@ -8,10 +8,16 @@ import {
   openRecommendation,
   rejectRecommendation,
 } from "../services/recommendationService";
+import { getTradingAccount } from "../services/tradingService";
 import { useAsyncData } from "./useAsyncData";
 
 export function useRecommendations() {
-  const loader = useCallback(() => getRecommendations(), []);
+  // Likit para AYNI turda cekilir: kullanici oneriyi onaylarken bakiyesini
+  // gormeli, bunun icin ayri bir sayfaya gitmesi gerekmemeli.
+  const loader = useCallback(async () => {
+    const [list, account] = await Promise.all([getRecommendations(), getTradingAccount()]);
+    return { ...list, account };
+  }, []);
   const state = useAsyncData(loader, [loader]);
   const [selected, setSelected] = useState<Recommendation | null>(null);
   const [submitting, setSubmitting] = useState(false);

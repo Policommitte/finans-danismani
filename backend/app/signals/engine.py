@@ -26,6 +26,20 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+#: Kural kodu -> kullaniciya gosterilecek ad. Kod arayuzde HAM gosterilmez;
+#: "PULLBACK_IN_UPTREND" kullaniciya hicbir sey anlatmaz.
+KURAL_ADLARI: dict[str, str] = {
+    "SHARP_DROP": "Sert dusus",
+    "OVEREXTENDED": "Kisa vadede asiri isinma",
+    "PULLBACK_IN_UPTREND": "Yukselis trendinde geri cekilme",
+    "STEADY_UPTREND": "Istikrarli yukselis",
+}
+
+
+def kural_adi(rule_code: str) -> str:
+    return KURAL_ADLARI.get(rule_code, rule_code)
+
+
 #: Endeksler dogrudan alinip satilamaz (BR-AUT / trading ile ayni kural).
 ISLEM_DISI_SINIFLAR = frozenset({"INDEX"})
 
