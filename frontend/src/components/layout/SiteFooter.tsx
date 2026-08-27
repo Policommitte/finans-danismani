@@ -6,6 +6,7 @@ import { useLanguage } from "../../contexts/LanguageContext";
 
 type SiteFooterProps = {
   className?: string;
+  onStartTour?: () => void;
 };
 
 const socialLinks = [
@@ -22,6 +23,7 @@ const footerCopy = {
       { label: "Gizlilik Politikası", href: "/gizlilik-politikasi" },
       { label: "Sıkça Sorulan Sorular", href: "/destek#sss" },
     ],
+    help: "Yardım",
     about: "Hakkımızda",
     aboutEyebrow: "POLİFİN HAKKINDA",
     aboutTitle: "Finansal kararları daha anlaşılır hale getiren kişisel asistan.",
@@ -42,6 +44,7 @@ const footerCopy = {
       { label: "Privacy Policy", href: "/gizlilik-politikasi" },
       { label: "Frequently Asked Questions", href: "/destek#sss" },
     ],
+    help: "Help",
     about: "About Us",
     aboutEyebrow: "ABOUT POLIFIN",
     aboutTitle: "A personal assistant that makes financial decisions easier to understand.",
@@ -88,7 +91,7 @@ function PinIcon() {
   );
 }
 
-export function SiteFooter({ className = "" }: SiteFooterProps) {
+export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
   const { language } = useLanguage();
   const text = footerCopy[language];
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -229,6 +232,19 @@ export function SiteFooter({ className = "" }: SiteFooterProps) {
                 {link.label}
               </Link>
             ))}
+            {onStartTour ? (
+              <button
+                type="button"
+                onClick={onStartTour}
+                className="w-fit text-left transition hover:text-[var(--color-market-text)]"
+              >
+                {text.help}
+              </button>
+            ) : (
+              <Link href="/destek" className="w-fit text-left transition hover:text-[var(--color-market-text)]">
+                {text.help}
+              </Link>
+            )}
           </nav>
 
           <p className="max-w-2xl text-left text-sm leading-6 lg:text-right">

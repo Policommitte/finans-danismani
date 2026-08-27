@@ -66,16 +66,6 @@ const STEPS: TourStep[] = [
     },
   },
   {
-    id: "tour-button",
-    target: '[data-tour="start-tour"]',
-    targetPadding: SIDEBAR_TARGET_PADDING,
-    title: { tr: "Platform turu", en: "Platform tour" },
-    description: {
-      tr: "Uygulamanın bölümlerini yeniden hatırlamak istediğinde bu düğmeyle platform turunu istediğin zaman başlatabilirsin.",
-      en: "Use this button whenever you want to restart the platform tour and revisit the application's main sections.",
-    },
-  },
-  {
     id: "profile",
     target: '[data-tour="nav-profile"]',
     targetPadding: SIDEBAR_TARGET_PADDING,
@@ -83,16 +73,6 @@ const STEPS: TourStep[] = [
     description: {
       tr: "Kişisel bilgilerini ve yatırımcı profilini bu bölümden görüntüleyip yönetebilirsin.",
       en: "View and manage your personal details and investor profile here.",
-    },
-  },
-  {
-    id: "settings",
-    target: '[data-tour="nav-settings"]',
-    targetPadding: SIDEBAR_TARGET_PADDING,
-    title: { tr: "Ayarlar", en: "Settings" },
-    description: {
-      tr: "Uygulama tercihlerini ve hesap ayarlarını bu sayfadan düzenleyebilirsin.",
-      en: "Manage application preferences and account settings on this page.",
     },
   },
   {

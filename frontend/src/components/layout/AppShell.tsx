@@ -110,14 +110,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {isLanding ? (
         <>
           {children}
-          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" />
+          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" onStartTour={() => setTourOpen(true)} />
         </>
       ) : (
         <>
-          <Sidebar onStartTour={() => setTourOpen(true)} />
+          <Sidebar />
           <div className="ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col pt-20">
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
-            <SiteFooter />
+            <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
           {auth.user && <ChatWidget />}
         </>
