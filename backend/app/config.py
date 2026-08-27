@@ -68,31 +68,22 @@ class Settings(BaseSettings):
     security_model: str = ""  # en kucuk/hizli model burada
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
-    # api       : Yahoo Finance'ten GERCEK fiyat (varsayilan)
-    # simulated : rastgele yuruyus - yalnizca agsiz gelistirme/test icin
-    #
-    # "api" seciliyken Yahoo'ya ulasilamazsa son dogrulanmis fiyat korunur;
-    # portfoy degeri simule fiyatlarla degistirilmez.
-    #
-    # ⚠️ SIMULE FIYAT VERITABANINA HIC YAZILMAZ - "simulated" bilerek
-    # secilse bile. Scheduler kaynagi gorup tick'i atlar
-    # (bkz. `app/market/scheduler.py` -> YAZILABILIR_KAYNAKLAR).
+    # Yalnizca Yahoo Finance'ten GERCEK fiyat kullanilir. Yahoo'ya
+    # ulasilamazsa yeni fiyat yazilmaz ve son dogrulanmis fiyat korunur.
     market_data_provider: str = "api"
 
-    #: Fiyat gorevinin calisma araligi. 15 dakika -> gunde 96 tick.
+    #: Fiyat gorevinin calisma araligi. 5 dakika -> gunde 288 tick.
     #:
     #: DIKKAT: bir tick TEK istek DEGILDIR. yfinance her ticker icin ayri bir
-    #: HTTP istegi atar (bkz. `app/market/yahoo.py`), yani 16 ticker x 96 tick
-    #: = gunde ~1.536 istek. Bu araligi kisaltmak istek sayisini dogru orantili
+    #: HTTP istegi atar (bkz. `app/market/yahoo.py`), yani 16 ticker x 288 tick
+    #: = gunde ~4.608 istek. Bu araligi kisaltmak istek sayisini dogru orantili
     #: buyutur ve yfinance resmi bir API olmadigi icin engellenme riskini
     #: artirir.
-    price_tick_seconds: int = 900
-
-    market_sim_seed: int = 20260813
+    price_tick_seconds: int = 300
 
     #: Fiyat gorevi her N tick'te bir `live_prices`'a satir yazar.
-    #: 1 = her tick (15 dakikada bir satir). Tick araligi 60 sn iken bu deger
-    #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
+    #: 1 = her tick (varsayilan ayarda 5 dakikada bir satir). Gun sonunda yalnizca son satir
+    #: kalici fiyat gecmisine tasindigi icin bu cozunurluk makuldur.
     #:
     #: NOT: satir artik dogrudan `price_history`'ye DEGIL `live_prices`'a
     #: gider; `price_history`'ye gun bitiminde yalnizca gunun KAPANISI yazilir
@@ -116,12 +107,12 @@ class Settings(BaseSettings):
 
     #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
     #:
-    #: HESAP: 16 ticker x 96 tick = 1.536 istek/gun. Tavan yeniden
+    #: HESAP: 16 ticker x 288 tick = 4.608 istek/gun. Tavan yeniden
     #: baslatmalara, elle calistirmalara ve ayni veritabanini paylasan birden
-    #: fazla gelistiriciye pay birakacak sekilde ~%60 ustune konuldu.
+    #: fazla gelistiriciye genis pay birakacak sekilde korunur.
     #: Onceki 400 degeri tick basina 1 sayildigi varsayimindan geliyordu ve
     #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
-    market_api_daily_quota: int = 2500
+    market_api_daily_quota: int = 7500
 
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20

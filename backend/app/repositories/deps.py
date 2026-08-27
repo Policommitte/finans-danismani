@@ -30,6 +30,7 @@ from app.repositories.base import (
     MarketRepository,
     PortfolioRepository,
     RagRepository,
+    TradingRepository,
     UserRepository,
 )
 from app.repositories.in_memory import (
@@ -38,6 +39,7 @@ from app.repositories.in_memory import (
     InMemoryMarketRepository,
     InMemoryPortfolioRepository,
     InMemoryRagRepository,
+    InMemoryTradingRepository,
     InMemoryUserRepository,
 )
 
@@ -122,6 +124,15 @@ def get_market_repository() -> MarketRepository:
 
 
 @lru_cache
+def get_trading_repository() -> TradingRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlTradingRepository
+
+        return SqlTradingRepository(_session_factory())
+    return InMemoryTradingRepository()
+
+
+@lru_cache
 def get_rag_repository() -> RagRepository:
     if _veritabani_calisiyor():
         from app.repositories.sql import SqlRagRepository
@@ -160,6 +171,7 @@ def reset_repositories() -> None:
         get_user_repository,
         get_portfolio_repository,
         get_market_repository,
+        get_trading_repository,
         get_rag_repository,
         get_chat_repository,
         get_audit_repository,

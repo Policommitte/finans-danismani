@@ -1,7 +1,7 @@
 "use client";
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { GoogleOAuthProvider, useGoogleLogin } from "@react-oauth/google";
+import { requestPageTransition } from "../../components/layout/transitionEvents";
 import { useAuth } from "../../hooks/useAuth";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
@@ -103,7 +103,6 @@ function SocialButton({ label, onClick, children }: { label: string; onClick: ()
 }
 
 function LoginPageContent() {
-  const router = useRouter();
   const auth = useAuth();
   const [email, setEmail] = useState("mehmet@example.com");
   const [password, setPassword] = useState("demo1234");
@@ -112,16 +111,16 @@ function LoginPageContent() {
 
   useEffect(() => {
     if (!auth.loading && auth.user) {
-      router.replace(getSafeNextPath());
+      requestPageTransition(getSafeNextPath(), true);
     }
-  }, [auth.loading, auth.user, router]);
+  }, [auth.loading, auth.user]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     try {
       await auth.login(email, password);
-      router.replace(getSafeNextPath());
+      requestPageTransition(getSafeNextPath(), true);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Giris yapilamadi.");
     }
@@ -136,7 +135,7 @@ function LoginPageContent() {
       setError(null);
       try {
         await auth.loginWithGoogle(tokenResponse.access_token);
-        router.replace(getSafeNextPath());
+        requestPageTransition(getSafeNextPath(), true);
       } catch (exc) {
         setError(exc instanceof Error ? exc.message : "Google ile giris yapilamadi.");
       }

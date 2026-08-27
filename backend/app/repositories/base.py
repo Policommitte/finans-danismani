@@ -81,27 +81,37 @@ class MarketRepository(Protocol):
         """Zaman serisi: `[{"ts": ..., "price": ...}, ...]` (eskiden yeniye)."""
         ...
 
-    async def get_prices_for_simulation(self) -> list[dict]:
-        """Fiyat gorevinin ihtiyaci: id, symbol, current_price, sim_volatility."""
+    async def get_candles(
+        self, symbol: str, interval: str = "5m", days: int = 5
+    ) -> list[dict]:
+        """Gercek OHLCV mumlari (eskiden yeniye)."""
         ...
 
-    async def apply_price_updates(
-        self, updates: list[dict], write_live: bool, source: str = "simulated"
-    ) -> int:
-        """Uretilen fiyatlari yazar.
+    async def upsert_candles(self, candles: list[dict], source: str = "yahoo") -> int:
+        """Sembol ve zaman araligina gore OHLCV mumlarini ekler/gunceller."""
+        ...
+
+    async def prune_candles(self, interval: str, keep_days: int) -> int:
+        """Belirtilen araliktaki eski mumlari kayan saklama penceresinden siler."""
+        ...
+
+    async def get_assets_for_price_update(self) -> list[dict]:
+        """Gercek fiyat gorevinin ihtiyaci: id, symbol ve mevcut fiyat."""
+        ...
+
+    async def apply_price_updates(self, updates: list[dict], write_live: bool, source: str) -> int:
+        """Dogrulanmis fiyatlari yazar.
 
         `updates`: `{asset_id, price, previous_close?}` kayitlari. Gercek veri
-        saglayicisi onceki piyasa kapanisini iletir; simulator bu alani atlar.
+        saglayicisi onceki piyasa kapanisini iletebilir.
 
         `assets` her cagirmada guncellenir. `write_live` True ise ayrica
         `live_prices` tablosuna GUN ICI bir satir eklenir - `price_history`'ye
         DEGIL. Gecmis tabloya yalnizca gun kapanisi yazilir
         (bkz. `close_out_day`).
 
-        `source` yazilan satirin kaynagini belirtir ve GERCEKTEN kullanilan
-        kaynak olmalidir ("api" | "simulated"). Gercek veri "simulated"
-        etiketlenirse ileride hangi satirin guvenilir oldugu ayirt edilemez;
-        tersi ise sahte veriyi gercek gostermek olur.
+        `source` yazilan satirin gercek kaynagini belirtir. Calisma zamaninda
+        sentetik fiyat kabul edilmez.
         """
         ...
 
@@ -137,6 +147,35 @@ class MarketRepository(Protocol):
     async def record_api_usage(self, calls: int = 1) -> None:
         """Gunluk cagri sayacini artirir (`market_api_usage`)."""
         ...
+
+
+class TradingRepository(Protocol):
+    async def get_account(self, user_id: int) -> dict | None: ...
+
+    async def get_order_context(self, user_id: int, symbol: str) -> dict | None: ...
+
+    async def create_market_order(
+        self,
+        user_id: int,
+        symbol: str,
+        side: str,
+        quantity: float,
+        idempotency_key: str,
+        commission_rate: float,
+        order_type: str = "MARKET",
+        limit_price: float | None = None,
+        validity: str = "GTC",
+        expires_at: object | None = None,
+        stop_loss_price: float | None = None,
+    ) -> dict: ...
+
+    async def list_orders(self, user_id: int, limit: int = 20) -> list[dict]: ...
+
+    async def cancel_order(self, user_id: int, order_id: int) -> dict: ...
+
+    async def process_pending_orders(
+        self, updates: list[dict], commission_rate: float
+    ) -> int: ...
 
 
 class RagRepository(Protocol):

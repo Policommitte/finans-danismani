@@ -1,6 +1,14 @@
 import type { DashboardSummaryResponse } from "../models/dashboard";
 import { apiRequest } from "./apiClient";
+import { getPaperOrders } from "./tradingService";
 
-export function getDashboardSummary(): Promise<DashboardSummaryResponse> {
-  return apiRequest<DashboardSummaryResponse>("/api/dashboard/summary");
+export async function getDashboardSummary(): Promise<DashboardSummaryResponse> {
+  const [summary, orders] = await Promise.all([
+    apiRequest<Omit<DashboardSummaryResponse, "filled_orders">>("/api/dashboard/summary"),
+    getPaperOrders(100),
+  ]);
+  return {
+    ...summary,
+    filled_orders: orders.items.filter((order) => order.status === "FILLED"),
+  };
 }

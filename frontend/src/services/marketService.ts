@@ -1,5 +1,8 @@
 import type {
   AssetsResponse,
+  CandlesResponse,
+  ChartInterval,
+  ChartRange,
   HistoryResponse,
   MarketSearchRequest,
   MarketSearchResponse,
@@ -42,6 +45,15 @@ export function getNews(limit = 20, kategori?: string): Promise<NewsListResponse
 
 export function getPublicMarketTicker(): Promise<PublicMarketTickerResponse> {
   return apiRequest<PublicMarketTickerResponse>("/api/public/market-ticker", { auth: false });
+}
+
+export function getMarketCandles(
+  symbol: string,
+  interval: ChartInterval,
+  range: ChartRange,
+): Promise<CandlesResponse> {
+  const params = new URLSearchParams({ symbol, interval, range });
+  return apiRequest<CandlesResponse>(`/api/market/candles?${params.toString()}`);
 }
 
 export function getPublicLandingPreview(): Promise<PublicLandingPreviewResponse> {

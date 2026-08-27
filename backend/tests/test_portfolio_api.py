@@ -105,6 +105,8 @@ def test_dashboard_tek_istekte_hepsini_dondurur(client, auth):
     assert govde["summary"]["holding_count"] == 3
     assert len(govde["holdings"]) == 3
     assert govde["allocation"]
+    assert govde["cash_account"]["available_balance"] == 100000.0
+    assert govde["cash_account"]["reserved_balance"] == 0.0
     assert govde["risk"]["risk_score"] > 0
     assert govde["movers"]
 

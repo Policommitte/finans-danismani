@@ -1,19 +1,21 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
-import { LanguageProvider } from "../../contexts/LanguageContext";
+import { usePathname } from "next/navigation";
+import { ReactNode, useEffect, useRef, useState } from "react";
+import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
 import { OnboardingFlow } from "../onboarding/OnboardingFlow";
+import { ProductTour } from "../tour/ProductTour";
 import { MarketTicker } from "./MarketTicker";
 import { Sidebar } from "./Sidebar";
 import { SiteFooter } from "./SiteFooter";
+import { requestPageTransition } from "./transitionEvents";
 
 function AppShellContent({ children }: { children: ReactNode }) {
   const auth = useAuth();
-  const router = useRouter();
+  const { language } = useLanguage();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
   const isPublic = pathname === "/" || isLogin;
@@ -24,14 +26,61 @@ function AppShellContent({ children }: { children: ReactNode }) {
   //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
   //: Bayragi dogrudan kosul yapsaydik, refresh() aninda OnboardingFlow
   //: unmount olur ve tur hic gorunmezdi. Bu yuzden akis SADECE kendi
-  //: `onDone` cagrisiyla kapanir.
+  //: `onDone` cagrisiyla kapanir. `ProductTour` (asagida) BUNDAN AYRI, tekrar
+  //: baslatilabilir bir urun turu - ilk-giris zorunlu akisiyla cakismaz.
   const [onboardingActive, setOnboardingActive] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [logoutNoticeName, setLogoutNoticeName] = useState<string | null>(null);
+  const explicitLogoutRef = useRef(false);
+  const logoutNoticeTimerRef = useRef<number | null>(null);
+
+  function handleLogout() {
+    const firstName = auth.user?.first_name ?? "";
+    explicitLogoutRef.current = true;
+    auth.logout();
+    if (pathname === "/") {
+      setLogoutNoticeName(firstName);
+      if (logoutNoticeTimerRef.current !== null) {
+        window.clearTimeout(logoutNoticeTimerRef.current);
+      }
+      logoutNoticeTimerRef.current = window.setTimeout(() => setLogoutNoticeName(null), 3200);
+      return;
+    }
+    requestPageTransition("/", true);
+  }
 
   useEffect(() => {
-    if (!auth.loading && !auth.user && !auth.hasToken && !isPublic) {
-      router.replace("/login");
+    if (isPublic) {
+      explicitLogoutRef.current = false;
+      return;
     }
-  }, [auth.hasToken, auth.loading, auth.user, isPublic, router]);
+
+    if (!explicitLogoutRef.current && !auth.loading && !auth.user && !auth.hasToken) {
+      requestPageTransition("/login", true);
+    }
+  }, [auth.hasToken, auth.loading, auth.user, isPublic]);
+
+  useEffect(() => {
+    if (!auth.user || isPublic) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tour") !== "1") {
+      return;
+    }
+
+    setTourOpen(true);
+    params.delete("tour");
+    const nextSearch = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`);
+  }, [auth.user, isPublic, pathname]);
+
+  useEffect(() => () => {
+    if (logoutNoticeTimerRef.current !== null) {
+      window.clearTimeout(logoutNoticeTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (auth.user && auth.user.onboarding_completed === false) {
@@ -43,9 +92,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
     if (onboardingActive && isLanding) {
       // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
       // olmasi icin kullaniciyi dashboard'a tasiriz.
-      router.replace("/dashboard");
+      requestPageTransition("/dashboard", true);
     }
-  }, [onboardingActive, isLanding, router]);
+  }, [onboardingActive, isLanding]);
 
   if (isLogin) {
     return children;
@@ -55,7 +104,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     <div className="min-h-screen app-bg">
       <MarketTicker
         onSelect={setSelectedSymbol}
-        onLogout={auth.logout}
+        onLogout={handleLogout}
         isAuthenticated={Boolean(auth.user)}
       />
       {isLanding ? (
@@ -65,7 +114,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         </>
       ) : (
         <>
-          <Sidebar />
+          <Sidebar onStartTour={() => setTourOpen(true)} />
           <div className="ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col pt-20">
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
             <SiteFooter />
@@ -77,6 +126,38 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />
       ) : null}
       {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
+      {auth.user ? (
+        <ProductTour
+          open={tourOpen}
+          onClose={() => setTourOpen(false)}
+          storageKey={`polifin-product-tour-v1:${auth.user.id}`}
+        />
+      ) : null}
+      {logoutNoticeName !== null ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="logout-toast fixed right-5 top-24 z-[100] flex w-[min(22rem,calc(100vw-2.5rem))] items-start gap-3 rounded-xl border app-card p-4 shadow-2xl"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-100 text-lg font-black text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" aria-hidden="true">
+            ✓
+          </span>
+          <div>
+            <div className="font-bold app-heading">
+              {language === "tr" ? "Başarıyla çıkış yaptınız." : "You have signed out successfully."}
+            </div>
+            <div className="mt-1 text-sm app-muted">
+              {logoutNoticeName
+                ? language === "tr"
+                  ? `Görüşmek üzere, ${logoutNoticeName}!`
+                  : `See you soon, ${logoutNoticeName}!`
+                : language === "tr"
+                  ? "Görüşmek üzere!"
+                  : "See you soon!"}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

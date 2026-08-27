@@ -259,6 +259,114 @@ def test_bos_dataframe_bos_sozluk_dondurur():
     assert yahoo._son_fiyatlar(pd.DataFrame(), ["THYAO.IS"]) == {}
 
 
+def test_bir_dakikalik_ohlcv_bes_dakikalik_muma_toplanir():
+    indeks = pd.date_range("2026-08-25 09:00", periods=5, freq="min", tz="UTC")
+    veri = {
+        ("Open", "BTC-USD"): [100, 101, 103, 102, 105],
+        ("High", "BTC-USD"): [102, 104, 110, 106, 108],
+        ("Low", "BTC-USD"): [99, 100, 101, 95, 104],
+        ("Close", "BTC-USD"): [101, 103, 102, 105, 106],
+        ("Volume", "BTC-USD"): [10, 20, 30, 40, 50],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._bes_dakikalik_mumlar(df, {"BTC-USD": "BTC"})
+
+    assert sonuc == [
+        {
+            "symbol": "BTC",
+            "interval": "5m",
+            "ts": "2026-08-25T09:00:00+00:00",
+            "open": 100.0,
+            "high": 110.0,
+            "low": 95.0,
+            "close": 106.0,
+            "volume": 150.0,
+        }
+    ]
+
+
+def test_ham_ohlcv_bir_dakikalik_mum_olarak_korunur():
+    indeks = pd.date_range("2026-08-25 09:00", periods=2, freq="min", tz="UTC")
+    veri = {
+        ("Open", "BTC-USD"): [100, 101],
+        ("High", "BTC-USD"): [102, 104],
+        ("Low", "BTC-USD"): [99, 100],
+        ("Close", "BTC-USD"): [101, 103],
+        ("Volume", "BTC-USD"): [10, 20],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._bir_dakikalik_mumlar(df, {"BTC-USD": "BTC"})
+
+    assert [row["interval"] for row in sonuc] == ["1m", "1m"]
+    assert [row["close"] for row in sonuc] == [101.0, 103.0]
+
+
+def test_normal_tick_mum_paketini_son_satirlara_daraltir():
+    rows = [
+        {"symbol": "BTC", "interval": "1m", "ts": f"2026-08-25T09:{i:02d}:00+00:00"}
+        for i in range(12)
+    ]
+    rows.extend(
+        {"symbol": "BTC", "interval": "5m", "ts": f"2026-08-25T10:{i:02d}:00+00:00"}
+        for i in range(5)
+    )
+
+    sonuc = yahoo.son_mumlari_daralt(rows)
+
+    assert len([row for row in sonuc if row["interval"] == "1m"]) == 10
+    assert len([row for row in sonuc if row["interval"] == "5m"]) == 3
+
+
+def test_ohlcv_gunluk_muma_toplanir():
+    indeks = pd.date_range("2026-08-25 09:00", periods=2, freq="h", tz="UTC")
+    veri = {
+        ("Open", "BTC-USD"): [100, 105],
+        ("High", "BTC-USD"): [108, 112],
+        ("Low", "BTC-USD"): [98, 103],
+        ("Close", "BTC-USD"): [106, 110],
+        ("Volume", "BTC-USD"): [10, 20],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._gunluk_mumlar(df, {"BTC-USD": "BTC"})
+
+    assert sonuc == [
+        {
+            "symbol": "BTC",
+            "interval": "1d",
+            "ts": "2026-08-25T00:00:00+00:00",
+            "open": 100.0,
+            "high": 112.0,
+            "low": 98.0,
+            "close": 110.0,
+            "volume": 30.0,
+        }
+    ]
+
+
+def test_yahoo_yuvarlama_farki_ohlc_geometrisini_bozmaz():
+    indeks = pd.date_range("2026-05-11", periods=1, freq="D", tz="UTC")
+    veri = {
+        ("Open", "USDTRY=X"): [45.353001],
+        ("High", "USDTRY=X"): [45.381802],
+        ("Low", "USDTRY=X"): [45.352699],
+        ("Close", "USDTRY=X"): [45.352501],
+        ("Volume", "USDTRY=X"): [0],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._gunluk_mumlar(df, {"USDTRY=X": "USD/TRY"})
+
+    assert sonuc[0]["low"] == 45.352501
+    assert sonuc[0]["low"] <= sonuc[0]["close"] <= sonuc[0]["high"]
+
+
 def test_none_bos_sozluk_dondurur():
     """yfinance hata durumunda `None` donebilir; istisna firlatilmamali."""
     assert yahoo._son_fiyatlar(None, ["THYAO.IS"]) == {}

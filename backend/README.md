@@ -34,7 +34,7 @@ açılabilir. Ekip birbirini beklemez:
 
 | Eksik olan | Ne olur |
 |---|---|
-| `DATABASE_URL` yok | Repository katmanı bellek içi veriye düşer (SQL seed'inin alt kümesi, **aynı rakamlar**). `/health` `data_source: in-memory` döner. |
+| `DATABASE_URL` yok | Repository katmanı bellek içi temel kayıtlara düşer; fiyat veya performans geçmişi üretmez. `/health` `data_source: in-memory` döner. |
 | `LLM_API_KEY` / model adı yok | Ajanlar LLM'siz çalışır: kaynaklardan deterministik alıntı/özet üretirler. Akış, olaylar ve testler etkilenmez. |
 | `EMBEDDING_MODEL` yok | `rag_search` yalnızca BM25 (tam eşleşme) ayağıyla çalışır; hibrit arama model kararından sonra açılır. |
 

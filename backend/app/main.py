@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routes import auth, chat, dashboard, health, market, portfolio, public, risk
+from app.api.routes import auth, chat, dashboard, health, market, portfolio, public, risk, trading
 from app.config import settings
 from app.core.errors import (
     AppError,
@@ -149,6 +149,7 @@ app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(portfolio.router)
 app.include_router(market.router)
+app.include_router(trading.router)
 app.include_router(public.router)
 app.include_router(risk.router)
 app.include_router(chat.router)

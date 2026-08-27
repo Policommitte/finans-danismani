@@ -52,6 +52,22 @@ class OhlcResponse(BaseModel):
     candles: list[OhlcCandle]
 
 
+class Candle(BaseModel):
+    time: int = Field(description="Mum baslangici, Unix saniyesi (UTC)")
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float | None = None
+
+
+class CandlesResponse(BaseModel):
+    symbol: str
+    interval: str
+    range: str
+    candles: list[Candle]
+
+
 class MarketSearchRequest(BaseModel):
     query: str = Field(min_length=2, description="Dogal dilde arama sorgusu")
     top_k: int = Field(default=5, ge=1, le=20)

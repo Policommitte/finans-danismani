@@ -13,6 +13,7 @@ from app.schemas.dashboard import DashboardSummaryResponse
 from app.schemas.risk import RiskProfileResponse
 from app.services import market as market_service
 from app.services import portfolio as portfolio_service
+from app.services import trading as trading_service
 from app.services.risk import risk_profili_getir
 
 
@@ -24,10 +25,11 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Dashboard
     kullanicida ozet sorgusu `NotFoundError` firlatir - bu bir hata degil,
     gecerli bir durumdur ve dashboard yine acilmalidir.
     """
-    ozet, varliklar, dagilim, risk, hareketliler = await asyncio.gather(
+    ozet, varliklar, dagilim, nakit, risk, hareketliler = await asyncio.gather(
         portfolio_service.ozet_getir(user_id, portfolio_id),
         portfolio_service.varliklar_getir(user_id, portfolio_id),
         portfolio_service.dagilim_getir(user_id, portfolio_id),
+        trading_service.hesap_getir(user_id),
         risk_profili_getir(user_id, portfolio_id),
         market_service.en_cok_hareket_edenler(),
         return_exceptions=True,
@@ -37,6 +39,7 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Dashboard
         summary=ozet if not isinstance(ozet, Exception) else None,
         holdings=varliklar.items if not isinstance(varliklar, Exception) else [],
         allocation=dagilim.items if not isinstance(dagilim, Exception) else [],
+        cash_account=nakit if not isinstance(nakit, Exception) else None,
         risk=RiskProfileResponse(**risk) if not isinstance(risk, Exception) else _bos_risk(),
         movers=hareketliler if not isinstance(hareketliler, Exception) else [],
     )

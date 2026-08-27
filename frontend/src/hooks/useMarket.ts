@@ -1,24 +1,33 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import type { MarketSearchResponse } from "../models/market";
-import { getMarketAssets, getMarketHistory, searchMarket } from "../services/marketService";
+import { useCallback, useEffect, useState } from "react";
+import type { ChartInterval, ChartRange, MarketSearchResponse } from "../models/market";
+import { getMarketAssets, getMarketCandles, searchMarket } from "../services/marketService";
 import { useAsyncData } from "./useAsyncData";
 
 export function useMarket(initialSymbol = "THYAO") {
   const [symbol, setSymbol] = useState(initialSymbol);
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("1h");
+  const [chartRange, setChartRange] = useState<ChartRange>("1m");
+  const [chartRangePresetActive, setChartRangePresetActive] = useState(true);
+  const [chartRangePresetRevision, setChartRangePresetRevision] = useState(0);
   const [searchResult, setSearchResult] = useState<MarketSearchResponse | null>(null);
   const [searching, setSearching] = useState(false);
 
   const loader = useCallback(async () => {
-    const [assets, history] = await Promise.all([
+    const [assets, candles] = await Promise.all([
       getMarketAssets(),
-      getMarketHistory(symbol, 30),
+      getMarketCandles(symbol, chartInterval, chartRange),
     ]);
-    return { assets, history };
-  }, [symbol]);
+    return { assets, candles };
+  }, [chartInterval, chartRange, symbol]);
 
   const state = useAsyncData(loader, [loader]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void state.refresh(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [state.refresh]);
 
   async function runSearch(query: string) {
     if (!query.trim()) {
@@ -32,5 +41,48 @@ export function useMarket(initialSymbol = "THYAO") {
     }
   }
 
-  return { ...state, symbol, setSymbol, searchResult, searching, runSearch };
+  function changeChartRange(range: ChartRange) {
+    const preferredIntervals: Record<ChartRange, ChartInterval> = {
+      "1d": "5m",
+      "5d": "15m",
+      "1m": "1h",
+      "3m": "4h",
+      "1y": "1d",
+    };
+    const shouldResetCurrentView = range === chartRange
+      && preferredIntervals[range] === chartInterval;
+    setChartRange(range);
+    setChartInterval(preferredIntervals[range]);
+    setChartRangePresetActive(true);
+    if (shouldResetCurrentView) {
+      setChartRangePresetRevision((revision) => revision + 1);
+    }
+  }
+
+  function changeChartInterval(interval: ChartInterval) {
+    if (interval !== chartInterval) {
+      setChartRangePresetActive(false);
+    }
+    setChartInterval(interval);
+  }
+
+  const clearChartRangePreset = useCallback(() => {
+    setChartRangePresetActive(false);
+  }, []);
+
+  return {
+    ...state,
+    symbol,
+    setSymbol,
+    chartInterval,
+    setChartInterval: changeChartInterval,
+    chartRange,
+    chartRangePresetActive,
+    chartRangePresetRevision,
+    clearChartRangePreset,
+    setChartRange: changeChartRange,
+    searchResult,
+    searching,
+    runSearch,
+  };
 }

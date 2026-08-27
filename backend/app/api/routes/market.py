@@ -1,10 +1,13 @@
 """Piyasa uclari - varlik listesi, fiyat grafigi, RAG destekli arama."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Query
 
 from app.auth.deps import CurrentUser
 from app.schemas.market import (
     AssetsResponse,
+    CandlesResponse,
     HistoryResponse,
     MarketSearchRequest,
     MarketSearchResponse,
@@ -59,6 +62,17 @@ async def ohlc(
     icin bos `candles` doner (404 DEGIL - frontend cizgi grafige duser).
     """
     return await service.ohlc_getir(symbol, days=days)
+
+
+@router.get("/candles", response_model=CandlesResponse)
+async def candles(
+    user: CurrentUser,
+    symbol: str = Query(description="Varlik kodu (orn. THYAO)"),
+    interval: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "15m",
+    range_key: Literal["1d", "5d", "1m", "3m", "1y"] = Query("1m", alias="range"),
+) -> CandlesResponse:
+    """Trading grafigi icin zaman kovalarina ayrilmis OHLC mumlari."""
+    return await service.mumlar_getir(symbol, interval=interval, range_key=range_key)
 
 
 @router.post("/search", response_model=MarketSearchResponse)

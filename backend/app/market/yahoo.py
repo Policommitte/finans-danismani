@@ -11,7 +11,7 @@ CAGRI SAYISI: SEMBOL BASINA BIR ISTEK
     bu istekleri yalnizca PARALELLESTIRIR, tek istege indirmez.
 
     Yani N sembol = N istek. Bu modulun sembol listesi 16 ticker uretir;
-    15 dakikalik tick ile gunde ~1.536 istek eder. Kota sayaci bu yuzden
+    5 dakikalik tick ile gunde ~4.608 istek eder. Kota sayaci bu yuzden
     tick basina 1 degil GERCEK ticker sayisi kadar islenmelidir - bkz.
     `ApiMarketProvider.next_prices`.
 
@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,8 @@ USDTRY_TICKER = "USDTRY=X"
 #: senkron tutulurlar; ayrisirlarsa `tests/test_yahoo_client.py` icindeki
 #: senkron testi CI'da hata verir - yani sessizce bozulamazlar.
 YAHOO_TICKERS: dict[str, str] = {
+    # Endeksler
+    "BIST100": "^XU100",
     # BIST hisseleri - Yahoo'da ".IS" eki ile
     "THYAO": "THYAO.IS",
     "GARAN": "GARAN.IS",
@@ -93,6 +96,10 @@ ISTEK_TIMEOUT_SANIYE = 30
 #: tick birikir. Asil sinir bu yuzden ICERIDE olmali; dis sinir son caredir.
 #: yfinance'in varsayilani 10 sn'dir, burada acikca verilir.
 YFINANCE_TIMEOUT_SANIYE = 12
+
+# Son fiyat indirmesinin ayni cevabindan uretilen 5 dakikalik ve gunluk OHLCV mumlari.
+# Scheduler, fiyatlar yazildiktan hemen sonra bu listeyi kalici depoya aktarir.
+_SON_INDIRILEN_MUMLAR: list[dict] = []
 
 
 def desteklenen_semboller() -> set[str]:
@@ -159,8 +166,110 @@ def _son_fiyatlar(df: Any, tickerlar: list[str]) -> dict[str, float]:
     }
 
 
-def _indir(tickerlar: list[str]) -> dict[str, dict[str, float | None]]:
-    """SENKRON indirme - `asyncio.to_thread` icinden cagrilir."""
+def _ohlcv_mumlari(
+    df: Any,
+    ticker_to_symbol: dict[str, str],
+    *,
+    interval: str,
+    resample_rule: str,
+) -> list[dict]:
+    """Yahoo OHLCV serisini istenen kalici mum araligina toplar."""
+    import pandas as pd
+
+    if df is None or len(df) == 0:
+        return []
+
+    sonuc: list[dict] = []
+    coklu = isinstance(df.columns, pd.MultiIndex)
+    for ticker, symbol in ticker_to_symbol.items():
+        try:
+            if coklu:
+                frame = pd.DataFrame(
+                    {
+                        field: df[field][ticker]
+                        for field in ("Open", "High", "Low", "Close", "Volume")
+                    }
+                )
+            else:
+                frame = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+        except (KeyError, TypeError):
+            continue
+
+        frame = frame.dropna(subset=["Open", "High", "Low", "Close"])
+        frame = frame[
+            (frame["Open"] > 0)
+            & (frame["High"] > 0)
+            & (frame["Low"] > 0)
+            & (frame["Close"] > 0)
+        ]
+        if frame.empty:
+            continue
+
+        grouped = frame.resample(resample_rule).agg(
+            {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+        )
+        grouped = grouped.dropna(subset=["Open", "High", "Low", "Close"])
+        for timestamp, row in grouped.iterrows():
+            ts = timestamp.to_pydatetime()
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            volume = row.get("Volume")
+            open_price = float(row["Open"])
+            close_price = float(row["Close"])
+            # Yahoo ozellikle FX serilerinde cok kucuk yuvarlama farklariyla
+            # close < low veya close > high donebiliyor. OHLC geometrisini
+            # korumak icin govde uclarini fitile dahil et.
+            high_price = max(float(row["High"]), open_price, close_price)
+            low_price = min(float(row["Low"]), open_price, close_price)
+            sonuc.append(
+                {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "ts": ts.isoformat(),
+                    "open": round(open_price, 6),
+                    "high": round(high_price, 6),
+                    "low": round(low_price, 6),
+                    "close": round(close_price, 6),
+                    "volume": None if pd.isna(volume) else round(float(volume), 6),
+                }
+            )
+    return sonuc
+
+
+def _bes_dakikalik_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
+    """Yahoo'nun 1 dakikalik OHLCV serisini gercek 5 dakikalik mumlara toplar."""
+    return _ohlcv_mumlari(
+        df,
+        ticker_to_symbol,
+        interval="5m",
+        resample_rule="5min",
+    )
+
+
+def _bir_dakikalik_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
+    """Yahoo'nun ham 1 dakikalik OHLCV satirlarini normalize eder."""
+    return _ohlcv_mumlari(
+        df,
+        ticker_to_symbol,
+        interval="1m",
+        resample_rule="1min",
+    )
+
+
+def _gunluk_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
+    """Yahoo OHLCV serisini gunluk mumlara toplar."""
+    return _ohlcv_mumlari(
+        df,
+        ticker_to_symbol,
+        interval="1d",
+        resample_rule="1D",
+    )
+
+
+def _indir_paket(
+    tickerlar: list[str], ticker_to_symbol: dict[str, str]
+) -> tuple[dict[str, dict[str, float | None]], list[dict]]:
+    """SENKRON fiyat + OHLCV indirme; tek Yahoo cevabini iki kez kullanir."""
     import yfinance as yf
 
     df = yf.download(
@@ -173,7 +282,112 @@ def _indir(tickerlar: list[str]) -> dict[str, dict[str, float | None]]:
         threads=True,
         timeout=YFINANCE_TIMEOUT_SANIYE,
     )
-    return _son_kotasyonlar(df, tickerlar)
+    mumlar = _bir_dakikalik_mumlar(df, ticker_to_symbol)
+    mumlar.extend(_bes_dakikalik_mumlar(df, ticker_to_symbol))
+    mumlar.extend(_gunluk_mumlar(df, ticker_to_symbol))
+    return _son_kotasyonlar(df, tickerlar), mumlar
+
+
+def _gecmis_mum_paketi(
+    ticker_to_symbol: dict[str, str],
+    period: str | None,
+    interval: str,
+    start: Any = None,
+    end: Any = None,
+) -> list[dict]:
+    """SENKRON tarihsel OHLCV indirme; yalnizca manuel backfill kullanir."""
+    import yfinance as yf
+
+    tickerlar = sorted(ticker_to_symbol)
+    if not tickerlar:
+        return []
+    options = {
+        "interval": interval,
+        "progress": False,
+        "auto_adjust": False,
+        "threads": True,
+        "timeout": YFINANCE_TIMEOUT_SANIYE,
+    }
+    if start is not None and end is not None:
+        options.update({"start": start, "end": end})
+    else:
+        options["period"] = period
+    df = yf.download(" ".join(tickerlar), **options)
+    if interval == "1m":
+        return _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="1m", resample_rule="1min"
+        )
+    if interval == "5m":
+        return _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="5m", resample_rule="5min"
+        )
+    if interval == "1d":
+        return _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="1d", resample_rule="1D"
+        )
+    raise ValueError(f"desteklenmeyen gecmis mum araligi: {interval}")
+
+
+async def gecmis_mumlari_indir(
+    db_symbols: list[str],
+    *,
+    period: str | None = None,
+    interval: str,
+    start: Any = None,
+    end: Any = None,
+) -> list[dict]:
+    """Tarihsel mumlari indirir; sayfa istekleri bu fonksiyonu cagiramaz."""
+    ticker_to_symbol = {
+        ticker: symbol
+        for symbol, ticker in YAHOO_TICKERS.items()
+        if symbol in db_symbols
+    }
+    return await asyncio.wait_for(
+        asyncio.to_thread(
+            _gecmis_mum_paketi,
+            ticker_to_symbol,
+            period,
+            interval,
+            start,
+            end,
+        ),
+        timeout=ISTEK_TIMEOUT_SANIYE * 2,
+    )
+
+
+def son_mumlari_daralt(candles: list[dict]) -> list[dict]:
+    """Normal tick'te yalniz degisebilecek son mumlari DB'ye yollar.
+
+    Provider'in ilk cagrisi tam 5 gunu yazar ve uygulama kapaliyken olusan
+    kisa bosluklari kapatir. Sonraki tick'lerde ayni on binlerce satiri tekrar
+    upsert etmek yerine her sembol/aralik icin son birkac satir yeterlidir.
+    """
+    limits = {"1m": 10, "5m": 3, "1d": 2}
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for candle in candles:
+        key = (str(candle["symbol"]), str(candle["interval"]))
+        grouped.setdefault(key, []).append(candle)
+
+    result: list[dict] = []
+    for (_, interval), rows in grouped.items():
+        rows.sort(key=lambda row: str(row["ts"]))
+        result.extend(rows[-limits.get(interval, 1) :])
+    return result
+
+
+def _indir(tickerlar: list[str]) -> dict[str, dict[str, float | None]]:
+    """Geriye uyumlu yalnizca kotasyon indirme yardimcisi."""
+    return _indir_paket(tickerlar, {})[0]
+
+
+def son_indirilen_mumlar() -> list[dict]:
+    """Son basarili fiyat isteginden cikan OHLCV mumlarinin kopyasi."""
+    return [dict(row) for row in _SON_INDIRILEN_MUMLAR]
+
+
+def mum_onbellegini_temizle() -> None:
+    global _SON_INDIRILEN_MUMLAR
+    _SON_INDIRILEN_MUMLAR = []
 
 
 def fiyatlari_turet(ham: dict[str, float], db_symbols: list[str]) -> dict[str, float]:
@@ -253,7 +467,18 @@ async def canli_kotasyonlar(
     if not tickerlar:
         return {}
 
-    ham = await asyncio.wait_for(asyncio.to_thread(_indir, tickerlar), timeout=ISTEK_TIMEOUT_SANIYE)
+    global _SON_INDIRILEN_MUMLAR
+    _SON_INDIRILEN_MUMLAR = []
+    ters_esleme = {
+        ticker: symbol
+        for symbol, ticker in YAHOO_TICKERS.items()
+        if symbol in db_symbols
+    }
+    ham, mumlar = await asyncio.wait_for(
+        asyncio.to_thread(_indir_paket, tickerlar, ters_esleme),
+        timeout=ISTEK_TIMEOUT_SANIYE,
+    )
+    _SON_INDIRILEN_MUMLAR = mumlar
     kotasyonlar = kotasyonlari_turet(ham, db_symbols)
     logger.info(
         "yahoo canli kotasyon alindi",

@@ -1,9 +1,9 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
+import { requestPageTransition } from "../components/layout/transitionEvents";
 import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../hooks/useAuth";
 import type { PublicLandingPreviewResponse } from "../models/market";
@@ -72,6 +72,19 @@ const copy = {
         ],
       },
       {
+        key: "market",
+        tab: "Piyasalar",
+        eyebrow: "Piyasa takibi ve sanal işlemler",
+        title: "Piyasaları tek ekrandan takip edin.",
+        body:
+          "Hisse, döviz, kripto ve değerli maden fiyatlarını inceleyin; seçtiğiniz varlığın geçmiş hareketlerini grafik üzerinden değerlendirin.",
+        metrics: [
+          ["Varlıklar", "Tek listede"],
+          ["Fiyat geçmişi", "Kolay grafik"],
+          ["Sanal işlemler", "Emirlerini dene"],
+        ],
+      },
+      {
         key: "recommendations",
         tab: "Öneriler",
         eyebrow: "Haber araştırması ve öneri motoru",
@@ -79,9 +92,9 @@ const copy = {
         body:
           "Piyasa araştırma ajanı haberleri ve finansal dokümanları tarar. Sistem bu bilgileri portföyünüzle birleştirerek kişisel yorum ve aksiyon önerileri çıkarır.",
         metrics: [
-          ["RAG kaynakları", "Haber + rapor"],
-          ["Sinyal", "Piyasa etkisi"],
-          ["Çıktı", "Aksiyon önerisi"],
+          ["Haber takibi", "Gündemi yakala"],
+          ["Sana özel", "Portföy etkisi"],
+          ["Sonraki adım", "Net öneriler"],
         ],
       },
       {
@@ -90,11 +103,11 @@ const copy = {
         eyebrow: "AI finans asistanı",
         title: "Sorularınızı sayfadan ayrılmadan chatbot ile sorun.",
         body:
-          "Sağ altta duran sohbet aracı, kullanıcının sorusunu backend orchestrator akışına iletir. Ajanlardan gelen yanıtlar tek bir asistan cevabına dönüşür.",
+          "Sağ alttaki finans asistanına portföyünüz ve piyasa gelişmeleri hakkında sorular sorabilir, sayfadan ayrılmadan anlaşılır ve size özel yanıtlar alabilirsiniz.",
         metrics: [
-          ["Kanal", "SSE stream"],
-          ["Akış", "Orchestrator"],
-          ["Yan panel", "Global widget"],
+          ["Her an yanında", "Hızlı yanıt"],
+          ["Sana özel", "Portföy odaklı"],
+          ["Kolay erişim", "Tek tıkla sor"],
         ],
       },
     ],
@@ -170,6 +183,19 @@ const copy = {
         ],
       },
       {
+        key: "market",
+        tab: "Markets",
+        eyebrow: "Market tracking and virtual trading",
+        title: "Follow the markets from one screen.",
+        body:
+          "Explore stocks, currencies, crypto, and precious metals, then review the price history of your selected asset on an easy-to-read chart.",
+        metrics: [
+          ["Assets", "One watchlist"],
+          ["Price history", "Clear charts"],
+          ["Virtual trading", "Try your orders"],
+        ],
+      },
+      {
         key: "recommendations",
         tab: "Recommendations",
         eyebrow: "News research and recommendation engine",
@@ -177,9 +203,9 @@ const copy = {
         body:
           "The market research agent scans news and financial documents. The system combines that context with your portfolio to generate personalized comments and action ideas.",
         metrics: [
-          ["RAG sources", "News + reports"],
-          ["Signal", "Market impact"],
-          ["Output", "Action idea"],
+          ["News tracking", "Stay up to date"],
+          ["Personalized", "Portfolio impact"],
+          ["Next step", "Clear suggestions"],
         ],
       },
       {
@@ -188,11 +214,11 @@ const copy = {
         eyebrow: "AI finance assistant",
         title: "Ask questions with the chatbot without leaving the page.",
         body:
-          "The bottom-right chat widget sends the user's question to the backend orchestrator flow. Agent outputs are merged into one assistant response.",
+          "Ask the financial assistant about your portfolio and market developments, and receive clear, personalized answers without leaving the page.",
         metrics: [
-          ["Channel", "SSE stream"],
-          ["Flow", "Orchestrator"],
-          ["Panel", "Global widget"],
+          ["Always available", "Quick answers"],
+          ["Personalized", "Portfolio-aware"],
+          ["Easy access", "Ask in one click"],
         ],
       },
     ],
@@ -445,6 +471,64 @@ function HeroVisual({ slideKey, language }: { slideKey: string; language: Langua
             <div className="mt-5 h-2 w-full rounded-full app-card-muted">
               <div className="h-2 w-3/4 rounded-full bg-[var(--color-success)]" />
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (slideKey === "market") {
+    const marketItems = [
+      { symbol: "THYAO", value: "₺314,10", change: "+2,14%" },
+      { symbol: "BTC", value: "₺3,21 Mn", change: "+0,84%" },
+      { symbol: "USD/TRY", value: "₺48,11", change: "+0,02%" },
+    ];
+
+    return (
+      <div className="relative min-h-80 overflow-hidden rounded-md bg-[var(--color-panel-dark)] p-6 text-[var(--color-market-text)] shadow-xl">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold text-[var(--color-on-primary-muted)]">
+              {language === "tr" ? "SEÇİLİ VARLIK" : "SELECTED ASSET"}
+            </div>
+            <div className="mt-2 flex items-baseline gap-3">
+              <span className="text-2xl font-black">THYAO</span>
+              <span className="text-lg font-bold">₺314,10</span>
+              <span className="text-sm font-bold app-success">+2,14%</span>
+            </div>
+          </div>
+          <div className="flex gap-2 text-xs font-bold">
+            {["1G", "1H", "1A", "1Y"].map((range, index) => (
+              <span key={range} className={`rounded px-2 py-1 ${index === 2 ? "app-primary" : "bg-[var(--color-overlay-soft)]"}`}>
+                {range}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[1fr_0.72fr]">
+          <div className="rounded-md bg-[var(--color-overlay-soft)] p-4">
+            <svg viewBox="0 0 420 180" className="h-44 w-full" role="img" aria-label={language === "tr" ? "Temsili fiyat grafiği" : "Representative price chart"}>
+              {[30, 75, 120, 165].map((y) => (
+                <line key={y} x1="0" y1={y} x2="420" y2={y} stroke="var(--color-border)" strokeOpacity="0.28" />
+              ))}
+              <path d="M0 151 C35 145 48 104 78 119 S128 137 150 91 S205 42 230 73 S278 130 302 85 S352 39 420 51 L420 180 L0 180 Z" fill="var(--color-primary)" fillOpacity="0.18" />
+              <path d="M0 151 C35 145 48 104 78 119 S128 137 150 91 S205 42 230 73 S278 130 302 85 S352 39 420 51" fill="none" stroke="var(--color-accent)" strokeWidth="4" strokeLinecap="round" />
+            </svg>
+          </div>
+          <div className="space-y-3 rounded-md bg-[var(--color-surface)] p-4 text-[var(--color-text)]">
+            <div className="text-xs font-bold app-muted">
+              {language === "tr" ? "TAKİP LİSTESİ" : "WATCHLIST"}
+            </div>
+            {marketItems.map((item) => (
+              <div key={item.symbol} className="rounded-md border app-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-black app-heading">{item.symbol}</span>
+                  <span className="text-xs font-bold app-success">{item.change}</span>
+                </div>
+                <div className="mt-1 text-sm font-semibold app-muted">{item.value}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1023,7 +1107,6 @@ function QuickAccessCards({
 
 export default function HomePage() {
   const auth = useAuth();
-  const router = useRouter();
   const { language } = useLanguage();
   const [authRequiredPath, setAuthRequiredPath] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -1060,7 +1143,7 @@ export default function HomePage() {
 
     if (auth.user) {
       setAuthRequiredPath(null);
-      router.push(href);
+      requestPageTransition(href);
       return;
     }
 

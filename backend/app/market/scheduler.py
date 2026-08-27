@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 #: Veritabanina YAZILMASINA izin verilen fiyat kaynaklari.
 #:
-#: `ApiMarketProvider` artik yedege dusmuyor; veri yoksa bos liste donuyor.
-#: Bu liste GERIYE KALAN yolu kapatir: `MARKET_DATA_PROVIDER=simulated`
-#: BILEREK secildiginde bile simule fiyat veritabanina girmez.
+#: `ApiMarketProvider` veri yoksa bos liste dondurur. Bu beyaz liste yeni bir
+#: saglayici eklendiginde yazma izninin ACIKCA verilmesini zorunlu kilar.
 #:
 #: NEDEN GEREKLI: herkes ayni Supabase'e bagli. Tek bir gelistiricinin
 #: `.env`'inde `simulated` yazmasi ortak tarihceyi kirletmeye yetiyor -
@@ -31,17 +30,15 @@ logger = logging.getLogger(__name__)
 #: girdi. Kullaniciya taze SAHTE fiyat gostermek, bayat GERCEK fiyat
 #: gostermekten daha kotudur.
 #:
-#: Simulator KALDIRILMADI: testler ve agsiz gelistirme icin duruyor,
-#: yalnizca urettigi fiyat kaydedilmiyor.
-#:
 #: Beyaz liste (kara liste degil) bilincli: yeni bir saglayici eklenirse
 #: yazma izni ACIKCA verilmelidir, yanlislikla degil.
 YAZILABILIR_KAYNAKLAR = frozenset({"api"})
 
 #: Bunun altindaki tick araliginda gunluk api kotasi saatler icinde dolar.
 #: 16 ticker x (3600/60) tick/saat = saatte 960 istek -> 2.500'luk tavan
-#: ~2,6 saatte biter. 300 saniyede saatte 192 istek olur.
+#: ~2,6 saatte biter. Varsayilan 300 saniyede saatte 192 istek olur.
 ASGARI_ONERILEN_TICK_SANIYE = 300
+ONE_MINUTE_RETENTION_DAYS = 30
 
 
 async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
@@ -51,14 +48,14 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
     `assets.current_price` bile guncellenmez - ve `0` doner.
     """
     repository = get_market_repository()
-    assets = await repository.get_prices_for_simulation()
+    assets = await repository.get_assets_for_price_update()
     if not assets:
         return 0
 
     updates = await provider.next_prices(assets)
 
-    # API veri uretemediyse `updates` bostur ve kaynak "unavailable" olur.
-    # Acik simulator modunda kaynak "simulated"dir - ikisi de yazilamaz.
+    # API veri uretemediyse `updates` bostur ve repository mevcut fiyatlara
+    # dokunmaz.
     kaynak = getattr(provider, "son_kaynak", provider.name)
 
     if kaynak not in YAZILABILIR_KAYNAKLAR:
@@ -71,7 +68,29 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
         )
         return 0
 
-    return await repository.apply_price_updates(updates, write_live=write_live, source=kaynak)
+    yazilan = await repository.apply_price_updates(updates, write_live=write_live, source=kaynak)
+
+    # Ek Yahoo istegi atmadan, ayni fiyat cevabindaki gercek OHLCV mumlarini
+    # ayri tabloda sakla. Fake/test provider'larinda `son_mumlar` bulunmaz.
+    mumlar = getattr(provider, "son_mumlar", [])
+    if mumlar:
+        try:
+            await repository.upsert_candles(mumlar, source="yahoo")
+        except Exception:  # noqa: BLE001 - mum yazimi fiyat akisini durdurmamali
+            logger.exception("OHLCV mumlari yazilamadi")
+
+    # Paper emirleri eski/cache fiyatiyla degil, yalnizca bu tick'te dis
+    # kaynaktan dogrulanmis fiyat gelen varliklarla gerceklestiririz.
+    try:
+        from app.services.trading import bekleyen_emirleri_isle
+
+        gerceklesen = await bekleyen_emirleri_isle(updates)
+        if gerceklesen:
+            logger.info("paper emirleri gerceklesti", extra={"orders": gerceklesen})
+    except Exception:  # noqa: BLE001 - emir motoru fiyat akisini durdurmamali
+        logger.exception("paper emirleri islenemedi")
+
+    return yazilan
 
 
 async def close_finished_days() -> int:
@@ -95,6 +114,16 @@ async def close_finished_days() -> int:
         logger.info("gun kapanisi yazildi", extra={"day": gun, "assets": adet})
 
     return len(gunler)
+
+
+async def cleanup_old_candles() -> int:
+    """1 dakikalik mumlari 30 gunluk kayan pencerede tutar."""
+    deleted = await get_market_repository().prune_candles(
+        interval="1m", keep_days=ONE_MINUTE_RETENTION_DAYS
+    )
+    if deleted:
+        logger.info("eski 1dk mumlari temizlendi", extra={"deleted": deleted})
+    return deleted
 
 
 async def run_price_scheduler(provider: MarketDataProvider | None = None) -> None:
@@ -146,6 +175,12 @@ async def run_price_scheduler(provider: MarketDataProvider | None = None) -> Non
 
         try:
             tick += 1
+            cleanup_every = max(86400 // max(settings.price_tick_seconds, 1), 1)
+            if tick == 1 or tick % cleanup_every == 0:
+                try:
+                    await cleanup_old_candles()
+                except Exception:  # noqa: BLE001 - bakim fiyat akisini durdurmamali
+                    logger.exception("eski mum temizligi basarisiz")
             canli_yaz = tick % max(settings.price_history_every_n_ticks, 1) == 0
             sayi = await price_tick(provider, write_live=canli_yaz)
             logger.debug("fiyat tick", extra={"updated": sayi, "live": canli_yaz})

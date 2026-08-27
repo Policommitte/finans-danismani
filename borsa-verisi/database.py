@@ -87,13 +87,6 @@ UPDATE assets SET
 WHERE symbol = %(symbol)s
 """
 
-#: Oynaklik yalnizca `--volatilite-guncelle` ile istenirse yazilir; simulator
-#: davranisini degistirdigi icin varsayilan olarak DOKUNULMAZ.
-_ASSETS_UPDATE_VOLATILITE = _ASSETS_UPDATE.replace(
-    "price_updated_at  = now()",
-    "sim_volatility    = COALESCE(%(volatilite)s, sim_volatility),\n    price_updated_at  = now()",
-)
-
 #: `assets` tablosunda BULUNMAYABILECEK kolonlar -> yazilacak SQL parcasi.
 #:
 #: NEDEN: Repo semasi (`db/v5_schema_and_data.sql`) ile calisan veritabani
@@ -102,7 +95,7 @@ _ASSETS_UPDATE_VOLATILITE = _ASSETS_UPDATE.replace(
 #: UPDATE ifadesi calisma aninda semaya gore kurulur.
 #:
 #: GECMIS NOT (16 Agustos 2026): ekibin paylasilan Supabase veritabaninda o
-#: tarihte `prev_close`, `price_updated_at` ve `sim_volatility` YOKTU ve bu
+#: tarihte `prev_close` ve `price_updated_at` YOKTU ve bu
 #: mekanizma sayesinde toplama yine de tamamlandi. Bu KALICI bir durum
 #: DEGILDIR, giderilmesi gereken bir sema kaymasidir: backend'in fiyat gorevi
 #: (`app/repositories/sql.py`) bu kolonlari OPSIYONEL saymaz, dogrudan
@@ -133,7 +126,7 @@ def mevcut_kolonlar(conn: psycopg.Connection, tablo: str) -> set[str]:
         return {satir[0] for satir in cur.fetchall()}
 
 
-def assets_update_sorgusu(kolonlar: set[str], volatilite_guncelle: bool = False) -> str:
+def assets_update_sorgusu(kolonlar: set[str]) -> str:
     """Mevcut semaya gore UPDATE ifadesini kurar.
 
     Eksik kolonlar sessizce ATLANIR - boylece betik hem repo semasinda hem
@@ -144,9 +137,6 @@ def assets_update_sorgusu(kolonlar: set[str], volatilite_guncelle: bool = False)
     for kolon, ifade in _OPSIYONEL_KOLONLAR.items():
         if kolon in kolonlar:
             atamalar.append(ifade)
-
-    if volatilite_guncelle and "sim_volatility" in kolonlar:
-        atamalar.append("sim_volatility = COALESCE(%(volatilite)s, sim_volatility)")
 
     return "UPDATE assets SET\n    " + ",\n    ".join(atamalar) + "\nWHERE symbol = %(symbol)s"
 
@@ -171,7 +161,6 @@ def varliklari_yaz(
     conn: psycopg.Connection,
     veriler: list[PiyasaVerisi],
     gecmis_yaz: bool = True,
-    volatilite_guncelle: bool = False,
 ) -> YazmaSonucu:
     """Fiyat verilerini veritabanina yazar.
 
@@ -183,8 +172,8 @@ def varliklari_yaz(
 
     # Sorgu calisma aninda semaya gore kurulur; eksik kolonlar atlanir.
     kolonlar = mevcut_kolonlar(conn, "assets")
-    sorgu = assets_update_sorgusu(kolonlar, volatilite_guncelle)
-    sonuc.atlanan_kolonlar = sorted((set(_OPSIYONEL_KOLONLAR) | {"sim_volatility"}) - kolonlar)
+    sorgu = assets_update_sorgusu(kolonlar)
+    sonuc.atlanan_kolonlar = sorted(set(_OPSIYONEL_KOLONLAR) - kolonlar)
     if sonuc.atlanan_kolonlar:
         logger.warning(
             "assets tablosunda bulunmayan kolonlar atlandi",
@@ -207,9 +196,6 @@ def varliklari_yaz(
                 "weekly": veri.weekly_change_pct,
                 "yearly": veri.yearly_change_pct,
             }
-            if volatilite_guncelle:
-                parametreler["volatilite"] = veri.volatilite
-
             cur.execute(sorgu, parametreler)
             sonuc.guncellenen_varlik += cur.rowcount
 

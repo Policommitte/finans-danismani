@@ -32,7 +32,7 @@ const TOUR_STEPS = [
     },
   },
   {
-    element: '[data-tour="nav-profil"]',
+    element: '[data-tour="nav-profile"]',
     popover: {
       title: "Profilin",
       description: "Risk profilini, hedeflerini ve hesap ayarlarını buradan yönetirsin.",
