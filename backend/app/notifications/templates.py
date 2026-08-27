@@ -28,6 +28,8 @@ def build(event_type: str, payload: dict) -> tuple[str, str]:
         return _rejected(payload)
     if event_type == "ORDER_EXPIRED":
         return _expired(payload)
+    if event_type == "RECOMMENDATION_CREATED":
+        return _recommendation(payload)
     return (
         "Polifin - emir bildirimi",
         f"Emrinizle ilgili bir guncelleme var.\n\n{SIMULASYON_UYARISI}\n{TAVSIYE_UYARISI}\n",
@@ -103,6 +105,41 @@ def _expired(p: dict) -> tuple[str, str]:
         ]
     )
     return konu, govde
+
+
+def _recommendation(p: dict) -> tuple[str, str]:
+    """FR-AUT-007: ozet + gerekce. Onay baglantisi BILINCLI olarak yok.
+
+    BR-AUT-07: e-posta tek basina emir onayi icin yeterli kanal degildir.
+    Bu yuzden govde onay butonu ya da tek tiklik bir baglanti TASIMAZ;
+    kullanici uygulamaya girip kimlik dogrulamasindan gecmelidir.
+    """
+    yon = _YON.get(p.get("side", ""), p.get("side", ""))
+    sembol = p.get("symbol", "-")
+    konu = f"Polifin - {sembol} icin yeni {yon.lower()} onerisi"
+    satirlar = [
+        f"{sembol} ({p.get('asset_name', '-')}) icin bir {yon.lower()} onerisi olustu.",
+        "",
+        f"  Onerilen adet : {_sayi(p.get('quantity'))}",
+        f"  Referans fiyat: {_para(p.get('reference_price'))} TRY",
+        f"  Tahmini tutar : {_para(p.get('estimated_amount'))} TRY",
+        f"  Guven duzeyi  : {p.get('confidence')}",
+        "",
+        "Gerekce:",
+    ]
+    for madde in (p.get("rationale") or [])[:5]:
+        satirlar.append(f"  - {madde}")
+    satirlar += [
+        "",
+        "Onerinin gecerlilik suresi vardir. Onaylamak ya da reddetmek icin",
+        "Polifin uygulamasindaki Otonom Eylemler ekranini kullanin -",
+        "onay bu e-postadan tamamlanamaz.",
+        "",
+        SIMULASYON_UYARISI,
+        TAVSIYE_UYARISI,
+        "",
+    ]
+    return konu, "\n".join(satirlar)
 
 
 def _para(value) -> str:

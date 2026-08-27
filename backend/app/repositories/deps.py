@@ -31,6 +31,7 @@ from app.repositories.base import (
     NotificationRepository,
     PortfolioRepository,
     RagRepository,
+    RecommendationRepository,
     TradingRepository,
     UserRepository,
 )
@@ -41,6 +42,7 @@ from app.repositories.in_memory import (
     InMemoryNotificationRepository,
     InMemoryPortfolioRepository,
     InMemoryRagRepository,
+    InMemoryRecommendationRepository,
     InMemoryTradingRepository,
     InMemoryUserRepository,
 )
@@ -170,6 +172,15 @@ def get_notification_repository() -> NotificationRepository:
     return InMemoryNotificationRepository()
 
 
+@lru_cache
+def get_recommendation_repository() -> RecommendationRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlRecommendationRepository
+
+        return SqlRecommendationRepository(_session_factory())
+    return InMemoryRecommendationRepository()
+
+
 def reset_repositories() -> None:
     """Onbellekleri temizler.
 
@@ -187,6 +198,7 @@ def reset_repositories() -> None:
         get_chat_repository,
         get_audit_repository,
         get_notification_repository,
+        get_recommendation_repository,
     ):
         provider.cache_clear()
 

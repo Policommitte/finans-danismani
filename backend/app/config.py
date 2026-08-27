@@ -114,6 +114,29 @@ class Settings(BaseSettings):
     #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
     market_api_daily_quota: int = 7500
 
+    # --- Otonom oneri motoru (AUT / D-02) --------------------------------
+    #: Bu esigin ALTINDA kalan sinyal kullaniciya HIC ulasmaz; ic kayda
+    #: alinir. Filtre SUNUCU tarafindadir - istemciye gonderilip orada
+    #: gizlenmez (D-02 geliştirme notu 1).
+    signal_confidence_threshold: float = 0.55
+
+    #: BR-AUT-03: bir kullaniciya gunde en fazla kac oneri gonderilir.
+    #: Kullanici bazinda `user_trading_limits` ile ezilebilir.
+    max_daily_recommendations: int = 3
+
+    #: BR-AUT-04: tarama bazli onerinin gecerlilik suresi (dakika).
+    #: Haber bazli 60 dk olacaktir; haber hatti henuz yok (rag.documents
+    #: .asset_id tum satirlarda BOS, bkz. docs/gelecek-isler.md madde 2).
+    recommendation_ttl_minutes: int = 240
+
+    #: FR-AUT-010: sessiz saatler - bu aralikta oneri URETILMEZ.
+    #: Saat, `market_day_timezone` saat diliminde degerlendirilir.
+    quiet_hours_start: int = 22
+    quiet_hours_end: int = 8
+
+    #: Onerilen tutarin portfoy buyuklugune orani (ust sinir da limitlerden).
+    recommendation_position_pct: float = 0.05
+
     # --- Bildirim kanali (mail koprusu) ----------------------------------
     # MAIL SU AN BAGLI DEGIL ve bu bir eksiklik degil, bilincli varsayilan.
     # Emir olaylari her durumda `notification_outbox` tablosuna yazilir;

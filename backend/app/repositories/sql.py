@@ -1479,6 +1479,465 @@ def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+class SqlRecommendationRepository(_SqlRepository):
+    """Otonom oneri motorunun kalici durumu (AUT / D-02, D-07)."""
+
+    #: Kullanicinin `user_trading_limits` satiri yoksa uygulanan degerler.
+    #: Satirin YOKLUGU bir hata degildir: kullanici limit ekranina hic
+    #: girmemis olabilir ve otonom akis yine de calismalidir.
+    VARSAYILAN_LIMITLER = {
+        "per_order_limit_try": 5000.0,
+        "daily_limit_try": 15000.0,
+        "allowed_asset_classes": [],
+        "autonomous_enabled": True,
+        "max_daily_recommendations": 3,
+    }
+
+    # ---------------- kill-switch ----------------
+
+    async def kill_switch_active(self) -> bool:
+        row = await self._row("SELECT active FROM autonomous_kill_switch WHERE id")
+        return bool(row and row["active"])
+
+    async def set_kill_switch(self, active: bool, reason: str | None, actor: str) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE autonomous_kill_switch
+                        SET active = :active, reason = :reason,
+                            activated_by = :actor, updated_at = now()
+                        WHERE id
+                        RETURNING active, reason, activated_by, updated_at
+                        """
+                    ),
+                    {"active": active, "reason": reason, "actor": actor},
+                )
+                return dict(result.mappings().one())
+
+    # ---------------- limitler ----------------
+
+    async def get_limits(self, user_id: int) -> dict:
+        row = await self._row(
+            """
+            SELECT per_order_limit_try, daily_limit_try, allowed_asset_classes,
+                   autonomous_enabled, max_daily_recommendations
+            FROM user_trading_limits WHERE user_id = :user_id
+            """,
+            {"user_id": user_id},
+        )
+        if row is None:
+            return dict(self.VARSAYILAN_LIMITLER)
+        return {
+            "per_order_limit_try": float(row["per_order_limit_try"]),
+            "daily_limit_try": float(row["daily_limit_try"]),
+            "allowed_asset_classes": list(row["allowed_asset_classes"] or []),
+            "autonomous_enabled": bool(row["autonomous_enabled"]),
+            "max_daily_recommendations": int(row["max_daily_recommendations"]),
+        }
+
+    async def upsert_limits(self, user_id: int, fields: dict) -> dict:
+        mevcut = await self.get_limits(user_id)
+        birlesik = {**mevcut, **{k: v for k, v in fields.items() if v is not None}}
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO user_trading_limits (
+                            user_id, per_order_limit_try, daily_limit_try,
+                            allowed_asset_classes, autonomous_enabled,
+                            max_daily_recommendations, updated_at
+                        ) VALUES (
+                            :user_id, :per_order, :daily, CAST(:classes AS JSONB),
+                            :enabled, :max_daily, now()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            per_order_limit_try = EXCLUDED.per_order_limit_try,
+                            daily_limit_try = EXCLUDED.daily_limit_try,
+                            allowed_asset_classes = EXCLUDED.allowed_asset_classes,
+                            autonomous_enabled = EXCLUDED.autonomous_enabled,
+                            max_daily_recommendations = EXCLUDED.max_daily_recommendations,
+                            updated_at = now()
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "per_order": birlesik["per_order_limit_try"],
+                        "daily": birlesik["daily_limit_try"],
+                        "classes": _json(birlesik["allowed_asset_classes"]),
+                        "enabled": birlesik["autonomous_enabled"],
+                        "max_daily": birlesik["max_daily_recommendations"],
+                    },
+                )
+        return birlesik
+
+    # ---------------- sinyal ----------------
+
+    async def assets_for_scan(self) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT a.id AS asset_id, a.symbol, a.name, ac.code AS asset_class,
+                   a.currency, a.current_price * fx.try_rate AS current_price,
+                   a.daily_change_pct, a.weekly_change_pct, a.yearly_change_pct,
+                   a.price_updated_at
+            FROM assets a
+            JOIN asset_categories ac ON ac.id = a.category_id
+            JOIN v_fx_rates fx ON fx.currency = a.currency
+            ORDER BY a.id
+            """
+        )
+
+    async def save_signals(self, signals: list[dict]) -> list[dict]:
+        if not signals:
+            return []
+        yayinlanan: list[dict] = []
+        async with self._session_factory() as session:
+            async with session.begin():
+                for sig in signals:
+                    result = await session.execute(
+                        text(
+                            """
+                            INSERT INTO signals (
+                                asset_id, direction, confidence, rule_code,
+                                rationale, evidence, reference_price, expires_at,
+                                engine_version, published, suppressed_reason
+                            ) VALUES (
+                                :asset_id, :direction, :confidence, :rule_code,
+                                CAST(:rationale AS JSONB), CAST(:evidence AS JSONB),
+                                :reference_price, :expires_at,
+                                :engine_version, :published, :suppressed_reason
+                            )
+                            RETURNING id
+                            """
+                        ),
+                        {
+                            **{
+                                k: sig[k]
+                                for k in (
+                                    "asset_id",
+                                    "direction",
+                                    "confidence",
+                                    "rule_code",
+                                    "reference_price",
+                                    "expires_at",
+                                    "engine_version",
+                                    "published",
+                                    "suppressed_reason",
+                                )
+                            },
+                            "rationale": _json(sig["rationale"]),
+                            "evidence": _json(sig["evidence"]),
+                        },
+                    )
+                    signal_id = result.scalar_one()
+                    if sig["published"]:
+                        yayinlanan.append({**sig, "id": int(signal_id)})
+        return yayinlanan
+
+    # ---------------- oneri uretimi ----------------
+
+    async def autonomous_users(self) -> list[dict]:
+        """Otonom akisi acik, nakit hesabi olan kullanicilar ve baglamlari.
+
+        PORTFOY SECIMI `get_order_context` ILE AYNI OLMALIDIR:
+        `is_default` DESC, sonra en kucuk id. Depoda `is_default` her
+        kullanicida isaretli DEGIL (9 portfoyun 2'si) ve nakit hesaplari
+        varsayilan olmayan portfoylerde duruyor. `AND p.is_default` ile
+        zorlansaydi hicbir kullanici taranmazdi; daha kotusu, oneri bir
+        portfoye uretilip emir BASKA portfoye gitseydi bakiye ve pozisyon
+        hesaplari tutmazdi.
+        """
+        return await self._rows(
+            """
+            SELECT DISTINCT ON (u.id)
+                   u.id AS user_id, u.risk_tolerance,
+                   p.id AS portfolio_id, ca.available_balance,
+                   COALESCE(vs.total_value_try, 0) AS portfolio_value_try,
+                   COALESCE(l.autonomous_enabled, true) AS autonomous_enabled,
+                   COALESCE(l.per_order_limit_try, 5000) AS per_order_limit_try,
+                   COALESCE(l.daily_limit_try, 15000) AS daily_limit_try,
+                   COALESCE(l.allowed_asset_classes, '[]'::jsonb) AS allowed_asset_classes,
+                   COALESCE(l.max_daily_recommendations, 3) AS max_daily_recommendations
+            FROM users u
+            JOIN portfolios p ON p.user_id = u.id
+            JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+            LEFT JOIN user_trading_limits l ON l.user_id = u.id
+            LEFT JOIN v_portfolio_summary vs ON vs.portfolio_id = p.id
+            WHERE COALESCE(l.autonomous_enabled, true)
+            ORDER BY u.id, p.is_default DESC, p.id
+            """
+        )
+
+    async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
+        rows = await self._rows(
+            """
+            SELECT asset_id, quantity FROM portfolio_assets
+            WHERE portfolio_id = :portfolio_id AND quantity > 0
+            """,
+            {"portfolio_id": portfolio_id},
+        )
+        return {int(r["asset_id"]): float(r["quantity"]) for r in rows}
+
+    async def daily_stats(self, user_id: int) -> dict:
+        row = await self._row(
+            """
+            SELECT count(*) AS adet,
+                   COALESCE(SUM(estimated_amount), 0) AS toplam
+            FROM recommendations
+            WHERE user_id = :user_id AND created_at >= date_trunc('day', now())
+            """,
+            {"user_id": user_id},
+        )
+        return {"count": int(row["adet"]), "amount": float(row["toplam"])}
+
+    async def open_recommendation_asset_ids(self, user_id: int) -> list[int]:
+        rows = await self._rows(
+            """
+            SELECT DISTINCT asset_id FROM recommendations
+            WHERE user_id = :user_id AND status IN ('PUBLISHED', 'VIEWED', 'APPROVED')
+            """,
+            {"user_id": user_id},
+        )
+        return [int(r["asset_id"]) for r in rows]
+
+    async def create_recommendation(self, row: dict) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        INSERT INTO recommendations (
+                            signal_id, user_id, portfolio_id, asset_id, side,
+                            quantity, reference_price, estimated_amount, confidence,
+                            rationale, risk_note, sources, personalization, expires_at
+                        ) VALUES (
+                            :signal_id, :user_id, :portfolio_id, :asset_id, :side,
+                            :quantity, :reference_price, :estimated_amount, :confidence,
+                            CAST(:rationale AS JSONB), :risk_note,
+                            CAST(:sources AS JSONB), CAST(:personalization AS JSONB),
+                            :expires_at
+                        )
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        **{
+                            k: row[k]
+                            for k in (
+                                "signal_id",
+                                "user_id",
+                                "portfolio_id",
+                                "asset_id",
+                                "side",
+                                "quantity",
+                                "reference_price",
+                                "estimated_amount",
+                                "confidence",
+                                "risk_note",
+                                "expires_at",
+                            )
+                        },
+                        "rationale": _json(row["rationale"]),
+                        "sources": _json(row["sources"]),
+                        "personalization": _json(row["personalization"]),
+                    },
+                )
+                yeni_id = int(result.scalar_one())
+                # FR-AUT-006: bildirim, onerinin yazildigi AYNI transaction'da
+                # kuyruga girer. Geri alinan bir oneri icin bildirim uretilmez.
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO notification_outbox (
+                            user_id, order_id, event_type, channel, recipient, payload
+                        )
+                        SELECT r.user_id, NULL, 'RECOMMENDATION_CREATED', 'EMAIL', u.email,
+                               jsonb_build_object(
+                                   'symbol', a.symbol,
+                                   'asset_name', a.name,
+                                   'side', r.side,
+                                   'quantity', r.quantity,
+                                   'reference_price', r.reference_price,
+                                   'estimated_amount', r.estimated_amount,
+                                   'confidence', r.confidence,
+                                   'rationale', r.rationale
+                               )
+                        FROM recommendations r
+                        JOIN users u ON u.id = r.user_id
+                        JOIN assets a ON a.id = r.asset_id
+                        WHERE r.id = :rid
+                        """
+                    ),
+                    {"rid": yeni_id},
+                )
+        return await self.get_recommendation(row["user_id"], yeni_id) or {}
+
+    # ---------------- okuma ----------------
+
+    _SECIM = """
+        SELECT r.*, a.symbol AS asset_symbol, a.name AS asset_name,
+               ac.code AS asset_class
+        FROM recommendations r
+        JOIN assets a ON a.id = r.asset_id
+        JOIN asset_categories ac ON ac.id = a.category_id
+    """
+
+    async def list_recommendations(
+        self, user_id: int, status: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        return await self._rows(
+            self._SECIM
+            + """
+            WHERE r.user_id = :user_id
+              AND (CAST(:status AS TEXT) IS NULL OR r.status = :status)
+            ORDER BY r.created_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "status": status, "limit": limit},
+        )
+
+    async def counts_by_status(self, user_id: int) -> dict:
+        rows = await self._rows(
+            """
+            SELECT status, count(*) AS adet FROM recommendations
+            WHERE user_id = :user_id GROUP BY status
+            """,
+            {"user_id": user_id},
+        )
+        return {r["status"]: int(r["adet"]) for r in rows}
+
+    async def get_recommendation(self, user_id: int, recommendation_id: int) -> dict | None:
+        return await self._row(
+            self._SECIM + " WHERE r.user_id = :user_id AND r.id = :rid",
+            {"user_id": user_id, "rid": recommendation_id},
+        )
+
+    # ---------------- durum gecisleri (D-07) ----------------
+
+    async def mark_viewed(self, user_id: int, recommendation_id: int) -> dict | None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'VIEWED', viewed_at = now(), updated_at = now()
+                        WHERE id = :rid AND user_id = :user_id AND status = 'PUBLISHED'
+                        """
+                    ),
+                    {"rid": recommendation_id, "user_id": user_id},
+                )
+        return await self.get_recommendation(user_id, recommendation_id)
+
+    async def reject(self, user_id: int, recommendation_id: int, reason: str) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'REJECTED', rejection_reason = :reason,
+                            decided_at = now(), updated_at = now()
+                        WHERE id = :rid AND user_id = :user_id
+                          AND status IN ('PUBLISHED', 'VIEWED')
+                        RETURNING id
+                        """
+                    ),
+                    {"rid": recommendation_id, "user_id": user_id, "reason": reason},
+                )
+                if result.first() is None:
+                    raise BusinessRuleError("Bu oneri artik reddedilemez.")
+        return await self.get_recommendation(user_id, recommendation_id) or {}
+
+    async def attach_order(self, user_id: int, recommendation_id: int, order_id: int) -> dict:
+        """BR-AUT-08: bir oneri EN FAZLA bir emir dogurur.
+
+        Kosuldaki `order_id IS NULL` ve tablodaki tekil kisit birlikte calisir:
+        ilki yarisi es zamanli ikinci onayi eler, ikincisi veritabani
+        seviyesinde son sozu soyler.
+        """
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'CONVERTED', order_id = :order_id,
+                            decided_at = now(), updated_at = now()
+                        WHERE id = :rid AND user_id = :user_id
+                          AND order_id IS NULL
+                          AND status IN ('PUBLISHED', 'VIEWED', 'APPROVED')
+                        RETURNING id
+                        """
+                    ),
+                    {"rid": recommendation_id, "user_id": user_id, "order_id": order_id},
+                )
+                if result.first() is None:
+                    raise BusinessRuleError("Bu oneri zaten bir emre donusmus.")
+        return await self.get_recommendation(user_id, recommendation_id) or {}
+
+    async def expire_due(self, now=None) -> int:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'EXPIRED', updated_at = now()
+                        WHERE status IN ('PUBLISHED', 'VIEWED') AND expires_at <= now()
+                        RETURNING id
+                        """
+                    )
+                )
+                return len(result.fetchall())
+
+    async def halt_open(self, reason: str) -> int:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'HALTED', updated_at = now()
+                        WHERE status IN ('PUBLISHED', 'VIEWED')
+                        RETURNING id
+                        """
+                    )
+                )
+                return len(result.fetchall())
+
+    # ---------------- denetim ----------------
+
+    async def log_audit(self, record: dict) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO recommendation_audit (
+                            recommendation_id, user_id, event_type, actor,
+                            old_status, new_status, reason, detail
+                        ) VALUES (
+                            :recommendation_id, :user_id, :event_type, :actor,
+                            :old_status, :new_status, :reason, CAST(:detail AS JSONB)
+                        )
+                        """
+                    ),
+                    {
+                        "recommendation_id": record.get("recommendation_id"),
+                        "user_id": record.get("user_id"),
+                        "event_type": record["event_type"],
+                        "actor": record.get("actor", "SYSTEM"),
+                        "old_status": record.get("old_status"),
+                        "new_status": record.get("new_status"),
+                        "reason": record.get("reason"),
+                        "detail": _json(record.get("detail") or {}),
+                    },
+                )
+
+
 class SqlNotificationRepository(_SqlRepository):
     """`notification_outbox` okuma ve kapatma.
 

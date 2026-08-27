@@ -102,7 +102,9 @@ class NewsArticle(BaseModel):
     kaynak_url: str | None = None
     excerpt: str = Field(description="raw_text'in kirpilmis hali")
     body: list[str] = Field(description="raw_text paragraf paragraf")
-    image_url: str = Field(description="Gercek gorsel varsa o, yoksa kategoriye gore otomatik atanan gorsel")
+    image_url: str = Field(
+        description="Gercek gorsel varsa o, yoksa kategoriye gore otomatik atanan gorsel"
+    )
     related_change_pct: float | None = Field(
         default=None,
         description=(

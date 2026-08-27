@@ -174,6 +174,77 @@ class TradingRepository(Protocol):
     async def process_pending_orders(self, updates: list[dict], commission_rate: float) -> int: ...
 
 
+class RecommendationRepository(Protocol):
+    """Otonom oneri motorunun kalici durumu (AUT / D-02, D-07).
+
+    Kural mantigi burada DEGIL `services/recommendation.py` ve
+    `signals/engine.py` icindedir; burasi yalnizca okur ve yazar.
+    """
+
+    # --- kill-switch (FR-AUT-034) ---
+    async def kill_switch_active(self) -> bool: ...
+
+    async def set_kill_switch(self, active: bool, reason: str | None, actor: str) -> dict: ...
+
+    # --- kullanici limitleri (FR-PRF-014, FR-AUT-026) ---
+    async def get_limits(self, user_id: int) -> dict:
+        """Satir yoksa VARSAYILAN limitleri doner - cagiran None beklemez."""
+        ...
+
+    async def upsert_limits(self, user_id: int, fields: dict) -> dict: ...
+
+    # --- sinyal ---
+    async def assets_for_scan(self) -> list[dict]: ...
+
+    async def save_signals(self, signals: list[dict]) -> list[dict]:
+        """Tumunu yazar, YALNIZCA yayinlanabilir olanlari id'leriyle doner."""
+        ...
+
+    # --- oneri uretimi ---
+    async def autonomous_users(self) -> list[dict]:
+        """Otonom akisi acik, portfoyu olan kullanicilar ve baglamlari."""
+        ...
+
+    async def daily_stats(self, user_id: int) -> dict:
+        """BR-AUT-03 gunluk adet ve gunluk toplam tutar."""
+        ...
+
+    async def open_recommendation_asset_ids(self, user_id: int) -> list[int]:
+        """Ayni varliga acik bir oneri varken ikincisi uretilmez."""
+        ...
+
+    async def create_recommendation(self, row: dict) -> dict: ...
+
+    # --- okuma ---
+    async def list_recommendations(
+        self, user_id: int, status: str | None = None, limit: int = 50
+    ) -> list[dict]: ...
+
+    async def counts_by_status(self, user_id: int) -> dict: ...
+
+    async def get_recommendation(self, user_id: int, recommendation_id: int) -> dict | None: ...
+
+    # --- durum gecisleri (D-07) ---
+    async def mark_viewed(self, user_id: int, recommendation_id: int) -> dict | None: ...
+
+    async def reject(self, user_id: int, recommendation_id: int, reason: str) -> dict: ...
+
+    async def attach_order(self, user_id: int, recommendation_id: int, order_id: int) -> dict:
+        """BR-AUT-08: bir oneri en fazla BIR emir dogurur (tekil kisit)."""
+        ...
+
+    async def expire_due(self, now) -> int:
+        """BR-AUT-04: TTL dolan acik onerileri kapatir."""
+        ...
+
+    async def halt_open(self, reason: str) -> int:
+        """FR-AUT-034: kill-switch aktifken bekleyen onerileri durdurur."""
+        ...
+
+    # --- denetim (FR-AUT-032) ---
+    async def log_audit(self, record: dict) -> None: ...
+
+
 class NotificationRepository(Protocol):
     """`notification_outbox` okuma/kapatma sozlesmesi.
 

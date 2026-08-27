@@ -90,6 +90,20 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
     except Exception:  # noqa: BLE001 - emir motoru fiyat akisini durdurmamali
         logger.exception("paper emirleri islenemedi")
 
+    # Otonom oneri turu: sinyal uretimi ve TTL kapanisi. Fiyat yazildiktan
+    # SONRA calisir - sinyaller bu tick'te dogrulanmis fiyatlari gorsun.
+    try:
+        from app.services.recommendation import oneri_uret, suresi_dolanlari_kapat
+
+        dolan = await suresi_dolanlari_kapat()
+        if dolan:
+            logger.info("suresi dolan oneriler kapatildi", extra={"expired": dolan})
+        sonuc = await oneri_uret()
+        if sonuc.get("recommendations"):
+            logger.info("otonom oneri uretildi", extra=sonuc)
+    except Exception:  # noqa: BLE001 - oneri motoru fiyat akisini durdurmamali
+        logger.exception("otonom oneri turu basarisiz")
+
     # Bildirim outbox'ini ayni turda bosalt. Mail kanali bagli degilse bu cagri
     # satirlari SKIPPED olarak kapatir - PENDING birikip, kanal aylar sonra
     # acildiginda gecmis bildirimlerin topluca gitmesini onler.

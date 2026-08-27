@@ -91,7 +91,9 @@ async def search(user: CurrentUser, payload: MarketSearchRequest) -> MarketSearc
 async def news(
     user: CurrentUser,
     limit: int = Query(default=20, ge=1, le=100),
-    kategori: str | None = Query(default=None, description="doviz | ekonomi | hisse | altin | piyasa"),
+    kategori: str | None = Query(
+        default=None, description="doviz | ekonomi | hisse | altin | piyasa"
+    ),
 ) -> NewsListResponse:
     """Bulten sayfasi icin en yeni haberler (duz liste, arama degil).
 

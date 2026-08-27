@@ -71,9 +71,7 @@ def test_google_dogrulanmamis_email_reddedilir(client, monkeypatch):
 
 
 def test_google_gecersiz_token_reddedilir(client, monkeypatch):
-    monkeypatch.setattr(
-        "app.api.routes.auth.fetch_google_profile", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr("app.api.routes.auth.fetch_google_profile", AsyncMock(return_value=None))
 
     yanit = client.post("/api/auth/google", json={"access_token": "gecersiz"})
 
