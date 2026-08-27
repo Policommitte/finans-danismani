@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { InvestmentPreferences } from "../../components/profile/InvestmentPreferences";
 import { RiskProfileQuiz } from "../../components/profile/RiskProfileQuiz";
 import Button from "../../components/ui/Button";
-import Card from "../../components/ui/Card";
 import { useAuth } from "../../hooks/useAuth";
 
 type Goal = {
@@ -59,6 +58,33 @@ function PencilIcon() {
   );
 }
 
+function TargetIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function SectionIcon({ accent, children }: { accent: string; children: ReactNode }) {
+  return (
+    <span
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+      style={{ background: `color-mix(in srgb, ${accent} 15%, var(--color-surface))`, color: accent }}
+    >
+      {children}
+    </span>
+  );
+}
+
+const RISK_TOLERANCE_LABELS: Record<string, string> = {
+  LOW: "Düşük",
+  MEDIUM: "Orta",
+  HIGH: "Yüksek",
+};
+
 function FinancialGoals() {
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
   const [name, setName] = useState("");
@@ -111,13 +137,18 @@ function FinancialGoals() {
   }
 
   return (
-    <div className="rounded-xl border app-card p-5 shadow-sm">
-      <h2 className="text-base font-semibold app-heading">🎯 Finansal Hedeflerim</h2>
-      <p className="mt-1 text-sm app-muted">
+    <div className="rounded-2xl border app-card p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        <SectionIcon accent="var(--color-brand-teal)">
+          <TargetIcon />
+        </SectionIcon>
+        <h2 className="text-base font-semibold app-heading">Finansal Hedeflerim</h2>
+      </div>
+      <p className="mt-2 text-sm app-muted">
         Sözel hedef + tutar gir, her hedef otomatik olarak bir ilerleme çubuğuna dönüşsün.
       </p>
 
-      <form onSubmit={handleAdd} className="mt-4 rounded-lg app-card-muted p-4">
+      <form onSubmit={handleAdd} className="mt-4 rounded-xl app-card-muted p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm sm:col-span-2">
             <span className="font-medium app-heading">Hedef (sözel)</span>
@@ -160,7 +191,7 @@ function FinancialGoals() {
         </Button>
 
         <p className="mt-3 text-xs app-muted">
-          💡 Hedefler, Portföyüm sayfasındaki 'Hedeflerim' kartında da ilerleme çubuğuyla gösterilecek.
+          Hedefler, Portföyüm sayfasındaki 'Hedeflerim' kartında da ilerleme çubuğuyla gösterilecek.
         </p>
       </form>
 
@@ -170,11 +201,14 @@ function FinancialGoals() {
           const color = progressColor(percent);
 
           return (
-            <div key={goal.id} className="rounded-lg app-card-muted p-4">
+            <div key={goal.id} className="rounded-xl app-card-muted p-4">
               <div className="flex items-start justify-between gap-3">
                 <h3 className="font-semibold app-heading">{goal.name}</h3>
-                <div className="flex shrink-0 items-center gap-3">
-                  <span className="text-sm font-semibold" style={{ color }}>
+                <div className="flex shrink-0 items-center gap-2.5">
+                  <span
+                    className="rounded-full px-2.5 py-1 text-xs font-bold tabular-nums"
+                    style={{ background: `color-mix(in srgb, ${color} 16%, var(--color-surface))`, color }}
+                  >
                     %{percent}
                   </span>
                   <button
@@ -221,16 +255,22 @@ function FinancialGoals() {
                 </div>
               ) : (
                 <>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-border-soft)]">
+                  <div className="mt-3 flex items-baseline gap-1.5">
+                    <span className="text-xl font-bold tabular-nums app-heading">₺{currency.format(goal.saved)}</span>
+                    <span className="text-xs app-muted">/ ₺{currency.format(goal.target)} hedef</span>
+                  </div>
+                  <div
+                    className="mt-2.5 h-2.5 overflow-hidden rounded-full shadow-inner"
+                    style={{ background: "var(--color-border-soft)" }}
+                  >
                     <div
                       className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${percent}%`, background: color }}
+                      style={{
+                        width: `${percent}%`,
+                        background: `linear-gradient(90deg, color-mix(in srgb, ${color} 60%, transparent), ${color})`,
+                      }}
                     />
                   </div>
-
-                  <p className="mt-2 text-xs app-muted">
-                    ₺{currency.format(goal.saved)} birikildi · hedef ₺{currency.format(goal.target)}
-                  </p>
                 </>
               )}
             </div>
@@ -247,22 +287,38 @@ export default function ProfilePage() {
   const fullName = user ? `${user.first_name} ${user.last_name}`.trim() : "Kullanıcı";
   const initials = user ? `${user.first_name?.[0] ?? ""}${user.last_name?.[0] ?? ""}`.toUpperCase() : "?";
 
+  const riskLabel = user?.risk_tolerance ? RISK_TOLERANCE_LABELS[user.risk_tolerance] : null;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold app-heading">Profil</h1>
-        <p className="mt-1 text-sm app-muted">Bu ekran yakında hazır olacak.</p>
+        <p className="mt-1 text-sm app-muted">Hesap bilgilerini, finansal hedeflerini ve yatırım tercihlerini yönet.</p>
       </div>
 
-      <div className="rounded-xl border app-card p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full app-primary-soft text-xl font-semibold">
+      <div className="rounded-2xl border app-card p-6 shadow-sm">
+        <div className="flex flex-wrap items-center gap-5">
+          <div
+            className="grid h-20 w-20 shrink-0 place-items-center rounded-full app-primary-soft text-2xl font-bold"
+            style={{ boxShadow: "0 0 0 4px color-mix(in srgb, var(--color-primary) 14%, transparent)" }}
+          >
             {initials || "?"}
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold app-heading">{fullName}</h2>
             {user?.email && <p className="mt-1 text-sm app-muted">{user.email}</p>}
           </div>
+          {riskLabel && (
+            <span
+              className="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold"
+              style={{
+                background: "color-mix(in srgb, var(--color-primary) 12%, var(--color-surface))",
+                color: "var(--color-primary)",
+              }}
+            >
+              Risk toleransı: {riskLabel}
+            </span>
+          )}
         </div>
       </div>
 
@@ -271,12 +327,6 @@ export default function ProfilePage() {
       <RiskProfileQuiz />
 
       <InvestmentPreferences />
-
-      <Card title="Yakında">
-        <p className="text-sm app-muted">
-          Profil sayfasının içeriği ve tasarımı ayrıca iletilecek. Bu ekran şimdilik placeholder olarak tutulur.
-        </p>
-      </Card>
     </div>
   );
 }

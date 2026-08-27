@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 
@@ -17,7 +18,10 @@ const socialLinks = [
 
 const footerCopy = {
   tr: {
-    links: ["Gizlilik Politikası", "Sıkça Sorulan Sorular"],
+    links: [
+      { label: "Gizlilik Politikası", href: "/gizlilik-politikasi" },
+      { label: "Sıkça Sorulan Sorular", href: "/destek#sss" },
+    ],
     about: "Hakkımızda",
     aboutEyebrow: "POLİFİN HAKKINDA",
     aboutTitle: "Finansal kararları daha anlaşılır hale getiren kişisel asistan.",
@@ -34,7 +38,10 @@ const footerCopy = {
     disclaimerEnd: "Gösterilen veriler temsilidir; yatırım tavsiyesi niteliği taşımaz.",
   },
   en: {
-    links: ["Privacy Policy", "Frequently Asked Questions"],
+    links: [
+      { label: "Privacy Policy", href: "/gizlilik-politikasi" },
+      { label: "Frequently Asked Questions", href: "/destek#sss" },
+    ],
     about: "About Us",
     aboutEyebrow: "ABOUT POLIFIN",
     aboutTitle: "A personal assistant that makes financial decisions easier to understand.",
@@ -214,13 +221,13 @@ export function SiteFooter({ className = "" }: SiteFooterProps) {
               {text.about}
             </button>
             {text.links.map((link) => (
-              <button
-                key={link}
-                type="button"
+              <Link
+                key={link.href}
+                href={link.href}
                 className="w-fit text-left transition hover:text-[var(--color-market-text)]"
               >
-                {link}
-              </button>
+                {link.label}
+              </Link>
             ))}
           </nav>
 

@@ -6,8 +6,11 @@ import { NewsCard } from "../../components/bulten/NewsCard";
 import { NewsDetailModal, type NewsDetailArticle } from "../../components/bulten/NewsDetailModal";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
+import { useAsyncData } from "../../hooks/useAsyncData";
 import { useDashboard } from "../../hooks/useDashboard";
+import type { NewsArticle } from "../../models/market";
 import type { Holding } from "../../models/portfolio";
+import { getNews } from "../../services/marketService";
 
 type Category = "portfoy" | "bist" | "makro" | "bulten";
 
@@ -21,6 +24,8 @@ type Article = {
   title: string;
   summary: string;
   body: string[];
+  image: string;
+  tag?: "positive" | "negative" | "neutral";
 };
 
 const tabs: { key: "tumu" | Category; label: string }[] = [
@@ -31,95 +36,48 @@ const tabs: { key: "tumu" | Category; label: string }[] = [
   { key: "bulten", label: "Günün Bülteni" },
 ];
 
-const articles: Article[] = [
-  {
-    id: "featured-1",
-    category: "bulten",
-    featured: true,
-    time: "09:14",
-    source: "Bloomberg HT",
-    symbol: "BIST",
-    title: "BIST 100 güne yatay başladı, bankacılık hisseleri öne çıktı",
-    summary:
-      "Yurt içi piyasalarda güne yatay bir seyirle başlandı. Bankacılık endeksi %1,2 primli açılırken, yurt dışı faiz beklentileri gün içinde takip edilecek. Analistler öğleden sonra açıklanacak enflasyon verisinin oynaklığı artırabileceğini belirtiyor.",
-    body: [
-      "Borsa İstanbul'da BIST 100 endeksi güne önceki kapanışa yakın, yatay bir seyirle başladı. Açılışın ardından bankacılık endeksi %1,2 primli seyrederek genel endeksin üzerinde bir performans sergiledi.",
-      "Piyasa yapıcılar, yurt dışında beklenen faiz kararlarının ve öğleden sonra açıklanacak yurt içi enflasyon verisinin gün içi oynaklığı artırabileceği uyarısında bulundu. Yabancı yatırımcı işlemlerinde net bir yön henüz gözlenmiyor.",
-      "Teknik analistler, endeksin kısa vadeli direnç seviyesinin üzerinde kalıcı olması durumunda yükseliş eğiliminin güçlenebileceğini, aksi halde kâr satışlarının gündeme gelebileceğini belirtiyor.",
-    ],
-  },
-  {
-    id: "bist-1",
-    category: "bist",
-    time: "13:07",
-    source: "Reuters",
-    title: "Sanayi üretiminde beklenti üstü artış",
-    summary:
-      "Sanayi üretim endeksi yıllık bazda %4,8 artarak piyasa beklentisinin üzerinde geldi. İhracata dayalı sektörlerde ivmelenme dikkat çekiyor.",
-    body: [
-      "Türkiye İstatistik Kurumu tarafından açıklanan verilere göre sanayi üretim endeksi yıllık bazda %4,8 artış kaydederek piyasa beklentisi olan %3,2'nin belirgin şekilde üzerinde gerçekleşti.",
-      "Alt sektör detaylarında, ihracata dayalı imalat kollarında ivmelenme dikkat çekerken, dayanıklı tüketim malları üretiminde de toparlanma sinyalleri gözlendi. Analistler bu görünümün büyüme tahminlerine yukarı yönlü katkı sağlayabileceğini değerlendiriyor.",
-      "Veri sonrası piyasada sanayi endeksine dayalı hisselerde sınırlı alım ilgisi görüldü; kurum raporlarında verinin orta vadeli görünümü desteklediği ifade edildi.",
-    ],
-  },
-  {
-    id: "bist-2",
-    category: "bist",
-    time: "08:41",
-    source: "Anadolu Ajansı",
-    symbol: "THYAO",
-    title: "Havacılık sektöründe yolcu sayıları rekor kırdı",
-    summary: "Yaz sezonuyla birlikte iç ve dış hat yolcu sayılarında geçen yıla göre çift haneli büyüme kaydedildi.",
-    body: [
-      "Yaz sezonunun etkisiyle havayolu taşımacılığında yolcu sayıları rekor seviyelere ulaştı. İç ve dış hat toplam yolcu sayısı geçen yılın aynı dönemine göre çift haneli oranda büyüme kaydetti.",
-      "Sektör temsilcileri, doluluk oranlarındaki artışın birim başına gelirlere olumlu yansıdığını, yakıt maliyetlerindeki nispi istikrarın da kâr marjlarını desteklediğini belirtti.",
-      "Öte yandan analistler, önümüzdeki çeyrekte baz etkisinin normalleşmesiyle büyüme oranının kademeli olarak yavaşlayabileceğine dikkat çekiyor; yine de yıl geneli görünümün pozitif kaldığı vurgulanıyor.",
-    ],
-  },
-  {
-    id: "makro-1",
-    category: "makro",
-    time: "13:52",
-    source: "Foreks Haber",
-    title: "Merkez Bankası faiz kararı bu hafta açıklanacak",
-    summary:
-      "Piyasa katılımcılarının çoğunluğu politika faizinin sabit tutulmasını beklerken, karar sonrası açıklanacak metin yakından izlenecek.",
-    body: [
-      "Türkiye Cumhuriyet Merkez Bankası'nın bu hafta gerçekleştireceği Para Politikası Kurulu toplantısı öncesinde piyasa katılımcılarının büyük çoğunluğu politika faizinin mevcut seviyede sabit tutulmasını bekliyor.",
-      "Karardan çok, toplantı sonrası yayımlanacak metnin dili yakından izlenecek; özellikle enflasyon patikasına ilişkin ileriye dönük yönlendirmenin piyasa fiyatlamalarında belirleyici olması bekleniyor.",
-      "Bazı kurumlar, yıl sonuna kadar sınırlı bir indirim alanı olduğunu, ancak bunun küresel likidite koşullarına ve yurt içi enflasyon seyrine bağlı kalacağını değerlendiriyor.",
-    ],
-  },
-  {
-    id: "makro-2",
-    category: "makro",
-    time: "09:58",
-    source: "Dünya Gazetesi",
-    title: "Cari işlemler açığı beklentilerin altında kaldı",
-    summary:
-      "Aylık cari işlemler açığı, enerji hariç dengede iyileşme sayesinde piyasa tahminlerinin altında gerçekleşti.",
-    body: [
-      "Açıklanan ödemeler dengesi verilerine göre aylık cari işlemler açığı piyasa beklentisinin altında gerçekleşti. Enerji hariç cari dengede gözlenen iyileşme, açığın sınırlı kalmasında belirleyici oldu.",
-      "Turizm gelirlerindeki güçlü seyrin de dengeyi desteklediği belirtilirken, ithalat talebinin yıl genelinde ölçülü kalması analistlerce olumlu karşılandı.",
-      "Kurumlar, mevcut eğilimin sürmesi halinde yıl sonu cari açık/GSYH oranı tahminlerinde aşağı yönlü revizyon yapılabileceğini ifade ediyor.",
-    ],
-  },
-  {
-    id: "bulten-2",
-    category: "bulten",
-    time: "18:22",
-    source: "Bloomberg HT",
-    symbol: "BTC",
-    title: "Küresel piyasalarda risk iştahı toparlanıyor",
-    summary:
-      "ABD borsalarındaki pozitif kapanışın ardından Asya piyasaları da yükselişle güne başladı. Emtia fiyatlarında karışık bir seyir izleniyor.",
-    body: [
-      "ABD borsalarının pozitif bir kapanış gerçekleştirmesinin ardından Asya piyasaları da güne alıcılı bir seyirle başladı. Küresel risk iştahındaki toparlanma, gelişmekte olan piyasa para birimlerine de sınırlı destek sağladı.",
-      "Kripto para piyasalarında Bitcoin, artan risk iştahıyla birlikte güne yükselişle başlarken, emtia tarafında fiyatlar karışık bir görünüm sergiliyor; enerji fiyatlarında sınırlı gerileme, değerli metallerde ise yatay seyir dikkat çekiyor.",
-      "Analistler, bu hafta açıklanacak küresel enflasyon verilerinin risk iştahındaki toparlanmanın kalıcılığı açısından belirleyici olacağını değerlendiriyor.",
-    ],
-  },
-];
+//: Backend `rag.documents.kategori` gercek degerleri (doviz | ekonomi | hisse
+//: | altin | piyasa) sayfadaki mevcut sekme tasnifine (bist | makro | bulten)
+//: esleniyor - sekme etiketleri/tasarimi degismiyor, yalnizca veri kaynagi.
+function kategoriToTab(kategori: string | null): Category {
+  if (kategori === "hisse") {
+    return "bist";
+  }
+  if (kategori === "doviz" || kategori === "altin" || kategori === "ekonomi") {
+    return "makro";
+  }
+  return "bulten";
+}
+
+function formatTarih(tarih: string | null): string {
+  if (!tarih) {
+    return "";
+  }
+  const date = new Date(tarih);
+  if (Number.isNaN(date.getTime())) {
+    return tarih;
+  }
+  return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" });
+}
+
+function toArticle(item: NewsArticle, index: number): Article {
+  return {
+    id: item.id,
+    category: kategoriToTab(item.kategori),
+    featured: index === 0,
+    time: formatTarih(item.tarih),
+    source: item.sirket ?? "Polifin Bülten",
+    symbol: item.symbol ?? undefined,
+    title: item.baslik,
+    summary: item.excerpt,
+    body: item.body,
+    image: item.image_url,
+    // Backend, haberin ilgili oldugu varligin (altin, doviz, taninan bir
+    // BIST sirketi vb.) CANLI gunluk degisimini cozebildiyse doldurur;
+    // guvenilir bir eslesme yoksa null doner ve rozet hic gosterilmez.
+    tag: item.related_change_pct == null ? undefined : item.related_change_pct < 0 ? "negative" : "positive",
+  };
+}
 
 function FeaturedIcon() {
   return (
@@ -166,10 +124,13 @@ export default function BultenPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("tumu");
   const [selectedArticle, setSelectedArticle] = useState<NewsDetailArticle | null>(null);
   const { data, loading, error, refetch } = useDashboard();
+  const news = useAsyncData(() => getNews(50), []);
+
+  const articles = useMemo(() => (news.data?.items ?? []).map(toArticle), [news.data]);
 
   const filtered = useMemo(
     () => (activeTab === "tumu" ? articles : articles.filter((article) => article.category === activeTab)),
-    [activeTab],
+    [activeTab, articles],
   );
   const featured = filtered.find((article) => article.featured);
   const featuredLogoMatch = featured ? matchNewsLogo(featured.symbol ?? featured.title) : null;
@@ -177,12 +138,16 @@ export default function BultenPage() {
   const bulletinItems = filtered.filter((article) => !article.featured);
   const showPortfolio = activeTab === "tumu" || activeTab === "portfoy";
 
-  if (loading) {
+  if (loading || news.loading) {
     return <LoadingState label="Bülten yükleniyor" />;
   }
 
   if (error || !data) {
     return <ErrorState message={error ?? "Bülten verisi boş döndü."} onRetry={refetch} />;
+  }
+
+  if (news.error) {
+    return <ErrorState message={news.error} onRetry={news.refetch} />;
   }
 
   return (
@@ -291,7 +256,9 @@ export default function BultenPage() {
             {bulletinItems.map((article) => (
               <NewsCard
                 key={article.id}
+                image={article.image}
                 symbol={article.symbol}
+                tag={article.tag}
                 time={article.time}
                 title={article.title}
                 summary={article.summary}

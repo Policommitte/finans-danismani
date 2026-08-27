@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import Button from "../ui/Button";
 
+function TagIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.59 2.59 20 10v.01L10.01 20H10L2 12V2h10z" />
+      <circle cx="7" cy="7" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 const sectors = ["Savunma", "Teknoloji", "Enerji", "Bankacılık", "Perakende", "Otomotiv", "Gıda", "İnşaat"];
 
 const assetTypes = ["BIST Hisseleri", "Kripto Para", "Emtia", "Yatırım Fonları", "Döviz", "Tahvil/Bono"];
@@ -73,9 +82,20 @@ export function InvestmentPreferences() {
   }
 
   return (
-    <div className="rounded-xl border app-card p-5 shadow-sm">
-      <h2 className="text-base font-semibold app-heading">🏷️ Yatırım Tercihlerim</h2>
-      <p className="mt-1 text-sm app-muted">Takip etmek istediğin sektörleri ve varlık türlerini seç.</p>
+    <div className="rounded-2xl border app-card p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+          style={{
+            background: "color-mix(in srgb, var(--color-accent) 18%, var(--color-surface))",
+            color: "var(--color-accent)",
+          }}
+        >
+          <TagIcon />
+        </span>
+        <h2 className="text-base font-semibold app-heading">Yatırım Tercihlerim</h2>
+      </div>
+      <p className="mt-2 text-sm app-muted">Takip etmek istediğin sektörleri ve varlık türlerini seç.</p>
 
       <div className="mt-4 space-y-4">
         <TagGroup title="Sektörler" items={sectors} selected={selected} onToggle={toggle} />

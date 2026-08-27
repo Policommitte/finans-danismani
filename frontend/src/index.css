@@ -217,23 +217,23 @@ body {
   .app-hover-card {
     background: var(--color-surface);
     border-color: var(--color-border);
-    transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease,
-      background-color 200ms ease;
+    transition: transform 320ms ease, box-shadow 320ms ease, border-color 320ms ease,
+      background-color 320ms ease;
   }
 
   .app-hover-card:hover {
-    transform: scale(1.02) translateY(-4px);
+    transform: scale(1.015) translateY(-3px);
     border-color: var(--color-accent);
     background: var(--color-surface-elevated);
     box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--color-accent) 45%, transparent);
   }
 
   .app-hover-card-image {
-    transition: transform 300ms ease;
+    transition: transform 350ms ease;
   }
 
   .app-hover-card:hover .app-hover-card-image {
-    transform: scale(1.08);
+    transform: scale(1.03);
   }
 
   .app-news-card-slot {
@@ -253,7 +253,7 @@ body {
   .app-news-card:hover {
     height: auto;
     min-height: 100%;
-    transform: scale(1.22) translateY(-4px);
+    transform: scale(1.03) translateY(-3px);
     z-index: 30;
   }
 
