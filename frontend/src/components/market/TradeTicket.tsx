@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Asset } from "../../models/market";
+import type { Holding } from "../../models/portfolio";
 import type {
   OrderPreview,
   OrderSide,
+  PaperOrder,
   EntryOrderType,
   OrderValidity,
   TradingAccount,
@@ -23,6 +25,10 @@ const ASSET_CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   INDEX: { tr: "Endeks", en: "Index" },
 };
 
+function formatQuantity(value: number, locale: string) {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 6 }).format(value);
+}
+
 function formatAssetPrice(asset: Asset, locale: string) {
   const precision = asset.asset_class === "FOREX" ? 4 : 2;
   return new Intl.NumberFormat(locale, {
@@ -36,6 +42,8 @@ function formatAssetPrice(asset: Asset, locale: string) {
 type Props = {
   asset: Asset;
   assets: Asset[];
+  holdings: Holding[];
+  orders: PaperOrder[];
   account: TradingAccount | null;
   preview: OrderPreview | null;
   submitting: boolean;
@@ -58,6 +66,8 @@ type Props = {
 export function TradeTicket({
   asset,
   assets,
+  holdings,
+  orders,
   account,
   preview,
   submitting,
@@ -79,14 +89,46 @@ export function TradeTicket({
   const [stopLossEnabled, setStopLossEnabled] = useState(false);
   const [stopLossPrice, setStopLossPrice] = useState("");
   const [validity, setValidity] = useState<OrderValidity>("DAY");
+  const isSell = side === "SELL";
+
+  // Satilabilir adet = elde olan - bekleyen manuel satis emirleri.
+  //
+  // Koruyucu stop emirleri HARIC tutulur; backend de onlari dusmuyor
+  // (bkz. `get_order_context.pending_sell_quantity`). Iki taraf ayni sayiyi
+  // gormezse kullanici arayuzun izin verdigi bir adette backend hatasi alir.
+  const sellableBySymbol = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const holding of holdings) {
+      if (holding.quantity > 0) map.set(holding.symbol, holding.quantity);
+    }
+    for (const order of orders) {
+      if (order.status !== "PENDING" || order.side !== "SELL") continue;
+      if (order.order_type === "STOP_MARKET") continue;
+      const kalan = order.quantity - order.filled_quantity;
+      map.set(order.symbol, (map.get(order.symbol) ?? 0) - kalan);
+    }
+    for (const [symbol, adet] of Array.from(map)) {
+      if (adet <= 0) map.delete(symbol);
+    }
+    return map;
+  }, [holdings, orders]);
+
+  // SAT secildiginde listeler yalnizca pozisyonu olan varliklara daralir:
+  // gonderilemeyecek bir emrin hazirlanabilmesi bir arayuz hatasidir.
+  const tradableAssets = useMemo(
+    () => (isSell ? assets.filter((item) => sellableBySymbol.has(item.symbol)) : assets),
+    [assets, isSell, sellableBySymbol],
+  );
   const classes = useMemo(
-    () => Array.from(new Set(assets.map((item) => item.asset_class))),
-    [assets],
+    () => Array.from(new Set(tradableAssets.map((item) => item.asset_class))),
+    [tradableAssets],
   );
   const classAssets = useMemo(
-    () => assets.filter((item) => item.asset_class === assetClass),
-    [assetClass, assets],
+    () => tradableAssets.filter((item) => item.asset_class === assetClass),
+    [assetClass, tradableAssets],
   );
+  const sellableQuantity = sellableBySymbol.get(asset.symbol) ?? 0;
+  const hasSellable = sellableBySymbol.size > 0;
   const supported = asset.asset_class !== "INDEX";
 
   useEffect(() => {
@@ -101,7 +143,10 @@ export function TradeTicket({
   function selectClass(nextClass: string) {
     setAssetClass(nextClass);
     onClearPreview();
-    const firstAsset = assets.find((item) => item.asset_class === nextClass);
+    // `tradableAssets` kullanilir, `assets` DEGIL: satista bu liste elde olan
+    // varliklara daralmistir, aksi halde sinif degistirince sahip olunmayan
+    // bir varlik secilir ve asagidaki (filtreli) acilir liste onu icermez.
+    const firstAsset = tradableAssets.find((item) => item.asset_class === nextClass);
     if (firstAsset) {
       onSelectAsset(firstAsset.symbol);
     }
@@ -110,7 +155,17 @@ export function TradeTicket({
   function selectSide(next: OrderSide) {
     setSide(next);
     onClearPreview();
-    if (next === "SELL") setStopLossEnabled(false);
+    if (next !== "SELL") return;
+    setStopLossEnabled(false);
+    // Elde olmayan bir varlik secili kalirsa kullanici hicbir zaman
+    // gonderemeyecegi bir emir hazirlar; ilk satilabilir varliga gecilir.
+    if (!sellableBySymbol.has(asset.symbol)) {
+      const ilk = assets.find((item) => sellableBySymbol.has(item.symbol));
+      if (ilk) {
+        setAssetClass(ilk.asset_class);
+        onSelectAsset(ilk.symbol);
+      }
+    }
   }
 
   function changeQuantity(value: string) {
@@ -134,6 +189,7 @@ export function TradeTicket({
   }
 
   const parsedQuantity = Number(quantity);
+  const exceedsHolding = isSell && Number.isFinite(parsedQuantity) && parsedQuantity > sellableQuantity;
   const parsedLimitPrice = Number(limitPrice);
   const parsedStopLossPrice = Number(stopLossPrice);
   const validLimitPrice = orderType === "MARKET"
@@ -251,6 +307,14 @@ export function TradeTicket({
             </button>
           </div>
 
+          {isSell && !hasSellable ? (
+            <p className="mt-4 rounded-lg app-card-muted p-3 text-sm app-muted">
+              {language === "tr"
+                ? "Satılabilir bir varlığınız yok. Önce bir alım emri vererek pozisyon açın."
+                : "You have no assets available to sell. Open a position with a buy order first."}
+            </p>
+          ) : (
+          <>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="block text-xs font-semibold uppercase tracking-wide app-muted">
             {language === "tr" ? "Miktar / Adet" : "Quantity / Units"}
@@ -259,9 +323,33 @@ export function TradeTicket({
               type="number"
               min="0.000001"
               step="1"
+              max={isSell ? sellableQuantity : undefined}
               value={quantity}
               onChange={(event) => changeQuantity(event.target.value)}
             />
+            {isSell && (
+              <span className="mt-1.5 flex items-center justify-between gap-2 text-xs font-normal normal-case tracking-normal app-muted">
+                <span>
+                  {language === "tr" ? "Satılabilir: " : "Available to sell: "}
+                  <strong className="app-heading">{formatQuantity(sellableQuantity, locale)}</strong>
+                  {language === "tr" ? " adet" : " units"}
+                </span>
+                <button
+                  type="button"
+                  className="font-semibold text-emerald-700 underline underline-offset-2 dark:text-emerald-400"
+                  onClick={() => changeQuantity(String(sellableQuantity))}
+                >
+                  {language === "tr" ? "Tümü" : "Max"}
+                </button>
+              </span>
+            )}
+            {exceedsHolding && (
+              <span className="mt-1.5 block text-xs font-normal normal-case tracking-normal app-danger">
+                {language === "tr"
+                  ? "Elinizdeki adetten fazlasını satamazsınız."
+                  : "You cannot sell more than you hold."}
+              </span>
+            )}
           </label>
 
           <div>
@@ -391,7 +479,7 @@ export function TradeTicket({
             ) : (
               <Button
                 className={`h-12 w-full !rounded-xl text-base shadow-lg ${side === "BUY" ? "!bg-emerald-600 hover:!bg-emerald-700" : "!bg-rose-600 hover:!bg-rose-700"}`}
-                disabled={submitting || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !validLimitPrice || !validStopLoss}
+                disabled={submitting || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || exceedsHolding || !validLimitPrice || !validStopLoss}
                 onClick={() => onPreview(
                   asset.symbol,
                   side,
@@ -406,6 +494,8 @@ export function TradeTicket({
               </Button>
             )}
           </div>
+          </>
+          )}
         </>
       )}
     </Card>
