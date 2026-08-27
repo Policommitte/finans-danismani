@@ -104,6 +104,31 @@ class Settings(BaseSettings):
     #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
     market_api_daily_quota: int = 7500
 
+    # --- Bildirim kanali (mail koprusu) ----------------------------------
+    # MAIL SU AN BAGLI DEGIL ve bu bir eksiklik degil, bilincli varsayilan.
+    # Emir olaylari her durumda `notification_outbox` tablosuna yazilir;
+    # asagidaki ayarlar tanimlanana kadar gonderim yapilmaz ve satirlar
+    # SKIPPED olarak kapanir. SMTP geldiginde KOD degismez - yalnizca
+    # NOTIFICATIONS_ENABLED=true ve SMTP_HOST tanimlanir.
+    notifications_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "Polifin <bildirim@polifin.local>"
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: int = 10
+
+    #: Bir olay bu yastan eskiyse gonderilmez, SKIPPED yazilir.
+    #:
+    #: NEDEN VAR: kanal haftalarca kapali kalip sonra acilirsa, birikmis tum
+    #: gecmis gerceklesmeler tek seferde kullaniciya gider. Eski bir emir
+    #: bildirimi kullanici icin bilgi degil gurultudur.
+    notification_max_age_minutes: int = 60
+
+    #: Tek turda islenecek azami outbox satiri (kuyruk tikanmasin diye).
+    notification_batch_size: int = 50
+
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20
     synthesizer_timeout_seconds: int = 40
@@ -111,6 +136,16 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def email_enabled(self) -> bool:
+        """Mail kanali gercekten gonderim yapabilir mi?
+
+        Ikisi birden gerekir: ozellik acik OLMALI ve bir SMTP sunucusu
+        tanimli OLMALI. Biri eksikse `NoopNotifier` secilir ve outbox
+        satirlari SKIPPED olarak kapanir - sessizce birikmezler.
+        """
+        return bool(self.notifications_enabled and self.smtp_host.strip())
 
     @property
     def database_enabled(self) -> bool:

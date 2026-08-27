@@ -70,9 +70,7 @@ class MarketRepository(Protocol):
         """Zaman serisi: `[{"ts": ..., "price": ...}, ...]` (eskiden yeniye)."""
         ...
 
-    async def get_candles(
-        self, symbol: str, interval: str = "5m", days: int = 5
-    ) -> list[dict]:
+    async def get_candles(self, symbol: str, interval: str = "5m", days: int = 5) -> list[dict]:
         """Gercek OHLCV mumlari (eskiden yeniye)."""
         ...
 
@@ -162,9 +160,32 @@ class TradingRepository(Protocol):
 
     async def cancel_order(self, user_id: int, order_id: int) -> dict: ...
 
-    async def process_pending_orders(
-        self, updates: list[dict], commission_rate: float
-    ) -> int: ...
+    async def process_pending_orders(self, updates: list[dict], commission_rate: float) -> int: ...
+
+
+class NotificationRepository(Protocol):
+    """`notification_outbox` okuma/kapatma sozlesmesi.
+
+    Outbox satirini YAZAN taraf burasi DEGILDIR: yazim, emrin gerceklestigi
+    transaction'in icinde `TradingRepository` tarafindan yapilir. Burasi
+    yalnizca bekleyenleri alip sonucu isler.
+    """
+
+    async def claim_pending(self, limit: int, max_attempts: int = 5) -> list[dict]:
+        """Bekleyen satirlari alir ve deneme sayacini artirir.
+
+        Ayni anda birden fazla surec calisabilir; uygulama ayni satiri iki
+        kez vermemelidir (SQL tarafinda `FOR UPDATE SKIP LOCKED`).
+        """
+        ...
+
+    async def mark(self, outbox_id: int, status: str, error: str | None = None) -> None:
+        """Satiri SENT / SKIPPED / FAILED olarak kapatir."""
+        ...
+
+    async def list_for_user(self, user_id: int, limit: int = 20) -> list[dict]:
+        """Kullanicinin bildirim gecmisi (bildirim merkezi ekrani icin)."""
+        ...
 
 
 class RagRepository(Protocol):

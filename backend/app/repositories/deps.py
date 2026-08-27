@@ -28,6 +28,7 @@ from app.repositories.base import (
     AuditRepository,
     ChatRepository,
     MarketRepository,
+    NotificationRepository,
     PortfolioRepository,
     RagRepository,
     TradingRepository,
@@ -37,6 +38,7 @@ from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
     InMemoryMarketRepository,
+    InMemoryNotificationRepository,
     InMemoryPortfolioRepository,
     InMemoryRagRepository,
     InMemoryTradingRepository,
@@ -159,6 +161,15 @@ def get_audit_repository() -> AuditRepository:
     return InMemoryAuditRepository()
 
 
+@lru_cache
+def get_notification_repository() -> NotificationRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlNotificationRepository
+
+        return SqlNotificationRepository(_session_factory())
+    return InMemoryNotificationRepository()
+
+
 def reset_repositories() -> None:
     """Onbellekleri temizler.
 
@@ -175,6 +186,7 @@ def reset_repositories() -> None:
         get_rag_repository,
         get_chat_repository,
         get_audit_repository,
+        get_notification_repository,
     ):
         provider.cache_clear()
 

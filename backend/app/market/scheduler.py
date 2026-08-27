@@ -90,6 +90,16 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
     except Exception:  # noqa: BLE001 - emir motoru fiyat akisini durdurmamali
         logger.exception("paper emirleri islenemedi")
 
+    # Bildirim outbox'ini ayni turda bosalt. Mail kanali bagli degilse bu cagri
+    # satirlari SKIPPED olarak kapatir - PENDING birikip, kanal aylar sonra
+    # acildiginda gecmis bildirimlerin topluca gitmesini onler.
+    try:
+        from app.notifications.dispatcher import bildirimleri_gonder
+
+        await bildirimleri_gonder()
+    except Exception:  # noqa: BLE001 - bildirim fiyat akisini durdurmamali
+        logger.exception("bildirim outbox'i islenemedi")
+
     return yazilan
 
 

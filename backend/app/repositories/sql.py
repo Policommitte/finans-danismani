@@ -333,9 +333,7 @@ class SqlMarketRepository(_SqlRepository):
             {"symbol": symbol, "days": days},
         )
 
-    async def get_candles(
-        self, symbol: str, interval: str = "5m", days: int = 5
-    ) -> list[dict]:
+    async def get_candles(self, symbol: str, interval: str = "5m", days: int = 5) -> list[dict]:
         return await self._rows(
             """
             SELECT mc.ts, mc.open, mc.high, mc.low, mc.close, mc.volume
@@ -793,9 +791,19 @@ class SqlTradingRepository(_SqlRepository):
                 if validity not in {"DAY", "GTC"}:
                     raise BusinessRuleError("Gecerlilik DAY veya GTC olmalidir.")
                 if stop_loss_price is not None:
-                    reference = Decimal(str(limit_price)) if order_type == "LIMIT" else Decimal(str(context["current_price"]))
-                    if side != "BUY" or Decimal(str(stop_loss_price)) <= 0 or Decimal(str(stop_loss_price)) >= reference:
-                        raise BusinessRuleError("Stop-loss fiyati alim referans fiyatindan dusuk olmalidir.")
+                    reference = (
+                        Decimal(str(limit_price))
+                        if order_type == "LIMIT"
+                        else Decimal(str(context["current_price"]))
+                    )
+                    if (
+                        side != "BUY"
+                        or Decimal(str(stop_loss_price)) <= 0
+                        or Decimal(str(stop_loss_price)) >= reference
+                    ):
+                        raise BusinessRuleError(
+                            "Stop-loss fiyati alim referans fiyatindan dusuk olmalidir."
+                        )
 
                 price = Decimal(str(context["current_price"]))
                 reserve_price = Decimal(str(limit_price)) if order_type == "LIMIT" else price
@@ -803,7 +811,9 @@ class SqlTradingRepository(_SqlRepository):
                 # Piyasa emrinde sonraki tick icin %2 tampon; limit emrinde
                 # kullanicinin belirledigi azami fiyat + komisyon bloke edilir.
                 reserve = _money(
-                    reserve_price * qty * (Decimal("1") if order_type == "LIMIT" else Decimal("1.02"))
+                    reserve_price
+                    * qty
+                    * (Decimal("1") if order_type == "LIMIT" else Decimal("1.02"))
                     + commission
                 )
 
@@ -989,6 +999,7 @@ class SqlTradingRepository(_SqlRepository):
                         ),
                         {"order_id": expired["id"]},
                     )
+                    await self._queue_notification(session, expired["id"], "ORDER_EXPIRED")
 
                 result = await session.execute(
                     text(
@@ -1053,7 +1064,10 @@ class SqlTradingRepository(_SqlRepository):
                             continue
                         if qty != Decimal(str(order["quantity"])):
                             await session.execute(
-                                text("UPDATE orders SET quantity = :quantity, updated_at = now() WHERE id = :order_id"),
+                                text(
+                                    "UPDATE orders SET quantity = :quantity, "
+                                    "updated_at = now() WHERE id = :order_id"
+                                ),
                                 {"quantity": qty, "order_id": order["id"]},
                             )
                     gross = _money(price * qty)
@@ -1257,6 +1271,17 @@ class SqlTradingRepository(_SqlRepository):
                             "order_id": order["id"],
                         },
                     )
+                    await self._queue_notification(
+                        session,
+                        order["id"],
+                        "ORDER_FILLED",
+                        {
+                            "price": float(price),
+                            "commission": float(commission),
+                            "total": float(abs(ledger_amount)),
+                            "quantity": float(qty),
+                        },
+                    )
                     if order["side"] == "BUY" and order.get("stop_loss_price") is not None:
                         await session.execute(
                             text(
@@ -1325,15 +1350,60 @@ class SqlTradingRepository(_SqlRepository):
             protected = min(original - reduction, available)
             if protected <= 0:
                 await session.execute(
-                    text("UPDATE orders SET status = 'CANCELLED', updated_at = now() WHERE id = :id"),
+                    text(
+                        "UPDATE orders SET status = 'CANCELLED', updated_at = now() WHERE id = :id"
+                    ),
                     {"id": stop["id"]},
                 )
             elif protected != original:
                 await session.execute(
-                    text("UPDATE orders SET quantity = :quantity, updated_at = now() WHERE id = :id"),
+                    text(
+                        "UPDATE orders SET quantity = :quantity, updated_at = now() WHERE id = :id"
+                    ),
                     {"quantity": protected, "id": stop["id"]},
                 )
             available -= protected
+
+    async def _queue_notification(
+        self, session, order_id: int, event_type: str, extra: dict | None = None
+    ) -> None:
+        """Bildirim olayini outbox'a yazar - CAGIRAN TRANSACTION ICINDE.
+
+        Ayni transaction bilincli bir tercihtir: gerceklesme geri alinirsa
+        bildirim de geri alinir; gerceklesme yazildiysa bildirim de yazilmis
+        olur. Ayri bir transaction "gerceklesmeyen emir icin bildirim" ve
+        "bildirimsiz gerceklesme" hatalarinin IKISINI DE mumkun kilardi.
+
+        Alici adresi ve sembol OLAY ANINDA fotograflanir: kullanici sonradan
+        e-postasini degistirse bile gecmis bildirim kaydi degismez.
+        """
+        await session.execute(
+            text(
+                """
+                INSERT INTO notification_outbox (
+                    user_id, order_id, event_type, channel, recipient, payload
+                )
+                SELECT o.user_id, o.id, :event_type, 'EMAIL', u.email,
+                       jsonb_build_object(
+                           'symbol', a.symbol,
+                           'asset_name', a.name,
+                           'side', o.side,
+                           'order_type', o.order_type,
+                           'quantity', o.quantity,
+                           'rejection_reason', o.rejection_reason
+                       ) || CAST(:extra AS JSONB)
+                FROM orders o
+                JOIN users u ON u.id = o.user_id
+                JOIN assets a ON a.id = o.asset_id
+                WHERE o.id = :order_id
+                """
+            ),
+            {
+                "event_type": event_type,
+                "order_id": order_id,
+                "extra": json.dumps(extra or {}),
+            },
+        )
 
     async def _reject_order(self, session, order: dict, reason: str) -> None:
         reserved = Decimal(str(order.get("reserved_amount") or 0))
@@ -1360,10 +1430,86 @@ class SqlTradingRepository(_SqlRepository):
             ),
             {"reason": reason, "order_id": order["id"]},
         )
+        await self._queue_notification(session, order["id"], "ORDER_REJECTED")
 
 
 def _money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+class SqlNotificationRepository(_SqlRepository):
+    """`notification_outbox` okuma ve kapatma.
+
+    Satirlari YAZAN taraf burasi degil `SqlTradingRepository`dir (bildirim,
+    gerceklesmeyle ayni transaction'da yazilir). Burasi bekleyenleri alip
+    sonucu isler.
+    """
+
+    async def claim_pending(self, limit: int, max_attempts: int = 5) -> list[dict]:
+        """Bekleyenleri alir ve deneme sayacini artirir.
+
+        `FOR UPDATE SKIP LOCKED`: ayni anda birden fazla surec (ornegin iki
+        uygulama ornegi) calisirsa ayni satir iki kez gonderilmez; kilitli
+        satir beklenmeden atlanir.
+
+        Sayac ONCEDEN artirilir. Surec gonderim sirasinda cokerse satir
+        PENDING kalir ve tekrar denenir - ama sonsuza kadar degil, cunku
+        `attempts` her denemede artar ve `max_attempts`e ulasinca artik
+        alinmaz (dispatcher onu FAILED olarak kapatir).
+        """
+        # `_rows()` KULLANILMAZ: o yardimci commit etmez ve bu bir YAZMA
+        # sorgusudur - sayac artisi geri alinirdi.
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        WITH secilen AS (
+                            SELECT id FROM notification_outbox
+                            WHERE status = 'PENDING' AND attempts < :max_attempts
+                            ORDER BY created_at
+                            LIMIT :limit
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        UPDATE notification_outbox o
+                        SET attempts = o.attempts + 1
+                        FROM secilen
+                        WHERE o.id = secilen.id
+                        RETURNING o.id, o.user_id, o.order_id, o.event_type,
+                                  o.channel, o.recipient, o.payload,
+                                  o.attempts, o.created_at
+                        """
+                    ),
+                    {"limit": limit, "max_attempts": max_attempts},
+                )
+                return [dict(row) for row in result.mappings().all()]
+
+    async def mark(self, outbox_id: int, status: str, error: str | None = None) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        UPDATE notification_outbox
+                        SET status = :status, last_error = :error, processed_at = now()
+                        WHERE id = :outbox_id
+                        """
+                    ),
+                    {"status": status, "error": error, "outbox_id": outbox_id},
+                )
+
+    async def list_for_user(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id, order_id, event_type, channel, status, payload,
+                   created_at, processed_at
+            FROM notification_outbox
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )
 
 
 class SqlRagRepository(_SqlRepository):

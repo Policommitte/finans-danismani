@@ -195,6 +195,7 @@ def reset_data() -> None:
     _TRANSACTIONS.extend(dict(row) for row in _SEED_TRANSACTIONS)
     _ORDERS.clear()
     _ORDER_FILLS.clear()
+    _NOTIFICATION_OUTBOX.clear()
 
 
 _PORTFOLIOS: list[dict] = [
@@ -268,6 +269,44 @@ _SEED_CASH_ACCOUNTS: list[dict] = [
 ]
 _CASH_ACCOUNTS: list[dict] = [dict(row) for row in _SEED_CASH_ACCOUNTS]
 _ORDERS: list[dict] = []
+#: Bellek ici bildirim outbox'i - SQL'deki `notification_outbox` karsiligi.
+_NOTIFICATION_OUTBOX: list[dict] = []
+
+
+def _kuyrukla(order: dict, event_type: str, extra: dict | None = None) -> None:
+    """Emir olayini bellek ici outbox'a yazar.
+
+    SQL tarafinda bu yazim gerceklesmeyle AYNI transaction icindedir; bellek
+    ici surumde transaction kavrami yok, bu yuzden cagri noktalari SQL ile
+    ayni yerlerde tutulur ki iki uygulama ayni olaylari uretsin.
+    """
+    user = next((u for u in _USERS if u["id"] == order.get("user_id")), None)
+    _NOTIFICATION_OUTBOX.append(
+        {
+            "id": len(_NOTIFICATION_OUTBOX) + 1,
+            "user_id": order.get("user_id"),
+            "order_id": order.get("id"),
+            "event_type": event_type,
+            "channel": "EMAIL",
+            "recipient": (user or {}).get("email", ""),
+            "payload": {
+                "symbol": order.get("symbol"),
+                "asset_name": order.get("asset_name"),
+                "side": order.get("side"),
+                "order_type": order.get("order_type"),
+                "quantity": order.get("quantity"),
+                "rejection_reason": order.get("rejection_reason"),
+                **(extra or {}),
+            },
+            "status": "PENDING",
+            "attempts": 0,
+            "last_error": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "processed_at": None,
+        }
+    )
+
+
 _ORDER_FILLS: list[dict] = []
 
 #: rag.documents + rag.chunks karsiligi. Embedding YOKTUR: model secilmedigi
@@ -542,9 +581,7 @@ class InMemoryMarketRepository:
         # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
         return []
 
-    async def get_candles(
-        self, symbol: str, interval: str = "5m", days: int = 5
-    ) -> list[dict]:
+    async def get_candles(self, symbol: str, interval: str = "5m", days: int = 5) -> list[dict]:
         return []
 
     async def upsert_candles(self, candles: list[dict], source: str = "yahoo") -> int:
@@ -629,9 +666,7 @@ class InMemoryTradingRepository:
         portfolio = _default_portfolio(user_id)
         if not portfolio:
             return None
-        account = next(
-            (a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None
-        )
+        account = next((a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None)
         if not account:
             return None
         return {**account, "portfolio_name": portfolio["name"]}
@@ -641,9 +676,7 @@ class InMemoryTradingRepository:
         asset = next((a for a in _ASSETS if a["symbol"].upper() == symbol.upper()), None)
         if not portfolio or not asset:
             return None
-        account = next(
-            (a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None
-        )
+        account = next((a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None)
         if not account:
             return None
         holding = next(
@@ -716,17 +749,27 @@ class InMemoryTradingRepository:
         if validity not in {"DAY", "GTC"}:
             raise BusinessRuleError("Gecersiz emir gecerliligi.")
         if stop_loss_price is not None:
-            reference = float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+            reference = (
+                float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+            )
             if side != "BUY" or stop_loss_price <= 0 or stop_loss_price >= reference:
-                raise BusinessRuleError("Stop-loss fiyati alim referans fiyatindan dusuk olmalidir.")
+                raise BusinessRuleError(
+                    "Stop-loss fiyati alim referans fiyatindan dusuk olmalidir."
+                )
 
         account = next(a for a in _CASH_ACCOUNTS if a["portfolio_id"] == context["portfolio_id"])
-        reserve_price = float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+        reserve_price = (
+            float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+        )
         gross = reserve_price * quantity
-        reserve = round(
-            gross * (1 if order_type == "LIMIT" else 1.02) + gross * commission_rate,
-            2,
-        ) if side == "BUY" else 0.0
+        reserve = (
+            round(
+                gross * (1 if order_type == "LIMIT" else 1.02) + gross * commission_rate,
+                2,
+            )
+            if side == "BUY"
+            else 0.0
+        )
         if side == "BUY":
             if account["available_balance"] < reserve:
                 raise BusinessRuleError(
@@ -753,7 +796,9 @@ class InMemoryTradingRepository:
             "stop_loss_price": stop_loss_price,
             "parent_order_id": None,
             "validity": validity,
-            "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
+            "expires_at": (
+                expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at
+            ),
             "quantity": quantity,
             "quoted_price": context["current_price"],
             "status": "PENDING",
@@ -792,9 +837,7 @@ class InMemoryTradingRepository:
 
     async def process_pending_orders(self, updates: list[dict], commission_rate: float) -> int:
         prices = {
-            int(u["asset_id"]): float(u["price"])
-            for u in updates
-            if float(u.get("price") or 0) > 0
+            int(u["asset_id"]): float(u["price"]) for u in updates if float(u.get("price") or 0) > 0
         }
         completed = 0
         pending_snapshot = sorted(
@@ -813,6 +856,7 @@ class InMemoryTradingRepository:
                     account["available_balance"] += reserve
                     account["reserved_balance"] -= reserve
                     order.update(status="CANCELLED", reserved_amount=0.0)
+                    _kuyrukla(order, "ORDER_EXPIRED")
                     continue
             if order["status"] != "PENDING" or order["asset_id"] not in prices:
                 continue
@@ -830,7 +874,8 @@ class InMemoryTradingRepository:
                     continue
                 current_holding = next(
                     (
-                        h for h in _PORTFOLIO_ASSETS
+                        h
+                        for h in _PORTFOLIO_ASSETS
                         if h["portfolio_id"] == order["portfolio_id"]
                         and h["asset_id"] == order["asset_id"]
                     ),
@@ -847,17 +892,18 @@ class InMemoryTradingRepository:
                 )
                 effective = min(
                     float(order["quantity"]),
-                    max(float(current_holding["quantity"]) - manual_pending, 0)
-                    if current_holding else 0,
+                    (
+                        max(float(current_holding["quantity"]) - manual_pending, 0)
+                        if current_holding
+                        else 0
+                    ),
                 )
                 if effective <= 0:
                     continue
                 order["quantity"] = effective
             gross = round(price * float(order["quantity"]), 2)
             commission = round(gross * commission_rate, 2)
-            account = next(
-                a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"]
-            )
+            account = next(a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"])
             holding = next(
                 (
                     h
@@ -875,6 +921,7 @@ class InMemoryTradingRepository:
                     account["reserved_balance"] -= reserve
                     order["status"] = "REJECTED"
                     order["rejection_reason"] = "Yeni fiyatta kullanilabilir bakiye yetersiz."
+                    _kuyrukla(order, "ORDER_REJECTED")
                     continue
                 account["available_balance"] += reserve - total
                 account["reserved_balance"] -= reserve
@@ -899,6 +946,7 @@ class InMemoryTradingRepository:
                 if not holding or float(holding["quantity"]) < float(order["quantity"]):
                     order["status"] = "REJECTED"
                     order["rejection_reason"] = "Gerceklesme aninda satilabilir adet yetersiz."
+                    _kuyrukla(order, "ORDER_REJECTED")
                     continue
                 holding["quantity"] = float(holding["quantity"]) - float(order["quantity"])
                 if holding["quantity"] == 0:
@@ -924,6 +972,17 @@ class InMemoryTradingRepository:
                 average_fill_price=price,
                 commission=commission,
                 filled_at=now,
+            )
+            _kuyrukla(
+                order,
+                "ORDER_FILLED",
+                {
+                    "price": price,
+                    "commission": commission,
+                    "total": round(
+                        gross + commission if order["side"] == "BUY" else gross - commission, 2
+                    ),
+                },
             )
             if order["side"] == "BUY" and order.get("stop_loss_price") is not None:
                 _ORDERS.append(
@@ -971,12 +1030,11 @@ class InMemoryTradingRepository:
         return completed
 
     @staticmethod
-    def _normalize_stop_orders(
-        portfolio_id: int, asset_id: int, sold_quantity: float
-    ) -> None:
+    def _normalize_stop_orders(portfolio_id: int, asset_id: int, sold_quantity: float) -> None:
         holding = next(
             (
-                row for row in _PORTFOLIO_ASSETS
+                row
+                for row in _PORTFOLIO_ASSETS
                 if row["portfolio_id"] == portfolio_id and row["asset_id"] == asset_id
             ),
             None,
@@ -985,7 +1043,8 @@ class InMemoryTradingRepository:
         manual_reduction = sold_quantity
         stops = sorted(
             (
-                row for row in _ORDERS
+                row
+                for row in _ORDERS
                 if row["portfolio_id"] == portfolio_id
                 and row["asset_id"] == asset_id
                 and row.get("order_type") == "STOP_MARKET"
@@ -1008,6 +1067,37 @@ class InMemoryTradingRepository:
 def _default_portfolio(user_id: int) -> dict | None:
     rows = [p for p in _PORTFOLIOS if p["user_id"] == user_id]
     return next((p for p in rows if p["is_default"]), rows[0] if rows else None)
+
+
+class InMemoryNotificationRepository:
+    """`notification_outbox` yedegi (DB yokken).
+
+    SQL surumunden tek farki eszamanlilik: burada `SKIP LOCKED` yoktur cunku
+    tek surec ve tek liste vardir.
+    """
+
+    async def claim_pending(self, limit: int, max_attempts: int = 5) -> list[dict]:
+        secilen = [
+            row
+            for row in _NOTIFICATION_OUTBOX
+            if row["status"] == "PENDING" and row["attempts"] < max_attempts
+        ][:limit]
+        for row in secilen:
+            row["attempts"] += 1
+        return [dict(row) for row in secilen]
+
+    async def mark(self, outbox_id: int, status: str, error: str | None = None) -> None:
+        row = next((r for r in _NOTIFICATION_OUTBOX if r["id"] == outbox_id), None)
+        if row is None:
+            return
+        row["status"] = status
+        row["last_error"] = error
+        row["processed_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def list_for_user(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [dict(r) for r in _NOTIFICATION_OUTBOX if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows[:limit]
 
 
 class InMemoryRagRepository:
