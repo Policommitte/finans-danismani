@@ -1,12 +1,5 @@
 import type { DashboardSummaryResponse } from "../../models/dashboard";
-
-const currency = new Intl.NumberFormat("tr-TR", {
-  style: "currency",
-  currency: "TRY",
-  maximumFractionDigits: 0,
-});
-
-const pct = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { useLanguage } from "../../contexts/LanguageContext";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
   dusuk: "Düşük risk bandında",
@@ -53,20 +46,28 @@ function RiskGauge({ score, color }: { score: number; color: string }) {
 }
 
 export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
+  const { language } = useLanguage();
+  const locale = language === "tr" ? "tr-TR" : "en-US";
+  const currency = new Intl.NumberFormat(locale, { style: "currency", currency: "TRY", maximumFractionDigits: 0 });
+  const pct = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const summary = data.summary;
   const isUp = (summary?.total_pnl_try ?? 0) >= 0;
 
-  const holdingsWithChange = data.holdings.filter((h) => h.daily_change_pct != null && h.market_value_try > 0);
-  const dailyChangeTry = holdingsWithChange.reduce(
-    (sum, h) => sum + h.market_value_try * ((h.daily_change_pct ?? 0) / 100),
-    0,
-  );
-  const dailyBase = holdingsWithChange.reduce((sum, h) => sum + h.market_value_try, 0);
-  const dailyChangePct = dailyBase > 0 ? (dailyChangeTry / dailyBase) * 100 : null;
+  const dailyChangeTry = summary?.daily_change_try ?? 0;
+  const dailyChangePct = summary?.daily_change_pct ?? null;
   const dailyUp = dailyChangeTry >= 0;
 
   const levelKey = data.risk.risk_level.toLowerCase();
-  const levelLabel = RISK_LEVEL_LABEL[levelKey] ?? data.risk.risk_level;
+  const englishRiskLabels: Record<string, string> = {
+    dusuk: "Low risk range",
+    orta: "Medium risk range",
+    yuksek: "High risk range",
+    "cok yuksek": "Very high risk range",
+    hesaplanamadi: "Risk unavailable",
+  };
+  const levelLabel = language === "tr"
+    ? RISK_LEVEL_LABEL[levelKey] ?? data.risk.risk_level
+    : englishRiskLabels[levelKey] ?? data.risk.risk_level;
   const levelColor = RISK_LEVEL_COLOR[levelKey] ?? RISK_LEVEL_COLOR.hesaplanamadi;
 
   return (
@@ -81,7 +82,7 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
               <path d="M12 8v4l3 2" />
             </svg>
           </span>
-          Toplam Portföy Değeri
+          {language === "tr" ? "Toplam Portföy Değeri" : "Total Portfolio Value"}
         </div>
         <div className="relative mt-3 text-2xl font-semibold">{summary ? currency.format(summary.total_value_try) : "—"}</div>
         {summary && (
@@ -105,13 +106,15 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
               <path d="M15 13v2" />
             </svg>
           </span>
-          Günlük Değişim
+          {language === "tr" ? "Günlük Değişim" : "Daily Change"}
         </div>
         <div className="mt-3 text-2xl font-semibold app-heading">
-          {dailyBase > 0 ? `${dailyUp ? "+" : ""}${currency.format(dailyChangeTry)}` : "—"}
+          {summary ? `${dailyUp ? "+" : ""}${currency.format(dailyChangeTry)}` : "—"}
         </div>
         <span className={`mt-3 inline-flex items-center gap-1 text-sm font-semibold ${dailyUp ? "app-success" : "app-danger"}`}>
-          {dailyChangePct == null ? "Veri yok" : `${dailyUp ? "▲" : "▼"} %${pct.format(Math.abs(dailyChangePct))}`}
+          {dailyChangePct == null
+            ? language === "tr" ? "Veri yok" : "No data"
+            : `${dailyUp ? "▲" : "▼"} %${pct.format(Math.abs(dailyChangePct))}`}
         </span>
       </div>
 
@@ -124,7 +127,7 @@ export function SummaryCards({ data }: { data: DashboardSummaryResponse }) {
               <path d="M12 16h.01" />
             </svg>
           </span>
-          Risk Skoru
+          {language === "tr" ? "Risk Skoru" : "Risk Score"}
         </div>
         <div className="mt-3 text-2xl font-semibold app-heading">
           {data.risk.risk_score}

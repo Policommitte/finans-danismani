@@ -160,17 +160,30 @@ _SEED_ASSETS: list[dict] = [
 
 #: Calisma zamaninda GUNCELLENEN kopya (fiyat gorevi buraya yazar).
 _ASSETS: list[dict] = [dict(a) for a in _SEED_ASSETS]
+for _seed_asset in _ASSETS:
+    _seed_change = float(_seed_asset.get("daily_change_pct") or 0) / 100
+    _seed_asset["prev_close"] = float(_seed_asset["current_price"]) / (1 + _seed_change)
+
+#: `market_api_usage` tablosunun bellek ici karsiligi: ISO tarih -> istek
+#: sayisi. `market_api_usage` gibi kalici DEGILDIR, surec yeniden baslayinca
+#: sifirlanir; amaci DB'siz calisirken gunluk tavanin yok olmasini onlemektir.
+_API_USAGE: dict[str, int] = {}
 
 
 def reset_data() -> None:
-    """Varlik fiyatlarini tohum degerlerine dondurur.
+    """Varlik fiyatlarini ve api sayacini tohum degerlerine dondurur.
 
-    Fiyat gorevi bellek ici veriyi yerinde gunceller; testler bu yuzden
-    birbirinin fiyatlarini gorur. `tests/conftest.py` her testten once bunu
-    cagirir. Uretimde cagrilmaz.
+    Fiyat gorevi bellek ici veriyi YERINDE gunceller, yani durum surec omru
+    boyunca birikir; birbirinden bagimsiz olmasi gereken testler bunu acikca
+    cagirmalidir. `conftest.py` artik otomatik cagirmiyor (testler gercek
+    PostgreSQL'e tasindi). Uretimde cagrilmaz.
     """
     _ASSETS.clear()
     _ASSETS.extend(dict(a) for a in _SEED_ASSETS)
+    for asset in _ASSETS:
+        change = float(asset.get("daily_change_pct") or 0) / 100
+        asset["prev_close"] = float(asset["current_price"]) / (1 + change)
+    _API_USAGE.clear()
 
 
 _PORTFOLIOS: list[dict] = [
@@ -287,6 +300,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _bugun() -> str:
+    """Api sayacinin gun anahtari - SQL'deki `CURRENT_DATE` karsiligi."""
+    return _now().date().isoformat()
+
+
 def _asset(asset_id: int) -> dict:
     return next(a for a in _ASSETS if a["id"] == asset_id)
 
@@ -299,6 +317,16 @@ def _fx_rate(currency: str) -> float:
     for asset in _ASSETS:
         if asset["symbol"] == symbol:
             return float(asset["current_price"])
+    return 1.0
+
+
+def _previous_fx_rate(currency: str) -> float:
+    if currency == "TRY":
+        return 1.0
+    symbol = f"{currency}/TRY"
+    for asset in _ASSETS:
+        if asset["symbol"] == symbol:
+            return float(asset.get("prev_close") or asset["current_price"])
     return 1.0
 
 
@@ -323,6 +351,12 @@ def _holdings_valued(user_id: int, portfolio_id: int | None) -> list[dict]:
         quantity = float(pa["quantity"])
         avg = float(pa["average_buy_price"])
         price = float(asset["current_price"])
+        previous_value = (
+            quantity
+            * float(asset.get("prev_close") or price)
+            * _previous_fx_rate(asset["currency"])
+        )
+        market_value = quantity * price * fx
 
         rows.append(
             {
@@ -336,7 +370,13 @@ def _holdings_valued(user_id: int, portfolio_id: int | None) -> list[dict]:
                 "average_buy_price": avg,
                 "current_price": price,
                 "daily_change_pct": asset["daily_change_pct"],
-                "market_value_try": quantity * price * fx,
+                "market_value_try": market_value,
+                "daily_change_try": market_value - previous_value,
+                "daily_change_pct_try": (
+                    (market_value - previous_value) / previous_value * 100
+                    if previous_value > 0
+                    else None
+                ),
                 "cost_basis_try": quantity * avg * fx,
                 "pnl_try": quantity * (price - avg) * fx,
                 "pnl_pct": ((price - avg) / avg * 100) if avg > 0 else None,
@@ -436,6 +476,22 @@ class InMemoryPortfolioRepository:
             for t in rows[:limit]
         ]
 
+    async def get_performance_history(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        rows = _holdings_valued(user_id, portfolio_id)
+        current_total = sum(row["market_value_try"] for row in rows)
+        previous_total = sum(
+            row["market_value_try"] - float(row.get("daily_change_try") or 0) for row in rows
+        )
+        return [
+            {
+                "ts": (_now() - timedelta(hours=hours)).isoformat(),
+                "total_value_try": previous_total,
+            },
+            {"ts": _now().isoformat(), "total_value_try": current_total},
+        ]
+
 
 class InMemoryMarketRepository:
     async def list_assets(self, category: str | None = None) -> list[dict]:
@@ -499,17 +555,65 @@ class InMemoryMarketRepository:
             for a in _ASSETS
         ]
 
-    async def apply_price_updates(self, updates: list[dict], write_history: bool) -> int:
+    async def apply_price_updates(
+        self, updates: list[dict], write_live: bool, source: str = "simulated"
+    ) -> int:
+        """Bellek ici kopyadaki fiyatlari gunceller.
+
+        `write_live` yok sayilir: bu yedek katmanda `live_prices` karsiligi
+        bir tablo YOKTUR, dolayisiyla gun ici kayit tutulmaz. Yedek plan
+        "uygulama DB'siz de ayakta kalsin" icindir, veri biriktirmek icin
+        degil - DB'ye tekrar ulasildiginda tarihce SQL tarafinda kaldigi
+        yerden devam eder.
+        """
         for update in updates:
             asset = next((a for a in _ASSETS if a["id"] == update["asset_id"]), None)
             if asset is None:
                 continue
-            previous = float(asset["current_price"])
             new_price = float(update["price"])
+            supplied_previous = update.get("previous_close")
+            if supplied_previous is not None and float(supplied_previous) > 0:
+                asset["prev_close"] = float(supplied_previous)
             asset["current_price"] = new_price
-            if previous:
-                asset["daily_change_pct"] = round((new_price - previous) / previous * 100, 4)
+            previous_close = float(asset.get("prev_close") or 0)
+            if previous_close:
+                asset["daily_change_pct"] = round(
+                    (new_price - previous_close) / previous_close * 100, 4
+                )
         return len(updates)
+
+    async def pending_close_days(self) -> list[str]:
+        """Her zaman bos: gun ici kayit tutulmadigi icin kapanacak gun yoktur."""
+        return []
+
+    async def close_out_day(self, day: str) -> int:
+        """Yedek katmanda gun kapanisi YOKTUR; cagrilmasi zararsizdir.
+
+        `pending_close_days` hep bos dondugu icin scheduler burayi normalde
+        hic cagirmaz. Yine de sozlesmenin parcasi: SQL yerine bellek ici
+        depoya duselim diye cagiran kodun degismesi gerekmez.
+        """
+        return 0
+
+    async def get_api_usage_today(self) -> int:
+        """Bugun dis piyasa API'sine yapilan ISTEK sayisi.
+
+        BELLEK ICI MODDA DA GERCEKTEN SAYILIR. Daha once burasi sabit `0`
+        donuyordu; DB'ye ulasilamadiginda repository katmani bu yedege duser
+        ama `MARKET_DATA_PROVIDER=api` ise Yahoo cagrilari DEVAM eder - yani
+        tam da kotanin en cok gerektigi anda tavan tamamen ortadan kalkiyordu.
+
+        Sayac kalici degildir: surec yeniden baslayinca sifirlanir. DB'li
+        moddaki `market_api_usage` tablosunun yerini TUTMAZ, yalnizca yedek
+        moddaki sinirsizligi kapatir.
+        """
+        return _API_USAGE.get(_bugun(), 0)
+
+    async def record_api_usage(self, calls: int = 1) -> None:
+        if calls <= 0:
+            return
+        bugun = _bugun()
+        _API_USAGE[bugun] = _API_USAGE.get(bugun, 0) + calls
 
 
 class InMemoryRagRepository:

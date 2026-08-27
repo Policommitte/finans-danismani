@@ -1,8 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
 import type { PublicMarketTickerItem } from "../../models/market";
 import { getPublicMarketTicker } from "../../services/marketService";
+import { ThemeToggle } from "../ui/ThemeToggle";
+
+let cachedTickerItems: PublicMarketTickerItem[] = [];
 
 const fallbackTickerItems: PublicMarketTickerItem[] = [
   { symbol: "BIST100", label: "BIST 100", value: 10842.36, currency: "TRY", change_percent: 0.84, source: "fallback" },
@@ -19,22 +24,25 @@ const fallbackTickerItems: PublicMarketTickerItem[] = [
 const LOOP_DURATION_SECONDS = 28;
 const DRAG_CLICK_THRESHOLD_PX = 4;
 
-function formatValue(item: PublicMarketTickerItem): string {
-  const formatted = new Intl.NumberFormat("tr-TR", {
-    minimumFractionDigits: item.value >= 1000 ? 0 : 2,
-    maximumFractionDigits: item.value >= 1000 ? 0 : 2,
+function formatValue(item: PublicMarketTickerItem, language: "tr" | "en"): string {
+  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    maximumFractionDigits: item.value > 1000 ? 0 : 4,
+    minimumFractionDigits: item.value > 1000 ? 0 : 2,
   }).format(item.value);
-
-  if (item.currency === "TRY") {
-    return `${formatted} ₺`;
-  }
-
-  return `${formatted} ${item.currency}`;
 }
 
-export function MarketTicker({ onSelect }: { onSelect: (symbol: string) => void }) {
-  const [items, setItems] = useState<PublicMarketTickerItem[]>([]);
+export function MarketTicker({
+  onSelect,
+  onLogout,
+  isAuthenticated,
+}: {
+  onSelect: (symbol: string) => void;
+  onLogout: () => void;
+  isAuthenticated: boolean;
+}) {
+  const [items, setItems] = useState<PublicMarketTickerItem[]>(() => cachedTickerItems);
   const [isDragging, setIsDragging] = useState(false);
+  const { language, toggleLanguage } = useLanguage();
 
   const trackRef = useRef<HTMLDivElement | null>(null);
   const offsetRef = useRef(0);
@@ -53,9 +61,8 @@ export function MarketTicker({ onSelect }: { onSelect: (symbol: string) => void 
       try {
         const response = await getPublicMarketTicker();
         if (active && response.items.length > 0) {
+          cachedTickerItems = response.items;
           setItems(response.items);
-        } else if (active) {
-          setItems((current) => (current.length > 0 ? current : fallbackTickerItems));
         }
       } catch {
         if (active) {
@@ -197,41 +204,88 @@ export function MarketTicker({ onSelect }: { onSelect: (symbol: string) => void 
   }
 
   return (
-    <div className="overflow-hidden border-b border-black/10 bg-[var(--color-market-bar)]">
-      <div
-        ref={trackRef}
-        className={`flex w-max touch-pan-y select-none gap-3 px-4 py-3 ${
-          isDragging ? "cursor-grabbing" : "cursor-grab"
-        }`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onPointerEnter={handlePointerEnter}
-        onPointerLeave={handlePointerLeave}
-        onClickCapture={handleClickCapture}
-      >
-        {displayItems.map((item, index) => {
-          const positive = (item.change_percent ?? 0) >= 0;
-          return (
-            <button
-              key={`${item.symbol}-${index}`}
-              type="button"
-              draggable={false}
-              onClick={() => onSelect(item.symbol)}
-              className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-1 text-sm whitespace-nowrap transition hover:bg-white/10"
-            >
-              <b className="font-semibold text-[var(--color-market-text)]">{item.label}</b>
-              <span className="text-[var(--color-market-muted)]">{formatValue(item)}</span>
-              {item.change_percent != null && (
-                <span className={`text-xs font-semibold ${positive ? "app-success" : "app-danger"}`}>
-                  {positive ? "▲" : "▼"} {Math.abs(item.change_percent).toFixed(2)}%
-                </span>
-              )}
-            </button>
-          );
-        })}
+    <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
+      <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
+        <span
+          aria-hidden="true"
+          className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+        />
+        <span className="sr-only">Polifin</span>
+      </Link>
+
+      <div className="flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 2xl:pl-60 2xl:pr-14">
+        <div className="hidden shrink-0 items-center gap-2 text-sm font-semibold text-[var(--color-market-muted)] md:flex">
+          <span className="h-2 w-2 rotate-45 bg-[var(--color-accent)]" />
+          {language === "tr" ? "PİYASA VERİLERİ" : "MARKET DATA"}
+        </div>
+
+        <div className="relative min-w-0 flex-1 overflow-hidden py-3">
+          <div
+            ref={trackRef}
+            className={`flex w-max touch-pan-y select-none gap-3 ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onPointerEnter={handlePointerEnter}
+            onPointerLeave={handlePointerLeave}
+            onClickCapture={handleClickCapture}
+          >
+            {displayItems.map((item, index) => {
+              const positive = (item.change_percent ?? 0) >= 0;
+              return (
+                <button
+                  key={`${item.symbol}-${index}`}
+                  type="button"
+                  draggable={false}
+                  onClick={() => onSelect(item.symbol)}
+                  className="flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6 text-left"
+                >
+                  <span>
+                    <span className="block text-xs font-semibold text-[var(--color-market-muted)]">
+                      {item.label.toLocaleUpperCase(language === "tr" ? "tr-TR" : "en-US")}
+                    </span>
+                    <span className="mt-1 block text-lg font-semibold">{formatValue(item, language)}</span>
+                  </span>
+                  <span className={`text-xs font-semibold ${positive ? "app-success" : "app-danger"}`}>
+                    {item.change_percent == null
+                      ? "-"
+                      : `${positive ? "+" : ""}${item.change_percent.toFixed(2)}%`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {isAuthenticated ? (
+          <button
+            type="button"
+            onClick={onLogout}
+            className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
+          >
+            {language === "tr" ? "Çıkış" : "Logout"}
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
+          >
+            {language === "tr" ? "Giriş" : "Login"}
+          </Link>
+        )}
+        <div className="flex shrink-0 items-center gap-3">
+          <ThemeToggle className="rounded-md" />
+          <button
+            type="button"
+            aria-label={language === "tr" ? "Dili İngilizce yap" : "Switch language to Turkish"}
+            onClick={toggleLanguage}
+            className="flex h-10 w-12 items-center justify-center rounded-md border app-border app-surface text-sm font-black app-heading transition hover:opacity-80"
+          >
+            {language === "tr" ? "EN" : "TR"}
+          </button>
+        </div>
       </div>
-    </div>
+    </section>
   );
 }

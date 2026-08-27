@@ -2,22 +2,30 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
+import { LanguageProvider } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
-import { Footer } from "./Footer";
-import { Header } from "./Header";
+import { OnboardingFlow } from "../onboarding/OnboardingFlow";
 import { MarketTicker } from "./MarketTicker";
 import { Sidebar } from "./Sidebar";
 import { SiteFooter } from "./SiteFooter";
 
-export function AppShell({ children }: { children: ReactNode }) {
+function AppShellContent({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
   const isPublic = pathname === "/" || isLogin;
+  const isLanding = pathname === "/";
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
+  //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
+  //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
+  //: Bayragi dogrudan kosul yapsaydik, refresh() aninda OnboardingFlow
+  //: unmount olur ve tur hic gorunmezdi. Bu yuzden akis SADECE kendi
+  //: `onDone` cagrisiyla kapanir.
+  const [onboardingActive, setOnboardingActive] = useState(false);
 
   useEffect(() => {
     if (!auth.loading && !auth.user && !auth.hasToken && !isPublic) {
@@ -25,28 +33,58 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [auth.hasToken, auth.loading, auth.user, isPublic, router]);
 
-  if (isPublic) {
-    return (
-      <>
-        {children}
-        {!isLogin && <SiteFooter />}
-      </>
-    );
+  useEffect(() => {
+    if (auth.user && auth.user.onboarding_completed === false) {
+      setOnboardingActive(true);
+    }
+  }, [auth.user]);
+
+  useEffect(() => {
+    if (onboardingActive && isLanding) {
+      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
+      // olmasi icin kullaniciyi dashboard'a tasiriz.
+      router.replace("/dashboard");
+    }
+  }, [onboardingActive, isLanding, router]);
+
+  if (isLogin) {
+    return children;
   }
 
   return (
-    <div className="flex min-h-screen flex-col app-bg">
-      <MarketTicker onSelect={setSelectedSymbol} />
-      <div className="flex flex-1">
-        <Sidebar user={auth.user} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header user={auth.user} onLogout={auth.logout} />
-          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">{children}</main>
-          <Footer />
-        </div>
-      </div>
-      {auth.user && <ChatWidget />}
-      {selectedSymbol && <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />}
+    <div className="min-h-screen app-bg">
+      <MarketTicker
+        onSelect={setSelectedSymbol}
+        onLogout={auth.logout}
+        isAuthenticated={Boolean(auth.user)}
+      />
+      {isLanding ? (
+        <>
+          {children}
+          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" />
+        </>
+      ) : (
+        <>
+          <Sidebar />
+          <div className="ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col pt-20">
+            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+            <SiteFooter />
+          </div>
+          {auth.user && <ChatWidget />}
+        </>
+      )}
+      {selectedSymbol ? (
+        <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />
+      ) : null}
+      {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
     </div>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <LanguageProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </LanguageProvider>
   );
 }

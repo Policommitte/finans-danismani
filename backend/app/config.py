@@ -6,6 +6,8 @@ DB'siz, LLM'siz ve embedding modelsiz de uctan uca calisir (bkz. asagidaki
 "kademeli calisma" notlari). Boylece ekip birbirini beklemez.
 """
 
+from datetime import datetime
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,13 +33,13 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 720
 
     # --- RAG / Vector DB ------------------------------------------------
-    # EMBEDDING MODELI HENUZ SECILMEDI (mimari v4 bolum 16, madde 1).
-    # Bos oldugu surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla
-    # calisir; hibrit arama (dense + BM25 -> RRF) model secilince acilir.
-    # Model secildiginde `db/v5_schema_and_data.sql` icindeki vector(1024)
-    # boyutu IKI yerde birden guncellenmelidir.
+    # Model secildi: Cohere embed-v4 (output_dimension=1024 - vector(1024)
+    # semasiyla degisiklik gerekmeden eslesir). EMBEDDING_API_KEY bos oldugu
+    # surece `rag_search` yalnizca BM25 (tam eslesme) ayagiyla calisir;
+    # hibrit arama (dense + BM25 -> RRF) anahtar tanimlaninca acilir.
     embedding_model: str = ""
     embedding_dim: int = 1024
+    embedding_api_key: str = ""
 
     # --- LLM ------------------------------------------------------------
     # MODEL SECIMI HENUZ YAPILMADI: bu alanlar bilincli olarak BOS birakilir,
@@ -56,15 +58,60 @@ class Settings(BaseSettings):
     security_model: str = ""  # en kucuk/hizli model burada
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
-    # simulated: kota harcamaz, deterministik (demo varsayilani)
-    # api / hybrid: gercek saglayici - PO onayi ve lisans kontrolu gerekir
-    market_data_provider: str = "simulated"
-    price_tick_seconds: int = 60
+    # api       : Yahoo Finance'ten GERCEK fiyat (varsayilan)
+    # simulated : rastgele yuruyus - yalnizca agsiz gelistirme/test icin
+    #
+    # "api" seciliyken Yahoo'ya ulasilamazsa son dogrulanmis fiyat korunur;
+    # portfoy degeri simule fiyatlarla degistirilmez.
+    #
+    # ⚠️ SIMULE FIYAT VERITABANINA HIC YAZILMAZ - "simulated" bilerek
+    # secilse bile. Scheduler kaynagi gorup tick'i atlar
+    # (bkz. `app/market/scheduler.py` -> YAZILABILIR_KAYNAKLAR).
+    market_data_provider: str = "api"
+
+    #: Fiyat gorevinin calisma araligi. 15 dakika -> gunde 96 tick.
+    #:
+    #: DIKKAT: bir tick TEK istek DEGILDIR. yfinance her ticker icin ayri bir
+    #: HTTP istegi atar (bkz. `app/market/yahoo.py`), yani 16 ticker x 96 tick
+    #: = gunde ~1.536 istek. Bu araligi kisaltmak istek sayisini dogru orantili
+    #: buyutur ve yfinance resmi bir API olmadigi icin engellenme riskini
+    #: artirir.
+    price_tick_seconds: int = 900
+
     market_sim_seed: int = 20260813
-    #: Fiyat gorevi her N tick'te bir `price_history`'ye satir yazar.
-    price_history_every_n_ticks: int = 5
-    #: Ucretsiz API katmanlari icin gunluk cagri tavani (kota korumasi).
-    market_api_daily_quota: int = 400
+
+    #: Fiyat gorevi her N tick'te bir `live_prices`'a satir yazar.
+    #: 1 = her tick (15 dakikada bir satir). Tick araligi 60 sn iken bu deger
+    #: 5'ti; 15 dakikaya cikinca her tick'te yazmak makul cozunurluk verir.
+    #:
+    #: NOT: satir artik dogrudan `price_history`'ye DEGIL `live_prices`'a
+    #: gider; `price_history`'ye gun bitiminde yalnizca gunun KAPANISI yazilir
+    #: (bkz. `market_day_timezone` ve `app/market/scheduler.py`). Ortam
+    #: degiskeninin adi geriye donuk uyumluluk icin ayni birakildi.
+    price_history_every_n_ticks: int = 1
+
+    #: Gun sinirinin belirlendigi saat dilimi. Bu saat diliminde gun
+    #: degistiginde `live_prices`'taki o gune ait satirlarin SONUNCUSU
+    #: `price_history`'ye gunun kapanisi olarak yazilir ve o gunun canli
+    #: satirlari silinir.
+    #:
+    #: Neden ayar: veritabani sunucusu UTC calisiyor (Supabase oyle), ama
+    #: kullanicilar ve BIST Turkiye saatinde. Gun sinirini UTC'ye birakmak
+    #: "kapanis"i saat 03:00'e kaydirirdi.
+    market_day_timezone: str = "Europe/Istanbul"
+
+    #: Portfoy performans grafiginde guvenilir kabul edilen ilk fiyat kaydi.
+    #: Bu esikten onceki gelistirme/simulasyon kayitlari grafige dahil edilmez.
+    portfolio_performance_valid_from: datetime = datetime.fromisoformat("2026-08-21T10:41:00+03:00")
+
+    #: Gunluk HTTP istegi tavani (kota korumasi). Sayac TICKER bazlidir.
+    #:
+    #: HESAP: 16 ticker x 96 tick = 1.536 istek/gun. Tavan yeniden
+    #: baslatmalara, elle calistirmalara ve ayni veritabanini paylasan birden
+    #: fazla gelistiriciye pay birakacak sekilde ~%60 ustune konuldu.
+    #: Onceki 400 degeri tick basina 1 sayildigi varsayimindan geliyordu ve
+    #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
+    market_api_daily_quota: int = 2500
 
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20

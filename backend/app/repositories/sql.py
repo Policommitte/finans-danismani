@@ -108,14 +108,38 @@ class SqlPortfolioRepository(_SqlRepository):
     async def get_holdings(self, user_id: int, portfolio_id: int | None = None) -> list[dict]:
         return await self._rows(
             """
-            SELECT portfolio_id, asset_id, symbol, asset_name, asset_class, currency,
-                   quantity, average_buy_price, current_price, daily_change_pct,
-                   market_value_try, cost_basis_try, pnl_try, pnl_pct
-            FROM v_holdings_valued
-            WHERE user_id = :user_id
-              AND (CASE WHEN CAST(:portfolio_id AS INT) IS NULL THEN is_default
-                        ELSE portfolio_id = :portfolio_id END)
-            ORDER BY market_value_try DESC
+            SELECT h.portfolio_id, h.asset_id, h.symbol, h.asset_name,
+                   h.asset_class, h.currency, h.quantity, h.average_buy_price,
+                   h.current_price, h.daily_change_pct, h.market_value_try,
+                   h.cost_basis_try, h.pnl_try, h.pnl_pct,
+                   h.market_value_try - (
+                       h.quantity * COALESCE(a.prev_close, a.current_price)
+                       * CASE WHEN h.currency = 'TRY' THEN 1
+                              ELSE COALESCE(fx.prev_close, fx.current_price, 1) END
+                   ) AS daily_change_try,
+                   CASE WHEN (
+                       h.quantity * COALESCE(a.prev_close, a.current_price)
+                       * CASE WHEN h.currency = 'TRY' THEN 1
+                              ELSE COALESCE(fx.prev_close, fx.current_price, 1) END
+                   ) > 0 THEN 100 * (h.market_value_try / (
+                       h.quantity * COALESCE(a.prev_close, a.current_price)
+                       * CASE WHEN h.currency = 'TRY' THEN 1
+                              ELSE COALESCE(fx.prev_close, fx.current_price, 1) END
+                   ) - 1) END AS daily_change_pct_try
+            FROM v_holdings_valued h
+            JOIN assets a ON a.id = h.asset_id
+            LEFT JOIN assets fx ON fx.symbol = h.currency || '/TRY'
+            WHERE h.user_id = :user_id
+              AND h.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
+            ORDER BY h.market_value_try DESC
             """,
             {"user_id": user_id, "portfolio_id": portfolio_id},
         )
@@ -127,8 +151,15 @@ class SqlPortfolioRepository(_SqlRepository):
             FROM v_portfolio_allocation a
             JOIN portfolios p ON p.id = a.portfolio_id
             WHERE a.user_id = :user_id
-              AND (CASE WHEN CAST(:portfolio_id AS INT) IS NULL THEN p.is_default
-                        ELSE a.portfolio_id = :portfolio_id END)
+              AND a.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
             ORDER BY a.class_value DESC
             """,
             {"user_id": user_id, "portfolio_id": portfolio_id},
@@ -145,12 +176,87 @@ class SqlPortfolioRepository(_SqlRepository):
             JOIN portfolios p ON p.id = t.portfolio_id
             JOIN assets     a ON a.id = t.asset_id
             WHERE p.user_id = :user_id
-              AND (CASE WHEN CAST(:portfolio_id AS INT) IS NULL THEN p.is_default
-                        ELSE t.portfolio_id = :portfolio_id END)
+              AND t.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
             ORDER BY t.transaction_date DESC
             LIMIT :limit
             """,
             {"user_id": user_id, "portfolio_id": portfolio_id, "limit": limit},
+        )
+
+    async def get_performance_history(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        return await self._rows(
+            """
+            WITH selected_portfolio AS (
+                SELECT id
+                FROM portfolios
+                WHERE user_id = :user_id
+                  AND id = COALESCE(
+                        CAST(:portfolio_id AS INT),
+                        (
+                            SELECT id FROM portfolios
+                            WHERE user_id = :user_id
+                            ORDER BY is_default DESC, id
+                            LIMIT 1
+                        )
+                      )
+            ), positions AS (
+                SELECT pa.asset_id, pa.quantity, a.current_price, fx.try_rate
+                FROM portfolio_assets pa
+                JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
+                JOIN assets a ON a.id = pa.asset_id
+                JOIN v_fx_rates fx ON fx.currency = a.currency
+            ), all_prices AS (
+                SELECT ph.asset_id, ph.ts, ph.price
+                FROM price_history ph
+                WHERE ph.ts >= now() - make_interval(hours => :hours)
+                  AND ph.ts >= :valid_from
+                  AND ph.source <> 'simulated'
+                UNION ALL
+                SELECT lp.asset_id, lp.created_at AS ts, lp.price
+                FROM live_prices lp
+                WHERE lp.created_at >= now() - make_interval(hours => :hours)
+                  AND lp.created_at >= :valid_from
+                  AND lp.source <> 'simulated'
+            ), timeline AS (
+                SELECT DISTINCT ap.ts
+                FROM all_prices ap
+                JOIN positions p ON p.asset_id = ap.asset_id
+            )
+            SELECT t.ts,
+                   SUM(
+                       p.quantity
+                       * COALESCE(h.price, p.current_price)
+                       * p.try_rate
+                   ) AS total_value_try
+            FROM timeline t
+            CROSS JOIN positions p
+            LEFT JOIN LATERAL (
+                SELECT ap.price
+                FROM all_prices ap
+                WHERE ap.asset_id = p.asset_id
+                  AND ap.ts <= t.ts
+                ORDER BY ap.ts DESC
+                LIMIT 1
+            ) h ON TRUE
+            GROUP BY t.ts
+            ORDER BY t.ts
+            """,
+            {
+                "user_id": user_id,
+                "portfolio_id": portfolio_id,
+                "hours": hours,
+                "valid_from": settings.portfolio_performance_valid_from,
+            },
         )
 
 
@@ -203,12 +309,30 @@ class SqlMarketRepository(_SqlRepository):
             """
         )
 
-    async def apply_price_updates(self, updates: list[dict], write_history: bool) -> int:
-        """Fiyatlari gunceller; istenirse `price_history`'ye de yazar.
+    async def apply_price_updates(
+        self, updates: list[dict], write_live: bool, source: str = "simulated"
+    ) -> int:
+        """Fiyatlari gunceller; istenirse `live_prices`'a gun ici satir yazar.
+
+        GECMIS TABLOSUNA (`price_history`) BURADAN YAZILMAZ. 15 dakikalik
+        tick'ler dogrudan oraya aksaydi tablo gunde ~1.536 satirla siserdi;
+        grafikler icin gereken cozunurluk ise gunluk kapanistir. Bu yuzden
+        tick'ler `live_prices`'a birikir ve gun bitiminde yalnizca gunun son
+        fiyati `price_history`'ye tasinir (bkz. `close_out_day`).
+
+        `prev_close` her tick'te ilerletilmez; saglayicinin onceki kapanisi
+        varsa o deger, yoksa mevcut gun baslangic degeri korunur. Boylece
+        `daily_change_pct` son tick'e gore degil gun baslangicina gore kalir.
+        Gun kapanirken `close_out_day` bu degeri kesin kapanisla tazeler.
 
         `daily_change_pct` ve `weekly_change_pct` YENIDEN HESAPLANIR - aksi
         halde seed degerinde donar ve dashboard hep ayni yuzdeyi gosterir
         (mimari v4 bolum 8.2).
+
+        `source` cagiran tarafindan verilir ve GERCEKTEN kullanilan kaynagi
+        belirtir: saglayici Yahoo'ya ulasamayip simulatore dustuyse "api"
+        DEGIL "simulated" yazilir (bkz. `ApiMarketProvider.son_kaynak`).
+        Etiket `live_prices` uzerinden gun sonunda `price_history`'ye tasinir.
         """
         if not updates:
             return 0
@@ -217,35 +341,59 @@ class SqlMarketRepository(_SqlRepository):
             await session.execute(
                 text(
                     """
+                    WITH incoming AS (
+                        SELECT (value->>'asset_id')::INT  AS asset_id,
+                               (value->>'price')::NUMERIC AS price,
+                               (value->>'previous_close')::NUMERIC AS previous_close
+                        FROM jsonb_array_elements(CAST(:payload AS JSONB))
+                    ), priced AS (
+                        SELECT a.id AS asset_id,
+                               v.price,
+                               CASE
+                                   WHEN v.previous_close > 0
+                                   THEN v.previous_close
+                                   WHEN (a.price_updated_at AT TIME ZONE :market_timezone)::date
+                                      < (now() AT TIME ZONE :market_timezone)::date
+                                     OR a.prev_close IS NULL
+                                     OR a.prev_close <= 0
+                                     OR ABS((a.current_price - a.prev_close) / a.prev_close) > 0.20
+                                   THEN a.current_price
+                                   ELSE a.prev_close
+                               END AS day_open
+                        FROM assets a
+                        JOIN incoming v ON v.asset_id = a.id
+                    )
                     UPDATE assets AS a
-                    SET prev_close       = a.current_price,
-                        current_price    = v.price,
-                        daily_change_pct = CASE WHEN a.prev_close > 0
-                            THEN ROUND(((v.price - a.prev_close) / a.prev_close * 100)::NUMERIC, 4)
+                    SET prev_close       = p.day_open,
+                        current_price    = p.price,
+                        daily_change_pct = CASE WHEN p.day_open > 0
+                            THEN ROUND(((p.price - p.day_open) / p.day_open * 100)::NUMERIC, 4)
                             ELSE a.daily_change_pct END,
                         price_updated_at = now()
-                    FROM (SELECT
-                            (value->>'asset_id')::INT     AS asset_id,
-                            (value->>'price')::NUMERIC    AS price
-                          FROM jsonb_array_elements(CAST(:payload AS JSONB))) AS v
-                    WHERE a.id = v.asset_id
+                    FROM priced p
+                    WHERE a.id = p.asset_id
                     """
                 ),
-                {"payload": _json(updates)},
+                {"payload": _json(updates), "market_timezone": settings.market_day_timezone},
             )
 
-            if write_history:
+            if write_live:
+                # Varligi olmayan asset_id'ye yazmayi FK engellerdi ve tum
+                # tick'i dusururdu; JOIN ile bastan eliyoruz.
                 await session.execute(
                     text(
                         """
-                        INSERT INTO price_history (asset_id, ts, price, source)
-                        SELECT (value->>'asset_id')::INT, date_trunc('second', now()),
-                               (value->>'price')::NUMERIC, 'simulated'
-                        FROM jsonb_array_elements(CAST(:payload AS JSONB))
-                        ON CONFLICT (asset_id, ts) DO NOTHING
+                        INSERT INTO live_prices (asset_id, price, source, created_at)
+                        SELECT a.id, v.price, :source, date_trunc('second', now())
+                        FROM (SELECT
+                                (value->>'asset_id')::INT  AS asset_id,
+                                (value->>'price')::NUMERIC AS price
+                              FROM jsonb_array_elements(CAST(:payload AS JSONB))) AS v
+                        JOIN assets a ON a.id = v.asset_id
+                        WHERE v.price > 0
                         """
                     ),
-                    {"payload": _json(updates)},
+                    {"payload": _json(updates), "source": source},
                 )
 
             await session.execute(
@@ -267,6 +415,168 @@ class SqlMarketRepository(_SqlRepository):
             await session.commit()
 
         return len(updates)
+
+    # -- Gun devri ---------------------------------------------------------
+    #
+    # Gun siniri `settings.market_day_timezone` (Europe/Istanbul) ile
+    # belirlenir; veritabani sunucusu UTC calisir. Saat dilimi SQL'e bind
+    # parametresi olarak gecer, metne gomulmez.
+
+    async def pending_close_days(self) -> list[str]:
+        """Kapanisi bekleyen gunler (bugunden onceki her gun), eskiden yeniye.
+
+        Ayri bir "kapatildi mi" tablosu YOKTUR: `live_prices`'ta gecmis bir
+        gune ait satir kalmasi, o gunun henuz kapatilmadigi anlamina gelir.
+        Boylece uygulama hafta sonu kapali kalsa bile acilista bekleyen tum
+        gunler kendiliginden gorunur ve kapanislar geriye donuk tamamlanir.
+        """
+        satirlar = await self._rows(
+            """
+            SELECT DISTINCT
+                   CAST(created_at AT TIME ZONE CAST(:tz AS TEXT) AS DATE) AS gun
+            FROM live_prices
+            WHERE created_at < (
+                      date_trunc('day', now() AT TIME ZONE CAST(:tz AS TEXT))
+                  ) AT TIME ZONE CAST(:tz AS TEXT)
+            ORDER BY gun
+            """,
+            {"tz": settings.market_day_timezone},
+        )
+        return [str(satir["gun"]) for satir in satirlar]
+
+    async def close_out_day(self, day: str) -> int:
+        """Gunu kapatir: kapanisi yazar, `prev_close`'u tazeler, gunu siler.
+
+        Uc adim TEK transaction icindedir - arada bir hata olursa hicbiri
+        gerceklesmez ve gun bir sonraki tick'te yeniden denenir. SIRA
+        onemlidir: once `price_history`'ye yazilir, silme en sonda yapilir.
+        """
+        parametreler = {"gun": day, "tz": settings.market_day_timezone}
+
+        async with self._session_factory() as session:
+            # 1) Gunun SON canli fiyati -> price_history (gun kapanisi).
+            #
+            #    Kapanisin zaman damgasi gunun Turkiye saatiyle 00:00'idir:
+            #    yfinance'in gunluk barlari da gunu bu sekilde damgalar,
+            #    boylece backfill satirlariyla ayni izgaraya oturur ve
+            #    ON CONFLICT tahmini backfill degerini olculen kapanisla
+            #    degistirir.
+            #
+            #    SIMULE SATIRLAR KAPANIS OLAMAZ. Scheduler artik simule tick
+            #    yazmiyor (bkz. `scheduler.YAZILABILIR_KAYNAKLAR`), ama eski
+            #    calistirmalardan kalmis satirlar olabilir; onlar da gecmise
+            #    GECMEZ - yalnizca silinir. Boylece sahte veri hicbir yoldan
+            #    `price_history`'ye giremez.
+            sonuc = await session.execute(
+                text(
+                    """
+                    WITH sinir AS (
+                        SELECT CAST(CAST(:gun AS DATE) AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS bas,
+                               CAST(CAST(:gun AS DATE) + 1 AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS son
+                    ),
+                    kapanis AS (
+                        SELECT DISTINCT ON (lp.asset_id)
+                               lp.asset_id, lp.price, lp.source
+                        FROM live_prices lp, sinir s
+                        WHERE lp.created_at >= s.bas
+                          AND lp.created_at <  s.son
+                          AND lp.asset_id IS NOT NULL
+                          AND lp.price > 0
+                          AND lp.source <> 'simulated'
+                        ORDER BY lp.asset_id, lp.created_at DESC, lp.id DESC
+                    )
+                    INSERT INTO price_history (asset_id, ts, price, source)
+                    SELECT k.asset_id, s.bas, k.price, k.source
+                    FROM kapanis k, sinir s
+                    ON CONFLICT (asset_id, ts) DO UPDATE
+                        SET price  = EXCLUDED.price,
+                            source = EXCLUDED.source
+                    """
+                ),
+                parametreler,
+            )
+            yazilan = sonuc.rowcount or 0
+
+            # 2) prev_close = gunun kapanisi.
+            #    `daily_change_pct`'in "dune gore" olmasinin tek dayanagi bu;
+            #    tick'ler artik prev_close'a dokunmuyor.
+            await session.execute(
+                text(
+                    """
+                    WITH sinir AS (
+                        SELECT CAST(CAST(:gun AS DATE) AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS bas
+                    )
+                    UPDATE assets a
+                    SET prev_close = ph.price
+                    FROM price_history ph, sinir s
+                    WHERE ph.asset_id = a.id
+                      AND ph.ts = s.bas
+                    """
+                ),
+                parametreler,
+            )
+
+            # 3) Yalnizca KAPANAN gunun satirlarini sil.
+            #    TRUNCATE degil: o an akan yeni gunun tick'leri korunur.
+            #    asset_id'si NULL olan artik satirlar da bu araliktaysa
+            #    temizlenir, yoksa gun sonsuza kadar "kapanmadi" gorunurdu.
+            await session.execute(
+                text(
+                    """
+                    WITH sinir AS (
+                        SELECT CAST(CAST(:gun AS DATE) AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS bas,
+                               CAST(CAST(:gun AS DATE) + 1 AS TIMESTAMP)
+                                   AT TIME ZONE CAST(:tz AS TEXT) AS son
+                    )
+                    DELETE FROM live_prices lp
+                    USING sinir s
+                    WHERE lp.created_at >= s.bas
+                      AND lp.created_at <  s.son
+                    """
+                ),
+                parametreler,
+            )
+
+            await session.commit()
+
+        return yazilan
+
+    async def get_api_usage_today(self) -> int:
+        """Bugun dis piyasa API'sine yapilan cagri sayisi."""
+        async with self._session_factory() as session:
+            sonuc = await session.execute(
+                text("SELECT call_count FROM market_api_usage WHERE usage_date = CURRENT_DATE")
+            )
+            satir = sonuc.first()
+            return int(satir[0]) if satir else 0
+
+    async def record_api_usage(self, calls: int = 1) -> None:
+        """Gunluk cagri sayacini artirir.
+
+        UPSERT: gunun ilk cagrisinda satir yaratilir, sonrakiler UZERINE
+        EKLENIR (sifirlanmaz).
+        """
+        if calls <= 0:
+            return
+
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO market_api_usage (usage_date, call_count, last_call_at)
+                    VALUES (CURRENT_DATE, :calls, now())
+                    ON CONFLICT (usage_date) DO UPDATE
+                        SET call_count   = market_api_usage.call_count + EXCLUDED.call_count,
+                            last_call_at = now()
+                    """
+                ),
+                {"calls": calls},
+            )
+            await session.commit()
 
 
 class SqlRagRepository(_SqlRepository):

@@ -1,0 +1,30 @@
+# Borsa verisi toplama betigi - BAGIMSIZ bagimliliklar.
+#
+# Bu dosya backend/requirements.txt'ten AYRIDIR cunku bu betik uygulamanin
+# PARCASI DEGILDIR: tek seferlik calisir, backend'i import etmez ve kendi
+# basina (backend kurulmadan) calistirilabilir olmasi istenir.
+#
+# NOT: yfinance artik backend'de DE var - canli fiyat katmani onu kullaniyor
+# (backend/app/market/yahoo.py). Yani bu ayrim "backend'e gereksiz bagimlilik
+# eklememek" icin degil, betigin bagimsiz kalmasi icindir. Ortak paketlerin
+# surumleri iki dosyada AYNI tutulur; ayrisirsa ayni kodun iki ortamda farkli
+# davranmasi riski dogar.
+
+# Yahoo Finance istemcisi (resmi olmayan; Yahoo'nun genel uclarini kullanir)
+# backend/requirements.txt ile AYNI surum
+yfinance==1.3.0
+
+# Zaman serisi hizalama ve metrik hesabi (yfinance zaten getirir, acikca
+# import ettigimiz icin sabitlendi) - backend/requirements.txt ile AYNI surum
+# 2.2.1 DEGIL: Python 3.13 icin wheel'i yok, kaynaktan derleme patliyor.
+pandas==2.2.3
+
+# PostgreSQL surucusu - backend/requirements.txt ile AYNI surum
+psycopg[binary]==3.2.3
+
+# Testler (ag ve veritabani gerektirmez) ve lint - CI bunlari kullanir
+# (.github/workflows/backend-ci.yml, `borsa-verisi` job'i).
+# Surumler backend/requirements.txt ile AYNI.
+pytest==8.4.2
+ruff==0.8.4
+black==24.10.0

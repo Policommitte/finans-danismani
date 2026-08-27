@@ -40,6 +40,16 @@ RISK_LEVELS = (
     (101, "cok yuksek"),
 )
 
+ASSET_CLASS_LABELS_TR: dict[str, str] = {
+    "CRYPTO": "Kripto",
+    "USA_STOCK": "ABD hissesi",
+    "EU_STOCK": "Avrupa hissesi",
+    "STOCK": "Hisse",
+    "FOREX": "Döviz",
+    "GOLD": "Altın",
+    "BOND": "Tahvil",
+}
+
 
 def risk_profili_hesapla(
     holdings: list[dict],
@@ -73,7 +83,7 @@ def risk_profili_hesapla(
             "components": {},
             "top_class": None,
             "top_class_pct": None,
-            "reasons": ["Portfoyde deger tasiyan varlik bulunmadigi icin risk hesaplanamadi."],
+            "reasons": ["Portföyde değer taşıyan varlık bulunmadığı için risk hesaplanamadı."],
             "suggestions": [],
             "tolerance_alignment": "bilinmiyor",
         }
@@ -160,28 +170,31 @@ def _gerekceler(
     ortalama_oynaklik: float | None,
     holding_count: int,
 ) -> list[str]:
+    sinif_etiketi = ASSET_CLASS_LABELS_TR.get(en_buyuk_sinif.upper(), en_buyuk_sinif)
     gerekceler = [
-        f"Portfoyun %{en_buyuk_pct:.0f}'i {en_buyuk_sinif} sinifinda.",
+        f"Portföyün %{en_buyuk_pct:.0f}'i {sinif_etiketi} sınıfında.",
     ]
     if tek_pozisyon_pct >= 40:
         gerekceler.append(
-            f"Tek bir varlik ({en_buyuk_varlik}) portfoyun %{tek_pozisyon_pct:.0f}'ini olusturuyor."
+            f"Tek bir varlık ({en_buyuk_varlik}) portföyün %{tek_pozisyon_pct:.0f}'ini oluşturuyor."
         )
     if holding_count <= 3:
-        gerekceler.append(f"Portfoyde yalnizca {holding_count} varlik var.")
+        gerekceler.append(f"Portföyde yalnızca {holding_count} varlık var.")
     if ortalama_oynaklik is not None and ortalama_oynaklik >= 4:
-        gerekceler.append(f"Olculen ortalama gunluk oynaklik %{ortalama_oynaklik:.1f} ile yuksek.")
+        gerekceler.append(f"Ölçülen ortalama günlük oynaklık %{ortalama_oynaklik:.1f} ile yüksek.")
     return gerekceler
 
 
 def _tolerans_uyumu(skor: int, risk_tolerance: str | None, en_buyuk_sinif) -> tuple[str, list[str]]:
     """Skoru kullanicinin beyan ettigi toleransla karsilastirir."""
     oneriler: list[str] = []
+    sinif_kodu = str(en_buyuk_sinif or "")
+    sinif_etiketi = ASSET_CLASS_LABELS_TR.get(sinif_kodu.upper(), sinif_kodu)
 
     if skor >= 60:
         oneriler.append(
-            f"{en_buyuk_sinif} agirligini dusurup daha dusuk riskli siniflara "
-            "(tahvil, altin) pay ayirmak cesitlendirmeyi artirir."
+            f"{sinif_etiketi} ağırlığını düşürüp daha düşük riskli sınıflara "
+            "(tahvil, altın) pay ayırmak çeşitlendirmeyi artırır."
         )
 
     if not risk_tolerance:
@@ -193,8 +206,8 @@ def _tolerans_uyumu(skor: int, risk_tolerance: str | None, en_buyuk_sinif) -> tu
 
     if skor > sinir:
         oneriler.append(
-            f"Portfoy riski beyan edilen '{risk_tolerance}' toleransin ustunde; "
-            "yeniden dengeleme degerlendirilebilir."
+            f"Portföy riski beyan edilen '{risk_tolerance}' toleransın üstünde; "
+            "yeniden dengeleme değerlendirilebilir."
         )
         return "tolerans ustu", oneriler
 

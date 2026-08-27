@@ -6,6 +6,7 @@ from app.auth.deps import CurrentUser
 from app.schemas.portfolio import (
     AllocationResponse,
     HoldingsResponse,
+    PortfolioPerformanceResponse,
     PortfolioSummary,
     TransactionsResponse,
 )
@@ -39,3 +40,12 @@ async def transactions(
 ) -> TransactionsResponse:
     """Son alim/satim islemleri."""
     return await service.islemler_getir(user["id"], limit=limit)
+
+
+@router.get("/performance", response_model=PortfolioPerformanceResponse)
+async def performance(
+    user: CurrentUser,
+    hours: int = Query(default=24, ge=1, le=168, description="Kac saatlik performans donsun"),
+) -> PortfolioPerformanceResponse:
+    """Mevcut portfoyun gercek fiyat gecmisiyle TL bazli performansi."""
+    return await service.performans_getir(user["id"], hours=hours)

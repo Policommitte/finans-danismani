@@ -1,42 +1,27 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
+import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../hooks/useAuth";
-import type { PublicLandingPreviewResponse, PublicMarketTickerItem } from "../models/market";
-import { getPublicLandingPreview, getPublicMarketTicker } from "../services/marketService";
+import type { PublicLandingPreviewResponse } from "../models/market";
+import { getPublicLandingPreview } from "../services/marketService";
 
-type ThemeMode = "light" | "dark";
 type Language = "tr" | "en";
 type PreviewKey = "dashboard" | "portfolio" | "market";
 
-const fallbackTickerItems: PublicMarketTickerItem[] = [
-  { symbol: "USDTRY", label: "$/₺", value: 47.9128, currency: "TRY", change_percent: 0.02, source: "fallback" },
-  { symbol: "EURTRY", label: "€/₺", value: 55.4919, currency: "TRY", change_percent: 0.07, source: "fallback" },
-  { symbol: "GBPTRY", label: "£/₺", value: 64.8134, currency: "TRY", change_percent: -0.08, source: "fallback" },
-  { symbol: "XAUUSD", label: "XAU/USD", value: 4458, currency: "USD", change_percent: 0.46, source: "fallback" },
-  { symbol: "BTC", label: "BTC", value: 63583, currency: "USD", change_percent: 1.2, source: "fallback" },
-  { symbol: "BIST100", label: "BIST 100", value: 14158, currency: "TRY", change_percent: 0.18, source: "fallback" },
+const publicMenuTargets = [
+  { key: "analysis", href: "/dashboard", icon: "/analiz.svg" },
+  { key: "newsletter", href: "/bulten", icon: "/bulten.svg" },
+  { key: "market", href: "/market", icon: "/piyasa.svg" },
 ];
 
-function getStoredTheme(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "light";
-  }
-
-  const htmlTheme = document.documentElement.dataset.theme;
-  if (htmlTheme === "light" || htmlTheme === "dark") {
-    return htmlTheme;
-  }
-
-  const savedTheme = window.localStorage.getItem("app-theme") ?? window.localStorage.getItem("landing-theme");
-  if (savedTheme === "light" || savedTheme === "dark") {
-    return savedTheme;
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
+const utilityMenuTargets = [
+  { key: "profile", href: "/profile", icon: "/profil.svg" },
+  { key: "settings", href: "/settings", icon: "/ayarlar.svg" },
+];
 
 const copy = {
   tr: {
@@ -49,7 +34,7 @@ const copy = {
     chatLoginRequired: "Soru sormadan önce giriş yapmalısınız.",
     close: "Kapat",
     utilityNav: ["Profil", "Ayarlar"],
-    nav: ["Genel Bakış", "Portföy", "Piyasa"],
+    nav: ["Genel Bakış", "Bülten", "Piyasa"],
     brand: "Finans Danışmanı",
     themeToLight: "Aydınlık moda geç",
     themeToDark: "Karanlık moda geç",
@@ -57,19 +42,11 @@ const copy = {
     features: [
       {
         key: "dashboard",
-        title: "Genel Bakış",
+        title: "Genel Bakış ve Portföy",
         metric: "1,64 Mn",
-        description: "Genel finans ekranı",
+        description: "Varlıklar, dağılım, risk ve işlemler",
         badge: "Önizleme",
         icon: "/analiz.svg",
-      },
-      {
-        key: "portfolio",
-        title: "Portföy",
-        metric: "3",
-        description: "Varlık ve risk özeti",
-        badge: "Önizleme",
-        icon: "/portfoy.svg",
       },
       {
         key: "market",
@@ -155,7 +132,7 @@ const copy = {
     chatLoginRequired: "You need to log in before asking a question.",
     close: "Close",
     utilityNav: ["Profile", "Settings"],
-    nav: ["Overview", "Portfolio", "Market"],
+    nav: ["Overview", "Newsletter", "Market"],
     brand: "Finance Advisor",
     themeToLight: "Switch to light mode",
     themeToDark: "Switch to dark mode",
@@ -163,19 +140,11 @@ const copy = {
     features: [
       {
         key: "dashboard",
-        title: "Overview",
+        title: "Overview and Portfolio",
         metric: "1.64M TRY",
-        description: "General finance screen",
+        description: "Assets, allocation, risk and transactions",
         badge: "Preview",
         icon: "/analiz.svg",
-      },
-      {
-        key: "portfolio",
-        title: "Portfolio",
-        metric: "3",
-        description: "Assets and risk summary",
-        badge: "Preview",
-        icon: "/portfoy.svg",
       },
       {
         key: "market",
@@ -253,13 +222,6 @@ const copy = {
   },
 };
 
-function formatValue(item: PublicMarketTickerItem, language: Language): string {
-  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
-    maximumFractionDigits: item.value > 1000 ? 0 : 4,
-    minimumFractionDigits: item.value > 1000 ? 0 : 2,
-  }).format(item.value);
-}
-
 function displayUpper(value: string, language: Language): string {
   return value.toLocaleUpperCase(language === "tr" ? "tr-TR" : "en-US");
 }
@@ -274,142 +236,159 @@ function MenuIcon({ src }: { src: string }) {
   );
 }
 
-function ThemeToggle({ theme, onToggle, language }: { theme: ThemeMode; onToggle: () => void; language: Language }) {
-  const isDark = theme === "dark";
-
-  return (
-    <button
-      type="button"
-      aria-label={isDark ? copy[language].themeToLight : copy[language].themeToDark}
-      onClick={onToggle}
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border transition ${
-        isDark
-          ? "border-[var(--color-border)] bg-[var(--color-surface-muted)] text-[var(--color-chart-yellow)] hover:opacity-80"
-          : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)] hover:opacity-80"
-      }`}
-    >
-      <span className="text-lg leading-none">{isDark ? "☀" : "☾"}</span>
-    </button>
-  );
-}
-
-function LanguageToggle({ language, onToggle }: { language: Language; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label={copy[language].languageLabel}
-      onClick={onToggle}
-      className="flex h-10 w-12 shrink-0 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] text-sm font-black text-[var(--color-heading)] transition hover:opacity-80"
-    >
-      {language === "tr" ? "EN" : "TR"}
-    </button>
-  );
-}
-
-function MarketTicker({
-  theme,
+function AuthRequiredPopover({
   language,
-  onThemeToggle,
-  onLanguageToggle,
+  nextPath,
+  onClose,
 }: {
-  theme: ThemeMode;
   language: Language;
-  onThemeToggle: () => void;
-  onLanguageToggle: () => void;
+  nextPath: string;
+  onClose: () => void;
 }) {
-  const [items, setItems] = useState<PublicMarketTickerItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const displayItems = items.length > 0 ? [...items, ...items] : [];
+  return (
+    <div
+      role="status"
+      className="absolute left-0 right-0 top-full z-[65] mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left shadow-xl md:left-full md:right-auto md:top-0 md:ml-3 md:mt-0 md:w-72"
+    >
+      <div className="text-sm font-black app-heading">{copy[language].authRequiredTitle}</div>
+      <p className="mt-2 text-sm leading-5 app-muted">{copy[language].authRequiredBody}</p>
+      <div className="mt-4 flex items-center gap-2">
+        <Link
+          href={`/login?next=${encodeURIComponent(nextPath)}`}
+          className="rounded-md app-primary px-3 py-2 text-xs font-bold"
+        >
+          {copy[language].authRequiredAction}
+        </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-[var(--color-border)] px-3 py-2 text-xs font-bold app-muted transition hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-heading)]"
+        >
+          {copy[language].close}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LandingSideMenu({
+  language,
+  authRequiredPath,
+  onNavigate,
+  onAuthPopoverClose,
+}: {
+  language: Language;
+  authRequiredPath: string | null;
+  onNavigate: (href: string) => void;
+  onAuthPopoverClose: () => void;
+}) {
+  const menuRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    let active = true;
+    if (!authRequiredPath) {
+      return;
+    }
 
-    async function load() {
-      try {
-        const response = await getPublicMarketTicker();
-        if (active) {
-          setItems(response.items);
-        }
-      } catch {
-        if (active) {
-          setItems((currentItems) => (currentItems.length > 0 ? currentItems : fallbackTickerItems));
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current || !(event.target instanceof Node)) {
+        return;
+      }
+
+      if (!menuRef.current.contains(event.target)) {
+        onAuthPopoverClose();
       }
     }
 
-    void load();
-    const timer = window.setInterval(load, 60000);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [authRequiredPath, onAuthPopoverClose]);
 
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
+  const iconButtonClass =
+    "relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/10 bg-white/[0.06] px-0 font-black tracking-wide text-white/70 transition hover:border-white/30 hover:bg-white/15 hover:text-white";
+  const homeButtonClass =
+    "group relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/15 bg-white/10 px-0 font-black tracking-wide text-white/80";
+  const tooltipClass =
+    "pointer-events-none absolute left-1/2 -top-4 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[13px] font-bold leading-none text-white/70 transition-colors group-hover:text-white";
 
   return (
-    <>
-      <section className="fixed left-0 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
-      <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
-        <span
-          aria-hidden="true"
-          className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-        />
-        <span className="sr-only">{copy[language].brand}</span>
-      </Link>
-      <div className="flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 2xl:pl-60 2xl:pr-14">
-        <div className="hidden shrink-0 items-center gap-2 text-sm font-semibold tracking-wide text-[var(--color-market-muted)] md:flex">
-          <span
-            className="h-2 w-2 rotate-45 bg-[var(--color-accent)]"
-          />
-          {displayUpper(copy[language].marketData, language)}
-        </div>
-        <div className="relative min-w-0 flex-1 overflow-hidden py-3">
-          {loading && items.length === 0 ? (
-            <div className="flex gap-3">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="h-12 w-40 shrink-0 animate-pulse rounded-md bg-[var(--color-overlay-soft)]" />
-              ))}
-            </div>
-          ) : (
-            <div className="ticker-track flex w-max gap-3">
-              {displayItems.map((item, index) => {
-                const positive = (item.change_percent ?? 0) >= 0;
-                return (
-                  <div
-                    key={`${item.symbol}-${index}`}
-                    className="flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6"
-                  >
-                    <div>
-                      <div className="text-xs font-semibold text-[var(--color-market-muted)]">{displayUpper(item.label, language)}</div>
-                      <div className="mt-1 text-lg font-semibold">{formatValue(item, language)}</div>
-                    </div>
-                    <div className={`text-xs font-semibold ${positive ? "app-success" : "app-danger"}`}>
-                      {item.change_percent == null ? "-" : `${positive ? "+" : ""}${item.change_percent.toFixed(2)}%`}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <Link
-          href="/login"
-          className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
-        >
-          {copy[language].login}
-        </Link>
-        <div data-keep-sidebar-open className="flex shrink-0 items-center gap-3">
-          <ThemeToggle theme={theme} language={language} onToggle={onThemeToggle} />
-          <LanguageToggle language={language} onToggle={onLanguageToggle} />
-        </div>
-      </div>
-      </section>
+    <aside
+      ref={menuRef}
+      onPointerDown={(event) => {
+        if (!authRequiredPath || !(event.target instanceof Element)) {
+          return;
+        }
+
+        if (!event.target.closest("button,a,[role='status']")) {
+          onAuthPopoverClose();
+        }
+      }}
+      className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
+    >
       <div aria-hidden="true" className="h-20" />
-    </>
+
+      <nav className="mt-10 space-y-7">
+        <Link
+          href="/"
+          onClick={onAuthPopoverClose}
+          aria-current="page"
+          className={homeButtonClass}
+        >
+          <span className="absolute bottom-3 left-0 top-3 w-1 rounded-r-full bg-[var(--color-primary)]" />
+          <span className="absolute left-2 top-1/2 -translate-y-1/2">
+            <MenuIcon src="/ana-sayfa.svg" />
+          </span>
+          <span className={tooltipClass}>{copy[language].home}</span>
+        </Link>
+        {publicMenuTargets.map((target, index) => (
+          <div key={target.key} className="group relative">
+            {authRequiredPath === target.href ? (
+              <AuthRequiredPopover
+                language={language}
+                nextPath={target.href}
+                onClose={onAuthPopoverClose}
+              />
+            ) : null}
+            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
+              <span className="absolute left-2 top-1/2 -translate-y-1/2">
+                <MenuIcon src={target.icon} />
+              </span>
+            </button>
+            <span className={tooltipClass}>{copy[language].nav[index]}</span>
+          </div>
+        ))}
+      </nav>
+
+      <div className="mt-auto space-y-5 pt-6">
+        {utilityMenuTargets.map((target, index) => (
+          <div key={target.key} className="group relative">
+            {target.key !== "settings" && authRequiredPath === target.href ? (
+              <AuthRequiredPopover
+                language={language}
+                nextPath={target.href}
+                onClose={onAuthPopoverClose}
+              />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                if (target.key === "settings") {
+                  onAuthPopoverClose();
+                  return;
+                }
+
+                onNavigate(target.href);
+              }}
+              className={iconButtonClass}
+            >
+              <span className="absolute left-2 top-1/2 -translate-y-1/2">
+                <MenuIcon src={target.icon} />
+              </span>
+            </button>
+            <span className={tooltipClass}>{copy[language].utilityNav[index]}</span>
+          </div>
+        ))}
+      </div>
+    </aside>
   );
 }
 
@@ -993,13 +972,6 @@ function QuickAccessCards({
       };
     }
 
-    if (cardKey === "portfolio") {
-      return {
-        value: String(previewData?.holding_count ?? 3),
-        unit: language === "tr" ? "pozisyon" : "positions",
-      };
-    }
-
     return {
       value: fallback,
       unit: language === "tr" ? "öne çıkan" : "featured",
@@ -1008,7 +980,7 @@ function QuickAccessCards({
 
   return (
     <section id="ozellikler" className="border-t app-border app-card-muted py-14">
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-3">
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-2">
         {cards.map((card) => {
           const metric = cardMetric(card.key, card.metric);
 
@@ -1051,20 +1023,12 @@ function QuickAccessCards({
 
 export default function HomePage() {
   const auth = useAuth();
-  const [theme, setTheme] = useState<ThemeMode>("light");
-  const [language, setLanguage] = useState<Language>("tr");
+  const router = useRouter();
+  const { language } = useLanguage();
+  const [authRequiredPath, setAuthRequiredPath] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [activePreview, setActivePreview] = useState<PreviewKey | null>(null);
   const [previewData, setPreviewData] = useState<PublicLandingPreviewResponse | null>(null);
-
-  useEffect(() => {
-    const savedLanguage = window.localStorage.getItem("landing-language");
-    setTheme(getStoredTheme());
-
-    if (savedLanguage === "tr" || savedLanguage === "en") {
-      setLanguage(savedLanguage);
-    }
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1089,40 +1053,39 @@ export default function HomePage() {
     };
   }, []);
 
-  function toggleTheme() {
-    setTheme((current) => {
-      const nextTheme = current === "dark" ? "light" : "dark";
-      document.documentElement.dataset.theme = nextTheme;
-      window.localStorage.setItem("app-theme", nextTheme);
-      return nextTheme;
-    });
-  }
+  function handleProtectedNavigate(href: string) {
+    if (auth.loading) {
+      return;
+    }
 
-  function toggleLanguage() {
-    setLanguage((current) => {
-      const nextLanguage = current === "tr" ? "en" : "tr";
-      window.localStorage.setItem("landing-language", nextLanguage);
-      return nextLanguage;
-    });
+    if (auth.user) {
+      setAuthRequiredPath(null);
+      router.push(href);
+      return;
+    }
+
+    setAuthRequiredPath(href);
   }
 
   return (
     <main className="min-h-screen overflow-x-hidden app-bg transition-colors">
       <div className={activePreview ? "pointer-events-none blur-sm transition" : "transition"}>
-        <MarketTicker
-          theme={theme}
+        <LandingSideMenu
           language={language}
-          onThemeToggle={toggleTheme}
-          onLanguageToggle={toggleLanguage}
+          authRequiredPath={authRequiredPath}
+          onNavigate={handleProtectedNavigate}
+          onAuthPopoverClose={() => setAuthRequiredPath(null)}
         />
 
-        <HeroSlider language={language} />
+        <div className="ml-24 w-[calc(100%-6rem)] pt-20">
+          <HeroSlider language={language} />
 
-        <QuickAccessCards
-          language={language}
-          previewData={previewData}
-          onOpenPreview={setActivePreview}
-        />
+          <QuickAccessCards
+            language={language}
+            previewData={previewData}
+            onOpenPreview={setActivePreview}
+          />
+        </div>
       </div>
 
       {activePreview ? (

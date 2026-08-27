@@ -54,6 +54,12 @@ class PortfolioRepository(Protocol):
         self, user_id: int, portfolio_id: int | None = None, limit: int = 20
     ) -> list[dict]: ...
 
+    async def get_performance_history(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        """Mevcut pozisyonlarin gercek fiyat gecmisiyle TL bazli degeri."""
+        ...
+
 
 class MarketRepository(Protocol):
     async def list_assets(self, category: str | None = None) -> list[dict]: ...
@@ -68,8 +74,57 @@ class MarketRepository(Protocol):
         """Fiyat gorevinin ihtiyaci: id, symbol, current_price, sim_volatility."""
         ...
 
-    async def apply_price_updates(self, updates: list[dict], write_history: bool) -> int:
-        """Uretilen fiyatlari yazar. `updates`: `{asset_id, price}` kayitlari."""
+    async def apply_price_updates(
+        self, updates: list[dict], write_live: bool, source: str = "simulated"
+    ) -> int:
+        """Uretilen fiyatlari yazar.
+
+        `updates`: `{asset_id, price, previous_close?}` kayitlari. Gercek veri
+        saglayicisi onceki piyasa kapanisini iletir; simulator bu alani atlar.
+
+        `assets` her cagirmada guncellenir. `write_live` True ise ayrica
+        `live_prices` tablosuna GUN ICI bir satir eklenir - `price_history`'ye
+        DEGIL. Gecmis tabloya yalnizca gun kapanisi yazilir
+        (bkz. `close_out_day`).
+
+        `source` yazilan satirin kaynagini belirtir ve GERCEKTEN kullanilan
+        kaynak olmalidir ("api" | "simulated"). Gercek veri "simulated"
+        etiketlenirse ileride hangi satirin guvenilir oldugu ayirt edilemez;
+        tersi ise sahte veriyi gercek gostermek olur.
+        """
+        ...
+
+    async def pending_close_days(self) -> list[str]:
+        """Kapanisi henuz yazilmamis gunler (`YYYY-AA-GG`, eskiden yeniye).
+
+        `live_prices` icinde BUGUNDEN once kalan her gun kapanmayi bekliyor
+        demektir; ayri bir durum tablosu tutulmaz. Uygulama hafta sonu
+        boyunca kapali kalsa bile acilista bekleyen gunlerin hepsi burada
+        gorunur.
+        """
+        ...
+
+    async def close_out_day(self, day: str) -> int:
+        """Gunu kapatir; kapanis yazilan varlik sayisini doner.
+
+        TEK transaction icinde sirasiyla:
+          1. o gunun SON canli fiyatini `price_history`'ye kapanis olarak yaz
+          2. `assets.prev_close`'u bu kapanisa esitle
+          3. o gune ait `live_prices` satirlarini sil
+
+        Once yazip sonra silmek onemlidir: ters sirada bir hata veriyi
+        geri donusu olmayan bicimde kaybettirir. `TRUNCATE` HICBIR ZAMAN
+        kullanilmaz - yalnizca kapanan gunun satirlari silinir, o an akan
+        yeni gunun satirlarina dokunulmaz.
+        """
+        ...
+
+    async def get_api_usage_today(self) -> int:
+        """Bugun dis piyasa API'sine kac cagri yapildi (kota korumasi)."""
+        ...
+
+    async def record_api_usage(self, calls: int = 1) -> None:
+        """Gunluk cagri sayacini artirir (`market_api_usage`)."""
         ...
 
 
