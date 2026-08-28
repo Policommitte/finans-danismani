@@ -29,7 +29,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <Script id="theme-script" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>
+      {/*
+        suppressHydrationWarning BURADA DA GEREKLI (html'de olmasi yetmiyor):
+        React bu bayragi TEK SEVIYE uygular, yani <html> uzerindeki bayrak
+        <body>'nin KENDI ozniteliklerindeki farki susturmaz.
+
+        Somut vaka: bazi tarayici eklentileri React yuklenmeden once <body>'ye
+        sinif ekliyor (orn. Video Speed Controller -> "vsc-initialized").
+        Sunucudan gelen HTML'de o sinif yok, istemcide var -> hydration
+        uyarisi. Uygulamanin kodunda bir hata YOK; React'in kendi hata metni de
+        bu ihtimali sayiyor.
+
+        Bayragi tum agaca degil yalnizca <body> etiketine koyuyoruz: icerideki
+        gercek hydration hatalari gorunur kalsin.
+      */}
+      <body suppressHydrationWarning>
         <AuthProvider>
           <AppShell>{children}</AppShell>
         </AuthProvider>

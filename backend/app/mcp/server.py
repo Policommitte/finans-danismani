@@ -21,7 +21,9 @@ view'larinda tektir (mimari v4 bolum 9.2).
 
 from __future__ import annotations
 
+import calendar
 import logging
+from datetime import date, datetime
 from typing import Any
 
 from app.mcp.client import MCPServer
@@ -212,11 +214,11 @@ async def market_get_history(symbol: str, days: int = 30) -> dict[str, Any]:
 
     prices = [_f(p["price"]) for p in series]
     ilk, son = prices[0], prices[-1]
-    ortalama = sum(prices) / len(prices)
-    # Oynaklik: ortalamaya gore standart sapmanin yuzdesi. Risk ajani bu
-    # sayiyi kullanir; ayni hesabi iki yerde yapmamak icin burada uretilir.
-    varyans = sum((p - ortalama) ** 2 for p in prices) / len(prices)
-    oynaklik = (varyans**0.5) / ortalama * 100 if ortalama else 0.0
+    # Oynaklik formulu `app/services/risk.py` icinde TEK yerde durur; dashboard
+    # yolu da ayni fonksiyonu cagirir, boylece iki yol ayni sayiyi uretir.
+    from app.services.risk import oynaklik_yuzdesi
+
+    oynaklik = oynaklik_yuzdesi(prices)
 
     adim = max(1, len(series) // HISTORY_SAMPLE_POINTS)
     ornekler = [
@@ -235,6 +237,165 @@ async def market_get_history(symbol: str, days: int = 30) -> dict[str, Any]:
             "change_pct": round((son - ilk) / ilk * 100, 2) if ilk else None,
             "volatility_pct": round(oynaklik, 2),
             "samples": ornekler[:HISTORY_SAMPLE_POINTS],
+        }
+    )
+
+
+async def market_list_symbols() -> dict[str, Any]:
+    """Sistemde tanimli TUM varliklarin kodu ve adi.
+
+    NEDEN VAR: ajanlar sorgudan hisse kodunu regex ile TAHMIN ediyordu ve
+    "thyao hissesi almayi dusunuyorum" cumlesinde sembolu HISSE olarak
+    cikariyordu (ilk 4-5 harfli kelime + Turkce ek deseni). Yanlis sembol iki
+    yolu birden kapatiyordu: RAG aramasi olmayan bir sirkete filtreleniyor,
+    fiyat sorgusu da bos donuyordu - kullanici genel bir yanit aliyordu.
+
+    Cozum tahmin etmeyi birakmak: dogru semboller ZATEN veritabaninda. Ajan bu
+    katalogu okuyup sorgudaki kelimelerle eslestirir; katalogda olmayan hicbir
+    sey sembol sayilmaz.
+
+    Katalog kucuktur (birkac on satir) ve LLM baglamina GIRMEZ; yalnizca ajanin
+    ic eslesme adiminda kullanilir.
+    """
+    rows = await get_market_repository().list_assets()
+    return ok(
+        {
+            "symbols": [
+                {
+                    "symbol": (r.get("symbol") or "").upper(),
+                    "ad": r.get("name"),
+                    "asset_class": r.get("asset_class"),
+                }
+                for r in rows
+                if r.get("symbol")
+            ]
+        }
+    )
+
+
+async def market_get_seasonality(
+    symbol: str, start_month: int, end_month: int, years: int = 5
+) -> dict[str, Any]:
+    """Belirli bir AY ARALIGININ yillara gore getirisi (mevsimsellik).
+
+    "Gecmis yillarin yaz aylarinda THYAO nasil hareket etti?" sorusunun tek
+    cevaplanabilir yolu budur. `market_get_history` bunu YAPAMAZ: onun penceresi
+    her zaman bugune yapisiktir ("son 365 gun"), takvimin belirli bir dilimini
+    yillar boyunca karsilastiramaz.
+
+    Kis gibi yil sinirini asan araliklar desteklenir (`start_month=12`,
+    `end_month=2`); donem, BASLADIGI yilin adiyla etiketlenir.
+
+    DEVAM EDEN DONEM RAPORLANMAZ: bitis tarihi bugunden ileride olan pencere
+    atlanir. Yarim bir yazi tamamlanmis yillarla ayni tabloda gostermek
+    ortalamayi sessizce bozar.
+
+    Args:
+        symbol: Varlik kodu.
+        start_month / end_month: 1-12 arasi ay numaralari (her ikisi de dahil).
+        years: Geriye kac yil bakilacagi (1-10).
+    """
+    start_month = max(1, min(int(start_month or 1), 12))
+    end_month = max(1, min(int(end_month or 12), 12))
+    years = max(1, min(int(years or 5), 10))
+
+    bugun = date.today()
+    # Sarma durumunda ("12 -> 2") pencere bir sonraki yila tasar; veriyi
+    # `years` yil geriden alip Python tarafinda dilimliyoruz. Tek sorgu,
+    # tek gidis-gelis.
+    ilk_yil = bugun.year - years
+    seri = await get_market_repository().get_history_range(
+        symbol, start=f"{ilk_yil}-01-01", end=bugun.isoformat()
+    )
+    if not seri:
+        return fail(f"'{symbol}' icin fiyat gecmisi bulunamadi.")
+
+    noktalar = [(_gun(p["ts"]), _f(p["price"])) for p in seri]
+    noktalar = [(g, f) for g, f in noktalar if g is not None and f is not None]
+
+    donemler: list[dict[str, Any]] = []
+    devam_eden = 0
+    eksik_veri = 0
+    for yil in range(ilk_yil, bugun.year + 1):
+        bas = date(yil, start_month, 1)
+        bitis_yili = yil if end_month >= start_month else yil + 1
+        bitis = _ay_sonu(bitis_yili, end_month)
+
+        # SUREN DONEM: takvimde bitmemis ama buyuk olcude yasanmis bir donemi
+        # tamamen atmak, elde en TAZE gozlemi yok saymak demek. Agustos
+        # sonunda "gecmis yillarin yazi" sorulunca o yilin yazi %93 bitmis
+        # oluyor ve sessizce tabloya hic girmiyordu.
+        #
+        # Cozum: yeterince ilerlemisse BUGUNE KADAR hesapla ve `partial`
+        # isaretle. Ortalamaya KATILMAZ - yarim donem tamamlanmislarla ayni
+        # kefeye konursa ortalama sessizce kayar.
+        surende = bitis > bugun
+        if surende:
+            if bas > bugun or (bugun - bas).days < (bitis - bas).days * _ASGARI_TAMAMLANMA:
+                devam_eden += 1
+                continue
+            bitis = bugun
+
+        pencere_gunleri = [(g, f) for g, f in noktalar if bas <= g <= bitis]
+        # Tek nokta ile getiri hesaplanamaz; 2'nin altini hic raporlamiyoruz.
+        if len(pencere_gunleri) < 2:
+            continue
+
+        # ⚠️ KAPSAMA DENETIMI. Bu olmadan, veritabanina yeni gecilmis bir
+        # sembolde donemin yalnizca SON BIRKAC GUNU elde olsa bile o yil
+        # "tamamlanmis bir yaz" gibi tabloya giriyor ve ortalamayi bozuyordu
+        # (olculdu: 7 gunluk veri "yaz 2023: +%0,13" olarak raporlandi).
+        # Serinin donemin iki ucuna da yeterince yaklasmasi sart.
+        tolerans = max(7, (bitis - bas).days // 8)
+        ilk_gun, son_gun = pencere_gunleri[0][0], pencere_gunleri[-1][0]
+        if (ilk_gun - bas).days > tolerans or (bitis - son_gun).days > tolerans:
+            eksik_veri += 1
+            continue
+
+        pencere = [f for _, f in pencere_gunleri]
+        ilk, son = pencere[0], pencere[-1]
+        donemler.append(
+            {
+                "year": yil,
+                "start": bas.isoformat(),
+                "end": bitis.isoformat(),
+                "partial": surende,
+                "first_price": ilk,
+                "last_price": son,
+                "min_price": min(pencere),
+                "max_price": max(pencere),
+                "change_pct": round((son - ilk) / ilk * 100, 2) if ilk else None,
+                "point_count": len(pencere),
+            }
+        )
+
+    tamamlanan = [d for d in donemler if not d["partial"]]
+    degisimler = [d["change_pct"] for d in tamamlanan if d["change_pct"] is not None]
+
+    return ok(
+        {
+            "symbol": symbol.upper(),
+            "start_month": start_month,
+            "end_month": end_month,
+            "years_requested": years,
+            # ⚠️ `year_count` cagiran tarafin GORMEZDEN GELMEMESI gereken alan:
+            # iki gozlemle mevsimsel oruntu iddia etmek veri degil temennidir.
+            # Ajan bu sayiyi kullaniciya birebir yaziyor.
+            #
+            # SUREN donem bu sayiya DAHIL DEGILDIR: "kac tamamlanmis yila
+            # bakiyoruz" sorusunun cevabi olmali.
+            "year_count": len(tamamlanan),
+            "partial_periods": sum(1 for d in donemler if d["partial"]),
+            "incomplete_periods": devam_eden,
+            #: Donem takvimde bitmis ama veri onu bastan sona kapsamiyor -
+            #: guvenilir sayilmadigi icin tabloya alinmadi.
+            "insufficient_periods": eksik_veri,
+            "periods": donemler,
+            "average_change_pct": (
+                round(sum(degisimler) / len(degisimler), 2) if degisimler else None
+            ),
+            "positive_years": sum(1 for d in degisimler if d > 0),
+            "negative_years": sum(1 for d in degisimler if d < 0),
         }
     )
 
@@ -369,6 +530,8 @@ TOOL_GROUPS: dict[str, dict[str, Any]] = {
     MARKET_SERVER_NAME: {
         "market_get_quote": market_get_quote,
         "market_get_history": market_get_history,
+        "market_get_seasonality": market_get_seasonality,
+        "market_list_symbols": market_list_symbols,
         "market_get_kap_disclosures": market_get_kap_disclosures,
     },
     RAG_SERVER_NAME: {
@@ -386,6 +549,36 @@ def build_servers() -> list[MCPServer]:
             server.register_tool(tool_name, handler)
         servers.append(server)
     return servers
+
+
+#: Suren bir donemin raporlanmasi icin gereken en az tamamlanma orani.
+#:
+#: Agustos sonunda sorulan "gecmis yillarin yaz donemi" sorusunda o yilin yazi
+#: %93 bitmis oluyor; onu atmak en taze gozlemi yok saymak demek. Ote yandan
+#: Haziran'in ilk haftasinda "bu yaz +%2" demek yaniltici olurdu.
+_ASGARI_TAMAMLANMA = 0.7
+
+
+def _ay_sonu(yil: int, ay: int) -> date:
+    """Bir ayin son gunu - artik yil dahil dogru (`calendar.monthrange`)."""
+    return date(yil, ay, calendar.monthrange(yil, ay)[1])
+
+
+def _gun(ts: Any) -> date | None:
+    """`price_history.ts` degerini `date`'e cevirir.
+
+    Repository katmani `datetime` (SQL) ya da ISO string (bellek ici)
+    dondurebiliyor; ikisi de kabul edilir. Cozulemeyen deger sessizce atlanir -
+    tek bir bozuk satir tum mevsimsellik hesabini dusurmemeli.
+    """
+    if isinstance(ts, datetime):
+        return ts.date()
+    if isinstance(ts, date):
+        return ts
+    try:
+        return datetime.fromisoformat(str(ts)[:19]).date()
+    except (TypeError, ValueError):
+        return None
 
 
 def _f(value: Any) -> float | None:

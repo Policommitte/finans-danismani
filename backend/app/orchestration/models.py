@@ -170,6 +170,15 @@ class AgentState(BaseModel):
     #: Yalnizca router yazar; loglama ve `chat_messages.meta` icin tutulur.
     intent: str | None = None
 
+    #: Router'in KAPSAM karari (bkz. `app.engine.kapsam`):
+    #: finans | selamlama | tesekkur | veda | kufur | kapsam_disi | belirsiz
+    #:
+    #: "finans" disindaki her deger, sorgunun ajan fan-out'una HIC girmeyecegi
+    #: anlamina gelir; `small_talk` node'u donecek sabit metni bu alandan secer.
+    #: `intent` ile karistirmayin: `intent` "hangi uzman", `scope` "bu soru
+    #: bize mi" sorusunu yanitlar.
+    scope: str | None = None
+
     # Ajan bazli OPSIYONEL parametreler: {ajan_adi: {...}}
     #
     # Router bir ajan icin yapilandirilmis parametre uretebildiginde (orn.

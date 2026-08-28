@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -614,6 +614,28 @@ class InMemoryMarketRepository:
                 }
             )
         return series
+
+    async def get_history_range(self, symbol: str, start: str, end: str) -> list[dict]:
+        """Tarih araligini ayni sentetik seriden keser.
+
+        Ayri bir formul YAZILMAZ: `get_history` ile ayni egriyi uretip
+        araliga suzuyoruz, boylece iki metot birbirinden sapamaz.
+        """
+        try:
+            bas = date.fromisoformat(start)
+            son = date.fromisoformat(end)
+        except ValueError:
+            return []
+        if son < bas:
+            return []
+
+        # Bugunden `bas` gunune kadar geri gidecek kadar uzun bir seri uret.
+        gun_sayisi = (_now().date() - bas).days
+        if gun_sayisi < 0:
+            return []
+
+        seri = await self.get_history(symbol, days=min(gun_sayisi + 1, 3650))
+        return [s for s in seri if bas <= date.fromisoformat(s["ts"][:10]) <= son]
 
     async def get_prices_for_simulation(self) -> list[dict]:
         return [
