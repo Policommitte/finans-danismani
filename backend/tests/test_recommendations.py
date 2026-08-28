@@ -337,6 +337,29 @@ def test_sessiz_saat(saat_utc, beklenen):
     assert service.sessiz_saat_mi(an) is beklenen
 
 
+def test_gunluk_limit_varsayilani_dorttur():
+    """Urun karari: gunde 3 degil 4 oneri."""
+    assert InMemoryRecommendationRepository.VARSAYILAN_LIMITLER["max_daily_recommendations"] == 4
+    yuk, gerekce = service.kisisellestir(
+        _sinyal(),
+        _kullanici(max_daily_recommendations=4),
+        {},
+        gunluk_adet=3,
+        gunluk_tutar=0,
+        acik_varliklar=set(),
+    )
+    assert yuk is not None, "3 oneri verilmisken dorduncusu hala uretilebilmeli"
+    ret, _ = service.kisisellestir(
+        _sinyal(),
+        _kullanici(max_daily_recommendations=4),
+        {},
+        gunluk_adet=4,
+        gunluk_tutar=0,
+        acik_varliklar=set(),
+    )
+    assert ret is None
+
+
 # --------------------------------------------------------- yasam dongusu
 
 
@@ -359,7 +382,7 @@ async def _oneri_olustur(repo, **kw):
         "confidence": 0.75,
         "rationale": ["gerekce"],
         "risk_note": "not",
-        "sources": [{"label": "k"}],
+        "sources": [{"label": "Kural: test", "kind": "rule", "url": None}],
         "personalization": {},
         "expires_at": (SIMDI + timedelta(hours=4)).isoformat(),
     }
@@ -422,6 +445,22 @@ async def test_kill_switch_bekleyen_onerileri_durdurur(repo):
     assert await repo.kill_switch_active() is True
     assert await repo.halt_open("piyasa anormalligi") == 1
     assert (await repo.list_recommendations(1))[0]["status"] == "HALTED"
+
+
+@pytest.mark.asyncio
+async def test_suresi_dolan_oneri_okumada_da_kapanir(repo, monkeypatch):
+    """Fiyat gorevi durmus olsa bile liste dogruyu gostermeli.
+
+    Gecmiste suresi dolmus oneriler "Bekleyen" sekmesinde acikmis gibi
+    duruyordu; TTL kapanisi yalnizca tick'te calisiyordu.
+    """
+    gecmis = datetime.now(timezone.utc) - timedelta(minutes=5)
+    await _oneri_olustur(repo, expires_at=gecmis.isoformat())
+    monkeypatch.setattr("app.services.recommendation.get_recommendation_repository", lambda: repo)
+
+    liste = await service.onerileri_getir(1)
+
+    assert [k.status for k in liste.items] == ["EXPIRED"]
 
 
 @pytest.mark.asyncio

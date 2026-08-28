@@ -21,68 +21,76 @@ const PROFIL_ADLARI: Record<string, { tr: string; en: string }> = {
 };
 
 /**
- * "Neden bana geldi?" bolumunu CUMLE olarak uretir.
+ * "Neden bana geldi?" bolumu.
  *
- * Onceki surum `Object.entries(personalization)` dokuyordu ve kullaniciya
- * `rule_code: PULLBACK_IN_UPTREND` / `engine_version: scan-v1` gibi ham
- * anahtarlar gorunuyordu. Motorun ic alanlari (engine_version, rule_code)
- * artik GOSTERILMEZ; kullaniciyi ilgilendiren dort sey birakildi.
+ * Ilk surum `Object.entries(personalization)` dokuyordu; kullanici
+ * `rule_code: PULLBACK_IN_UPTREND` gibi ham anahtarlar goruyordu. Ikinci
+ * surum cumle kuruyordu ama makine gibi konusuyordu. Bu surum kullaniciya
+ * DOGRUDAN hitap eder ve motorun ic alanlarini (rule_code, engine_version)
+ * hic gostermez.
+ *
+ * Metin "bu varlik neden secildi"i DEGIL "bu oneri neden SANA geldi"yi
+ * anlatir; varligin gerekcesi zaten kartin ustundeki maddelerde duruyor.
  */
 function nedenBanaGeldi(
-  personalization: Record<string, unknown>,
-  confidence: number,
+  recommendation: Recommendation,
   money: Intl.NumberFormat,
   language: string,
 ): string[] {
   const tr = language === "tr";
+  const p = recommendation.personalization;
   const satirlar: string[] = [];
 
-  const kural = personalization.rule_name ?? personalization.rule_code;
+  const kural = String(p.rule_name ?? p.rule_code ?? "").toLocaleLowerCase(
+    tr ? "tr-TR" : "en-US",
+  );
+  const guven = Math.round(recommendation.confidence * 100);
   if (kural) {
     satirlar.push(
       tr
-        ? `Bu öneri "${kural}" kuralından üretildi.`
-        : `This recommendation came from the "${kural}" rule.`,
+        ? `Sistem bu varlıkta “${kural}” durumu gördü ve %${guven} güvenle işaretledi.`
+        : `The system spotted a “${kural}” pattern here and flagged it with ${guven}% confidence.`,
     );
   }
 
-  const profil = String(personalization.risk_profile ?? "");
-  const gereken = Number(personalization.confidence_required ?? 0);
+  const profil = String(p.risk_profile ?? "");
+  const gereken = Math.round(Number(p.confidence_required ?? 0) * 100);
   if (profil) {
     const ad = PROFIL_ADLARI[profil]?.[tr ? "tr" : "en"] ?? profil;
     satirlar.push(
       tr
-        ? `Risk profilin “${ad}”. Bu profilde bir önerinin yayınlanması için en az %${Math.round(
-            gereken * 100,
-          )} güven gerekiyor; bu önerinin güveni %${Math.round(confidence * 100)}.`
-        : `Your risk profile is “${ad}”. It requires at least ${Math.round(
-            gereken * 100,
-          )}% confidence; this one is at ${Math.round(confidence * 100)}%.`,
+        ? `${ad} profilinde olduğun için sana yalnızca %${gereken} ve üzeri güvendeki öneriler gösteriliyor — bu öneri eşiği geçti.`
+        : `Because your profile is “${ad}”, you only see recommendations at ${gereken}% confidence or above — this one cleared it.`,
     );
   }
 
-  const elde = Number(personalization.holding_quantity ?? 0);
-  satirlar.push(
-    elde > 0
-      ? tr
-        ? `Bu varlıkta zaten ${elde} adet pozisyonun var.`
-        : `You already hold ${elde} units of this asset.`
-      : tr
-        ? "Bu varlıkta henüz pozisyonun yok."
-        : "You have no position in this asset yet.",
-  );
+  const elde = Number(p.holding_quantity ?? 0);
 
-  const bakiye = Number(personalization.available_balance ?? 0);
-  const limit = Number(personalization.per_order_limit_try ?? 0);
-  satirlar.push(
-    tr
-      ? `Adet, kullanılabilir bakiyene (${money.format(bakiye)}) ve tek işlem limitine (${money.format(
-          limit,
-        )}) göre hesaplandı.`
-      : `The quantity was sized against your available balance (${money.format(
-          bakiye,
-        )}) and per-order limit (${money.format(limit)}).`,
-  );
+  if (recommendation.side === "SELL") {
+    satirlar.push(
+      tr
+        ? `Elinde ${elde} adet var; bunun bir bölümünü satman önerildi. Otonom akış pozisyonunu tek başına tamamen kapatmaz.`
+        : `You hold ${elde} units; only part of it is suggested for sale. The autonomous flow never closes a position entirely on its own.`,
+    );
+  } else {
+    satirlar.push(
+      elde > 0
+        ? tr
+          ? `Bu varlıkta zaten ${elde} adet pozisyonun var, öneri bunun üzerine ekleme yapıyor.`
+          : `You already hold ${elde} units; this would add to that position.`
+        : tr
+          ? "Bu varlıkta henüz pozisyonun yok."
+          : "You don't hold this asset yet.",
+    );
+
+    const bakiye = money.format(Number(p.available_balance ?? 0));
+    const limit = money.format(Number(p.per_order_limit_try ?? 0));
+    satirlar.push(
+      tr
+        ? `Kullanılabilir ${bakiye} paran var ve tek işlemde en fazla ${limit} harcamayı seçmişsin — adet bu ikisinin küçüğüne göre hesaplandı.`
+        : `You have ${bakiye} available and capped single orders at ${limit} — the quantity follows whichever is smaller.`,
+    );
+  }
 
   return satirlar;
 }
@@ -183,12 +191,7 @@ export function RecommendationCard({ recommendation, submitting, onApprove, onRe
           {language === "tr" ? "Neden bana geldi?" : "Why did I get this?"}
         </summary>
         <div className="mt-2 space-y-1.5 text-xs app-muted">
-          {nedenBanaGeldi(
-            recommendation.personalization,
-            recommendation.confidence,
-            money,
-            language,
-          ).map((satir) => (
+          {nedenBanaGeldi(recommendation, money, language).map((satir) => (
             <p key={satir}>{satir}</p>
           ))}
           <p className="pt-1 font-medium">{language === "tr" ? "Kaynaklar" : "Sources"}</p>

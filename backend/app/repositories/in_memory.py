@@ -1164,7 +1164,7 @@ class InMemoryRecommendationRepository:
         "daily_limit_try": 15000.0,
         "allowed_asset_classes": [],
         "autonomous_enabled": True,
-        "max_daily_recommendations": 3,
+        "max_daily_recommendations": 4,
     }
 
     async def kill_switch_active(self) -> bool:

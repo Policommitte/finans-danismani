@@ -346,6 +346,10 @@ async def suresi_dolanlari_kapat() -> int:
 
 async def onerileri_getir(user_id: int, status: str | None = None) -> RecommendationListResponse:
     repo = get_recommendation_repository()
+    # TTL kapanisi OKUMADA da yapilir. Yalnizca fiyat tick'ine birakilsaydi -
+    # ve gecmiste oldugu gibi backend bir sure kapali kalsaydi - suresi dolmus
+    # oneriler "Bekleyen" sekmesinde acikmis gibi gorunurdu.
+    await repo.expire_due(datetime.now(timezone.utc))
     rows = await repo.list_recommendations(user_id, status)
     return RecommendationListResponse(
         items=[_kart(r) for r in rows],
@@ -356,6 +360,7 @@ async def onerileri_getir(user_id: int, status: str | None = None) -> Recommenda
 async def oneri_getir(user_id: int, recommendation_id: int) -> Recommendation:
     """Kart acildiginda durum Goruntulendi'ye gecer (D-07)."""
     repo = get_recommendation_repository()
+    await repo.expire_due(datetime.now(timezone.utc))
     row = await repo.get_recommendation(user_id, recommendation_id)
     if row is None:
         raise NotFoundError("Bu oneri artik mevcut degil.")

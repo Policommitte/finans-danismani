@@ -1490,7 +1490,7 @@ class SqlRecommendationRepository(_SqlRepository):
         "daily_limit_try": 15000.0,
         "allowed_asset_classes": [],
         "autonomous_enabled": True,
-        "max_daily_recommendations": 3,
+        "max_daily_recommendations": 4,
     }
 
     # ---------------- kill-switch ----------------
@@ -1659,7 +1659,7 @@ class SqlRecommendationRepository(_SqlRepository):
                    COALESCE(l.per_order_limit_try, 5000) AS per_order_limit_try,
                    COALESCE(l.daily_limit_try, 15000) AS daily_limit_try,
                    COALESCE(l.allowed_asset_classes, '[]'::jsonb) AS allowed_asset_classes,
-                   COALESCE(l.max_daily_recommendations, 3) AS max_daily_recommendations
+                   COALESCE(l.max_daily_recommendations, 4) AS max_daily_recommendations
             FROM users u
             JOIN portfolios p ON p.user_id = u.id
             JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'

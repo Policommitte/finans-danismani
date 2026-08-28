@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RecommendationCard } from "../../components/recommendations/RecommendationCard";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { useRecommendations } from "../../hooks/useRecommendations";
 import { useLanguage } from "../../contexts/LanguageContext";
-import type { RecommendationStatus } from "../../models/recommendation";
+import type { Recommendation, RecommendationStatus } from "../../models/recommendation";
 
 /**
  * FR-AUT-011: bekleyen, onaylanan, reddedilen ve suresi dolan oneriler
@@ -35,14 +35,26 @@ export default function RecommendationsPage() {
     [locale],
   );
   const sekme = SEKMELER.find((s) => s.key === aktif) ?? SEKMELER[0];
+
+  /**
+   * Sunucu TTL kapanisini kacirmis olabilir (fiyat gorevi durmussa). Acik
+   * gorunen ama suresi gecmis bir kart "Bekleyen" sekmesinde durmamali:
+   * kullanici onaylamaya calisir ve backend'den hata alir.
+   */
+  const etkinDurum = useCallback((item: Recommendation): RecommendationStatus => {
+    const acik = item.status === "PUBLISHED" || item.status === "VIEWED";
+    if (acik && new Date(item.expires_at).getTime() <= Date.now()) return "EXPIRED";
+    return item.status;
+  }, []);
+
   const items = useMemo(
-    () => (rec.data?.items ?? []).filter((item) => sekme.statuses.includes(item.status)),
-    [rec.data, sekme],
+    () => (rec.data?.items ?? []).filter((item) => sekme.statuses.includes(etkinDurum(item))),
+    [rec.data, sekme, etkinDurum],
   );
 
+  // Rozetler de ayni olcute gore sayilir; aksi halde sekme "3" yazip bos acilir.
   function rozet(statuses: RecommendationStatus[]) {
-    const counts = rec.data?.counts ?? {};
-    return statuses.reduce((toplam, s) => toplam + (counts[s] ?? 0), 0);
+    return (rec.data?.items ?? []).filter((item) => statuses.includes(etkinDurum(item))).length;
   }
 
   if (rec.loading && !rec.data) {

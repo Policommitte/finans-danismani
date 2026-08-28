@@ -122,7 +122,9 @@ class Settings(BaseSettings):
 
     #: BR-AUT-03: bir kullaniciya gunde en fazla kac oneri gonderilir.
     #: Kullanici bazinda `user_trading_limits` ile ezilebilir.
-    max_daily_recommendations: int = 3
+    #: Dokumandaki deger 3'tu; urun tarafi 4 istedi (3 kart ekranda tek basina
+    #: seyrek duruyordu).
+    max_daily_recommendations: int = 4
 
     #: BR-AUT-04: tarama bazli onerinin gecerlilik suresi (dakika).
     #: Haber bazli 60 dk olacaktir; haber hatti henuz yok (rag.documents
