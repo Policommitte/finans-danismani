@@ -5,6 +5,7 @@ export type User = {
   email: string;
   risk_tolerance: string | null;
   monthly_income: number | null;
+  role: string;
 };
 
 export type LoginRequest = {

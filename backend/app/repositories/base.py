@@ -27,11 +27,14 @@ from typing import Protocol
 
 class UserRepository(Protocol):
     async def get_by_email(self, email: str) -> dict | None:
-        """`password_hash` DAHIL kullanici kaydi (yalnizca auth katmani kullanir)."""
+        """`password_hash` DAHIL kullanici kaydi (yalnizca auth katmani kullanir).
+
+        Donen sozlukte `role` alani da vardir ('customer' | 'advisor').
+        """
         ...
 
     async def get_by_id(self, user_id: int) -> dict | None:
-        """Profil bilgisi - `password_hash` ICERMEZ."""
+        """Profil bilgisi - `password_hash` ICERMEZ, `role` alani vardir."""
         ...
 
 
@@ -209,3 +212,110 @@ class AuditRepository(Protocol):
     async def log_tool_call(self, record: dict) -> None: ...
 
     async def log_security_event(self, record: dict) -> None: ...
+
+
+class LeadRepository(Protocol):
+    """Lead motoru veri erisimi (`lead_scans`, `lead_queue_entries`,
+    `lead_contacts`, `v_lead_user_signals`).
+
+    Kural DEGERLENDIRMESI burada YAPILMAZ - o `app/services/lead_rules.py`
+    icinde. Bu katman yalnizca okur/yazar.
+    """
+
+    async def list_lead_signals(self) -> list[dict]:
+        """`v_lead_user_signals` satirlari - kural motorunun girdisi."""
+        ...
+
+    async def last_contacted_map(self, cooldown_days: int) -> dict[int, object]:
+        """Soğutma penceresi icindeki en son temas tarihleri.
+
+        Yalnizca `channel = 'EMAIL'` VE `status = 'SENT'` olan, `cooldown_days`
+        icinde kalan satirlar dahildir. Donen sozluk `{user_id: created_at}`
+        bicimindedir; soğutma disindaki/hic temas edilmemis kullanicilar
+        sozlukte YOKTUR.
+
+        Kanal filtresi onemli: BSD kuyruguna dusmek artik `lead_contacts`'a
+        kayit acmaz, ama eski taramalardan kalmis `BSD_QUEUE` satirlari
+        veritabaninda durabilir - filtre olmasa o kisiler hic mail
+        almadiklari halde 180 gun boyunca sogutmada kalirdi.
+        """
+        ...
+
+    async def start_scan(self, trigger: str) -> int:
+        """Yeni bir `lead_scans` satiri acar, id'sini doner."""
+        ...
+
+    async def finish_scan(
+        self,
+        scan_id: int,
+        counts: dict[str, int],
+        error: str | None = None,
+    ) -> None:
+        """`lead_scans` satirini `finished_at` + sayaclarla kapatir."""
+        ...
+
+    async def latest_scan(self) -> dict | None:
+        """En son tamamlanan (`finished_at IS NOT NULL`) tarama."""
+        ...
+
+    async def minutes_since_last_scan(self) -> float | None:
+        """Son taramanin uzerinden gecen dakika; hic tarama yoksa None."""
+        ...
+
+    async def record_decision(self, scan_id: int, entry: dict) -> None:
+        """Bir kullanici icin `lead_queue_entries`'e tek satir yazar.
+
+        `entry`: `user_id`, `decision`, `exclusion_reason`, `score`,
+        `score_components`, `reasons`, `total_value_try`, `monthly_income`,
+        `days_since_activity` alanlarini tasir.
+        """
+        ...
+
+    async def claim_email_contact(
+        self, user_id: int, scan_id: int, to_email: str, subject: str
+    ) -> int | None:
+        """Gunluk tekillik iddiasi (once-claim-sonra-gonder deseni).
+
+        `lead_contacts`'a `status='SENT'` ile INSERT dener. Ayni kullaniciya
+        bugun zaten bir SENT satiri varsa (kismi unique index engeller)
+        `None` doner - cagiran taraf gondermeden vazgecmeli. Basarili olursa
+        yeni satirin id'sini doner.
+        """
+        ...
+
+    async def mark_contact_failed(self, contact_id: int, error: str) -> None:
+        """Basarisiz gonderimde claim'i serbest birakir (`status='FAILED'`).
+
+        Kismi unique index yalnizca `status='SENT'`'e baktigi icin bu,
+        sonraki taramada ayni kullaniciya tekrar denenebilmesini saglar.
+        """
+        ...
+
+    async def mark_contact_skipped(self, contact_id: int) -> None:
+        """Gmail yapilandirilmamisken claim'i serbest birakir (`status='SKIPPED'`).
+
+        `mark_contact_failed` ile ayni amac: kismi unique index yalnizca
+        `status='SENT'`'e baktigi icin, mail hic denenmediyse claim'i
+        kalici olarak "gonderildi" gibi birakmamak lazim - Gmail ayarlari
+        yapilandirildiginda sonraki taramada tekrar denenebilsin.
+        """
+        ...
+
+    async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
+        """En son taramadaki `decision` (`BSD`|`AUTONOMOUS`|`EXCLUDED`)
+        satirlarini, kullanici bilgisiyle birlikte doner."""
+        ...
+
+    async def list_emailed(self, days: int, limit: int = 100) -> list[dict]:
+        """Son `days` gun icinde GERCEKTEN mail gonderilen kullanicilar.
+
+        `list_queue("AUTONOMOUS", ...)`'dan farki: kaynak `lead_contacts`
+        (fiilen gonderilmis mailler), en son tarama DEGIL. Mail gonderilen
+        kisi sogutma penceresine girdigi icin sonraki taramalarda
+        `EXCLUDED` olur ve son taramanin AUTONOMOUS listesinden duserdi -
+        oysa danisman "kime mail gitti" listesini gormeye devam etmeli.
+
+        Kullanici basina EN SON mail kaydi doner; siralama gonderim
+        tarihine gore (en yeni ustte).
+        """
+        ...

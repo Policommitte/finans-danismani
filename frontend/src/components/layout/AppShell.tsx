@@ -15,17 +15,22 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
-  const isPublic = pathname === "/" || isLogin;
+  const isAdvisorLogin = pathname === "/danisman-giris";
+  const isPublic = pathname === "/" || isLogin || isAdvisorLogin;
   const isLanding = pathname === "/";
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.loading && !auth.user && !auth.hasToken && !isPublic) {
       router.replace("/login");
+      return;
     }
-  }, [auth.hasToken, auth.loading, auth.user, isPublic, router]);
+    if (!auth.loading && auth.user && pathname === "/danisman" && auth.user.role !== "advisor") {
+      router.replace("/dashboard");
+    }
+  }, [auth.hasToken, auth.loading, auth.user, isPublic, pathname, router]);
 
-  if (isLogin) {
+  if (isLogin || isAdvisorLogin) {
     return children;
   }
 
