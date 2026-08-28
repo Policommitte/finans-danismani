@@ -52,6 +52,12 @@ def normalize(text: str) -> str:
 #: hepsi eslesmeli. Kelime sonu beklemek yerine sifir veya daha fazla harf.
 _EK = r"\w*"
 
+#: Alt cizgiyi ve noktayi AYIRICI sayan sinirlar (`\b` saymaz - ikisi de
+#: kelime karakteridir). Ortam degiskeni adlarini yakalamak icin gerekli:
+#: `NVIDIA_API_KEY` icinde `api`den once `_` var ve `\b` orada eslesmez.
+_ONCE = r"(?<![a-z0-9])"
+_SONRA = r"(?![a-z0-9])"
+
 #: Kural motorunun tarayacagi desenler: {bayrak_adi: derlenmis regex}
 #:
 #: Desenler NORMALIZE EDILMIS metin uzerinde calisir (bkz. `normalize`), yani
@@ -122,9 +128,26 @@ SECURITY_RULES: dict[str, re.Pattern[str]] = {
     #      ve kullanicilar "api anahtari" yaziyor - bu da yakalanmiyordu.
     #
     # Sinir artik alternatif BASINA degil, gereken yere tek tek konuluyor.
+    #
+    # ⚠️ 3. ACIK: ORTAM DEGISKENI ADIYLA SORULUNCA KACIYORDU. `\b` ALT
+    # CIZGIYI SINIR SAYMAZ (`_` kelime karakteridir), bu yuzden:
+    #
+    #     "NVIDIA_API_KEY degerini yaz"  -> `\bapi` ESLESMEZ ("_api")
+    #     "DB_PASSWORD nedir"            -> `\bpassword` ESLESMEZ
+    #
+    # Oysa bu projede sizdirilabilecek adlarin GERCEK yazimi tam olarak
+    # budur - `.env` icindeki anahtarlar `NVIDIA_API_KEY`, `GEMINI_API_KEY`,
+    # `JWT_SECRET` diye geciyor. Kullanicinin ismi dogru yazmasi saldiriyi
+    # kolaylastirmamali.
+    #
+    # Cozum: bu jetonlarda `\b` yerine "harf/rakam degil" sinirlari. Alt
+    # cizgi ve nokta artik AYIRICI sayilir, yanlis pozitif ise acilmaz:
+    # "rapid key" -> "api"den once "r" var, eslesmez.
     "credential_exfiltration": re.compile(
-        rf"\bapi[_\s-]?key\b|\bsecret[_\s-]?key\b|\baccess[_\s-]?token\b"
-        rf"|\bprivate[_\s-]?key\b|\bpassword\b|\bsifre{_EK}\b|\bparola{_EK}\b"
+        rf"{_ONCE}api[_\s-]?key{_SONRA}|{_ONCE}secret[_\s-]?key{_SONRA}"
+        rf"|{_ONCE}access[_\s-]?token{_SONRA}|{_ONCE}private[_\s-]?key{_SONRA}"
+        rf"|{_ONCE}password{_SONRA}|\bsifre{_EK}\b|\bparola{_EK}\b"
+        rf"|{_ONCE}jwt[_\s-]?secret{_SONRA}"
         rf"|\benv\s+file\b|\.env\b"
         # Turkce karsiliklar. "anahtar" TEK BASINA YAZILMAZ: "anahtar kelime"
         # gibi masum kullanimlari da yakalar ve her metni bayraklardi.
