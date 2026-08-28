@@ -32,6 +32,29 @@ from app.engine.orchestrator import (
 )
 from app.orchestration.models import AgentState
 
+#: Bu dosya import edilirken var olan ORIJINAL `Settings` NESNESI.
+#:
+#: `importlib.reload(app.config)` her cagrildiginda YENI bir nesne uretir. Ama
+#: `from app.config import settings` diyerek daha once import edilmis moduller
+#: (orn. `app.repositories.deps`) ESKI nesneye BAGLI KALIR - reload onlarin
+#: referansini guncellemez.
+#:
+#: Teardown'da yalnizca `app.config`'i tekrar reload etmek bu yuzden YETMEZ:
+#: o da ucuncu bir nesne uretir ve `app.config.settings` ile modullerin
+#: gordugu nesne kalici olarak ayrisir.
+#:
+#: SOMUT ZARARI (CI'da yakalandi): `test_sql_repositories.py` fixture'i
+#: `from app.config import settings` ile O ANKI nesneyi alip `database_url`'i
+#: yamiyordu; `app.repositories.deps` ise hala ESKI nesneye bakip
+#: "DATABASE_URL tanimli degil" diyerek bellek ici veriye dusuyordu. Yazma
+#: bellege gidiyor, dogrulama Postgres'e bakiyor, satir bulunamiyordu.
+#: Testler TEK BASINA gecip yalnizca bu dosyadan SONRA kosunca dusuyordu -
+#: yerelde Postgres olmadigi icin atlandiklarindan sorun sadece CI'da
+#: goruluyordu.
+#:
+#: Cozum: teardown yeni nesne uretmek yerine ORIJINAL nesneyi geri koyar.
+_ORIJINAL_AYARLAR = app.config.settings
+
 
 @pytest.fixture
 def ortam(monkeypatch):
@@ -71,8 +94,11 @@ def ortam(monkeypatch):
 
     yield _kur
 
-    # Diger test dosyalari orijinal ayarlarla devam etsin.
-    importlib.reload(app.config)
+    # Diger test dosyalari ORIJINAL NESNEYLE devam etsin - yeni bir nesneyle
+    # DEGIL. Gerekcesi icin `_ORIJINAL_AYARLAR` notuna bakin.
+    app.config.settings = _ORIJINAL_AYARLAR
+    # llm ve factory reload sirasinda reload edilmis config'in nesnesine
+    # baglandi; orijinaline geri baglanmalari icin onlar da tazelenir.
     importlib.reload(app.core.llm)
     importlib.reload(app.engine.factory)
 
