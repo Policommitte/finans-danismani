@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
-  icon: string;
+  icon: ReactNode;
   title: string;
   body: string;
   color?: string;
@@ -30,7 +30,7 @@ export function FlipCard({ icon, title, body, color = "var(--color-primary)" }: 
             borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
           }}
         >
-          <span className="text-2xl" aria-hidden="true">
+          <span className="block h-6 w-6" aria-hidden="true" style={{ color }}>
             {icon}
           </span>
           <span className="app-heading text-sm font-semibold leading-snug">{title}</span>

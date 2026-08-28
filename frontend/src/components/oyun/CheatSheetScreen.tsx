@@ -10,7 +10,69 @@ type Props = {
   onFinish: () => void;
 };
 
-const TOPIC_ICONS = ["📈", "💸", "🧺", "⚖️", "🛟", "💳"];
+//: Site genelinde kullanilan ayni ikon dili (24x24, stroke=currentColor,
+//: strokeWidth 1.8, yuvarlak uc/kose) - bkz. destek/page.tsx CheckShieldIcon,
+//: profile/page.tsx TargetIcon. Projede harici bir ikon paketi (lucide vb.)
+//: YOK - tum ikonlar boyle yerel SVG fonksiyonlari olarak tanimli.
+function TrendingUpIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 17 9 11 13 15 21 7" />
+      <polyline points="14 7 21 7 21 14" />
+    </svg>
+  );
+}
+
+function TrendingDownIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 7 9 13 13 9 21 17" />
+      <polyline points="14 17 21 17 21 10" />
+    </svg>
+  );
+}
+
+function PieChartIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+      <path d="M22 12A10 10 0 0 0 12 2v10z" />
+    </svg>
+  );
+}
+
+function ScaleIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v13" />
+      <path d="M5 8h14" />
+      <path d="M9 21h6" />
+      <path d="M2 15c0 1.7 1.3 3 3 3s3-1.3 3-3L5 8z" />
+      <path d="M16 15c0 1.7 1.3 3 3 3s3-1.3 3-3l-3-7z" />
+    </svg>
+  );
+}
+
+function ShieldCheckIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l7 3v5c0 4.5-3 8.4-7 10-4-1.6-7-5.5-7-10V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+function CreditCardIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+      <path d="M6 15h4" />
+    </svg>
+  );
+}
+
+const TOPIC_ICONS = [TrendingUpIcon, TrendingDownIcon, PieChartIcon, ScaleIcon, ShieldCheckIcon, CreditCardIcon];
 const TOPIC_COLORS = [
   "var(--color-primary)",
   "var(--color-chart-yellow)",
@@ -84,15 +146,18 @@ export function CheatSheetScreen({ onFinish }: Props) {
 
       {/* 6 flip kart */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {CHEAT_SHEET.map((t, i) => (
-          <FlipCard
-            key={t.title.tr}
-            icon={TOPIC_ICONS[i] ?? "📌"}
-            title={t.title[language]}
-            body={t.body[language]}
-            color={TOPIC_COLORS[i] ?? "var(--color-primary)"}
-          />
-         ))}
+        {CHEAT_SHEET.map((t, i) => {
+          const TopicIcon = TOPIC_ICONS[i] ?? TrendingUpIcon;
+          return (
+            <FlipCard
+              key={t.title.tr}
+              icon={<TopicIcon />}
+              title={t.title[language]}
+              body={t.body[language]}
+              color={TOPIC_COLORS[i] ?? "var(--color-primary)"}
+            />
+          );
+        })}
       </div>
 
       <div className="mt-6 text-center">
