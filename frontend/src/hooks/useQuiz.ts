@@ -157,7 +157,15 @@ export function useQuiz({
     }, CONFIG.answerRevealMs);
 
     return () => clearTimeout(id);
-   
+    //: Bilincli olarak SADECE `phase` izleniyor: bu efekt "revealed" fazina
+    //: GIRISTE bir kerelik bir zamanlayici kurar. question/selected/score/
+    //: correctCount/timedOut/isLast/onWin/onLose degerleri o an icin zaten
+    //: dogru (confirm() hepsini phase="revealed" ile AYNI batch'te set eder),
+    //: ve phase "revealed" kaldigi surece bir daha degismezler - bu yuzden
+    //: eksik-bagimlilik eslint uyarisi burada gecerli bir yeniden-calisma
+    //: riski isaret etmiyor. Tum bagimliliklari eklemek, her soru sonrasi
+    //: zamanlayiciyi gereksiz yere sifirlar/tekrar kurar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
   /* ── Eylemler ── */

@@ -145,6 +145,16 @@ export default function YatirimOyunuPage() {
               Her akşam 20.00&apos;de düzenlenen finansal okuryazarlık yarışması.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={toggleMute}
+            aria-label={muted ? "Sesi aç" : "Sesi kapat"}
+            aria-pressed={muted}
+            title={muted ? "Sesi aç" : "Sesi kapat"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
+          >
+            <SoundIcon muted={muted} />
+          </button>
         </div>
       </div>
 
@@ -259,39 +269,45 @@ export default function YatirimOyunuPage() {
             )}
           </div>
 
-          <Card title="Ekran testi">
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
+          {/* Gelistirme/QA araci: ekranlar arasi manuel gecis ve state sifirlama.
+              Gercek kullanicilar oyunu hile yapmadan, sirayla oynamali - bu
+              yuzden SADECE local `next dev` build'inde gorunur, production'a
+              hicbir zaman gitmez. */}
+          {process.env.NODE_ENV !== "production" && (
+            <Card title="Ekran testi (sadece geliştirme ortamı)">
+              <div className="flex flex-wrap gap-2">
+                {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => goScreen(s)}
+                    className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+                    style={{
+                      borderColor: screen === s ? "var(--color-primary)" : "var(--color-border)",
+                      color: screen === s ? "var(--color-primary)" : "var(--color-muted)",
+                    }}
+                  >
+                    {SCREEN_LABELS[s]}
+                  </button>
+                ))}
                 <button
-                  key={s}
-                  onClick={() => goScreen(s)}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-                  style={{
-                    borderColor: screen === s ? "var(--color-primary)" : "var(--color-border)",
-                    color: screen === s ? "var(--color-primary)" : "var(--color-muted)",
+                  onClick={() => {
+                    setAgreementSigned(false);
+                    setRegistered(false);
+                    setPowerups({ timeShield: 1, fiftyFifty: 1 });
+                    setLastResult(null);
+                    setPointsBalance(4200);
+                    setOwnedBadges([]);
+                    setHistory(HISTORY);
+                    goScreen("register");
                   }}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+                  style={{ borderColor: "var(--color-cta)", color: "var(--color-cta)" }}
                 >
-                  {SCREEN_LABELS[s]}
+                  Sıfırla
                 </button>
-              ))}
-              <button
-                onClick={() => {
-                  setAgreementSigned(false);
-                  setRegistered(false);
-                  setPowerups({ timeShield: 1, fiftyFifty: 1 });
-                  setLastResult(null);
-                  setPointsBalance(4200);
-                  setOwnedBadges([]);
-                  setHistory(HISTORY);
-                  goScreen("register");
-                }}
-                className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-                style={{ borderColor: "var(--color-cta)", color: "var(--color-cta)" }}
-              >
-                Sıfırla
-              </button>
-            </div>
-          </Card>
+              </div>
+            </Card>
+          )}
         </div>
       )}
 
