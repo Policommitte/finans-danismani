@@ -233,17 +233,105 @@ _FINANS_DESENI = re.compile(
 #: Bu sezgi bilincli olarak EN SONDA degerlendirilir: "SELAM" da bes harfli
 #: buyuk bir kelimedir ve once sohbet kaliplarina bakilmazsa sembol sanilir.
 #:
-#: BILINEN SINIR: kucuk harfle yazilan ciplak sembol ("thyao ne kadar")
-#: yakalanmaz ve ilk turda netlestirme yanitina duser. Kullanici sorusunu
-#: tekrar yazdiginda tur DEVAM turu olur ve ajanlara gider - yani hata
-#: kendini duzeltir. Bunu tam cozmek icin sembol listesini DB'den okumak
-#: gerekir; router'i LLM'siz ve senkron tutma karari (kota) buna izin vermiyor.
-#:
 #: Router da kullaniyor (`orchestrator._piyasa_sinyali_var`), bu yuzden ACIK
 #: adla disari veriliyor.
+#:
+#: NOT: kucuk harfli sembol/sirket adlari bu desenle DEGIL, asagidaki
+#: `_VARLIK_SOZLUGU` ile yakalanir.
 SEMBOL_DESENI = re.compile(r"\b[A-ZÇĞİÖŞÜ]{4,6}\b")
 
 _SEMBOL_DESENI = SEMBOL_DESENI
+
+
+# --- Varlik sozlugu: KUCUK HARFLI sembol ve sirket adlari -----------------
+#
+# NEDEN GEREKLI: `SEMBOL_DESENI` yalnizca BUYUK harfli kodu yakalar. Gercek
+# sohbette kullanicilar kucuk harf yaziyor ve bu sorular netlestirme
+# yanitina dusuyordu (canli testte olculdu, 27 Agustos 2026):
+#
+#     "aselsan nasil gidiyor"  -> belirsiz   (olmasi gereken: finans)
+#     "sasa neden dustu"       -> belirsiz   (olmasi gereken: finans)
+#
+# Modul docstring'i yanlis pozitifi (finans sorusunun sohbet sanilmasi) EN
+# PAHALI hata olarak tanimliyor - tam olarak burada yasanan buydu.
+#
+# ESKI GEREKCE ARTIK GECERSIZ: "sembol listesini DB'den okumak gerekir,
+# router'i LLM'siz ve senkron tutma karari buna izin vermiyor" deniyordu.
+# Liste DB'de degil, `app/market/yahoo.py` icinde SABIT olarak duruyor -
+# surec ici, senkron, sifir sorgu. Yani engel yoktu.
+
+#: Sembolden turetilen kelimelerde ARANAN ASGARI UZUNLUK.
+#: 4'un altina inilmez: "T" (AT&T), "KO" (Coca-Cola), "SOL" (Solana) gibi
+#: kisa kodlar gunluk Turkce kelimelerle cakisir ("ko", "sol") ve her
+#: cumleyi finans sanardi.
+_SEMBOL_ASGARI_UZUNLUK = 4
+
+#: Sembol kodunda gecmeyen, kullanicinin YAZDIGI sirket/varlik adlari.
+#: Elle tutulur - "aselsan" ASELS kodundan turetilemez.
+_SIRKET_ADLARI: frozenset[str] = frozenset(
+    {
+        # BIST
+        "aselsan",
+        "turkcell",
+        "garanti",
+        "erdemir",
+        "tupras",
+        "sisecam",
+        "akcansa",
+        "tofas",
+        "kontrolmatik",
+        "polyester",
+        "havayollari",
+        # ABD
+        "apple",
+        "tesla",
+        "nvidia",
+        "microsoft",
+        "amazon",
+        "alphabet",
+        "google",
+        "berkshire",
+        "hathaway",
+        "jpmorgan",
+        "lilly",
+        "intel",
+        "walmart",
+        "cola",
+        # Kripto / emtia (bazilari _FINANS_KOKLERI'nde de var - zarari yok)
+        "tether",
+        "solana",
+        "platin",
+        "brent",
+    }
+)
+
+
+def _varlik_sozlugu_kur() -> frozenset[str]:
+    """Yahoo sembol tablosundan + elle listeden kucuk harfli kelime kumesi.
+
+    `app.market.yahoo` yalnizca standart kutuphane import eder; bu yuzden
+    dairesel import riski YOKTUR ve cagri DB'ye gitmez.
+    """
+    from app.market.yahoo import desteklenen_semboller
+
+    kelimeler: set[str] = set()
+    for sembol in desteklenen_semboller():
+        # "USD/TRY" -> {"usd", "try"}, "GRAM_ALTIN" -> {"gram", "altin"}
+        for parca in re.split(r"[^A-Za-z]+", sembol):
+            if len(parca) >= _SEMBOL_ASGARI_UZUNLUK:
+                kelimeler.add(parca.lower())
+    return frozenset(kelimeler | _SIRKET_ADLARI)
+
+
+_VARLIK_SOZLUGU = _varlik_sozlugu_kur()
+
+#: Normalize edilmis metni kelimelere ayirir (sozluk aramasi icin).
+_KELIME_DESENI = re.compile(r"[a-z]+")
+
+
+def varlik_adi_geciyor_mu(normalized: str) -> bool:
+    """Metinde bilinen bir sembol ya da sirket adi geciyor mu?"""
+    return any(k in _VARLIK_SOZLUGU for k in _KELIME_DESENI.findall(normalized))
 
 
 # --- Kufur: A kademesi (kesin) -------------------------------------------
@@ -583,6 +671,12 @@ def kapsam_belirle(sorgu: str, *, devam_turu: bool = False) -> str:
     # 6) Sembol sezgisi - HAM metin. Sohbet kaliplarindan SONRA bakilir,
     #    yoksa "SELAM" bes harfli bir sembol sanilir.
     if _SEMBOL_DESENI.search(sorgu):
+        return KAPSAM_FINANS
+
+    # 6b) Kucuk harfli sembol / sirket adi ("aselsan nasil gidiyor").
+    #     Buyuk harf sezgisiyle AYNI adimda ve ondan SONRA: "selam" gibi
+    #     sohbet kaliplari yukarida elendigi icin burada sozluge takilmaz.
+    if varlik_adi_geciyor_mu(n):
         return KAPSAM_FINANS
 
     # 7) Devam turu: baglam onceki turda; tek basina anlamsiz gorunse de

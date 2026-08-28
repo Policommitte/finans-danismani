@@ -214,11 +214,11 @@ async def market_get_history(symbol: str, days: int = 30) -> dict[str, Any]:
 
     prices = [_f(p["price"]) for p in series]
     ilk, son = prices[0], prices[-1]
-    ortalama = sum(prices) / len(prices)
-    # Oynaklik: ortalamaya gore standart sapmanin yuzdesi. Risk ajani bu
-    # sayiyi kullanir; ayni hesabi iki yerde yapmamak icin burada uretilir.
-    varyans = sum((p - ortalama) ** 2 for p in prices) / len(prices)
-    oynaklik = (varyans**0.5) / ortalama * 100 if ortalama else 0.0
+    # Oynaklik formulu `app/services/risk.py` icinde TEK yerde durur; dashboard
+    # yolu da ayni fonksiyonu cagirir, boylece iki yol ayni sayiyi uretir.
+    from app.services.risk import oynaklik_yuzdesi
+
+    oynaklik = oynaklik_yuzdesi(prices)
 
     adim = max(1, len(series) // HISTORY_SAMPLE_POINTS)
     ornekler = [

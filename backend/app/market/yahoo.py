@@ -60,17 +60,55 @@ YAHOO_TICKERS: dict[str, str] = {
     "SASA": "SASA.IS",
     "ASELS": "ASELS.IS",
     "EREGL": "EREGL.IS",
+    "BIMAS": "BIMAS.IS",
+    "TUPRS": "TUPRS.IS",
+    "KCHOL": "KCHOL.IS",
+    "SISE": "SISE.IS",
+    "AKCNS": "AKCNS.IS",
+    "TOASO": "TOASO.IS",
+    "KONTR": "KONTR.IS",
     # Doviz - "=X" eki ile
     "USD/TRY": USDTRY_TICKER,
     "EUR/TRY": "EURTRY=X",
     # ABD hisseleri - dogrudan
+    #
+    # HISSE SINIFI: birden fazla sinifi olanlarda EN DUSUK FIYATLI sinif
+    # secildi (bkz. borsa-verisi/symbols.py'deki ayni notlar):
+    #   Alphabet  -> GOOG  (Class C)
+    #   Berkshire -> BRK-B
     "AAPL": "AAPL",
     "TSLA": "TSLA",
     "NVDA": "NVDA",
+    "MSFT": "MSFT",
+    "AMZN": "AMZN",
+    "GOOG": "GOOG",
+    "META": "META",
+    "BRK-B": "BRK-B",
+    "JPM": "JPM",
+    "LLY": "LLY",
+    "INTC": "INTC",
+    "WMT": "WMT",
+    "KO": "KO",
+    "T": "T",
     # Kripto - USD cinsinden
     "BTC": "BTC-USD",
     "ETH": "ETH-USD",
     "SOL": "SOL-USD",
+    "USDT": "USDT-USD",
+    # Emtia - "=F" ekiyle vadeli kontrat, USD cinsinden.
+    # Fiyat KONTRAT birimine baglidir (bakir libre, misir bushel basina sent);
+    # TRY'ye cevrilmez.
+    "BRENT": "BZ=F",
+    "BAKIR": "HG=F",
+    "MISIR": "ZC=F",
+    # ETF - USD
+    "SPY": "SPY",
+    "QQQ": "QQQ",
+    "VTI": "VTI",
+    # Tahvil
+    # ⚠️ ^TNX bir FIYAT DEGIL, GETIRI ORANIDIR (yuzde). `assets.currency`
+    # bu yuzden 'PCT'; 'USD' yazmak "4.66 dolar" gibi okunur ve yaniltici olur.
+    "US10Y": "^TNX",
 }
 
 #: Dogrudan cekilemeyen, ons/USD fiyatindan gram/TRY'ye cevrilen varliklar.

@@ -261,6 +261,33 @@ PII_REJECT_MESSAGE = (
     "hesabınız üzerinden erişebiliyorum."
 )
 
+
+class _SentezDurdu(Exception):
+    """Sentez akisi IC sinira takildi: model iki token arasinda cok bekledi.
+
+    `asyncio.TimeoutError`'dan AYRI bir tur olmasi bilincli - `synthesize`
+    icindeki dis zaman asimi yakalayicisiyla karismasin diye. Ikisi farkli
+    seyi olcer: dis sinir TOPLAM sureyi, bu ise iki token ARASINI.
+    """
+
+    def __init__(self, limit_saniye: int) -> None:
+        super().__init__(f"Token akisi {limit_saniye} saniye durdu.")
+        self.limit_saniye = limit_saniye
+
+
+#: Yarim kalan sentezin KULLANILABILIR sayilmasi icin gereken en az karakter.
+#:
+#: Altinda kalirsa metin bir ise yaramaz ("Portfoyunuz gen..." gibi) ve
+#: deterministik ozet daha iyidir. Ustundeyse kullanicinin okudugu gercek
+#: analizi atmak zarar verir - o metin zaten EKRANA GITTI, geri alinamaz.
+KISMI_YANIT_ASGARI_KARAKTER = 120
+
+#: Yarim kalan sentezin sonuna eklenen aciklama.
+KISMI_YANIT_NOTU = "(Yanıtın devamı teknik bir nedenle üretilemedi.)"
+
+#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 13. madde ile AYNI metin.
+YATIRIM_TAVSIYESI_IBARESI = "Bu bilgiler yatırım tavsiyesi değildir."
+
 #: Cikti guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
 SAFE_RESPONSE_MESSAGE = (
     "Şu anda güvenli bir yanıt üretemiyorum. Lütfen sorunuzu farklı bir "
@@ -339,6 +366,7 @@ class Orchestrator:
         synthesizer_llm=None,
         checkpointer=None,
         synthesizer_timeout_seconds: int = 40,
+        synthesizer_stall_seconds: int = 20,
     ) -> None:
         """
         Args:
@@ -355,12 +383,21 @@ class Orchestrator:
             checkpointer: Konusma gecmisini saklayan LangGraph checkpointer.
                 Verilmezse bellek ici `MemorySaver` kullanilir (demo icin
                 yeterli; kalicilik gerekirse PostgreSQL checkpointer'a gecilir).
-            synthesizer_timeout_seconds: Sentez adiminin ust sinir suresi.
+            synthesizer_timeout_seconds: DIS sinir - sentezin TOPLAM suresi.
+                Emniyet subabidir.
+            synthesizer_stall_seconds: IC sinir - iki token ARASINDA en fazla
+                bekleme. Model ortada takilirsa dis siniri beklemeden durur ve
+                o ana kadar uretilen metin KORUNUR (bkz. `synthesize`).
         """
         self.agents = agents
         self.security_agent = security_agent
         self.synthesizer_llm = synthesizer_llm
         self.synthesizer_timeout_seconds = synthesizer_timeout_seconds
+        # Ic sinir her zaman dis sinirdan kucuk kalmali; aksi halde dis iptal
+        # once devreye girer ve iki kademeli yapinin anlami kaybolur.
+        self.synthesizer_stall_seconds = max(
+            1, min(synthesizer_stall_seconds, synthesizer_timeout_seconds - 1)
+        )
         self.checkpointer = checkpointer if checkpointer is not None else MemorySaver()
         #: Router'in KOSULLU olarak tetikledigi ilk katman. `_add_agent_edges`
         #: doldurur, `_kapsam_dallanmasi` calisma aninda okur.
@@ -706,14 +743,23 @@ class Orchestrator:
         # `agent_error` olayi olarak arayuze ulasiyor.
         hatalar: list[AgentError] = []
 
+        # AKIS BIRIKTIRICISI cagiran tarafta durur - `_stream_llm` iptal
+        # edilse bile icindeki metin BURADA kalir. Zaman asiminda o ana kadar
+        # uretilmis analizi kurtarabilmemizin tek yolu budur; liste
+        # `_stream_llm`'in icinde olsaydi iptalle birlikte erisilemez olurdu.
+        parcalar: list[str] = []
+
         try:
             text = await asyncio.wait_for(
-                self._stream_llm(messages, config),
+                self._stream_llm(messages, config, parcalar),
                 timeout=self.synthesizer_timeout_seconds,
             )
         except asyncio.TimeoutError:
-            logger.warning("synthesizer zaman asimina ugradi")
-            text = self._fallback_response(state)
+            logger.warning(
+                "synthesizer dis zaman asimina ugradi",
+                extra={"limit_sn": self.synthesizer_timeout_seconds},
+            )
+            text = self._kismi_yanit_veya_ozet(state, parcalar)
             hatalar.append(
                 AgentError(
                     agent_name=NODE_SYNTHESIZER,
@@ -721,9 +767,26 @@ class Orchestrator:
                     message=f"{self.synthesizer_timeout_seconds}s icinde tamamlanmadi",
                 )
             )
+        except _SentezDurdu as durus:
+            # IC sinir: akis ortada takildi. Dis siniri beklemeye gerek yok.
+            logger.warning(
+                "synthesizer token akisi durdu",
+                extra={"limit_sn": self.synthesizer_stall_seconds},
+            )
+            text = self._kismi_yanit_veya_ozet(state, parcalar)
+            hatalar.append(
+                AgentError(
+                    agent_name=NODE_SYNTHESIZER,
+                    error_type="timeout",
+                    message=(
+                        f"Model {durus.limit_saniye} saniye boyunca yeni token uretmedi; "
+                        "uretilen kisim korundu."
+                    ),
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - sentez cokerse kullanici bos ekran gormesin
             logger.exception("synthesizer beklenmeyen hata verdi")
-            text = self._fallback_response(state)
+            text = self._kismi_yanit_veya_ozet(state, parcalar)
             hatalar.append(
                 AgentError(agent_name=NODE_SYNTHESIZER, error_type="llm_error", message=str(exc))
             )
@@ -733,7 +796,43 @@ class Orchestrator:
             guncelleme["agent_errors"] = hatalar
         return guncelleme
 
-    async def _stream_llm(self, messages: list, config: RunnableConfig | None = None) -> str:
+    def _kismi_yanit_veya_ozet(self, state: AgentState, parcalar: list[str]) -> str:
+        """Yarim kalan sentezi kurtarir; kurtarilamiyorsa deterministik ozete duser.
+
+        ⚠️ NEDEN ATMIYORUZ: `stream_request` uretilen token'lari ANINDA
+        kullaniciya yolluyor ve bir kez yayinlandiktan sonra geri alinamiyor
+        (`token_yayinlandi`). Zaman asiminda metni atip deterministik ozete
+        donmek, kullanicinin ekraninda yarim cumle BIRAKIYORDU - canli testte
+        goruldu: "... Risk skoru 78/100 ile" diye kesilip kaldi ve uyum
+        ibaresi bile eklenemedi.
+
+        Bu yuzden yeterince uzun bir kisim uretildiyse o metin TAMAMLANIR:
+        yarim cumle atilir, durum notu ve uyum ibaresi eklenir.
+        """
+        kismi = "".join(parcalar).strip()
+        if len(kismi) < KISMI_YANIT_ASGARI_KARAKTER:
+            # Elde anlamli bir metin yok; deterministik ozet daha iyi.
+            return self._fallback_response(state)
+
+        # Cumle ortasinda kesildiyse son yarim cumleyi at - "Risk skoru 78/100
+        # ile" gibi asili bir ifade birakmaktansa tam cumlede bitirmek yeglenir.
+        son_sinir = max(kismi.rfind("."), kismi.rfind("!"), kismi.rfind("?"), kismi.rfind("\n"))
+        if son_sinir >= KISMI_YANIT_ASGARI_KARAKTER:
+            kismi = kismi[: son_sinir + 1].rstrip()
+
+        satirlar = [kismi, "", KISMI_YANIT_NOTU]
+        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 13. madde);
+        # sentez yarim kaldigi icin model onu yazmaya firsat bulamamis olabilir.
+        if YATIRIM_TAVSIYESI_IBARESI not in kismi:
+            satirlar.append(YATIRIM_TAVSIYESI_IBARESI)
+        return "\n".join(satirlar)
+
+    async def _stream_llm(
+        self,
+        messages: list,
+        config: RunnableConfig | None = None,
+        parcalar: list[str] | None = None,
+    ) -> str:
         """LLM'i token token calistirir ve tam metni doner.
 
         `config` LLM cagrisina ACIKCA gecirilir. Bunun sebebi: LangGraph
@@ -751,11 +850,31 @@ class Orchestrator:
         if not hasattr(self.synthesizer_llm, "astream"):
             return await self.synthesizer_llm.generate(_mesajlari_metne_cevir(messages))
 
-        parts: list[str] = []
-        async for chunk in self.synthesizer_llm.astream(messages, config=config):
+        # Biriktirici CAGIRAN TARAFTAN gelir; boylece bu coroutine iptal
+        # edilse bile uretilen metin kaybolmaz (bkz. `synthesize`).
+        parts: list[str] = parcalar if parcalar is not None else []
+
+        akis = self.synthesizer_llm.astream(messages, config=config)
+        while True:
+            try:
+                # IC SINIR: iki token ARASI bekleme. Dis sinir toplam sureyi
+                # olcer ve saglikli ama uzun bir yaniti da keser; asil belirti
+                # modelin ORTADA TAKILMASI - bunu burada erken yakaliyoruz.
+                chunk = await asyncio.wait_for(
+                    akis.__anext__(), timeout=self.synthesizer_stall_seconds
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                # `aclose` cagrilmazsa altta acik kalan HTTP baglantisi
+                # tick tick birikir (ajan tarafinda ayni ders alinmisti).
+                await akis.aclose()
+                raise _SentezDurdu(self.synthesizer_stall_seconds) from exc
+
             content = getattr(chunk, "content", chunk)
             if content:
                 parts.append(str(content))
+
         return "".join(parts)
 
     def _build_synthesis_messages(self, state: AgentState) -> list:
@@ -999,6 +1118,9 @@ class Orchestrator:
         kaynaklar_yayinlandi = False
         toplanan_kaynaklar: list[Source] = []
         son_yanit: str | None = None
+        #: Kullaniciya GERCEKTEN gonderilmis token'lar. Nihai metin bundan
+        #: uzunsa aradaki fark sonda ek token olarak yollanir (bkz. asagisi).
+        yayinlanan: list[str] = []
 
         def _kaynak_olayi() -> dict:
             return {"type": "sources", "items": self._serialize_sources(toplanan_kaynaklar)}
@@ -1018,6 +1140,7 @@ class Orchestrator:
                             kaynaklar_yayinlandi = True
                             yield _kaynak_olayi()
                         token_yayinlandi = True
+                        yayinlanan.append(token)
                         yield {"type": "token", "content": token}
                     continue
 
@@ -1076,6 +1199,19 @@ class Orchestrator:
                 kaynaklar_yayinlandi = True
                 yield _kaynak_olayi()
             yield {"type": "token", "content": son_yanit}
+        elif son_yanit and token_yayinlandi:
+            # AKIS YARIM KALDIYSA KUYRUGU GONDER.
+            #
+            # Sentez zaman asimina ugradiginda `_kismi_yanit_veya_ozet` metni
+            # tamamliyor (yarim cumleyi atiyor, durum notu ve uyum ibaresi
+            # ekliyor) - ama bu ek metin kullaniciya HIC ULASMIYORDU: token
+            # yayinlandigi icin yukaridaki dal atlaniyor, nihai metin de
+            # yalnizca veritabanina yaziliyordu. Kullanici ekranda yarim
+            # cumleyle kaliyordu (canli testte olculdu: "... Risk skoru 78/100
+            # ile" diye kesildi, uyum ibaresi hic gorunmedi).
+            akan = "".join(yayinlanan)
+            if son_yanit.startswith(akan) and len(son_yanit) > len(akan):
+                yield {"type": "token", "content": son_yanit[len(akan) :]}
 
         if toplanan_kaynaklar and not kaynaklar_yayinlandi:
             yield _kaynak_olayi()

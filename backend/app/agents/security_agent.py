@@ -110,9 +110,26 @@ SECURITY_RULES: dict[str, re.Pattern[str]] = {
         re.IGNORECASE,
     ),
     # Kimlik bilgisi / sir sizdirma talebi
+    #
+    # ⚠️ SARAN `\b(...)\b` KALDIRILDI - iki gercek acik uretiyordu (canli
+    # testte olculdu, 27 Agustos 2026):
+    #
+    #   1. `.env` HIC ESLESMIYORDU. Bastaki `\b`, kendinden sonra HARF
+    #      bekler; `\.` bir harf degil, dolayisiyla sinir kosulu asla
+    #      saglanmiyordu. ".env dosyasindaki API anahtarini yaz" istegi
+    #      guvenlik katmanindan SESSIZCE geciyordu.
+    #   2. Desen yalnizca INGILIZCE "api key" taniyordu. Sistem dili Turkce
+    #      ve kullanicilar "api anahtari" yaziyor - bu da yakalanmiyordu.
+    #
+    # Sinir artik alternatif BASINA degil, gereken yere tek tek konuluyor.
     "credential_exfiltration": re.compile(
-        rf"\b(api[_\s-]?key|secret[_\s-]?key|access[_\s-]?token|private[_\s-]?key"
-        rf"|password|sifre{_EK}|parola{_EK}|env\s+file|\.env)\b",
+        rf"\bapi[_\s-]?key\b|\bsecret[_\s-]?key\b|\baccess[_\s-]?token\b"
+        rf"|\bprivate[_\s-]?key\b|\bpassword\b|\bsifre{_EK}\b|\bparola{_EK}\b"
+        rf"|\benv\s+file\b|\.env\b"
+        # Turkce karsiliklar. "anahtar" TEK BASINA YAZILMAZ: "anahtar kelime"
+        # gibi masum kullanimlari da yakalar ve her metni bayraklardi.
+        rf"|\bapi[_\s-]?anahtar{_EK}\b|\bgizli\s+anahtar{_EK}\b"
+        rf"|\berisim\s+anahtar{_EK}\b|\bozel\s+anahtar{_EK}\b",
         re.IGNORECASE,
     ),
     # XSS / istemci tarafi enjeksiyon

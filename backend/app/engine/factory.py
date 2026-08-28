@@ -144,6 +144,7 @@ def build_orchestrator(mcp_client: MCPClient | None = None, **kwargs) -> Orchest
             audit=get_audit_repository(),
         ),
         synthesizer_timeout_seconds=settings.synthesizer_timeout_seconds,
+        synthesizer_stall_seconds=settings.synthesizer_stall_seconds,
         **kwargs,
     )
 

@@ -13,7 +13,9 @@ formatina dikkatle bakinca fark ediliyordu. Buradaki testler o baglantiyi
 sabitler.
 """
 
+import asyncio
 import importlib
+import time
 
 import pytest
 
@@ -22,7 +24,12 @@ import app.core.llm
 import app.engine.factory
 from app.agents.base import BaseAgent
 from app.agents.security_agent import SecurityAgent
-from app.engine.orchestrator import Orchestrator, _mesajlari_metne_cevir
+from app.engine.orchestrator import (
+    KISMI_YANIT_NOTU,
+    YATIRIM_TAVSIYESI_IBARESI,
+    Orchestrator,
+    _mesajlari_metne_cevir,
+)
 from app.orchestration.models import AgentState
 
 
@@ -425,3 +432,110 @@ async def test_tek_seferlik_yolda_da_modele_gore_karar_verilir(ortam):
 
     assert gorulen[0] == {}, "gemma'ya ek govde gitmemeli"
     assert "extra_body" in gorulen[1], "nemotron'a gitmeli"
+
+
+# ---------------------------------------------------------------------------
+# SENTEZDE IKI KADEMELI ZAMAN ASIMI
+# ---------------------------------------------------------------------------
+#
+# 27 Agustos 2026 model testinde sentez iki kez zaman asimina ugradi ve
+# kullanici EKRANDA YARIM CUMLEYLE kaldi:
+#
+#     "... Bu karin ana kaynagi BTC. Risk skoru 78/100 ile"
+#     synthesizer ajani gecici olarak tamamlanamadi (timeout).
+#
+# Iki ayri kusur vardi:
+#   1. TEK dis sinir vardi (90 sn) ve TOPLAM sureyi olcuyordu. Model ortada
+#      takildiginda 90 saniye bosuna bekleniyordu.
+#   2. Zaman asiminda uretilen metin ATILIP deterministik ozete donuluyordu -
+#      ama token'lar KULLANICIYA COKTAN GITMISTI ve geri alinamiyordu; yeni
+#      metin de `token_yayinlandi` yuzunden hic gonderilmiyordu.
+
+
+class _TakilanAkis:
+    """Anlamli metin uretir, sonra ORTADA takilir."""
+
+    PARCALAR = (
+        "Portfoyunuz genel olarak karda: toplam degeri 2.310.063,42 TL, ",
+        "maliyeti 2.074.847,85 TL, yani %11,34 kar elde etmis durumdasiniz. ",
+        "Bu karin ana kaynagi BTC. Risk skoru 78/100 ile",
+    )
+
+    async def astream(self, messages, config=None):
+        for parca in self.PARCALAR:
+            yield type("C", (), {"content": parca})()
+        await asyncio.sleep(3600)
+
+
+class _HicUretmeyenAkis:
+    async def astream(self, messages, config=None):
+        await asyncio.sleep(3600)
+        yield None  # pragma: no cover
+
+
+class _SahteGuvenlik:
+    async def check_input_node(self, state):
+        return {"is_input_safe": True}
+
+    async def security_gate_node(self, state):
+        return {"is_output_safe": True}
+
+
+def _orkestratör(llm, *, dis: int = 60, ic: int = 2) -> Orchestrator:
+    return Orchestrator(
+        agents={},
+        security_agent=_SahteGuvenlik(),
+        synthesizer_llm=llm,
+        synthesizer_timeout_seconds=dis,
+        synthesizer_stall_seconds=ic,
+    )
+
+
+def _durum() -> AgentState:
+    state = AgentState(user_query="Portfoyum nasil?", user_id=1, thread_id=1)
+    state.portfolio_data = {"summary_text": "Portfoy toplam degeri 2.310.063 TL."}
+    return state
+
+
+async def test_akis_durursa_ic_sinir_erken_devreye_girer():
+    """Dis sinir 60 sn olsa bile ic sinir (2 sn) beklemeyi kesmelidir."""
+    orchestrator = _orkestratör(_TakilanAkis(), dis=60, ic=2)
+
+    basla = time.perf_counter()
+    await orchestrator.synthesize(_durum())
+    gecen = time.perf_counter() - basla
+
+    assert gecen < 10, f"ic sinir devreye girmedi, {gecen:.1f} sn beklendi"
+
+
+async def test_yarim_kalan_sentez_KORUNUR():
+    """Uretilmis analiz atilmamali - kullanicinin ekranina zaten gitti."""
+    orchestrator = _orkestratör(_TakilanAkis())
+
+    sonuc = await orchestrator.synthesize(_durum())
+    metin = sonuc["final_response"]
+
+    # Uretilen icerik duruyor
+    assert "2.310.063,42 TL" in metin
+    assert "%11,34" in metin
+    # Yarim cumle ATILDI
+    assert "Risk skoru 78/100 ile" not in metin
+    # Durum notu ve uyum ibaresi EKLENDI
+    assert KISMI_YANIT_NOTU in metin
+    assert YATIRIM_TAVSIYESI_IBARESI in metin
+
+
+async def test_kullanilamayacak_kadar_kisa_kisim_deterministik_ozete_duser():
+    orchestrator = _orkestratör(_HicUretmeyenAkis(), dis=30, ic=1)
+
+    metin = (await orchestrator.synthesize(_durum()))["final_response"]
+
+    assert KISMI_YANIT_NOTU not in metin
+    assert "2.310.063 TL" in metin  # deterministik ozet ajan verisinden geldi
+
+
+def test_ic_sinir_dis_sinirdan_kucuk_tutulur():
+    """YAPISAL GUVENCE: aksi halde dis iptal once girer, ic sinir hic calismaz."""
+    for dis in (5, 30, 90):
+        orchestrator = _orkestratör(_HicUretmeyenAkis(), dis=dis, ic=9_999)
+        assert orchestrator.synthesizer_stall_seconds < dis, f"dis={dis}"

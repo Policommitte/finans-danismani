@@ -92,6 +92,16 @@ _LIVE_KEYWORDS = (
     "kacta",
     "son durum",
     "deger",
+    # "THYAO nasil?" ile "THYAO ne kadar" ayni seyi soruyor ama ikincisi
+    # fiyat donerken birincisi haber indeksine dusup "veri yok" diyordu
+    # (canli testte olculdu, 27 Agustos 2026). Ayni soru, farkli yanit.
+    #
+    # Yanlis pozitif riski YOK: `_resolve_mode` bu listeye bakmadan once
+    # `task["symbol"]` dolu mu diye bakar. Sembolsuz "portfoyum nasil"
+    # canli yolu ACMAZ, RAG'de kalir.
+    "nasil",
+    "durumu",
+    "gidiyor",
 )
 
 #: Alt dize (`in`) ile ARANMAMASI gereken ifadeler - kelime siniri sart.
@@ -298,6 +308,152 @@ _ASGARI_SEMBOL_UZUNLUGU = 3
 _KATALOG_TTL_SN = 600.0
 
 
+#: Gunluk Turkcede kullanilan ad -> `assets.symbol`.
+#:
+#: NEDEN GEREKLI - IKI AYRI KUSURU BIRDEN KAPATIR:
+#:
+#: 1. BOLU ISARETLI SEMBOLLER KOD ILE HIC BULUNAMIYORDU. Sorgu
+#:    `[a-z0-9]+` ile token'lara ayriliyor, yani "usd/try" hicbir zaman TEK
+#:    bir token'a esit olamaz. USD/TRY ve EUR/TRY kodlariyla eslesmesi
+#:    YAPISAL OLARAK imkansizdi.
+#:
+#: 2. AD ESLESMESI DE TUTMUYORDU. USD/TRY'nin veritabanindaki adi "Amerikan
+#:    Dolari"; kullanici "dolar" yaziyor. Tam ad gecmiyor, ilk kelime
+#:    ("amerikan") de tutmuyor. Sonuc: "dolar kuru ne olur" sorusunda sembol
+#:    None kaliyor, canli fiyat yolu acilmiyor ve ajan haber indeksine
+#:    dusup "kaynaklarda dolar kuru bilgisi yok" diyordu - oysa fiyat
+#:    `assets.current_price` icinde HAZIR duruyordu (27 Agustos 2026'da
+#:    olculdu; ayni anda ekranin ust seridinde 48,2409 yaziyordu).
+#:
+#: "euro" tesadufen calisiyordu cunku varligin adi zaten "Euro".
+#:
+#: ⚠️ ESLESME TAM TOKEN ILE YAPILIR, EK TOLERE EDILMEZ. Ekli eslesme
+#: kullanilsaydi "altin" koku "altinda" kelimesini de yakalardi
+#: ("portfoyumun altinda ne var" -> GRAM_ALTIN). Cekimli biciimler bu yuzden
+#: acikca listelenir.
+_SEMBOL_TAKMA_ADLARI: dict[str, str] = {
+    # Amerikan Dolari
+    "dolar": "USD/TRY",
+    "dolari": "USD/TRY",
+    "dolarin": "USD/TRY",
+    "usd": "USD/TRY",
+    "usdtry": "USD/TRY",
+    # Euro - kod ile erisim (adi zaten "Euro" oldugu icin ad yolu calisiyor)
+    "eur": "EUR/TRY",
+    "eurtry": "EUR/TRY",
+    "eurosu": "EUR/TRY",
+    "euronun": "EUR/TRY",
+    # Kiymetli maden
+    "altin": "GRAM_ALTIN",
+    "altini": "GRAM_ALTIN",
+    "altinin": "GRAM_ALTIN",
+    "gumusu": "GUMUS",
+    "gumusun": "GUMUS",
+    # --- Adin ILK KELIMESI kullanicinin soyledigi kelime DEGIL --------------
+    # `sembol_coz` ad eslesmesinde ilk kelimeye bakar ve en az 5 harf ister.
+    # Asagidaki varliklarda ilk kelime ya cok kisa ya da kullanicinin hic
+    # kullanmadigi bir kelime:
+    #
+    #   BIMAS  "BIM Birlesik Magazalar"      -> ilk kelime "bim" (3 harf)
+    #   KCHOL  "Koc Holding"                 -> "koc" (3 harf)
+    #   LLY    "Eli Lilly and Company"       -> "eli" (3 harf, ayrica Turkce
+    #                                           bir kelime - KOK OLARAK
+    #                                           EKLENMEDI, yalnizca "lilly")
+    #   THYAO  "Turk Hava Yollari"           -> "turk" (4 harf)
+    #   BRENT  "Ham Petrol (BRENT)"          -> "ham"
+    #   BRK-B  "Berkshire Hathaway Inc."     -> kod tirenli, ad uzun
+    #   KO     "Coca-Cola Company"           -> kod 2 harf (asgari sinirin
+    #                                           altinda), ad tireli
+    #   T      "AT&T Inc."                   -> kod TEK harf
+    #   US10Y  "US 10 Yil Tahvil Getirisi"   -> ilk kelime "us"
+    "bim": "BIMAS",
+    "bimin": "BIMAS",
+    "koc": "KCHOL",
+    "kocun": "KCHOL",
+    "lilly": "LLY",
+    "thy": "THYAO",
+    "petrol": "BRENT",
+    "petrolu": "BRENT",
+    "petrolun": "BRENT",
+    "berkshire": "BRK-B",
+    "coca": "KO",
+    "cola": "KO",
+    "att": "T",
+    "tahvil": "US10Y",
+    "tahvili": "US10Y",
+    "tahvilin": "US10Y",
+}
+
+
+def _takma_addan_coz(tokenler: list[str], katalog_sembolleri: set[str]) -> tuple[str, int] | None:
+    """Takma adlardan sembol cozer; (sembol, konum) ya da `None`.
+
+    Hedef sembol KATALOGDA YOKSA eslesme uretilmez - `sembol_coz`'un temel
+    kurali korunur: veritabaninda gercekten var olmayan hicbir sey sembol
+    sayilmaz. Boylece USD/TRY silinirse bu tablo sessizce yanlis sonuc
+    uretmeye baslamaz.
+    """
+    for konum, token in enumerate(tokenler):
+        sembol = _SEMBOL_TAKMA_ADLARI.get(token)
+        if sembol and sembol in katalog_sembolleri:
+            return sembol, konum
+    return None
+
+
+def _dokuman_bazinda_tekille(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ayni dokumandan gelen chunk'lari TEK kaynaga indirir.
+
+    NEDEN GEREKLI: `rag_search` CHUNK dondurur, dokuman degil. Bir haber
+    metni ortalama 4 chunk'a bolunuyor (olculdu: 234 dokuman -> 917 chunk),
+    dolayisiyla top_k=5 sonucun ikisi ucu ayni habere ait olabiliyor. Her
+    chunk ayri bir `Source`'a cevrildigi icin kullanici AYNI HABERI kaynak
+    listesinde iki kez goruyordu (27 Agustos 2026'da bildirildi).
+
+    Ozet icin chunk'larin TAMAMI korunur (`_summarize` hepsini kullanir);
+    tekillestirme YALNIZCA kaynak listesine uygulanir - baglam kaybolmaz,
+    yalnizca gosterim temizlenir.
+
+    Her dokumandan EN YUKSEK SKORLU chunk secilir; sira bozulmaz, cunku
+    sonuclar zaten skora gore sirali gelir.
+    """
+    gorulen: dict[str, dict[str, Any]] = {}
+    for chunk in chunks:
+        # `doc_id` yoksa chunk'in kendisi tekil kabul edilir - farkli
+        # dokumanlar yanlislikla birlestirilmesin.
+        anahtar = str(chunk.get("doc_id") or f"chunk:{chunk.get('chunk_id')}")
+        mevcut = gorulen.get(anahtar)
+        if mevcut is None or (chunk.get("score") or 0) > (mevcut.get("score") or 0):
+            gorulen[anahtar] = chunk
+    return list(gorulen.values())
+
+
+def _icerikten_baslik(icerik: str, en_fazla: int = 80) -> str:
+    """Metnin ilk cumlesinden okunabilir bir baslik uretir.
+
+    NEDEN GEREKLI: `rag.documents.baslik` dokumanlarin %35'inde BOS
+    (82/234 - olculdu). Baslik bos olunca kaynak satiri yalnizca tarih ve
+    site adiyla kaliyordu: "(2026-08-13) · BigPara Borsa". Ayni siteden ayni
+    gunlerde gelen iki FARKLI haber kullaniciya BIREBIR AYNI gorunuyordu.
+
+    Kalici cozum baslik alanini ingestion tarafinda doldurmaktir; bu
+    fonksiyon eldeki veriyle simdi okunabilir bir ayrim saglar.
+    """
+    metin = " ".join((icerik or "").split())
+    if not metin:
+        return ""
+
+    # Ilk cumle sinirinda kes; yoksa kelime sinirinda kirp.
+    for isaret in (". ", "! ", "? "):
+        konum = metin.find(isaret)
+        if 0 < konum <= en_fazla:
+            return metin[: konum + 1].strip()
+
+    if len(metin) <= en_fazla:
+        return metin
+    kirpik = metin[:en_fazla].rsplit(" ", 1)[0]
+    return f"{kirpik}…"
+
+
 def _ekli_eslesme(token: str, kok: str) -> bool:
     """`token`, `kok` + taninan bir Turkce ek mi?
 
@@ -346,15 +502,51 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
 
     for kayit in katalog:
         sembol = str(kayit.get("symbol") or "").strip()
-        if len(sembol) < _ASGARI_SEMBOL_UZUNLUGU:
+        if not sembol:
             continue
-        kok = _normalize(sembol)
 
+        if len(sembol) < _ASGARI_SEMBOL_UZUNLUGU:
+            # KISA KODLAR (KO, T) yalnizca HAM sorguda BUYUK HARFLE ve tam
+            # kelime olarak geciyorsa kabul edilir. Normalize edilmis metinde
+            # aranmalari gunluk Turkce kelimelerle cakisirdi ("ko", "t").
+            # Buyuk harf iyi bir ayirac: kullanici bir hisse kodu yazarken
+            # buyuk yazar, cumle icinde ayni harfleri kucuk yazar.
+            if re.search(rf"(?<![A-Za-z0-9]){re.escape(sembol)}(?![A-Za-z0-9])", query):
+                aday_ekle(3, query.index(sembol), sembol)
+            continue
+
+        kok = _normalize(sembol)
+        # ⚠️ SIKISIK BICIM SART. Sorgu `[a-z0-9]+` ile token'lara ayriliyor,
+        # yani harf-rakam DISI karakter iceren bir kod hicbir zaman TEK bir
+        # token'a esit olamaz: "usd/try" ve "brk-b" kodlariyla eslesme
+        # YAPISAL OLARAK imkansizdi. Sikisik bicim ("usdtry", "brkb")
+        # kullanicinin bitisik yazdigi hali yakalar.
+        kok_sikisik = re.sub(r"[^a-z0-9]", "", kok)
+        kokler = {kok, kok_sikisik} - {""}
+
+        eslesti = False
         for konum, token in enumerate(tokenler):
-            if _ekli_eslesme(token, kok):
+            if any(_ekli_eslesme(token, k) for k in kokler):
                 # Tam eslesme ekli eslesmeden guclu: "btc" > "btcden".
-                aday_ekle(3 if token == kok else 2, konum, sembol)
+                aday_ekle(3 if token in kokler else 2, konum, sembol)
+                eslesti = True
                 break
+
+        # BITISIK OLMAYAN YAZIM: kullanici kodu OLDUGU GIBI yazdiginda
+        # ("BRK-B fiyati", "USD/TRY kuru") ayirac karakter token'lari boler
+        # ve tek token eslesmesi tutmaz. Ardisik token'lari birlestirip
+        # sikisik kokle karsilastiriyoruz: ["brk","b"] -> "brkb".
+        if not eslesti and kok_sikisik and kok_sikisik != kok:
+            for konum in range(len(tokenler) - 1):
+                for uzunluk in (2, 3):
+                    if konum + uzunluk > len(tokenler):
+                        continue
+                    if "".join(tokenler[konum : konum + uzunluk]) == kok_sikisik:
+                        aday_ekle(3, konum, sembol)
+                        eslesti = True
+                        break
+                if eslesti:
+                    break
 
         # Sirket ADI ile eslesme: "aselsan" -> ASELS, "turk hava yollari" -> THYAO.
         # Kullanici kodu degil adi yaziyorsa da bulabilmeliyiz.
@@ -370,6 +562,17 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
                 if _ekli_eslesme(token, ilk_kelime):
                     aday_ekle(2, konum, sembol)
                     break
+
+    # Takma adlar EN SON denenir: kod ya da ad ile gercek bir eslesme
+    # bulunduysa o kazanmali. Puan 2 (ekli eslesmeyle ayni) - tam kod
+    # eslesmesinin (3) altinda kalir.
+    if en_iyi is None:
+        takma = _takma_addan_coz(
+            tokenler,
+            {str(k.get("symbol") or "").upper() for k in katalog},
+        )
+        if takma:
+            aday_ekle(2, takma[1], takma[0])
 
     return en_iyi[2] if en_iyi else None
 
@@ -791,7 +994,7 @@ class MarketResearchAgent(BaseAgent):
             # uretmesi (halusinasyon) bu yolla tamamen engellenir.
             return NO_RETRIEVAL_MESSAGE, [], [], 0.0, None
 
-        kaynaklar = [self._to_source(chunk) for chunk in chunks]
+        kaynaklar = [self._to_source(chunk) for chunk in _dokuman_bazinda_tekille(chunks)]
         ham_kaynaklar = [
             {
                 "source": chunk.get("source", "bilinmiyor"),
@@ -851,12 +1054,26 @@ class MarketResearchAgent(BaseAgent):
         kaynak_adi = chunk.get("source", "bilinmiyor")
         tarih = chunk.get("date")
 
+        # BASLIK UC KADEMELI COZULUR:
+        #   1. Dokumanin kendi basligi (varsa - dokumanlarin ~%65'inde var)
+        #   2. Metnin ilk cumlesinden uretilen baslik
+        #   3. Son care: kaynak adi + tarih
+        #
+        # 2. kademe olmadan basliksiz dokumanlar dogrudan 3. kademeye
+        # dusuyordu ve ayni siteden gelen farkli haberler kullaniciya
+        # AYIRT EDILEMEZ gorunuyordu (bkz. `_icerikten_baslik`).
+        baslik = (chunk.get("title") or "").strip()
+        if not baslik:
+            baslik = _icerikten_baslik(chunk.get("content") or chunk.get("text") or "")
+        if not baslik:
+            baslik = f"{kaynak_adi or 'Kaynak'} ({tarih or 'tarih yok'})"
+
         return Source(
             # `doc_id` DOKUMAN kimligidir (rag.documents.external_id), chunk
             # kimligi degil: kullanici kaynagi acmak istediginde chunk numarasi
             # ise yaramaz. Tool dokuman kimligini vermiyorsa chunk'a duselir.
             doc_id=str(chunk.get("doc_id") or chunk.get("chunk_id") or ""),
-            baslik=chunk.get("title") or f"{kaynak_adi} ({tarih or 'tarih yok'})",
+            baslik=baslik,
             sirket=metadata.get("symbol"),
             tarih=tarih,
             # Tool dokuman tipini zaten sozlesmedeki degerle donuyorsa (haber |

@@ -317,3 +317,58 @@ def test_baska_kisi_yaniti_ne_yapabildigini_soyler():
     metin = kisa_yanit(KAPSAM_BASKA_KISI)
     assert "getiremem" in metin
     assert "kendi" in metin.lower() or "giriş yapmış" in metin.lower()
+
+
+# ---------------------------------------------------------------------------
+# Kucuk harfli sembol / sirket adi
+# ---------------------------------------------------------------------------
+#
+# 27 Agustos 2026 model testinde "aselsan nasil gidiyor" ve "sasa neden
+# dustu" sorulari KAPSAM_BELIRSIZ'e dusup "Sorunuzu tam olarak anlayamadim"
+# yanitini aldi. Sebep: `SEMBOL_DESENI` yalnizca BUYUK harfli kodu yakaliyor,
+# gercek sohbette ise kullanicilar kucuk harf yaziyor.
+#
+# Bu modulun docstring'i yanlis pozitifi (finans sorusunun sohbet sanilmasi)
+# EN PAHALI hata olarak tanimlar - yasanan tam olarak buydu.
+
+
+@pytest.mark.parametrize(
+    "sorgu",
+    [
+        "aselsan nasıl gidiyor",
+        "sasa neden düştü",
+        "thyao ne kadar",
+        "tupras bilancosu",
+        "bitcoin nasıl",
+        "tesla hissesi almalı mıyım",
+        "nvidia yükseldi mi",
+        "sisecam durumu ne",
+    ],
+)
+def test_kucuk_harfli_varlik_adi_finans_sayilir(sorgu):
+    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen",
+    [
+        # Varlik sozlugu sohbet/kapsam-disi kararlarini EZMEMELI: sozluk
+        # kontrolu bilerek bu adimlardan SONRA calisir.
+        ("Merhaba", KAPSAM_SELAMLAMA),
+        ("SELAM", KAPSAM_SELAMLAMA),
+        ("bana bir şiir yaz", KAPSAM_DISI),
+        ("hava durumu nasıl", KAPSAM_DISI),
+        ("peki şimdi?", KAPSAM_BELIRSIZ),
+    ],
+)
+def test_varlik_sozlugu_sohbet_kararlarini_bozmaz(sorgu, beklenen):
+    assert kapsam_belirle(sorgu) == beklenen
+
+
+def test_kisa_semboller_sozluge_girmez():
+    """T (AT&T), KO (Coca-Cola), SOL (Solana) gunluk Turkce kelimelerle
+    cakisir; sozluge alinsalardi her cumle finans sayilirdi."""
+    from app.engine.kapsam import _VARLIK_SOZLUGU
+
+    for kisa in ("t", "ko", "sol", "spy", "btc"):
+        assert kisa not in _VARLIK_SOZLUGU or len(kisa) >= 4

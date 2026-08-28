@@ -20,19 +20,26 @@ from typing import Any
 from app.agents.base import BaseAgent
 from app.mcp.server import CORE_SERVER_NAME, MARKET_SERVER_NAME
 from app.orchestration.models import AgentError, AgentState
-from app.services.risk import risk_profili_hesapla
+from app.services.risk import (
+    MAX_VOLATILITY_LOOKUPS,
+    VOLATILITY_WINDOW_DAYS,
+    risk_profili_hesapla,
+)
+
+__all__ = ["MAX_VOLATILITY_LOOKUPS", "VOLATILITY_WINDOW_DAYS", "RiskStrategyAgent"]
 
 logger = logging.getLogger(__name__)
 
 AGENT_NAME = "risk_strategy"
 
-#: Oynaklik olcumu icin kac gunluk gecmise bakilir.
-VOLATILITY_WINDOW_DAYS = 30
-
-#: Oynaklik olcumu yapilacak en fazla varlik sayisi. Portfoydeki her varlik
-#: icin ayri tool cagrisi yapmak istegi yavaslatir; en buyuk pozisyonlar
-#: portfoy riskini zaten belirler.
-MAX_VOLATILITY_LOOKUPS = 3
+# ⚠️ OLCUM PARAMETRELERI `app/services/risk.py`'DEN GELIR - burada YENIDEN
+# TANIMLANMAZ. Dashboard yolu (`risk_profili_getir`) da ayni sabitleri
+# kullanir; ayri tanimlansalardi iki yol farkli sayida varlik olcup ayni
+# portfoy icin FARKLI RISK SKORU uretirdi (27 Agustos 2026'da yasandi:
+# ekranda 70, sohbette 77).
+#
+# Yeniden disa aktariliyor cunku mevcut testler bu adlari bu modulden
+# import ediyor.
 
 
 class RiskStrategyAgent(BaseAgent):

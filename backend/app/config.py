@@ -167,6 +167,18 @@ class Settings(BaseSettings):
     #: Bu yuzden deger `agent_llm_budget_seconds` icinde ayrica kirpilir.
     agent_llm_timeout_seconds: int = 0
 
+    #: Sentez IC siniri: iki token ARASINDA en fazla ne kadar beklenir.
+    #:
+    #: Dis sinir (`synthesizer_timeout_seconds`) TOPLAM sureyi olcer ve uzun
+    #: ama saglikli bir yaniti da keser. Asil belirti ise model ORTADA
+    #: TAKILMASIDIR: token akisi durur, dis sinir dolana kadar bosuna beklenir
+    #: ve kullanici yarim cumleyle kalir (canli testte olculdu, 27 Agustos
+    #: 2026 - "Risk skoru 78/100 ile" diye kesildi).
+    #:
+    #: Ic sinir bu durumu ERKEN yakalar: akis durduysa beklemeyi birakip
+    #: O ANA KADAR URETILEN METNI korur.
+    synthesizer_stall_seconds: int = 20
+
     #: Sentez adiminin ust siniri. `asyncio.wait_for` TUM sentezi sarar, yani
     #: ilk token'a varis degil TAMAMLANMA suresidir.
     #:
