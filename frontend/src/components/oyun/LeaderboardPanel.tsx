@@ -17,7 +17,36 @@ const PERIODS: { id: LeaderboardPeriod; label: { tr: string; en: string } }[] = 
 
 const PODIUM_ORDER = [2, 1, 3] as const; // görsel sıra: 2. sol, 1. orta, 3. sağ
 const PODIUM_HEIGHT: Record<number, string> = { 1: "76px", 2: "56px", 3: "44px" };
-const PODIUM_MEDAL: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
+
+//: Turuncu (--color-cta) yerine madalya rengini taklit eden notr tonlar:
+//: 1. altin/sari, 2. gumus, 3. bronz - "turuncu" hissi vermeyen, temaya
+//: uygun renkler. Hem podyum cubugunda hem madalya ikonunda kullanilir.
+const MEDAL_COLOR: Record<number, string> = {
+  1: "var(--color-chart-yellow)",
+  2: "color-mix(in srgb, var(--color-muted) 55%, silver)",
+  3: "color-mix(in srgb, var(--color-chart-yellow) 55%, #7c4a1e)",
+};
+
+function MedalIcon({ place, className = "h-6 w-6" }: { place: 1 | 2 | 3; className?: string }) {
+  const color = MEDAL_COLOR[place];
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M7.5 3h9l-2.6 6.4M16.5 3h-9l2.6 6.4"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="15" r="6.2" fill={color} />
+      <path
+        d="M12 11.8l1.1 2.3 2.5.3-1.8 1.7.5 2.5-2.3-1.3-2.3 1.3.5-2.5-1.8-1.7 2.5-.3z"
+        fill="var(--color-surface)"
+      />
+    </svg>
+  );
+}
 
 type Props = {
   /** Kullanıcının kendi skoru — sıralamada değilse "katıl" mesajı gösterilir */
@@ -70,7 +99,7 @@ type Props = {
             if (!entry) return null;
             return (
               <div key={place} className="flex flex-1 flex-col items-center">
-                <span className="text-lg">{PODIUM_MEDAL[place]}</span>
+                <MedalIcon place={place} />
                 <span
                   className="app-heading mt-1 max-w-full truncate text-[11px] font-semibold"
                   title={entry.label}
@@ -82,18 +111,7 @@ type Props = {
                 </span>
                                 <div
                   className="mt-1.5 w-full rounded-t-lg"
-                  style={{
-                    height: PODIUM_HEIGHT[place],
-                    // Turuncu (--color-cta) yerine madalya rengini taklit eden
-                    // notr tonlar: 1. altin/sari, 3. bronz - "turuncu"
-                    // hissi vermeyen, temaya uygun renkler.
-                    background:
-                      place === 1
-                        ? "var(--color-chart-yellow)"
-                        : place === 2
-                          ? "color-mix(in srgb, var(--color-muted) 55%, silver)"
-                          : "color-mix(in srgb, var(--color-chart-yellow) 55%, #7c4a1e)",
-                  }}
+                  style={{ height: PODIUM_HEIGHT[place], background: MEDAL_COLOR[place] }}
                 />
               </div>
             );
@@ -152,7 +170,7 @@ type Props = {
               className="flex items-center gap-3 rounded-lg px-3 py-2.5"
               style={{ background: "var(--color-surface-muted)" }}
             >
-              <span className="text-lg">{prize.badge}</span>
+              <MedalIcon place={prize.place} className="h-5 w-5 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="app-heading truncate text-xs font-semibold">{prize.title[language]}</p>
                 <p className="app-muted text-[11px] tabular-nums">

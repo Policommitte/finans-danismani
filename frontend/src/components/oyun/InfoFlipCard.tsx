@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
-  icon: string;
+  icon: ReactNode;
   title: string;
   color: string;
   children: ReactNode;
@@ -36,7 +36,7 @@ export function InfoFlipCard({ icon, title, color, children, orientation = "vert
             borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
           }}
         >
-          <span className="text-3xl" aria-hidden="true">
+          <span className="shrink-0" style={{ color }} aria-hidden="true">
             {icon}
           </span>
           <div className={isHorizontal ? "text-left" : ""}>

@@ -10,6 +10,25 @@ type Props = {
   taken: number;
 };
 
+function HelpCircleIcon({ className = "h-8 w-8" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 0 1 4.6-1.4c.6.9.4 1.8-.4 2.5-.9.8-1.7 1.1-1.7 2.4" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
 const HOW_TO_PLAY = [
   {
     tr: `Her akşam saat 20.00'de tek seans olarak başlar, kayıt 19.55'te kapanır.`,
@@ -42,7 +61,7 @@ export function IntroSidebar({ registered, taken }: Props) {
           Şans Yatırımda
         </p>
         <h3 className="app-heading mt-2 text-lg font-semibold leading-snug">
-          {language === "tr" ? "Finans bilginle yarış, ödülden pay al" : "Compete with your finance knowledge, claim a share of the prize"}
+          {language === "tr" ? "Bu akşamki yarışma" : "Tonight's contest"}
         </h3>
         <p className="app-muted mt-2 text-[13px] leading-relaxed">
           {language === "tr"
@@ -90,7 +109,7 @@ export function IntroSidebar({ registered, taken }: Props) {
 
       <div className="flex-1">
         <InfoFlipCard
-          icon="❓"
+          icon={<HelpCircleIcon />}
           title={language === "tr" ? "Nasıl oynanır?" : "How to play?"}
           color="var(--color-primary)"
           orientation="vertical"

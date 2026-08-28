@@ -78,6 +78,48 @@ const FAQ = [
   },
 ];
 
+function MessageCircleIcon({ className = "h-8 w-8" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
+
+//: Kalan sureye gore sayac rengi - bol vakit varken yesil, son 1 saatte
+//: sari/altina, son birkac dakikada kirmiziya doner. Turuncu (--color-cta)
+//: hic kullanilmaz: yesil<->sari gecisi guvenli (asla turuncuya kacmaz),
+//: sari<->kirmizi gecisi ise SADECE son 2 dakikaya sikistirilir - kisa
+//: surdugu icin ara karede goze carpan bir "turuncu an" degil, hizli bir
+//: kirmiziya donus gibi algilanir.
+const COUNTDOWN_HOUR = 3600;
+const COUNTDOWN_WARNING = 900; // 15 dk
+const COUNTDOWN_URGENT = 120; // 2 dk
+
+function countdownColor(totalSeconds: number): string {
+  if (totalSeconds > COUNTDOWN_HOUR) {
+    return "var(--color-success)";
+  }
+  if (totalSeconds > COUNTDOWN_WARNING) {
+    const ratio = (totalSeconds - COUNTDOWN_WARNING) / (COUNTDOWN_HOUR - COUNTDOWN_WARNING);
+    return `color-mix(in srgb, var(--color-success) ${Math.round(ratio * 100)}%, var(--color-chart-yellow) ${Math.round((1 - ratio) * 100)}%)`;
+  }
+  if (totalSeconds > COUNTDOWN_URGENT) {
+    return "var(--color-chart-yellow)";
+  }
+  const ratio = totalSeconds / COUNTDOWN_URGENT;
+  return `color-mix(in srgb, var(--color-chart-yellow) ${Math.round(ratio * 100)}%, var(--color-danger) ${Math.round((1 - ratio) * 100)}%)`;
+}
+
 export function RegisterScreen({ registered, taken, onTakenChange, onRegister, onEnterLobby }: Props) {
   const { language } = useLanguage();
   const [target] = useState(() => nextContestTime());
@@ -121,37 +163,12 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
     <div className="space-y-4">
       <Card>
         <div className="py-6 text-center">
-          <p
-            className="text-[11px] font-bold uppercase tracking-[0.16em]"
-            style={{ color: "var(--color-primary)" }}
-          >
-            {language === "tr" ? "Canlı finansal bilgi yarışması" : "Live financial knowledge contest"}
-          </p>
-          <h2 className="app-heading mx-auto mt-2 max-w-xl text-3xl font-bold leading-tight">
-            {language === "tr"
-              ? "Finans bilginle yarış, ödül havuzundan pay al"
-              : "Compete with your finance knowledge, claim a share of the prize pool"}
-          </h2>
-          <p className="app-muted mx-auto mt-3 max-w-xl text-sm leading-relaxed">
-            {language === "tr" ? (
-              <>
-                Günün yarışması saat 20.00&apos;de başlıyor. {CONFIG.questionCount} finans sorusunu
-                süresi içinde doğru cevapla, kazananlar arasına gir.
-              </>
-            ) : (
-              <>
-                Today&apos;s contest starts at 8:00 PM. Answer {CONFIG.questionCount} finance
-                questions correctly within the time limit and join the winners.
-              </>
-            )}
-          </p>
-
           {/* geri sayım + kaydol */}
           <div
-            className="mx-auto mt-7 flex max-w-xl flex-wrap items-center justify-center gap-5 rounded-xl border border-dashed p-5"
+            className="mx-auto flex max-w-xl flex-wrap items-center justify-center gap-5 rounded-xl border p-5"
             style={{
               background: "var(--color-primary-soft)",
-              borderColor: "var(--color-primary)",
+              borderColor: "color-mix(in srgb, var(--color-primary) 35%, transparent)",
             }}
           >
             <div className="text-left">
@@ -160,7 +177,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
               </span>
               <strong
                 className="block text-3xl font-bold tabular-nums"
-                style={{ color: "var(--color-primary-soft-text)" }}
+                style={{ color: countdownColor(total), transition: "color 600ms ease" }}
               >
                 {hours}:{minutes}:{seconds}
               </strong>
@@ -272,7 +289,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
 
       {/* SSS — geniş, yatay flip kart */}
       <InfoFlipCard
-        icon="💬"
+        icon={<MessageCircleIcon />}
         title={language === "tr" ? "Sıkça sorulan sorular" : "Frequently asked questions"}
         color="var(--color-primary)"
         orientation="horizontal"

@@ -47,8 +47,8 @@ const SCREEN_LABELS: Record<GameScreen, { tr: string; en: string }> = {
 const PAGE_TEXT = {
   title: { tr: "Şans Yatırımda", en: "Şans Yatırımda" },
   subtitle: {
-    tr: "Her akşam 20.00'de düzenlenen finansal okuryazarlık yarışması.",
-    en: "A financial literacy contest held every evening at 8:00 PM.",
+    tr: "Finans bilginle yarış, ödül havuzundan pay al.",
+    en: "Compete with your finance knowledge, claim a share of the prize pool.",
   },
   activeScreen: { tr: "Aktif ekran", en: "Active screen" },
   score: { tr: "Skor", en: "Score" },

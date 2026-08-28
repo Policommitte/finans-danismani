@@ -10,6 +10,12 @@ type Props = {
   onGoShop: () => void;
 };
 
+//: Buyuk "hero" gosterim alani icin vektor tabanli ikon - fotograf DEGIL
+//: (bir kez denendi: Pexels sonucu yesil/kahverengi bir stok fotografti,
+//: sitenin koyu lacivert temasiyla cakisiyordu). SVG oldugu icin bu boyutta
+//: da piksellesme olmaz. Govde/kapak icin --color-market-muted, cıtcıt
+//: vurgusu icin --color-primary kullanilir - sayfanin geri kalanindaki
+//: ikonlarla (chatbot, market ikonlari) ayni duz-cizgi/stroke dili.
 function WalletIcon() {
   return (
     <svg
@@ -18,24 +24,39 @@ function WalletIcon() {
       aria-hidden="true"
       style={{ filter: "drop-shadow(0 0 16px rgba(255, 255, 255, 0.15))" }}
     >
-      <path
-        d="M12 16V10a6 6 0 0 1 6-6h52a6 6 0 0 1 6 6v6"
+      {/* arkadan gorunen kart ucu */}
+      <rect
+        x="14"
+        y="4"
+        width="40"
+        height="16"
+        rx="3"
         fill="none"
         stroke="var(--color-market-muted)"
-        strokeWidth="4"
-        strokeLinecap="round"
+        strokeWidth="3.5"
+        opacity="0.5"
       />
+      {/* govde */}
       <rect
         x="4"
         y="16"
         width="88"
-        height="56"
+        height="58"
         rx="10"
         fill="none"
         stroke="var(--color-market-muted)"
         strokeWidth="4"
       />
-      <circle cx="70" cy="48" r="4.5" fill="var(--color-primary)" />
+      {/* on cepteki kapak kivrimi */}
+      <path
+        d="M4 36a10 10 0 0 1 10-10h64"
+        fill="none"
+        stroke="var(--color-market-muted)"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+      {/* cıtcıt */}
+      <circle cx="70" cy="48" r="5.5" fill="var(--color-primary)" />
     </svg>
   );
 }
