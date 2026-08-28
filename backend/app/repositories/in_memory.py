@@ -742,6 +742,8 @@ class InMemoryTradingRepository:
             "asset_name": asset["name"],
             "asset_class": asset["asset_class"],
             "currency": asset["currency"],
+            "native_price": float(asset["current_price"]),
+            "fx_rate": _fx_rate(asset["currency"]),
             "current_price": float(asset["current_price"]) * _fx_rate(asset["currency"]),
             "price_updated_at": asset.get("price_updated_at"),
             "available_balance": account["available_balance"],
@@ -789,7 +791,9 @@ class InMemoryTradingRepository:
             raise BusinessRuleError("Gecersiz emir gecerliligi.")
         if stop_loss_price is not None:
             reference = (
-                float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+                float(limit_price) / float(context["fx_rate"])
+                if order_type == "LIMIT"
+                else float(context["native_price"])
             )
             if side != "BUY" or stop_loss_price <= 0 or stop_loss_price >= reference:
                 raise BusinessRuleError(
@@ -833,6 +837,9 @@ class InMemoryTradingRepository:
             "order_type": order_type,
             "limit_price": limit_price,
             "stop_loss_price": stop_loss_price,
+            "stop_loss_currency": (
+                context["currency"] if stop_loss_price is not None else None
+            ),
             "parent_order_id": None,
             "validity": validity,
             "expires_at": (
@@ -909,7 +916,8 @@ class InMemoryTradingRepository:
                 if order["side"] == "SELL" and price < limit:
                     continue
             elif order["order_type"] == "STOP_MARKET":
-                if price > float(order["stop_loss_price"]):
+                comparison_price = native_price if order.get("stop_loss_currency") else price
+                if comparison_price > float(order["stop_loss_price"]):
                     continue
                 current_holding = next(
                     (
@@ -1036,6 +1044,7 @@ class InMemoryTradingRepository:
                         "order_type": "STOP_MARKET",
                         "limit_price": None,
                         "stop_loss_price": order["stop_loss_price"],
+                        "stop_loss_currency": order.get("stop_loss_currency"),
                         "parent_order_id": order["id"],
                         "validity": "GTC",
                         "expires_at": None,

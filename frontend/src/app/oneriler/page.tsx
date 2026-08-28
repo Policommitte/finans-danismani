@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RecommendationCard } from "../../components/recommendations/RecommendationCard";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
+import { AUTONOMOUS_ACTIONS_READY_EVENT } from "../../components/layout/transitionEvents";
 import { useRecommendations } from "../../hooks/useRecommendations";
 import { useLanguage } from "../../contexts/LanguageContext";
 import type { Recommendation, RecommendationStatus } from "../../models/recommendation";
@@ -28,6 +29,19 @@ export default function RecommendationsPage() {
   const { language } = useLanguage();
   const rec = useRecommendations();
   const [aktif, setAktif] = useState("open");
+
+  useEffect(() => {
+    if (rec.loading) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.dataset.autonomousActionsReady = "true";
+      window.dispatchEvent(new Event(AUTONOMOUS_ACTIONS_READY_EVENT));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [rec.loading]);
 
   const locale = language === "tr" ? "tr-TR" : "en-US";
   const money = useMemo(

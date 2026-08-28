@@ -74,7 +74,8 @@ async def emir_onizle(
         quantity=_q(quantity),
         order_type=order_type,
         limit_price=None if limit_price is None else _f(limit_price),
-        stop_loss_price=None if stop_loss_price is None else _f(stop_loss_price),
+        stop_loss_price=None if stop_loss_price is None else _q(stop_loss_price),
+        stop_loss_currency=None if stop_loss_price is None else row["currency"],
         validity="GTC" if order_type == "MARKET" else validity,
         expires_at=_iso(_expires_at(order_type, validity)),
         quoted_price=_f(price),
@@ -166,7 +167,12 @@ def _context_validate(
     if stop_loss_price is not None:
         if side != "BUY":
             raise BusinessRuleError("Stop-loss yalnizca alim emrine eklenebilir.")
-        reference = float(limit_price) if order_type == "LIMIT" else float(row["current_price"])
+        fx_rate = float(row.get("fx_rate") or 1)
+        reference = (
+            float(limit_price) / fx_rate
+            if order_type == "LIMIT"
+            else float(row.get("native_price") or row["current_price"])
+        )
         if stop_loss_price <= 0 or stop_loss_price >= reference:
             raise BusinessRuleError("Stop-loss fiyati alim referans fiyatindan dusuk olmalidir.")
 
@@ -180,8 +186,9 @@ def _order(row: dict) -> PaperOrder:
         order_type=row.get("order_type") or "MARKET",
         limit_price=None if row.get("limit_price") is None else _f(row["limit_price"]),
         stop_loss_price=(
-            None if row.get("stop_loss_price") is None else _f(row["stop_loss_price"])
+            None if row.get("stop_loss_price") is None else _q(row["stop_loss_price"])
         ),
+        stop_loss_currency=row.get("stop_loss_currency"),
         parent_order_id=(
             None if row.get("parent_order_id") is None else int(row["parent_order_id"])
         ),

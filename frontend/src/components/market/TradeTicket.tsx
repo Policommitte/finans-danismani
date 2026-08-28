@@ -82,6 +82,12 @@ export function TradeTicket({
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
   const money = new Intl.NumberFormat(locale, { style: "currency", currency: "TRY" });
+  const stopLossMoney = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: asset.currency,
+    minimumFractionDigits: asset.asset_class === "FOREX" ? 4 : 2,
+    maximumFractionDigits: asset.asset_class === "FOREX" ? 4 : 2,
+  });
   const [assetClass, setAssetClass] = useState(asset.asset_class);
   const [side, setSide] = useState<OrderSide>("BUY");
   const [quantity, setQuantity] = useState("1");
@@ -197,12 +203,19 @@ export function TradeTicket({
     && parsedQuantity > 0;
   const parsedLimitPrice = Number(limitPrice);
   const parsedStopLossPrice = Number(stopLossPrice);
+  const fxRate = asset.currency === "TRY"
+    ? 1
+    : assets.find((item) => item.symbol === `${asset.currency}/TRY`)?.current_price;
+  const stopLossReference = orderType === "LIMIT"
+    ? (fxRate ? parsedLimitPrice / fxRate : Number.NaN)
+    : asset.current_price;
   const validLimitPrice = orderType === "MARKET"
     || (Number.isFinite(parsedLimitPrice) && parsedLimitPrice > 0);
   const validStopLoss = !stopLossEnabled || (
     Number.isFinite(parsedStopLossPrice)
     && parsedStopLossPrice > 0
-    && (orderType !== "LIMIT" || parsedStopLossPrice < parsedLimitPrice)
+    && Number.isFinite(stopLossReference)
+    && parsedStopLossPrice < stopLossReference
   );
 
   return (
@@ -433,12 +446,14 @@ export function TradeTicket({
               </label>
               {stopLossEnabled && (
                 <label className="mt-3 block text-xs font-semibold uppercase tracking-wide app-muted">
-                  {language === "tr" ? "Stop fiyatı (TRY)" : "Stop price (TRY)"}
+                  {language === "tr"
+                    ? `Stop fiyatı (${asset.currency})`
+                    : `Stop price (${asset.currency})`}
                   <input
                     className="mt-2 w-full rounded-md border app-input px-3 py-2.5 text-sm outline-none"
                     type="number"
-                    min="0.01"
-                    step="0.01"
+                    min={asset.asset_class === "FOREX" ? "0.0001" : "0.01"}
+                    step={asset.asset_class === "FOREX" ? "0.0001" : "0.01"}
                     value={stopLossPrice}
                     onChange={(event) => {
                       setStopLossPrice(event.target.value);
@@ -468,7 +483,7 @@ export function TradeTicket({
               {preview.stop_loss_price != null && (
                 <div className="flex justify-between border-t app-border pt-2 text-xs">
                   <span className="app-muted">{language === "tr" ? "Bağlı stop-loss" : "Attached stop-loss"}</span>
-                  <strong>{money.format(preview.stop_loss_price)}</strong>
+                  <strong>{stopLossMoney.format(preview.stop_loss_price)}</strong>
                 </div>
               )}
             </div>

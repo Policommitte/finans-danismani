@@ -4,18 +4,14 @@
 (mimari v4 bolum 10.2). Bu yuzden `/me` deseni kullanilir.
 """
 
-import secrets
-
 from fastapi import APIRouter, status
 
 from app.auth.deps import CurrentUser
-from app.auth.google import fetch_google_profile
 from app.auth.security import TOKEN_TYPE, create_access_token, hash_password, verify_password
 from app.config import settings
 from app.core.errors import AuthenticationError, ConflictError
 from app.repositories.deps import get_user_repository
 from app.schemas.auth import (
-    GoogleAuthRequest,
     LoginRequest,
     OnboardingCompleteRequest,
     RegisterRequest,
@@ -74,38 +70,6 @@ async def register(payload: RegisterRequest) -> TokenResponse:
         email=payload.email,
         password_hash=hash_password(payload.password),
     )
-
-    return TokenResponse(
-        access_token=create_access_token(user["id"]),
-        token_type=TOKEN_TYPE,
-        expires_in=settings.jwt_expire_minutes * 60,
-    )
-
-
-@router.post("/google", response_model=TokenResponse, status_code=status.HTTP_200_OK)
-async def google_login(payload: GoogleAuthRequest) -> TokenResponse:
-    """Google ile giris/kayit - `useGoogleLogin` erisim tokenini dogrular.
-
-    E-posta zaten kayitliysa (sifreyle veya onceki bir Google girisiyle)
-    mevcut hesaba giris yapilir, `onboarding_completed` durumu KORUNUR.
-    Yeni kullanicilar `create()` ile olusturulur ve mail/sifre kaydiyla
-    AYNI sekilde `onboarding_completed=false` ile baslar.
-    """
-    profile = await fetch_google_profile(payload.access_token)
-    if profile is None or not profile["email_verified"]:
-        raise AuthenticationError("Google ile giris dogrulanamadi.")
-
-    repo = get_user_repository()
-    user = await repo.get_by_email(profile["email"])
-    if user is None:
-        user = await repo.create(
-            first_name=profile["given_name"] or "Kullanici",
-            last_name=profile["family_name"],
-            email=profile["email"],
-            # Google hesabinda sifreyle giris hic mumkun olmamali; rastgele
-            # ve kullanilamaz bir hash yazilir (verify_password bunu tutturamaz).
-            password_hash=hash_password(secrets.token_urlsafe(32)),
-        )
 
     return TokenResponse(
         access_token=create_access_token(user["id"]),

@@ -100,6 +100,77 @@ async def test_uzun_tarih_araligi_gunluk_mum_kaynagini_kullanir(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("interval", ["1h", "4h"])
+async def test_saatlik_ve_dort_saatlik_grafik_iki_yillik_saatlik_arsivi_kullanir(
+    monkeypatch, interval
+):
+    repository = OhlcvRepository()
+    monkeypatch.setattr(market, "get_market_repository", lambda: repository)
+
+    response = await market.mumlar_getir("THYAO", interval=interval, range_key="1y")
+
+    assert repository.requested_interval == "1h"
+    assert repository.requested_days == 730
+    assert response.interval == interval
+
+
+@pytest.mark.asyncio
+async def test_saatlik_grafik_kaynagin_yarim_saat_zamanini_korur(monkeypatch):
+    class HalfHourRepository(OhlcvRepository):
+        async def get_candles(self, symbol: str, interval: str, days: int) -> list[dict]:
+            return [
+                {
+                    "ts": datetime(2026, 8, 25, 6, 30, tzinfo=timezone.utc),
+                    "open": 100,
+                    "high": 102,
+                    "low": 99,
+                    "close": 101,
+                    "volume": 10,
+                }
+            ]
+
+    monkeypatch.setattr(market, "get_market_repository", lambda: HalfHourRepository())
+
+    response = await market.mumlar_getir("THYAO", interval="1h", range_key="1d")
+
+    assert response.candles[0].time == int(
+        datetime(2026, 8, 25, 6, 30, tzinfo=timezone.utc).timestamp()
+    )
+
+
+@pytest.mark.asyncio
+async def test_dort_saatlik_grafik_piyasa_acilisindan_itibaren_dorderli_toplanir(
+    monkeypatch,
+):
+    class SessionRepository(OhlcvRepository):
+        async def get_candles(self, symbol: str, interval: str, days: int) -> list[dict]:
+            return [
+                {
+                    "ts": datetime(2026, 8, 25, 6, 30, tzinfo=timezone.utc)
+                    + market.timedelta(hours=i),
+                    "open": 100 + i,
+                    "high": 102 + i,
+                    "low": 99 + i,
+                    "close": 101 + i,
+                    "volume": 10,
+                }
+                for i in range(4)
+            ]
+
+    monkeypatch.setattr(market, "get_market_repository", lambda: SessionRepository())
+
+    response = await market.mumlar_getir("THYAO", interval="4h", range_key="1d")
+
+    assert len(response.candles) == 1
+    assert response.candles[0].time == int(
+        datetime(2026, 8, 25, 6, 30, tzinfo=timezone.utc).timestamp()
+    )
+    assert response.candles[0].open == 100
+    assert response.candles[0].close == 104
+    assert response.candles[0].volume == 40
+
+
+@pytest.mark.asyncio
 async def test_kisa_aralik_sola_kaydirma_icin_gecmis_mumlari_da_yukler(monkeypatch):
     repository = OhlcvRepository()
     monkeypatch.setattr(market, "get_market_repository", lambda: repository)

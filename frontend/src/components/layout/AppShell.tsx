@@ -18,11 +18,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const { language } = useLanguage();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
-  const isPublic = pathname === "/" || isLogin;
   const isLanding = pathname === "/";
   // Yarışma ekranında piyasa şeridi ve sohbet gizlenir:
   // şerit dikkat dağıtır, sohbet ise soruların cevabına erişim yolu olur.
   const isGame = pathname === "/yatirim-oyunu";
+  const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
+  const isSupportPage = pathname === "/destek";
+  const isPublic = isLanding || isLogin || isPrivacyPolicy || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
   //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
@@ -128,20 +130,31 @@ function AppShellContent({ children }: { children: ReactNode }) {
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
             <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
-          {auth.user && !isGame && <ChatWidget />}
+          {!isGame && (
+            <ChatWidget
+              canSend={Boolean(auth.user)}
+              blockedMessage={
+                language === "tr"
+                  ? "Soru sormadan önce giriş yapmalısınız."
+                  : "You need to log in before asking a question."
+              }
+            />
+          )}
         </>
       )}
       {selectedSymbol ? (
-        <AssetSummaryModal symbol={selectedSymbol} onClose={() => setSelectedSymbol(null)} />
-      ) : null}
-      {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
-      {auth.user ? (
-        <ProductTour
-          open={tourOpen}
-          onClose={() => setTourOpen(false)}
-          storageKey={`polifin-product-tour-v1:${auth.user.id}`}
+        <AssetSummaryModal
+          symbol={selectedSymbol}
+          onClose={() => setSelectedSymbol(null)}
+          isAuthenticated={Boolean(auth.user)}
         />
       ) : null}
+      {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
+      <ProductTour
+        open={tourOpen}
+        onClose={() => setTourOpen(false)}
+        storageKey={`polifin-product-tour-v1:${auth.user?.id ?? "guest"}`}
+      />
       {logoutNoticeName !== null ? (
         <div
           role="status"

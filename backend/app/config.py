@@ -52,10 +52,6 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 720
 
-    # Google ile giris (yalnizca client ID - secret bu akista KULLANILMAZ,
-    # bkz. app/auth/google.py). Tanimli degilse /api/auth/google devre disidir.
-    google_client_id: str = ""
-
     # --- RAG / Vector DB ------------------------------------------------
     # Model secildi: Cohere embed-v4 (output_dimension=1024 - vector(1024)
     # semasiyla degisiklik gerekmeden eslesir). EMBEDDING_API_KEY bos oldugu

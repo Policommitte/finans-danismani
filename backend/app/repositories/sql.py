@@ -736,6 +736,7 @@ class SqlTradingRepository(_SqlRepository):
             """
             SELECT p.id AS portfolio_id, a.id AS asset_id, a.symbol,
                    a.name AS asset_name, ac.code AS asset_class, a.currency,
+                   a.current_price AS native_price, fx.try_rate AS fx_rate,
                    a.current_price * fx.try_rate AS current_price,
                    a.price_updated_at,
                    ca.available_balance, ca.reserved_balance,
@@ -800,6 +801,7 @@ class SqlTradingRepository(_SqlRepository):
                         """
                         SELECT p.id AS portfolio_id, a.id AS asset_id, a.symbol,
                                a.name AS asset_name, ac.code AS asset_class, a.currency,
+                               a.current_price AS native_price, fx.try_rate AS fx_rate,
                                a.current_price * fx.try_rate AS current_price,
                                ca.available_balance,
                                COALESCE(pa.quantity, 0) AS holding_quantity
@@ -834,9 +836,9 @@ class SqlTradingRepository(_SqlRepository):
                     raise BusinessRuleError("Gecerlilik DAY veya GTC olmalidir.")
                 if stop_loss_price is not None:
                     reference = (
-                        Decimal(str(limit_price))
+                        Decimal(str(limit_price)) / Decimal(str(context["fx_rate"]))
                         if order_type == "LIMIT"
-                        else Decimal(str(context["current_price"]))
+                        else Decimal(str(context["native_price"]))
                     )
                     if (
                         side != "BUY"
@@ -904,11 +906,13 @@ class SqlTradingRepository(_SqlRepository):
                         INSERT INTO orders (
                             user_id, portfolio_id, asset_id, side, order_type,
                             quantity, quoted_price, limit_price, stop_loss_price,
+                            stop_loss_currency,
                             validity, expires_at,
                             status, reserved_amount, idempotency_key
                         ) VALUES (
                             :user_id, :portfolio_id, :asset_id, :side, :order_type,
                             :quantity, :quoted_price, :limit_price, :stop_loss_price,
+                            :stop_loss_currency,
                             :validity, :expires_at,
                             'PENDING', :reserved_amount, :idempotency_key
                         )
@@ -925,6 +929,9 @@ class SqlTradingRepository(_SqlRepository):
                         "order_type": order_type,
                         "limit_price": limit_price,
                         "stop_loss_price": stop_loss_price,
+                        "stop_loss_currency": (
+                            context["currency"] if stop_loss_price is not None else None
+                        ),
                         "validity": validity,
                         "expires_at": expires_at,
                         "reserved_amount": reserve,
@@ -1046,7 +1053,7 @@ class SqlTradingRepository(_SqlRepository):
                 result = await session.execute(
                     text(
                         """
-                        SELECT o.*, fx.try_rate AS fx_rate
+                        SELECT o.*, a.currency AS asset_currency, fx.try_rate AS fx_rate
                         FROM orders o
                         JOIN assets a ON a.id = o.asset_id
                         JOIN v_fx_rates fx ON fx.currency = a.currency
@@ -1074,7 +1081,10 @@ class SqlTradingRepository(_SqlRepository):
                             continue
                     elif order["order_type"] == "STOP_MARKET":
                         stop_price = Decimal(str(order["stop_loss_price"]))
-                        if price > stop_price:
+                        comparison_price = (
+                            native_price if order.get("stop_loss_currency") else price
+                        )
+                        if comparison_price > stop_price:
                             continue
                     qty = Decimal(str(order["quantity"]))
                     if order["order_type"] == "STOP_MARKET":
@@ -1330,11 +1340,13 @@ class SqlTradingRepository(_SqlRepository):
                                 """
                                 INSERT INTO orders (
                                     user_id, portfolio_id, asset_id, side, order_type,
-                                    quantity, quoted_price, stop_loss_price, parent_order_id,
+                                    quantity, quoted_price, stop_loss_price,
+                                    stop_loss_currency, parent_order_id,
                                     validity, status, reserved_amount, idempotency_key
                                 ) VALUES (
                                     :user_id, :portfolio_id, :asset_id, 'SELL', 'STOP_MARKET',
-                                    :quantity, :quoted_price, :stop_loss_price, :parent_order_id,
+                                    :quantity, :quoted_price, :stop_loss_price,
+                                    :stop_loss_currency, :parent_order_id,
                                     'GTC', 'PENDING', 0, :idempotency_key
                                 )
                                 ON CONFLICT (user_id, idempotency_key) DO NOTHING
@@ -1347,6 +1359,7 @@ class SqlTradingRepository(_SqlRepository):
                                 "quantity": qty,
                                 "quoted_price": price,
                                 "stop_loss_price": order["stop_loss_price"],
+                                "stop_loss_currency": order.get("stop_loss_currency"),
                                 "parent_order_id": order["id"],
                                 "idempotency_key": f"attached-stop-{order['id']}",
                             },

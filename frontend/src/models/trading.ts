@@ -20,6 +20,7 @@ export type OrderPreview = {
   order_type: EntryOrderType;
   limit_price: number | null;
   stop_loss_price: number | null;
+  stop_loss_currency: string | null;
   validity: OrderValidity;
   expires_at: string | null;
   quoted_price: number;
@@ -41,6 +42,7 @@ export type PaperOrder = {
   order_type: OrderType;
   limit_price: number | null;
   stop_loss_price: number | null;
+  stop_loss_currency: string | null;
   parent_order_id: number | null;
   validity: OrderValidity;
   expires_at: string | null;

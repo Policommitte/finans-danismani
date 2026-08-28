@@ -159,7 +159,11 @@ class ApiMarketProvider(MarketDataProvider):
 
         indirilen_mumlar = yahoo.son_indirilen_mumlar()
         if self._ilk_mum_paketi:
-            self.son_mumlar = indirilen_mumlar
+            # Ilk canli istek kisa bosluklari 1m/5m/1d icin kapatir. Ancak
+            # 5 gunluk 1dk serisinden uretilen eski saatler dogrudan Yahoo
+            # 1h arsivinin ustune yazilmamali; yalniz degisebilen son ikisi
+            # tutulur.
+            self.son_mumlar = yahoo.ilk_mum_paketini_daralt(indirilen_mumlar)
             self._ilk_mum_paketi = False
         else:
             self.son_mumlar = yahoo.son_mumlari_daralt(indirilen_mumlar)
@@ -175,6 +179,38 @@ class ApiMarketProvider(MarketDataProvider):
                 update["previous_close"] = quote["previous_close"]
             updates.append(update)
         return updates
+
+    async def reconcile_hourly_candles(self, assets: list[dict]) -> list[dict]:
+        """Tamamlanmis 1h mumlarini gunde bir kez dogrudan Yahoo ile duzeltir."""
+        from app.market import yahoo
+
+        if await self._kota_doldu_mu():
+            return []
+
+        semboller = [
+            str(asset["symbol"])
+            for asset in assets
+            if asset.get("symbol") in yahoo.desteklenen_semboller()
+        ]
+        if not semboller:
+            return []
+
+        cagri_sayisi = len(yahoo.gerekli_tickerlar(semboller))
+        try:
+            candles = await yahoo.gecmis_mumlari_indir(
+                semboller, period="5d", interval="1h"
+            )
+        except Exception as exc:  # noqa: BLE001 - uzlastirma canli akisi durdurmamali
+            logger.warning(
+                "saatlik mum uzlastirmasi basarisiz: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            await self._kotayi_isle(cagri_sayisi)
+            return []
+
+        await self._kotayi_isle(cagri_sayisi)
+        return yahoo.tamamlanmis_saatlik_mumlar(candles)
 
 
 def build_provider(name: str | None = None) -> MarketDataProvider:

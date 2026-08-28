@@ -23,6 +23,7 @@ const fallbackTickerItems: PublicMarketTickerItem[] = [
 // oge) 28 saniyede tamamlaniyordu. Suruklemeyle rF-tabanli bir konuma
 // gecince de ayni hizi korumak icin ayni sureyi kullaniyoruz.
 const LOOP_DURATION_SECONDS = 28;
+const HOVER_SPEED_MULTIPLIER = 0.25;
 const DRAG_CLICK_THRESHOLD_PX = 4;
 
 function formatValue(item: PublicMarketTickerItem, language: "tr" | "en"): string {
@@ -95,9 +96,9 @@ export function MarketTicker({
     return () => window.removeEventListener("resize", measure);
   }, [displayItems.length]);
 
-  // Otomatik kayma: suruklenmiyor ve fare uzerinde degilken her karede
-  // offset'i ilerletir; suruklerken kullanici pointermove'da offset'i
-  // dogrudan gunceller, bu dongu sadece uygular.
+  // Otomatik kayma: fare uzerindeyken tamamen durmak yerine yavaslar;
+  // suruklerken kullanici pointermove'da offset'i dogrudan gunceller ve
+  // otomatik hareket gecici olarak durur.
   useEffect(() => {
     let rafId: number;
 
@@ -109,8 +110,9 @@ export function MarketTicker({
       lastFrameRef.current = timestamp;
 
       const halfWidth = halfWidthRef.current;
-      if (!draggingRef.current && !hoveringRef.current && halfWidth > 0) {
-        const speed = halfWidth / LOOP_DURATION_SECONDS;
+      if (!draggingRef.current && halfWidth > 0) {
+        const speedMultiplier = hoveringRef.current ? HOVER_SPEED_MULTIPLIER : 1;
+        const speed = (halfWidth / LOOP_DURATION_SECONDS) * speedMultiplier;
         offsetRef.current -= speed * deltaSeconds;
         if (offsetRef.current <= -halfWidth) {
           offsetRef.current += halfWidth;
@@ -236,7 +238,7 @@ export function MarketTicker({
         <div className="relative min-w-0 flex-1 overflow-hidden py-3" data-tour="market-stream">
           <div
             ref={trackRef}
-            className={`flex w-max touch-pan-y select-none gap-3 ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+            className={`flex w-max touch-pan-y select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={endDrag}
@@ -253,7 +255,7 @@ export function MarketTicker({
                   type="button"
                   draggable={false}
                   onClick={() => onSelect(item.symbol)}
-                  className="ticker-item flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6 text-left"
+                  className="ticker-item flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] px-6 text-left"
                 >
                   <span>
                     <span className="block text-xs font-semibold text-[var(--color-market-muted)]">
@@ -276,14 +278,14 @@ export function MarketTicker({
           <button
             type="button"
             onClick={onLogout}
-            className="flex h-20 w-24 shrink-0 items-center justify-center rounded-none bg-[var(--color-cta)] text-sm font-bold text-[var(--color-market-text)] hover:bg-[var(--color-cta-hover)] md:w-28"
+            className="flex h-11 w-20 shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/[0.06] text-sm font-semibold text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white md:w-24"
           >
             {language === "tr" ? "Çıkış" : "Logout"}
           </button>
         ) : (
           <Link
             href="/login"
-            className="flex h-20 w-24 shrink-0 items-center justify-center rounded-none bg-[var(--color-cta)] text-sm font-bold text-[var(--color-market-text)] hover:bg-[var(--color-cta-hover)] md:w-28"
+            className="flex h-11 w-20 shrink-0 items-center justify-center rounded-md border border-white/30 bg-white/[0.13] text-sm font-bold text-white shadow-sm transition hover:border-white/45 hover:bg-white/[0.18] md:w-24"
           >
             {language === "tr" ? "Giriş" : "Login"}
           </Link>

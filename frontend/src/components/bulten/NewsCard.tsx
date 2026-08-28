@@ -1,4 +1,7 @@
+"use client";
+
 import { useEffect, useState, type ReactNode } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
 import { fetchPhotoUrl } from "../../services/photoCache";
 import { matchNewsLogo } from "./logos";
 import { detectPhoto, topicThumbnail } from "./thumbnails";
@@ -30,6 +33,7 @@ export function NewsCard({
   summary: string;
   onOpen?: () => void;
 }) {
+  const { language } = useLanguage();
   const logoMatch = matchNewsLogo(symbol ?? title);
   const seed = `${symbol ?? ""} ${title}`;
   const localPhoto = image ?? detectPhoto(seed);
@@ -54,13 +58,24 @@ export function NewsCard({
 
   return (
     <div className="app-news-card-slot h-[320px]">
-      <article className="app-hover-card app-news-card flex flex-col overflow-hidden rounded-xl border shadow-sm">
-        <button
-          type="button"
-          onClick={onOpen}
-          aria-label={`${title} haberini aç`}
-          disabled={!onOpen}
-          className="block h-[140px] w-full shrink-0 overflow-hidden border-0 bg-transparent p-0 text-left disabled:cursor-default"
+      <article
+        onClick={onOpen}
+        onKeyDown={(event) => {
+          if (!onOpen || (event.key !== "Enter" && event.key !== " ")) {
+            return;
+          }
+          event.preventDefault();
+          onOpen();
+        }}
+        role={onOpen ? "button" : undefined}
+        tabIndex={onOpen ? 0 : undefined}
+        aria-label={onOpen ? (language === "tr" ? `${title} haberini aç` : `Open ${title} article`) : undefined}
+        className={`app-hover-card app-news-card flex flex-col overflow-hidden rounded-xl border shadow-sm ${
+          onOpen ? "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500" : ""
+        }`}
+      >
+        <div
+          className="block h-[140px] w-full shrink-0 overflow-hidden border-0 bg-transparent p-0 text-left"
         >
           <img
             src={resolvedImage}
@@ -68,7 +83,7 @@ export function NewsCard({
             aria-hidden="true"
             className="app-hover-card-image h-full w-full object-cover"
           />
-        </button>
+        </div>
         <div className="flex flex-1 flex-col gap-3 p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -91,19 +106,14 @@ export function NewsCard({
             {time && <span className="text-xs font-semibold app-muted">{time}</span>}
             {tag && tag !== "neutral" && (
               <span className={`text-xs font-semibold ${tag === "positive" ? "app-success" : "app-danger"}`}>
-                {tag === "positive" ? "▲ Olumlu" : "▼ Olumsuz"}
+                {tag === "positive"
+                  ? language === "tr" ? "▲ Olumlu" : "▲ Positive"
+                  : language === "tr" ? "▼ Olumsuz" : "▼ Negative"}
               </span>
             )}
           </div>
           <div>
-            <button
-              type="button"
-              onClick={onOpen}
-              disabled={!onOpen}
-              className="block border-0 bg-transparent p-0 text-left disabled:cursor-default"
-            >
-              <h4 className="app-news-card-title text-sm font-semibold app-heading hover:underline">{title}</h4>
-            </button>
+            <h4 className="app-news-card-title text-sm font-semibold app-heading">{title}</h4>
             <p className="app-news-card-summary mt-1 text-sm app-muted">{summary}</p>
           </div>
         </div>

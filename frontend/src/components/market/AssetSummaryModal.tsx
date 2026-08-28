@@ -33,7 +33,74 @@ function assetClassLabel(assetClass: string): string {
   return ASSET_CLASS_LABELS[assetClass.toUpperCase()] ?? assetClass;
 }
 
-export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose: () => void }) {
+function GuestAccessPrompt({ symbol, onClose }: { symbol: string; onClose: () => void }) {
+  const features = [
+    "Çizgi ve mum grafikleri",
+    "Polifin AI analizi",
+    "İşlem ve alarm araçları",
+  ];
+
+  return (
+    <>
+      <div className="rounded-2xl border app-border bg-[var(--color-surface-muted)] px-5 py-6 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-xl text-[var(--color-primary)]">
+          <span aria-hidden="true">🔒</span>
+        </div>
+        <div className="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary)]">
+          Üyelere özel
+        </div>
+        <h2 className="mt-2 text-xl font-bold app-heading">
+          {symbol} grafikleri ve AI analizi için giriş yapın
+        </h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 app-muted">
+          Ayrıntılı fiyat geçmişini, çizgi ve mum grafiklerini, Polifin AI yorumunu,
+          işlem araçlarını ve alarm seçeneklerini kullanmak için hesabınıza giriş yapın.
+        </p>
+
+        <div className="mt-5 grid gap-2 text-left sm:grid-cols-3">
+          {features.map((feature) => (
+            <div
+              key={feature}
+              className="rounded-xl border app-border app-surface px-3 py-3 text-xs font-semibold app-heading"
+            >
+              <span className="mr-2 text-[var(--color-primary)]" aria-hidden="true">
+                ✓
+              </span>
+              {feature}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 flex gap-3">
+        <Link
+          href="/login?next=/market"
+          onClick={onClose}
+          className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
+        >
+          Giriş Yap
+        </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 rounded-xl border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
+        >
+          Şimdilik Kapat
+        </button>
+      </div>
+    </>
+  );
+}
+
+export function AssetSummaryModal({
+  symbol,
+  isAuthenticated,
+  onClose,
+}: {
+  symbol: string;
+  isAuthenticated: boolean;
+  onClose: () => void;
+}) {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
@@ -45,6 +112,11 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
   const askedRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setAsset(null);
+      return;
+    }
+
     let active = true;
     getMarketAssets()
       .then((response) => {
@@ -58,9 +130,15 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
     return () => {
       active = false;
     };
-  }, [symbol]);
+  }, [symbol, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setHistory(null);
+      setLoading(false);
+      return;
+    }
+
     let active = true;
     setLoading(true);
     getMarketHistory(symbol, rangeDays)
@@ -76,12 +154,12 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
     return () => {
       active = false;
     };
-  }, [symbol, rangeDays]);
+  }, [symbol, rangeDays, isAuthenticated]);
 
   useEffect(() => {
     // Mum verisi sadece "Mum" secildiginde cekilir - Yahoo'ya gereksiz
     // istek atmamak icin (bkz. app/market/yahoo.py OHLC onbellegi).
-    if (chartMode !== "candle") {
+    if (!isAuthenticated || chartMode !== "candle") {
       return;
     }
     let active = true;
@@ -99,16 +177,20 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
     return () => {
       active = false;
     };
-  }, [symbol, rangeDays, chartMode]);
+  }, [symbol, rangeDays, chartMode, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     if (askedRef.current === symbol) {
       return;
     }
     askedRef.current = symbol;
     chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol]);
+  }, [symbol, isAuthenticated]);
 
   const historyTrendPositive =
     history && history.points.length >= 2
@@ -143,8 +225,14 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
             <div>
               <div className="text-lg font-bold app-heading">{asset?.name ?? symbol}</div>
               <div className="text-xs app-muted">
-                {symbol}
-                {asset ? ` • ${assetClassLabel(asset.asset_class)}` : ""}
+                {isAuthenticated ? (
+                  <>
+                    {symbol}
+                    {asset ? ` • ${assetClassLabel(asset.asset_class)}` : ""}
+                  </>
+                ) : (
+                  "Detaylı piyasa görünümü"
+                )}
               </div>
             </div>
           </div>
@@ -159,6 +247,10 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
         </div>
 
         <div className="px-5 py-4">
+          {!isAuthenticated ? (
+            <GuestAccessPrompt symbol={symbol} onClose={onClose} />
+          ) : (
+            <>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-end gap-3">
               <div className="text-3xl font-bold app-heading">
@@ -284,6 +376,8 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
               Alarm Kur
             </button>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

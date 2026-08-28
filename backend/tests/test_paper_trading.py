@@ -118,6 +118,42 @@ async def test_foreign_currency_asset_is_converted_to_try(repository):
 
 
 @pytest.mark.asyncio
+async def test_foreign_currency_stop_loss_uses_asset_currency(repository):
+    buy = await repository.create_market_order(
+        1,
+        "BTC",
+        "BUY",
+        0.001,
+        "btc-buy-with-native-stop",
+        0.0015,
+        stop_loss_price=64000,
+    )
+
+    assert buy["stop_loss_currency"] == "USD"
+    assert await repository.process_pending_orders(
+        [{"asset_id": 12, "price": 66000}], commission_rate=0.0015
+    ) == 1
+
+    stop = next(
+        row for row in await repository.list_orders(1) if row.get("parent_order_id") == buy["id"]
+    )
+    assert stop["order_type"] == "STOP_MARKET"
+    assert stop["stop_loss_price"] == 64000
+    assert stop["stop_loss_currency"] == "USD"
+
+    assert await repository.process_pending_orders(
+        [{"asset_id": 12, "price": 64500}], commission_rate=0.0015
+    ) == 0
+    assert await repository.process_pending_orders(
+        [{"asset_id": 12, "price": 63500}], commission_rate=0.0015
+    ) == 1
+
+    filled_stop = next(row for row in await repository.list_orders(1) if row["id"] == stop["id"])
+    assert filled_stop["status"] == "FILLED"
+    assert filled_stop["average_fill_price"] == pytest.approx(63500 * 33.55)
+
+
+@pytest.mark.asyncio
 async def test_limit_buy_waits_above_limit_then_fills_at_better_price(repository):
     order = await repository.create_market_order(
         1,

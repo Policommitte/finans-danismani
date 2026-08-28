@@ -146,7 +146,7 @@ CREATE TABLE transactions (
 -- degerlerini saklar.
 CREATE TABLE market_candles (
     asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-    interval VARCHAR(8) NOT NULL CHECK (interval IN ('5m','1d')),
+    interval VARCHAR(8) NOT NULL CHECK (interval IN ('1m','5m','1h','1d')),
     ts TIMESTAMPTZ NOT NULL,
     open NUMERIC NOT NULL CHECK (open > 0),
     high NUMERIC NOT NULL CHECK (high > 0),
@@ -191,6 +191,7 @@ CREATE TABLE orders (
     quoted_price NUMERIC(20,6) NOT NULL CHECK (quoted_price > 0),
     limit_price NUMERIC(20,6),
     stop_loss_price NUMERIC(20,6),
+    stop_loss_currency VARCHAR(10),
     parent_order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
     validity VARCHAR(4) NOT NULL DEFAULT 'GTC' CHECK (validity IN ('DAY','GTC')),
     expires_at TIMESTAMPTZ,

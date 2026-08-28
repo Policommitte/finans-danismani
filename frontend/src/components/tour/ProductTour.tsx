@@ -56,6 +56,16 @@ const STEPS: TourStep[] = [
     },
   },
   {
+    id: "autonomous-actions",
+    target: '[data-tour="nav-oneriler"]',
+    targetPadding: SIDEBAR_TARGET_PADDING,
+    title: { tr: "Otonom Eylemler", en: "Autonomous Actions" },
+    description: {
+      tr: "Portföyün ve piyasa koşulları dikkate alınarak hazırlanan kişisel önerileri bu bölümden inceleyebilirsin.",
+      en: "Review personalized suggestions prepared using your portfolio and current market conditions.",
+    },
+  },
+  {
     id: "markets",
     target: '[data-tour="nav-market"]',
     targetPadding: SIDEBAR_TARGET_PADDING,
@@ -73,6 +83,16 @@ const STEPS: TourStep[] = [
     description: {
       tr: "Kişisel bilgilerini ve yatırımcı profilini bu bölümden görüntüleyip yönetebilirsin.",
       en: "View and manage your personal details and investor profile here.",
+    },
+  },
+  {
+    id: "support",
+    target: '[data-tour="nav-destek"]',
+    targetPadding: SIDEBAR_TARGET_PADDING,
+    title: { tr: "Destek", en: "Support" },
+    description: {
+      tr: "Sık sorulan sorulara, iletişim bilgilerine ve uygulamayla ilgili yardım seçeneklerine buradan ulaşabilirsin.",
+      en: "Find frequently asked questions, contact details, and help options for the application here.",
     },
   },
   {

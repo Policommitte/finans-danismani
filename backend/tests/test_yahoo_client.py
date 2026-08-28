@@ -48,6 +48,19 @@ def test_altin_ve_gumus_dogrudan_eslenmez():
     assert yahoo.TURETILMIS_GRAM_TRY["GRAM_ALTIN"] == "GC=F"
 
 
+def test_veritabanindaki_42_varligin_tumu_desteklenir():
+    expected = {
+        "US10Y", "BAKIR", "BRENT", "MISIR", "BTC", "ETH", "SOL", "USDT",
+        "QQQ", "SPY", "VTI", "EUR/TRY", "USD/TRY", "GRAM_ALTIN", "GUMUS",
+        "AKCNS", "ASELS", "BIMAS", "EREGL", "GARAN", "KCHOL", "KONTR", "SASA",
+        "SISE", "TCELL", "THYAO", "TOASO", "TUPRS", "AAPL", "AMZN", "BRK-B",
+        "GOOG", "INTC", "JPM", "KO", "LLY", "META", "MSFT", "NVDA", "T",
+        "TSLA", "WMT",
+    }
+
+    assert expected <= yahoo.desteklenen_semboller()
+
+
 # ---------------------------------------------------------------------------
 # Ticker listesi
 # ---------------------------------------------------------------------------
@@ -305,6 +318,85 @@ def test_ham_ohlcv_bir_dakikalik_mum_olarak_korunur():
     assert [row["close"] for row in sonuc] == [101.0, 103.0]
 
 
+def test_bir_dakikalik_ohlcv_saatlik_muma_toplanir():
+    indeks = pd.date_range("2026-08-25 09:00", periods=2, freq="30min", tz="UTC")
+    veri = {
+        ("Open", "BTC-USD"): [100, 105],
+        ("High", "BTC-USD"): [108, 112],
+        ("Low", "BTC-USD"): [98, 103],
+        ("Close", "BTC-USD"): [106, 110],
+        ("Volume", "BTC-USD"): [10, 20],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._saatlik_mumlar(df, {"BTC-USD": "BTC"})
+
+    assert sonuc == [
+        {
+            "symbol": "BTC",
+            "interval": "1h",
+            "ts": "2026-08-25T09:00:00+00:00",
+            "open": 100.0,
+            "high": 112.0,
+            "low": 98.0,
+            "close": 110.0,
+            "volume": 30.0,
+        }
+    ]
+
+
+def test_bist_canli_saatlik_mumu_yarim_saat_ofsetini_korur():
+    indeks = pd.date_range("2026-08-25 06:30", periods=2, freq="30min", tz="UTC")
+    veri = {
+        ("Open", "THYAO.IS"): [300, 301],
+        ("High", "THYAO.IS"): [302, 303],
+        ("Low", "THYAO.IS"): [299, 300],
+        ("Close", "THYAO.IS"): [301, 302],
+        ("Volume", "THYAO.IS"): [10, 20],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._saatlik_mumlar(df, {"THYAO.IS": "THYAO"})
+
+    assert [row["ts"] for row in sonuc] == ["2026-08-25T06:30:00+00:00"]
+
+
+def test_dogrudan_saatlik_yahoo_zamani_yeniden_kovalanmaz(monkeypatch):
+    indeks = pd.DatetimeIndex([pd.Timestamp("2026-08-25 06:30", tz="UTC")])
+    df = pd.DataFrame(
+        {"Open": [300], "High": [302], "Low": [299], "Close": [301], "Volume": [10]},
+        index=indeks,
+    )
+
+    class SahteYFinance:
+        @staticmethod
+        def download(*_args, **_kwargs):
+            return df
+
+    monkeypatch.setitem(sys.modules, "yfinance", SahteYFinance)
+    sonuc = yahoo._gecmis_mum_paketi(
+        {"THYAO.IS": "THYAO"}, period="5d", interval="1h"
+    )
+
+    assert sonuc[0]["ts"] == "2026-08-25T06:30:00+00:00"
+
+
+def test_uzlastirma_devam_eden_saatlik_mumu_yazmaz():
+    rows = [
+        {"ts": "2026-08-25T09:30:00+00:00"},
+        {"ts": "2026-08-25T10:30:00+00:00"},
+    ]
+
+    sonuc = yahoo.tamamlanmis_saatlik_mumlar(
+        rows,
+        now=pd.Timestamp("2026-08-25T11:00:00Z").to_pydatetime(),
+    )
+
+    assert sonuc == [rows[0]]
+
+
 def test_normal_tick_mum_paketini_son_satirlara_daraltir():
     rows = [
         {"symbol": "BTC", "interval": "1m", "ts": f"2026-08-25T09:{i:02d}:00+00:00"}
@@ -314,11 +406,32 @@ def test_normal_tick_mum_paketini_son_satirlara_daraltir():
         {"symbol": "BTC", "interval": "5m", "ts": f"2026-08-25T10:{i:02d}:00+00:00"}
         for i in range(5)
     )
+    rows.extend(
+        {"symbol": "BTC", "interval": "1h", "ts": f"2026-08-{24 + i:02d}T10:00:00+00:00"}
+        for i in range(3)
+    )
 
     sonuc = yahoo.son_mumlari_daralt(rows)
 
     assert len([row for row in sonuc if row["interval"] == "1m"]) == 10
     assert len([row for row in sonuc if row["interval"] == "5m"]) == 3
+    assert len([row for row in sonuc if row["interval"] == "1h"]) == 2
+
+
+def test_ilk_canli_paket_eski_saatlik_arsivin_ustune_yazmaz():
+    rows = [
+        {"symbol": "THYAO", "interval": "1h", "ts": f"2026-08-{day:02d}T06:30:00Z"}
+        for day in range(20, 26)
+    ]
+    rows.extend(
+        {"symbol": "THYAO", "interval": "5m", "ts": f"2026-08-25T09:{i:02d}:00Z"}
+        for i in range(6)
+    )
+
+    sonuc = yahoo.ilk_mum_paketini_daralt(rows)
+
+    assert len([row for row in sonuc if row["interval"] == "1h"]) == 2
+    assert len([row for row in sonuc if row["interval"] == "5m"]) == 6
 
 
 def test_ohlcv_gunluk_muma_toplanir():
@@ -365,6 +478,44 @@ def test_yahoo_yuvarlama_farki_ohlc_geometrisini_bozmaz():
 
     assert sonuc[0]["low"] == 45.352501
     assert sonuc[0]["low"] <= sonuc[0]["close"] <= sonuc[0]["high"]
+
+
+def test_metal_ve_kur_ohlcv_serisi_gram_try_mumuna_donusur():
+    indeks = pd.DatetimeIndex([pd.Timestamp("2026-08-25 09:00", tz="UTC")])
+    veri = {
+        ("Open", "GC=F"): [3110.34768],
+        ("High", "GC=F"): [3421.382448],
+        ("Low", "GC=F"): [2799.312912],
+        ("Close", "GC=F"): [3265.865064],
+        ("Volume", "GC=F"): [100],
+        ("Open", yahoo.USDTRY_TICKER): [40],
+        ("High", yahoo.USDTRY_TICKER): [41],
+        ("Low", yahoo.USDTRY_TICKER): [39],
+        ("Close", yahoo.USDTRY_TICKER): [40],
+        ("Volume", yahoo.USDTRY_TICKER): [0],
+    }
+    df = pd.DataFrame(veri, index=indeks)
+    df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Price", "Ticker"])
+
+    sonuc = yahoo._turetilmis_gram_mumlari(
+        df,
+        {"GRAM_ALTIN": "GC=F"},
+        interval="1h",
+        resample_rule=None,
+    )
+
+    assert sonuc == [
+        {
+            "symbol": "GRAM_ALTIN",
+            "interval": "1h",
+            "ts": "2026-08-25T09:00:00+00:00",
+            "open": 4000.0,
+            "high": 4510.0,
+            "low": 3510.0,
+            "close": 4200.0,
+            "volume": 100.0,
+        }
+    ]
 
 
 def test_none_bos_sozluk_dondurur():

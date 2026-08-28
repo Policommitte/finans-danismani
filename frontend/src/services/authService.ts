@@ -17,16 +17,6 @@ export async function login(payload: LoginRequest): Promise<TokenResponse> {
   return token;
 }
 
-export async function loginWithGoogleAccessToken(accessToken: string): Promise<TokenResponse> {
-  const token = await apiRequest<TokenResponse>("/api/auth/google", {
-    method: "POST",
-    auth: false,
-    body: JSON.stringify({ access_token: accessToken }),
-  });
-  setAccessToken(token.access_token);
-  return token;
-}
-
 export async function register(payload: RegisterRequest): Promise<TokenResponse> {
   const token = await apiRequest<TokenResponse>("/api/auth/register", {
     method: "POST",

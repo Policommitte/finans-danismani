@@ -10,10 +10,8 @@ CAGRI SAYISI: SEMBOL BASINA BIR ISTEK
     (yfinance/multi.py: `_download_one` -> `Ticker.history`). `threads=True`
     bu istekleri yalnizca PARALELLESTIRIR, tek istege indirmez.
 
-    Yani N sembol = N istek. Bu modulun sembol listesi 16 ticker uretir;
-    5 dakikalik tick ile gunde ~4.608 istek eder. Kota sayaci bu yuzden
-    tick basina 1 degil GERCEK ticker sayisi kadar islenmelidir - bkz.
-    `ApiMarketProvider.next_prices`.
+    Yani N ticker = N istek. Kota sayaci bu yuzden tick basina 1 degil
+    GERCEK ticker sayisi kadar islenmelidir - bkz. `ApiMarketProvider.next_prices`.
 
     Hacmi dusurmenin yolu tick araligini buyutmek veya sembol listesini
     kisaltmaktir; tek istege indirmek yfinance ile MUMKUN DEGILDIR.
@@ -37,7 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -58,24 +56,67 @@ YAHOO_TICKERS: dict[str, str] = {
     # Endeksler
     "BIST100": "^XU100",
     # BIST hisseleri - Yahoo'da ".IS" eki ile
+    "AKCNS": "AKCNS.IS",
+    "BIMAS": "BIMAS.IS",
+    "KCHOL": "KCHOL.IS",
+    "KONTR": "KONTR.IS",
+    "SISE": "SISE.IS",
     "THYAO": "THYAO.IS",
     "GARAN": "GARAN.IS",
     "TCELL": "TCELL.IS",
     "SASA": "SASA.IS",
     "ASELS": "ASELS.IS",
     "EREGL": "EREGL.IS",
+    "TOASO": "TOASO.IS",
+    "TUPRS": "TUPRS.IS",
     # Doviz - "=X" eki ile
     "USD/TRY": USDTRY_TICKER,
     "EUR/TRY": "EURTRY=X",
     # ABD hisseleri - dogrudan
     "AAPL": "AAPL",
+    "AMZN": "AMZN",
+    "BRK-B": "BRK-B",
+    "GOOG": "GOOG",
+    "INTC": "INTC",
+    "JPM": "JPM",
+    "KO": "KO",
+    "LLY": "LLY",
+    "META": "META",
+    "MSFT": "MSFT",
     "TSLA": "TSLA",
     "NVDA": "NVDA",
+    "T": "T",
+    "WMT": "WMT",
+    # ETF'ler
+    "QQQ": "QQQ",
+    "SPY": "SPY",
+    "VTI": "VTI",
+    # Emtia vadeli kontratlari
+    "BAKIR": "HG=F",
+    "BRENT": "BZ=F",
+    "MISIR": "ZC=F",
+    # ABD 10 yillik tahvil getirisi (yuzde puan)
+    "US10Y": "^TNX",
     # Kripto - USD cinsinden
     "BTC": "BTC-USD",
     "ETH": "ETH-USD",
     "SOL": "SOL-USD",
+    "USDT": "USDT-USD",
 }
+
+# Canli 1dk paketinden uretilen saatlik mumlar, Yahoo'nun dogrudan 1h
+# arsivindeki gercek seans baslangiciyla ayni kovaya yazilmalidir.
+YARIM_SAAT_TICKERLARI = frozenset(
+    ticker
+    for symbol, ticker in YAHOO_TICKERS.items()
+    if ticker.endswith(".IS")
+    or symbol
+    in {
+        "BIST100", "US10Y", "AAPL", "AMZN", "BRK-B", "GOOG", "INTC",
+        "JPM", "KO", "LLY", "META", "MSFT", "NVDA", "T", "TSLA", "WMT",
+        "QQQ", "SPY", "VTI",
+    }
+)
 
 #: Dogrudan cekilemeyen, ons/USD fiyatindan gram/TRY'ye cevrilen varliklar.
 #: `assets.symbol` -> kaynak Yahoo ticker (vadeli sozlesme).
@@ -166,12 +207,27 @@ def _son_fiyatlar(df: Any, tickerlar: list[str]) -> dict[str, float]:
     }
 
 
+def _ticker_ohlcv_frame(df: Any, ticker: str):
+    """Tek ticker OHLCV kolonlarini Yahoo'nun duz/coklu biciminden ayirir."""
+    import pandas as pd
+
+    if isinstance(df.columns, pd.MultiIndex):
+        return pd.DataFrame(
+            {
+                field: df[field][ticker]
+                for field in ("Open", "High", "Low", "Close", "Volume")
+            }
+        )
+    return df[["Open", "High", "Low", "Close", "Volume"]].copy()
+
+
 def _ohlcv_mumlari(
     df: Any,
     ticker_to_symbol: dict[str, str],
     *,
     interval: str,
-    resample_rule: str,
+    resample_rule: str | None,
+    saatlik_piyasa_ofseti: bool = False,
 ) -> list[dict]:
     """Yahoo OHLCV serisini istenen kalici mum araligina toplar."""
     import pandas as pd
@@ -180,18 +236,9 @@ def _ohlcv_mumlari(
         return []
 
     sonuc: list[dict] = []
-    coklu = isinstance(df.columns, pd.MultiIndex)
     for ticker, symbol in ticker_to_symbol.items():
         try:
-            if coklu:
-                frame = pd.DataFrame(
-                    {
-                        field: df[field][ticker]
-                        for field in ("Open", "High", "Low", "Close", "Volume")
-                    }
-                )
-            else:
-                frame = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+            frame = _ticker_ohlcv_frame(df, ticker)
         except (KeyError, TypeError):
             continue
 
@@ -202,9 +249,27 @@ def _ohlcv_mumlari(
         if frame.empty:
             continue
 
-        grouped = frame.resample(resample_rule).agg(
-            {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
-        )
+        if resample_rule is None:
+            # Yahoo'nun dogrudan 1h serisindeki zaman damgasi mumun gercek
+            # baslangicidir (BIST/ABD hisselerinde xx:30 olabilir). Yeniden
+            # resample etmek bu damgayi xx:00'a cekip grafigi 30 dk kaydirir.
+            grouped = frame
+        else:
+            offset = (
+                timedelta(minutes=30)
+                if saatlik_piyasa_ofseti
+                and ticker in YARIM_SAAT_TICKERLARI
+                else None
+            )
+            grouped = frame.resample(resample_rule, offset=offset).agg(
+                {
+                    "Open": "first",
+                    "High": "max",
+                    "Low": "min",
+                    "Close": "last",
+                    "Volume": "sum",
+                }
+            )
         grouped = grouped.dropna(subset=["Open", "High", "Low", "Close"])
         for timestamp, row in grouped.iterrows():
             ts = timestamp.to_pydatetime()
@@ -233,6 +298,67 @@ def _ohlcv_mumlari(
     return sonuc
 
 
+def _turetilmis_gram_frame(df: Any, metal_ticker: str):
+    """Ons/USD metal ve USD/TRY mumlarini gram/TRY OHLCV serisine cevirir."""
+    import pandas as pd
+
+    try:
+        metal = _ticker_ohlcv_frame(df, metal_ticker).add_suffix("_metal")
+        kur = _ticker_ohlcv_frame(df, USDTRY_TICKER).add_suffix("_fx")
+    except (KeyError, TypeError):
+        return pd.DataFrame()
+
+    joined = metal.join(kur, how="inner").dropna(
+        subset=[
+            "Open_metal",
+            "High_metal",
+            "Low_metal",
+            "Close_metal",
+            "Open_fx",
+            "High_fx",
+            "Low_fx",
+            "Close_fx",
+        ]
+    )
+    if joined.empty:
+        return pd.DataFrame()
+
+    return pd.DataFrame(
+        {
+            "Open": joined["Open_metal"] * joined["Open_fx"] / TROY_ONS_GRAM,
+            "High": joined["High_metal"] * joined["High_fx"] / TROY_ONS_GRAM,
+            "Low": joined["Low_metal"] * joined["Low_fx"] / TROY_ONS_GRAM,
+            "Close": joined["Close_metal"] * joined["Close_fx"] / TROY_ONS_GRAM,
+            "Volume": joined["Volume_metal"],
+        },
+        index=joined.index,
+    )
+
+
+def _turetilmis_gram_mumlari(
+    df: Any,
+    derived_symbols: dict[str, str],
+    *,
+    interval: str,
+    resample_rule: str | None,
+) -> list[dict]:
+    """Gram altin/gumus icin kaynak paketle ayni aralikta mum uretir."""
+    result: list[dict] = []
+    for symbol, metal_ticker in derived_symbols.items():
+        frame = _turetilmis_gram_frame(df, metal_ticker)
+        if frame.empty:
+            continue
+        result.extend(
+            _ohlcv_mumlari(
+                frame,
+                {symbol: symbol},
+                interval=interval,
+                resample_rule=resample_rule,
+            )
+        )
+    return result
+
+
 def _bes_dakikalik_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
     """Yahoo'nun 1 dakikalik OHLCV serisini gercek 5 dakikalik mumlara toplar."""
     return _ohlcv_mumlari(
@@ -253,6 +379,17 @@ def _bir_dakikalik_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dic
     )
 
 
+def _saatlik_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
+    """Canli 1dk serisini piyasanin gercek saat baslangicina toplar."""
+    return _ohlcv_mumlari(
+        df,
+        ticker_to_symbol,
+        interval="1h",
+        resample_rule="1h",
+        saatlik_piyasa_ofseti=True,
+    )
+
+
 def _gunluk_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
     """Yahoo OHLCV serisini gunluk mumlara toplar."""
     return _ohlcv_mumlari(
@@ -264,7 +401,9 @@ def _gunluk_mumlar(df: Any, ticker_to_symbol: dict[str, str]) -> list[dict]:
 
 
 def _indir_paket(
-    tickerlar: list[str], ticker_to_symbol: dict[str, str]
+    tickerlar: list[str],
+    ticker_to_symbol: dict[str, str],
+    derived_symbols: dict[str, str] | None = None,
 ) -> tuple[dict[str, dict[str, float | None]], list[dict]]:
     """SENKRON fiyat + OHLCV indirme; tek Yahoo cevabini iki kez kullanir."""
     import yfinance as yf
@@ -279,9 +418,31 @@ def _indir_paket(
         threads=True,
         timeout=YFINANCE_TIMEOUT_SANIYE,
     )
+    derived_symbols = derived_symbols or {}
     mumlar = _bir_dakikalik_mumlar(df, ticker_to_symbol)
+    mumlar.extend(
+        _turetilmis_gram_mumlari(
+            df, derived_symbols, interval="1m", resample_rule="1min"
+        )
+    )
     mumlar.extend(_bes_dakikalik_mumlar(df, ticker_to_symbol))
+    mumlar.extend(
+        _turetilmis_gram_mumlari(
+            df, derived_symbols, interval="5m", resample_rule="5min"
+        )
+    )
+    mumlar.extend(_saatlik_mumlar(df, ticker_to_symbol))
+    mumlar.extend(
+        _turetilmis_gram_mumlari(
+            df, derived_symbols, interval="1h", resample_rule="1h"
+        )
+    )
     mumlar.extend(_gunluk_mumlar(df, ticker_to_symbol))
+    mumlar.extend(
+        _turetilmis_gram_mumlari(
+            df, derived_symbols, interval="1d", resample_rule="1D"
+        )
+    )
     return _son_kotasyonlar(df, tickerlar), mumlar
 
 
@@ -291,11 +452,17 @@ def _gecmis_mum_paketi(
     interval: str,
     start: Any = None,
     end: Any = None,
+    derived_symbols: dict[str, str] | None = None,
 ) -> list[dict]:
     """SENKRON tarihsel OHLCV indirme; yalnizca manuel backfill kullanir."""
     import yfinance as yf
 
-    tickerlar = sorted(ticker_to_symbol)
+    derived_symbols = derived_symbols or {}
+    tickerlar = sorted(
+        set(ticker_to_symbol)
+        | set(derived_symbols.values())
+        | ({USDTRY_TICKER} if derived_symbols else set())
+    )
     if not tickerlar:
         return []
     options = {
@@ -311,11 +478,45 @@ def _gecmis_mum_paketi(
         options["period"] = period
     df = yf.download(" ".join(tickerlar), **options)
     if interval == "1m":
-        return _ohlcv_mumlari(df, ticker_to_symbol, interval="1m", resample_rule="1min")
+        result = _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="1m", resample_rule="1min"
+        )
+        result.extend(
+            _turetilmis_gram_mumlari(
+                df, derived_symbols, interval="1m", resample_rule="1min"
+            )
+        )
+        return result
     if interval == "5m":
-        return _ohlcv_mumlari(df, ticker_to_symbol, interval="5m", resample_rule="5min")
+        result = _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="5m", resample_rule="5min"
+        )
+        result.extend(
+            _turetilmis_gram_mumlari(
+                df, derived_symbols, interval="5m", resample_rule="5min"
+            )
+        )
+        return result
+    if interval == "1h":
+        result = _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="1h", resample_rule=None
+        )
+        result.extend(
+            _turetilmis_gram_mumlari(
+                df, derived_symbols, interval="1h", resample_rule=None
+            )
+        )
+        return result
     if interval == "1d":
-        return _ohlcv_mumlari(df, ticker_to_symbol, interval="1d", resample_rule="1D")
+        result = _ohlcv_mumlari(
+            df, ticker_to_symbol, interval="1d", resample_rule="1D"
+        )
+        result.extend(
+            _turetilmis_gram_mumlari(
+                df, derived_symbols, interval="1d", resample_rule="1D"
+            )
+        )
+        return result
     raise ValueError(f"desteklenmeyen gecmis mum araligi: {interval}")
 
 
@@ -331,6 +532,11 @@ async def gecmis_mumlari_indir(
     ticker_to_symbol = {
         ticker: symbol for symbol, ticker in YAHOO_TICKERS.items() if symbol in db_symbols
     }
+    derived_symbols = {
+        symbol: ticker
+        for symbol, ticker in TURETILMIS_GRAM_TRY.items()
+        if symbol in db_symbols
+    }
     return await asyncio.wait_for(
         asyncio.to_thread(
             _gecmis_mum_paketi,
@@ -339,9 +545,32 @@ async def gecmis_mumlari_indir(
             interval,
             start,
             end,
+            derived_symbols,
         ),
         timeout=ISTEK_TIMEOUT_SANIYE * 2,
     )
+
+
+def tamamlanmis_saatlik_mumlar(
+    candles: list[dict], *, now: datetime | None = None
+) -> list[dict]:
+    """Devam eden saati uzlastirma paketinden cikarir.
+
+    Yahoo son 1h satirini piyasa acikken guncelleyebilir. Gunluk uzlastirma
+    yalniz kapanmis saatleri yazarsa canli 1dk cevabindan uretilen mevcut mum
+    bir sonraki uzlastirmaya kadar geriye dogru degismez.
+    """
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    result: list[dict] = []
+    for candle in candles:
+        timestamp = datetime.fromisoformat(str(candle["ts"]).replace("Z", "+00:00"))
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        if timestamp + timedelta(hours=1) <= reference:
+            result.append(candle)
+    return result
 
 
 def son_mumlari_daralt(candles: list[dict]) -> list[dict]:
@@ -351,7 +580,7 @@ def son_mumlari_daralt(candles: list[dict]) -> list[dict]:
     kisa bosluklari kapatir. Sonraki tick'lerde ayni on binlerce satiri tekrar
     upsert etmek yerine her sembol/aralik icin son birkac satir yeterlidir.
     """
-    limits = {"1m": 10, "5m": 3, "1d": 2}
+    limits = {"1m": 10, "5m": 3, "1h": 2, "1d": 2}
     grouped: dict[tuple[str, str], list[dict]] = {}
     for candle in candles:
         key = (str(candle["symbol"]), str(candle["interval"]))
@@ -362,6 +591,13 @@ def son_mumlari_daralt(candles: list[dict]) -> list[dict]:
         rows.sort(key=lambda row: str(row["ts"]))
         result.extend(rows[-limits.get(interval, 1) :])
     return result
+
+
+def ilk_mum_paketini_daralt(candles: list[dict]) -> list[dict]:
+    """Ilk canli pakette arsivlik serileri korur, 1h gecmisini daraltir."""
+    hourly = [row for row in candles if row.get("interval") == "1h"]
+    others = [row for row in candles if row.get("interval") != "1h"]
+    return others + son_mumlari_daralt(hourly)
 
 
 def _indir(tickerlar: list[str]) -> dict[str, dict[str, float | None]]:
@@ -461,8 +697,13 @@ async def canli_kotasyonlar(
     ters_esleme = {
         ticker: symbol for symbol, ticker in YAHOO_TICKERS.items() if symbol in db_symbols
     }
+    turetilmis_esleme = {
+        symbol: ticker
+        for symbol, ticker in TURETILMIS_GRAM_TRY.items()
+        if symbol in db_symbols
+    }
     ham, mumlar = await asyncio.wait_for(
-        asyncio.to_thread(_indir_paket, tickerlar, ters_esleme),
+        asyncio.to_thread(_indir_paket, tickerlar, ters_esleme, turetilmis_esleme),
         timeout=ISTEK_TIMEOUT_SANIYE,
     )
     _SON_INDIRILEN_MUMLAR = mumlar

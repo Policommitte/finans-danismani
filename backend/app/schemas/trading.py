@@ -45,6 +45,7 @@ class OrderPreview(BaseModel):
     order_type: OrderType
     limit_price: float | None = None
     stop_loss_price: float | None = None
+    stop_loss_currency: str | None = None
     validity: OrderValidity
     expires_at: str | None = None
     quoted_price: float
@@ -70,6 +71,7 @@ class PaperOrder(BaseModel):
     order_type: OrderType = "MARKET"
     limit_price: float | None = None
     stop_loss_price: float | None = None
+    stop_loss_currency: str | None = None
     parent_order_id: int | None = None
     validity: OrderValidity = "GTC"
     expires_at: str | None = None

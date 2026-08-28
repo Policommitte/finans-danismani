@@ -36,7 +36,7 @@ INTERVAL_SECONDS = {
     "1d": 86400,
 }
 RANGE_DAYS = {"1d": 1, "5d": 5, "1m": 30, "3m": 90, "1y": 365}
-HISTORY_BUFFER_DAYS = {"1m": 30, "5m": 60, "1d": 730}
+HISTORY_BUFFER_DAYS = {"1m": 30, "5m": 60, "1h": 730, "1d": 730}
 CHART_TIME_ZONE = ZoneInfo("Europe/Istanbul")
 
 
@@ -44,6 +44,8 @@ def _kaynak_mum_araligi(interval: str, range_key: str) -> str:
     """Istenen grafik icin depodaki en ayrintili uygun mum serisini secer."""
     if interval == "1m":
         return "1m"
+    if interval in {"1h", "4h"}:
+        return "1h"
     if interval == "1d":
         return "1d"
     return "5m"
@@ -105,11 +107,17 @@ async def mumlar_getir(symbol: str, interval: str, range_key: str) -> CandlesRes
     days = max(RANGE_DAYS[range_key], HISTORY_BUFFER_DAYS[kaynak_interval])
     ohlcv_rows = await repository.get_candles(symbol, interval=kaynak_interval, days=days)
     if ohlcv_rows:
+        if interval == "1h" and kaynak_interval == "1h":
+            candles = _ohlcv_dogrudan(ohlcv_rows)
+        elif interval == "4h" and kaynak_interval == "1h":
+            candles = _dort_saatlik_mumlara_topla(ohlcv_rows)
+        else:
+            candles = _ohlcv_topla(ohlcv_rows, INTERVAL_SECONDS[interval])
         return CandlesResponse(
             symbol=symbol.upper(),
             interval=interval,
             range=range_key,
-            candles=_ohlcv_topla(ohlcv_rows, INTERVAL_SECONDS[interval]),
+            candles=candles,
         )
 
     # OHLCV tablosu henuz dolmadiysa eski tekil fiyat serisine geri dus.
@@ -181,6 +189,53 @@ def _ohlcv_topla(rows: list[dict], bucket_seconds: int) -> list[Candle]:
         )
         for bucket, values in sorted(buckets.items())
     ]
+
+
+def _ohlcv_dogrudan(rows: list[dict]) -> list[Candle]:
+    """Kaynak mum zamanini yeniden kovalamadan API modeline cevirir."""
+    return [
+        Candle(
+            time=_unix_seconds(row["ts"]),
+            open=round(float(row["open"]), 4),
+            high=round(float(row["high"]), 4),
+            low=round(float(row["low"]), 4),
+            close=round(float(row["close"]), 4),
+            volume=(round(float(row["volume"]), 4) if row.get("volume") is not None else None),
+        )
+        for row in rows
+    ]
+
+
+def _dort_saatlik_mumlara_topla(rows: list[dict]) -> list[Candle]:
+    """Her piyasa gununun ilk gercek 1h mumundan baslayarak dorderli toplar."""
+    by_day: dict[object, list[dict]] = {}
+    for row in sorted(rows, key=lambda item: _unix_seconds(item["ts"])):
+        timestamp = _unix_seconds(row["ts"])
+        day = datetime.fromtimestamp(timestamp, tz=CHART_TIME_ZONE).date()
+        by_day.setdefault(day, []).append(row)
+
+    result: list[Candle] = []
+    for day_rows in by_day.values():
+        first = _unix_seconds(day_rows[0]["ts"])
+        buckets: dict[int, list[dict]] = {}
+        for row in day_rows:
+            timestamp = _unix_seconds(row["ts"])
+            offset = (timestamp - first) // INTERVAL_SECONDS["4h"]
+            bucket = first + offset * INTERVAL_SECONDS["4h"]
+            buckets.setdefault(bucket, []).append(row)
+        for bucket, group in buckets.items():
+            volumes = [float(row["volume"]) for row in group if row.get("volume") is not None]
+            result.append(
+                Candle(
+                    time=bucket,
+                    open=round(float(group[0]["open"]), 4),
+                    high=round(max(float(row["high"]) for row in group), 4),
+                    low=round(min(float(row["low"]) for row in group), 4),
+                    close=round(float(group[-1]["close"]), 4),
+                    volume=round(sum(volumes), 4) if volumes else None,
+                )
+            )
+    return sorted(result, key=lambda candle: candle.time)
 
 
 def _standart_mum_kovasi(timestamp: int, bucket_seconds: int) -> int:

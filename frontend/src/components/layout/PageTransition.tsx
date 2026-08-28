@@ -3,6 +3,8 @@
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import {
+  AUTONOMOUS_ACTIONS_READY_EVENT,
+  BULLETIN_PAGE_READY_EVENT,
   DASHBOARD_READY_EVENT,
   MARKET_PAGE_READY_EVENT,
   MARKET_TICKER_READY_EVENT,
@@ -50,14 +52,20 @@ export function PageTransition({ children }: { children: ReactNode }) {
       const tickerIsReady = document.documentElement.dataset.marketTickerReady === "true";
       const dashboardIsReady = document.documentElement.dataset.dashboardReady === "true";
       const marketPageIsReady = document.documentElement.dataset.marketPageReady === "true";
+      const bulletinPageIsReady = document.documentElement.dataset.bulletinPageReady === "true";
+      const autonomousActionsIsReady = document.documentElement.dataset.autonomousActionsReady === "true";
       const pageHasTicker = pathname !== "/login";
       const pageNeedsDashboard = pathname === "/dashboard" || pathname === "/portfolio";
       const pageNeedsMarket = pathname === "/market";
+      const pageNeedsBulletin = pathname === "/bulten";
+      const pageNeedsAutonomousActions = pathname === "/oneriler";
 
       return (
         (!pageHasTicker || tickerIsReady || tickerWaitExpired) &&
         (!pageNeedsDashboard || dashboardIsReady) &&
-        (!pageNeedsMarket || marketPageIsReady)
+        (!pageNeedsMarket || marketPageIsReady) &&
+        (!pageNeedsBulletin || bulletinPageIsReady) &&
+        (!pageNeedsAutonomousActions || autonomousActionsIsReady)
       );
     }
 
@@ -73,6 +81,8 @@ export function PageTransition({ children }: { children: ReactNode }) {
       window.addEventListener(MARKET_TICKER_READY_EVENT, handleDataReady);
       window.addEventListener(DASHBOARD_READY_EVENT, handleDataReady);
       window.addEventListener(MARKET_PAGE_READY_EVENT, handleDataReady);
+      window.addEventListener(BULLETIN_PAGE_READY_EVENT, handleDataReady);
+      window.addEventListener(AUTONOMOUS_ACTIONS_READY_EVENT, handleDataReady);
       tickerReadyTimeout = window.setTimeout(() => {
         tickerWaitExpired = true;
         handleDataReady();
@@ -85,6 +95,8 @@ export function PageTransition({ children }: { children: ReactNode }) {
       window.removeEventListener(MARKET_TICKER_READY_EVENT, handleDataReady);
       window.removeEventListener(DASHBOARD_READY_EVENT, handleDataReady);
       window.removeEventListener(MARKET_PAGE_READY_EVENT, handleDataReady);
+      window.removeEventListener(BULLETIN_PAGE_READY_EVENT, handleDataReady);
+      window.removeEventListener(AUTONOMOUS_ACTIONS_READY_EVENT, handleDataReady);
       if (tickerReadyTimeout !== null) {
         window.clearTimeout(tickerReadyTimeout);
       }
@@ -138,6 +150,12 @@ export function PageTransition({ children }: { children: ReactNode }) {
       }
       if (destinationUrl.pathname === "/market") {
         delete document.documentElement.dataset.marketPageReady;
+      }
+      if (destinationUrl.pathname === "/bulten") {
+        delete document.documentElement.dataset.bulletinPageReady;
+      }
+      if (destinationUrl.pathname === "/oneriler") {
+        delete document.documentElement.dataset.autonomousActionsReady;
       }
 
       destinationRef.current = destination;

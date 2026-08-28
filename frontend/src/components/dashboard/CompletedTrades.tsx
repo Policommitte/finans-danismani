@@ -43,9 +43,13 @@ export function CompletedTrades({ items }: { items: PaperOrder[] }) {
             : "There are no completed virtual trades yet."}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div
+          className={items.length > 5 ? "max-h-[28rem] overflow-auto" : "overflow-x-auto"}
+          tabIndex={items.length > 5 ? 0 : undefined}
+          aria-label={items.length > 5 ? (language === "tr" ? "Gerçekleşen işlemler listesi" : "Completed trades list") : undefined}
+        >
           <table className="min-w-full text-left text-sm">
-            <thead className="app-card-muted text-xs uppercase app-muted">
+            <thead className="sticky top-0 z-10 app-card-muted text-xs uppercase app-muted shadow-[0_1px_0_var(--color-border)]">
               <tr>
                 <th className="px-5 py-3">{language === "tr" ? "Varlık" : "Asset"}</th>
                 <th className="px-5 py-3">{language === "tr" ? "İşlem" : "Trade"}</th>

@@ -1,6 +1,8 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { matchNewsLogo, matchSourceLogo } from "./logos";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 function GenericNewsIcon() {
   return (
@@ -22,16 +24,20 @@ export type NewsDetailArticle = {
 };
 
 export function NewsDetailModal({ article, onClose }: { article: NewsDetailArticle; onClose: () => void }) {
+  const { language } = useLanguage();
   const logoMatch = matchNewsLogo(article.symbol ?? article.title);
   const sourceLogo = matchSourceLogo(article.source);
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 py-6" onClick={onClose}>
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-[1px]"
+      onClick={onClose}
+    >
       <div
         className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-xl border app-card shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 border-b app-border px-5 py-4">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b app-border app-card px-5 py-4 shadow-sm">
           <div className="flex items-center gap-4">
             <span
               className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl"
@@ -83,10 +89,11 @@ export function NewsDetailModal({ article, onClose }: { article: NewsDetailArtic
             onClick={onClose}
             className="rounded-lg border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
           >
-            ← Bültene dön
+            {language === "tr" ? "← Bültene dön" : "← Back to bulletin"}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

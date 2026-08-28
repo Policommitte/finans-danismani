@@ -94,11 +94,15 @@ export default function MarketPage() {
                 onConfirm={() => void trading.confirmOrder()}
                 onClearPreview={trading.clearPreview}
               />
-              <OrderList
-                items={trading.data?.orders.items ?? []}
-                submitting={trading.submitting}
-                onCancel={(orderId) => void trading.cancelOrder(orderId)}
-              />
+              <div className="min-w-0 lg:relative lg:min-h-0">
+                <div className="lg:absolute lg:inset-0">
+                  <OrderList
+                    items={trading.data?.orders.items ?? []}
+                    submitting={trading.submitting}
+                    onCancel={(orderId) => void trading.cancelOrder(orderId)}
+                  />
+                </div>
+              </div>
             </div>
           )}
       </PriceHistoryChart>

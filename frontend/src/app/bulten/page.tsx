@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BorsaIstanbulLogo, matchNewsLogo, matchSourceLogo } from "../../components/bulten/logos";
 import { NewsCard } from "../../components/bulten/NewsCard";
 import { NewsDetailModal, type NewsDetailArticle } from "../../components/bulten/NewsDetailModal";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
+import { BULLETIN_PAGE_READY_EVENT } from "../../components/layout/transitionEvents";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { useDashboard } from "../../hooks/useDashboard";
+import { useLanguage } from "../../contexts/LanguageContext";
 import type { NewsArticle } from "../../models/market";
 import type { Holding } from "../../models/portfolio";
 import { getNews } from "../../services/marketService";
@@ -28,12 +30,12 @@ type Article = {
   tag?: "positive" | "negative" | "neutral";
 };
 
-const tabs: { key: "tumu" | Category; label: string }[] = [
-  { key: "tumu", label: "Tümü" },
-  { key: "portfoy", label: "Portföyüm" },
-  { key: "bist", label: "BIST / Hisse" },
-  { key: "makro", label: "Makro Ekonomi" },
-  { key: "bulten", label: "Günün Bülteni" },
+const tabs: { key: "tumu" | Category; label: { tr: string; en: string } }[] = [
+  { key: "tumu", label: { tr: "Tümü", en: "All" } },
+  { key: "portfoy", label: { tr: "Portföyüm", en: "My Portfolio" } },
+  { key: "bist", label: { tr: "BIST / Hisse", en: "BIST / Stocks" } },
+  { key: "makro", label: { tr: "Makro Ekonomi", en: "Macro Economy" } },
+  { key: "bulten", label: { tr: "Günün Bülteni", en: "Daily Bulletin" } },
 ];
 
 //: Backend `rag.documents.kategori` gercek degerleri (doviz | ekonomi | hisse
@@ -49,7 +51,7 @@ function kategoriToTab(kategori: string | null): Category {
   return "bulten";
 }
 
-function formatTarih(tarih: string | null): string {
+function formatTarih(tarih: string | null, language: "tr" | "en"): string {
   if (!tarih) {
     return "";
   }
@@ -57,16 +59,16 @@ function formatTarih(tarih: string | null): string {
   if (Number.isNaN(date.getTime())) {
     return tarih;
   }
-  return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" });
+  return date.toLocaleDateString(language === "tr" ? "tr-TR" : "en-US", { day: "2-digit", month: "2-digit" });
 }
 
-function toArticle(item: NewsArticle, index: number): Article {
+function toArticle(item: NewsArticle, index: number, language: "tr" | "en"): Article {
   return {
     id: item.id,
     category: kategoriToTab(item.kategori),
     featured: index === 0,
-    time: formatTarih(item.tarih),
-    source: item.sirket ?? "Polifin Bülten",
+    time: formatTarih(item.tarih, language),
+    source: item.sirket ?? (language === "tr" ? "Polifin Bülten" : "Polifin Bulletin"),
     symbol: item.symbol ?? undefined,
     title: item.baslik,
     summary: item.excerpt,
@@ -99,62 +101,141 @@ function HoldingIcon() {
   );
 }
 
-const holdingTimes = ["08:32", "10:47", "12:15", "14:03", "16:28", "17:41"];
+function formatTry(value: number, language: "tr" | "en"): string {
+  return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
+    style: "currency",
+    currency: "TRY",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
-function buildHoldingArticle(holding: Holding, index: number): NewsDetailArticle {
+function formatSignedTry(value: number, language: "tr" | "en"): string {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatTry(Math.abs(value), language)}`;
+}
+
+function buildHoldingArticle(
+  holding: Holding,
+  portfolioTotalTry: number,
+  language: "tr" | "en",
+): NewsDetailArticle {
   const changePct = holding.daily_change_pct ?? 0;
-  const direction = changePct < 0 ? "geriledi" : "yükseldi";
   const pct = Math.abs(changePct).toFixed(2);
-  const priceText = holding.current_price.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
+  const locale = language === "tr" ? "tr-TR" : "en-US";
+  const priceText = holding.current_price.toLocaleString(locale, { maximumFractionDigits: 2 });
+  const quantityText = holding.quantity.toLocaleString(locale, { maximumFractionDigits: 4 });
+  const sharePct = portfolioTotalTry > 0 ? (holding.market_value_try / portfolioTotalTry) * 100 : 0;
+  const shareText = sharePct.toFixed(2);
+  const pnlPctText = holding.pnl_pct == null ? null : Math.abs(holding.pnl_pct).toFixed(2);
+
+  if (language === "en") {
+    const direction = changePct < 0 ? "fell" : "rose";
+    const pnlDirection = holding.pnl_try < 0 ? "loss" : "profit";
+    return {
+      title: `${holding.asset_name} represents ${shareText}% of your portfolio`,
+      source: "Portfolio Insight",
+      time: "Current",
+      symbol: holding.symbol,
+      body: [
+        holding.daily_change_pct == null
+          ? `${holding.symbol} (${holding.asset_name}) is currently trading at ${priceText} ${holding.currency}; daily change data is not available yet.`
+          : `${holding.symbol} (${holding.asset_name}) ${direction} ${pct}% today and is currently trading at ${priceText} ${holding.currency}.`,
+        `Your ${quantityText} units are currently worth ${formatTry(holding.market_value_try, language)} and represent ${shareText}% of your total portfolio.`,
+        `The position currently has a ${formatTry(Math.abs(holding.pnl_try), language)} ${pnlDirection}${
+          pnlPctText == null ? "" : ` (${pnlPctText}%)`
+        }. Today's impact on the portfolio value is ${formatSignedTry(holding.daily_change_try, language)}.`,
+      ],
+    };
+  }
+
+  const direction = changePct < 0 ? "geriledi" : "yükseldi";
+  const pnlDirection = holding.pnl_try < 0 ? "zarar" : "kâr";
 
   return {
-    title: `${holding.asset_name} portföyünü etkiliyor`,
-    source: "Polifin Piyasa Masası",
-    time: holdingTimes[index % holdingTimes.length],
+    title: `${holding.asset_name} portföyünün %${shareText}’ini oluşturuyor`,
+    source: "Portföy İçgörüsü",
+    time: "Güncel",
     symbol: holding.symbol,
     body: [
-      `${holding.symbol} (${holding.asset_name}) bugünkü işlemlerde %${pct} ${direction} ve güncel fiyatı ${priceText} ${holding.currency} seviyesinden işlem görüyor.`,
-      "Analistler, kısa vadeli fiyat hareketinin sektördeki genel eğilimle büyük ölçüde uyumlu olduğunu, pozisyon ağırlığı yüksek yatırımcıların portföy dengesini gözden geçirmesinde fayda olduğunu belirtiyor.",
-      "Pozisyonun portföy içindeki payı ve toplam kâr/zarar etkisi Polifin risk motoru tarafından gün içinde güncellenmeye devam ediyor; önemli bir yön değişikliğinde bildirim gönderilecek.",
+      holding.daily_change_pct == null
+        ? `${holding.symbol} (${holding.asset_name}) güncel olarak ${priceText} ${holding.currency} seviyesinden işlem görüyor; günlük değişim verisi henüz bulunmuyor.`
+        : `${holding.symbol} (${holding.asset_name}) bugün %${pct} ${direction} ve güncel olarak ${priceText} ${holding.currency} seviyesinden işlem görüyor.`,
+      `Portföyündeki ${quantityText} adet varlığın güncel değeri ${formatTry(holding.market_value_try, language)}. Bu pozisyon toplam portföyünün %${shareText}’ini oluşturuyor.`,
+      `Pozisyondaki toplam ${pnlDirection} ${formatTry(Math.abs(holding.pnl_try), language)}${
+        pnlPctText == null ? "" : ` (%${pnlPctText})`
+      }. Bugünkü fiyat hareketinin portföy değerine etkisi ${formatSignedTry(holding.daily_change_try, language)} oldu.`,
     ],
   };
 }
 
 export default function BultenPage() {
+  const { language } = useLanguage();
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("tumu");
   const [selectedArticle, setSelectedArticle] = useState<NewsDetailArticle | null>(null);
   const { data, loading, error, refetch } = useDashboard();
   const news = useAsyncData(() => getNews(50), []);
 
-  const articles = useMemo(() => (news.data?.items ?? []).map(toArticle), [news.data]);
+  useEffect(() => {
+    if (loading || news.loading) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.dataset.bulletinPageReady = "true";
+      window.dispatchEvent(new Event(BULLETIN_PAGE_READY_EVENT));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, news.loading]);
+
+  const articles = useMemo(
+    () => (news.data?.items ?? []).map((item, index) => toArticle(item, index, language)),
+    [language, news.data],
+  );
 
   const filtered = useMemo(
-    () => (activeTab === "tumu" ? articles : articles.filter((article) => article.category === activeTab)),
+    () => (
+      activeTab === "tumu" || activeTab === "bulten"
+        ? articles
+        : articles.filter((article) => article.category === activeTab)
+    ),
     [activeTab, articles],
   );
-  const featured = filtered.find((article) => article.featured);
+  const featured = activeTab === "tumu" ? filtered.find((article) => article.featured) : undefined;
   const featuredLogoMatch = featured ? matchNewsLogo(featured.symbol ?? featured.title) : null;
   const featuredSourceLogo = featured ? matchSourceLogo(featured.source) : null;
-  const bulletinItems = filtered.filter((article) => !article.featured);
+  const bulletinItems = filtered.filter((article) => article.id !== featured?.id);
   const showPortfolio = activeTab === "tumu" || activeTab === "portfoy";
 
   if (loading || news.loading) {
-    return <LoadingState label="Bülten yükleniyor" />;
+    return <LoadingState label={language === "tr" ? "Bülten yükleniyor" : "Loading newsletter"} />;
   }
 
   if (error || !data) {
-    return <ErrorState message={error ?? "Bülten verisi boş döndü."} onRetry={refetch} />;
+    return (
+      <ErrorState
+        message={error ?? (language === "tr" ? "Bülten verisi boş döndü." : "Newsletter data returned empty.")}
+        onRetry={refetch}
+      />
+    );
   }
 
   if (news.error) {
     return <ErrorState message={news.error} onRetry={news.refetch} />;
   }
 
+  const portfolioTotalTry = data.summary?.total_value_try
+    ?? data.holdings.reduce((total, holding) => total + holding.market_value_try, 0);
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold app-heading">Bülten</h1>
-        <p className="mt-1 text-sm app-muted">Portföyünle ve piyasayla ilgili güncel gelişmeler.</p>
+        <h1 className="text-2xl font-semibold app-heading">{language === "tr" ? "Bülten" : "Newsletter"}</h1>
+        <p className="mt-1 text-sm app-muted">
+          {language === "tr"
+            ? "Portföyünle ve piyasayla ilgili güncel gelişmeler."
+            : "The latest developments related to your portfolio and the markets."}
+        </p>
       </div>
 
       <nav className="flex flex-wrap gap-2">
@@ -174,7 +255,7 @@ export default function BultenPage() {
                   <BorsaIstanbulLogo />
                 </span>
               )}
-              {tab.label}
+              {tab.label[language]}
             </button>
           );
         })}
@@ -200,7 +281,7 @@ export default function BultenPage() {
           </span>
           <div>
             <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide app-muted">
-              <span>Öne Çıkan Bülten ·</span>
+              <span>{language === "tr" ? "Öne Çıkan Bülten" : "Featured Bulletin"} ·</span>
               {featuredSourceLogo && (
                 <img src={featuredSourceLogo} alt="" aria-hidden="true" className="h-4 w-4 shrink-0 rounded-sm object-contain" />
               )}
@@ -216,13 +297,28 @@ export default function BultenPage() {
 
       {showPortfolio && (
         <section>
-          <h2 className="mb-3 text-base font-semibold app-heading">Portföyden</h2>
+          <h2 className="mb-3 text-base font-semibold app-heading">
+            {language === "tr" ? "Portföyden" : "From Your Portfolio"}
+          </h2>
           {data.holdings.length === 0 ? (
-            <p className="text-sm app-muted">Portföyünde henüz bir varlık bulunmuyor.</p>
+            <p className="text-sm app-muted">
+              {language === "tr" ? "Portföyünde henüz bir varlık bulunmuyor." : "There are no assets in your portfolio yet."}
+            </p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {data.holdings.map((holding, index) => {
-                const holdingArticle = buildHoldingArticle(holding, index);
+              {data.holdings.map((holding) => {
+                const holdingArticle = buildHoldingArticle(holding, portfolioTotalTry, language);
+                const sharePct = portfolioTotalTry > 0
+                  ? (holding.market_value_try / portfolioTotalTry) * 100
+                  : 0;
+                const changePct = Math.abs(holding.daily_change_pct ?? 0).toFixed(2);
+                const summary = language === "tr"
+                  ? holding.daily_change_pct == null
+                    ? `${holding.symbol} pozisyonunun güncel değeri ${formatTry(holding.market_value_try, language)} ve portföy payı %${sharePct.toFixed(2)}.`
+                    : `${holding.symbol} bugün %${changePct} ${holding.daily_change_pct < 0 ? "değer kaybetti" : "değer kazandı"}. Pozisyon değeri ${formatTry(holding.market_value_try, language)}, portföy payı %${sharePct.toFixed(2)}.`
+                  : holding.daily_change_pct == null
+                    ? `Your ${holding.symbol} position is worth ${formatTry(holding.market_value_try, language)} and represents ${sharePct.toFixed(2)}% of your portfolio.`
+                    : `${holding.symbol} ${holding.daily_change_pct < 0 ? "fell" : "rose"} ${changePct}% today. The position is worth ${formatTry(holding.market_value_try, language)} and represents ${sharePct.toFixed(2)}% of your portfolio.`;
                 return (
                   <NewsCard
                     key={holding.symbol}
@@ -238,9 +334,7 @@ export default function BultenPage() {
                           : "positive"
                     }
                     title={holdingArticle.title}
-                    summary={`${holding.symbol} bugün %${Math.abs(holding.daily_change_pct ?? 0).toFixed(2)} ${
-                      (holding.daily_change_pct ?? 0) < 0 ? "değer kaybetti" : "değer kazandı"
-                    }. Pozisyonun güncel değeri portföy dağılımını etkileyebilir.`}
+                    summary={summary}
                     onOpen={() => setSelectedArticle(holdingArticle)}
                   />
                 );
@@ -252,7 +346,9 @@ export default function BultenPage() {
 
       {bulletinItems.length > 0 && (
         <section>
-          <h2 className="mb-3 text-base font-semibold app-heading">Günün Bültenleri</h2>
+          <h2 className="mb-3 text-base font-semibold app-heading">
+            {language === "tr" ? "Günün Bültenleri" : "Today's Bulletins"}
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {bulletinItems.map((article) => (
               <NewsCard

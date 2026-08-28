@@ -44,7 +44,7 @@ function NavList({ items }: { items: NavItem[] }) {
             ) : null}
             <MenuIcon item={item} />
             <span
-              className={`pointer-events-none absolute left-1/2 -top-3 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[11px] font-bold leading-none transition-colors ${
+              className={`pointer-events-none absolute left-1/2 -top-3 z-[70] w-[88px] -translate-x-1/2 whitespace-normal px-1 text-center text-[11px] font-bold leading-[1.05] transition-colors ${
                 active ? "text-white" : "text-white/70 group-hover:text-white"
               }`}
             >

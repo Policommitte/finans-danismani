@@ -150,6 +150,22 @@ async def cleanup_old_candles() -> int:
     return deleted
 
 
+async def reconcile_hourly_candles(provider: MarketDataProvider) -> int:
+    """Dogru kaynak zamanlarini gunde bir kez tamamlanmis 1h mumlara uygular."""
+    refresh = getattr(provider, "reconcile_hourly_candles", None)
+    if refresh is None:
+        return 0
+
+    repository = get_market_repository()
+    assets = await repository.get_assets_for_price_update()
+    candles = await refresh(assets)
+    if not candles:
+        return 0
+    written = await repository.upsert_candles(candles, source="yahoo_1h")
+    logger.info("saatlik mumlar uzlastirildi", extra={"candles": written})
+    return written
+
+
 async def run_price_scheduler(provider: MarketDataProvider | None = None) -> None:
     """Sonsuz dongu - `asyncio.create_task` ile baslatilir, iptal edilerek durur.
 
@@ -189,13 +205,25 @@ async def run_price_scheduler(provider: MarketDataProvider | None = None) -> Non
         # Ayri try/except: gun kapanisi patlarsa fiyat guncellemesi yine de
         # calismali. Ikisi ayni bloka konsaydi kapanistaki kalici bir hata
         # fiyatlari da tamamen durdururdu.
+        closed_days = 0
         try:
-            await close_finished_days()
+            closed_days = await close_finished_days()
         except asyncio.CancelledError:
             logger.info("fiyat gorevi durduruldu")
             raise
         except Exception:  # noqa: BLE001 - kapanis hatasi dongunu durdurmamali
             logger.exception("gun kapanisi basarisiz")
+
+        # Bekleyen gun kaydi kalici olarak kapandigi icin bu tetikleyici ayni
+        # gun icinde yeniden baslatmalarda da gereksiz uzlastirma yapmaz.
+        if closed_days:
+            try:
+                await reconcile_hourly_candles(provider)
+            except asyncio.CancelledError:
+                logger.info("fiyat gorevi durduruldu")
+                raise
+            except Exception:  # noqa: BLE001 - uzlastirma canli akisi durdurmamali
+                logger.exception("saatlik mum uzlastirmasi basarisiz")
 
         try:
             tick += 1

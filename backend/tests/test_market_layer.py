@@ -185,6 +185,28 @@ async def test_hata_durumunda_da_gercek_istek_sayisi_islenir(monkeypatch):
     assert depo.kaydedilen == 2
 
 
+async def test_saatlik_uzlastirma_dogrudan_1h_veriyi_ister_ve_kotaya_isler(
+    monkeypatch,
+):
+    from app.market import yahoo
+
+    calls = []
+
+    async def sahte(symbols, **kwargs):
+        calls.append((symbols, kwargs))
+        return [{"symbol": "THYAO", "interval": "1h", "ts": "2026-08-25T06:30:00Z"}]
+
+    monkeypatch.setattr(yahoo, "gecmis_mumlari_indir", sahte)
+    monkeypatch.setattr(yahoo, "tamamlanmis_saatlik_mumlar", lambda rows: rows)
+    depo = SahteKotaDeposu()
+
+    sonuc = await ApiMarketProvider(kota_deposu=depo).reconcile_hourly_candles(VARLIKLAR)
+
+    assert sonuc[0]["interval"] == "1h"
+    assert calls == [(["THYAO", "BTC"], {"period": "5d", "interval": "1h"})]
+    assert depo.kaydedilen == 2
+
+
 async def test_desteklenmeyen_varlik_yahoo_ya_sorulmaz(monkeypatch):
     """Yahoo'da karsiligi olmayan sembol (orn. tahvil) istege dahil edilmez."""
     cagrilar = _yahoo_taklit(monkeypatch, fiyatlar={"THYAO": 301.25})

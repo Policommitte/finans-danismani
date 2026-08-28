@@ -71,12 +71,19 @@ ESLESMELER: tuple[VarlikEslesme, ...] = (
     # --- Endeksler ---------------------------------------------------------
     VarlikEslesme("BIST100", "INDEX", "^XU100", aciklama="BIST 100 Endeksi"),
     # --- BIST hisseleri: Yahoo'da ".IS" eki ile ---------------------------
+    VarlikEslesme("AKCNS", "STOCK", "AKCNS.IS", aciklama="Akcansa"),
+    VarlikEslesme("BIMAS", "STOCK", "BIMAS.IS", aciklama="BIM Birlesik Magazalar"),
+    VarlikEslesme("KCHOL", "STOCK", "KCHOL.IS", aciklama="Koc Holding"),
+    VarlikEslesme("KONTR", "STOCK", "KONTR.IS", aciklama="Kontrolmatik"),
+    VarlikEslesme("SISE", "STOCK", "SISE.IS", aciklama="Sisecam"),
     VarlikEslesme("THYAO", "STOCK", "THYAO.IS", aciklama="Turk Hava Yollari"),
     VarlikEslesme("GARAN", "STOCK", "GARAN.IS", aciklama="Garanti BBVA"),
     VarlikEslesme("TCELL", "STOCK", "TCELL.IS", aciklama="Turkcell"),
     VarlikEslesme("SASA", "STOCK", "SASA.IS", aciklama="Sasa Polyester"),
     VarlikEslesme("ASELS", "STOCK", "ASELS.IS", aciklama="Aselsan"),
     VarlikEslesme("EREGL", "STOCK", "EREGL.IS", aciklama="Erdemir"),
+    VarlikEslesme("TOASO", "STOCK", "TOASO.IS", aciklama="Tofas"),
+    VarlikEslesme("TUPRS", "STOCK", "TUPRS.IS", aciklama="Tupras"),
     # --- Doviz: Yahoo'da "=X" eki ile -------------------------------------
     VarlikEslesme("USD/TRY", "FOREX", USDTRY_TICKER, aciklama="Amerikan Dolari"),
     VarlikEslesme("EUR/TRY", "FOREX", "EURTRY=X", aciklama="Euro"),
@@ -97,19 +104,43 @@ ESLESMELER: tuple[VarlikEslesme, ...] = (
     ),
     # --- ABD hisseleri: dogrudan --------------------------------------------
     VarlikEslesme("AAPL", "USA_STOCK", "AAPL", aciklama="Apple Inc."),
+    VarlikEslesme("AMZN", "USA_STOCK", "AMZN", aciklama="Amazon Inc"),
+    VarlikEslesme("BRK-B", "USA_STOCK", "BRK-B", aciklama="Berkshire Hathaway Inc."),
+    VarlikEslesme("GOOG", "USA_STOCK", "GOOG", aciklama="Alphabet Inc"),
+    VarlikEslesme("INTC", "USA_STOCK", "INTC", aciklama="Intel"),
+    VarlikEslesme("JPM", "USA_STOCK", "JPM", aciklama="JPMorgan Chase & Co."),
+    VarlikEslesme("KO", "USA_STOCK", "KO", aciklama="Coca-Cola Company"),
+    VarlikEslesme("LLY", "USA_STOCK", "LLY", aciklama="Eli Lilly and Company"),
+    VarlikEslesme("META", "USA_STOCK", "META", aciklama="Meta Platforms Inc"),
+    VarlikEslesme("MSFT", "USA_STOCK", "MSFT", aciklama="Microsoft Corporation"),
     VarlikEslesme("TSLA", "USA_STOCK", "TSLA", aciklama="Tesla Inc."),
     VarlikEslesme("NVDA", "USA_STOCK", "NVDA", aciklama="Nvidia"),
+    VarlikEslesme("T", "USA_STOCK", "T", aciklama="AT&T Inc."),
+    VarlikEslesme("WMT", "USA_STOCK", "WMT", aciklama="Walmart Inc."),
+    # --- ETF ---------------------------------------------------------------
+    VarlikEslesme("QQQ", "ETF", "QQQ", aciklama="Invesco QQQ Trust"),
+    VarlikEslesme("SPY", "ETF", "SPY", aciklama="SPDR S&P 500 ETF Trust"),
+    VarlikEslesme("VTI", "ETF", "VTI", aciklama="Vanguard Total Stock Market ETF"),
+    # --- Emtia -------------------------------------------------------------
+    VarlikEslesme("BAKIR", "COMMODITY", "HG=F", aciklama="Bakir vadeli"),
+    VarlikEslesme("BRENT", "COMMODITY", "BZ=F", aciklama="Brent petrol vadeli"),
+    VarlikEslesme("MISIR", "COMMODITY", "ZC=F", aciklama="Misir vadeli"),
+    # --- Tahvil getirisi ---------------------------------------------------
+    VarlikEslesme("US10Y", "BOND", "^TNX", aciklama="ABD 10 yil tahvil getirisi"),
     # --- Kripto: varsayilan calistirmada KAPALI ----------------------------
     # Gorevin kapsaminda degil; `--kategori CRYPTO` ile acikca istenirse
     # calisir. Fiyatlar USD cinsindendir (assets.currency = 'USD').
     VarlikEslesme("BTC", "CRYPTO", "BTC-USD", aciklama="Bitcoin"),
     VarlikEslesme("ETH", "CRYPTO", "ETH-USD", aciklama="Ethereum"),
     VarlikEslesme("SOL", "CRYPTO", "SOL-USD", aciklama="Solana"),
+    VarlikEslesme("USDT", "CRYPTO", "USDT-USD", aciklama="Tether"),
 )
 
 #: `--kategori` verilmediginde toplanan gruplar. Kripto disarida: gorevde
 #: istenen kume hisse + altin + doviz + ABD hissesidir.
-VARSAYILAN_KATEGORILER: tuple[str, ...] = ("INDEX", "STOCK", "FOREX", "GOLD", "USA_STOCK")
+VARSAYILAN_KATEGORILER: tuple[str, ...] = (
+    "INDEX", "STOCK", "FOREX", "GOLD", "USA_STOCK", "ETF", "COMMODITY", "BOND"
+)
 
 #: Yahoo'da guvenilir karsiligi olmadigi icin hic eslenmemis DB sembolleri.
 #: Raporda "atlandi" olarak gosterilir ki eksik veri sessizce kaybolmasin.

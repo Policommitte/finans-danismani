@@ -23,12 +23,6 @@ class OnboardingCompleteRequest(BaseModel):
     risk_tolerance: Literal["LOW", "MEDIUM", "HIGH"]
 
 
-class GoogleAuthRequest(BaseModel):
-    """`useGoogleLogin` (implicit akis) tarafindan donen OAuth2 erisim tokeni."""
-
-    access_token: str = Field(min_length=1)
-
-
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT erisim token'i")
     token_type: str = Field(default="bearer", description="Authorization header seması")
