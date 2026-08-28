@@ -130,18 +130,15 @@ function LoginPageContent() {
     setError("Bu giris yontemi henuz aktif degil. E-posta ve sifre ile devam et.");
   }
 
-  const googleLogin = useGoogleLogin({
-    onSuccess: async (tokenResponse) => {
-      setError(null);
-      try {
-        await auth.loginWithGoogle(tokenResponse.access_token);
-        requestPageTransition(getSafeNextPath(), true);
-      } catch (exc) {
-        setError(exc instanceof Error ? exc.message : "Google ile giris yapilamadi.");
-      }
-    },
-    onError: () => setError("Google ile giris yapilamadi."),
-  });
+  async function handleGoogleToken(accessToken: string) {
+    setError(null);
+    try {
+      await auth.loginWithGoogle(accessToken);
+      requestPageTransition(getSafeNextPath(), true);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "Google ile giris yapilamadi.");
+    }
+  }
 
   return (
     <main
@@ -255,12 +252,16 @@ function LoginPageContent() {
           </div>
 
           <div className="flex justify-center gap-6">
-            <SocialButton
-              label="Google ile devam et"
-              onClick={GOOGLE_CLIENT_ID ? () => googleLogin() : noopSocialLogin}
-            >
-              <GoogleIcon />
-            </SocialButton>
+            {GOOGLE_CLIENT_ID ? (
+              <GoogleLoginButton
+                onToken={handleGoogleToken}
+                onError={() => setError("Google ile giris yapilamadi.")}
+              />
+            ) : (
+              <SocialButton label="Google ile devam et" onClick={noopSocialLogin}>
+                <GoogleIcon />
+              </SocialButton>
+            )}
             <SocialButton label="LinkedIn ile devam et" onClick={noopSocialLogin}>
               <LinkedInIcon />
             </SocialButton>
@@ -274,12 +275,44 @@ function LoginPageContent() {
   );
 }
 
+/**
+ * `useGoogleLogin` YALNIZCA burada cagrilir ve bu bilesen yalnizca
+ * GoogleOAuthProvider'in ICINDE render edilir.
+ *
+ * NEDEN AYRI BILESEN: hook'u LoginPageContent icinde kosulsuz cagirmak,
+ * provider'in da kosulsuz sarmalanmasini zorunlu kiliyordu. Bos bir
+ * clientId ile provider "Missing required parameter client_id" firlatiyor -
+ * yani NEXT_PUBLIC_GOOGLE_CLIENT_ID tanimlanmamis her gelistiricide GIRIS
+ * SAYFASI HIC ACILMIYORDU. Hook'u asagi indirince provider da kosullu
+ * olabiliyor ve anahtar yokken sayfa sorunsuz calisip Google butonu
+ * "henuz aktif degil" mesajina dusuyor.
+ */
+function GoogleLoginButton({
+  onToken,
+  onError,
+}: {
+  onToken: (accessToken: string) => void;
+  onError: () => void;
+}) {
+  const googleLogin = useGoogleLogin({
+    onSuccess: (tokenResponse) => onToken(tokenResponse.access_token),
+    onError,
+  });
+
+  return (
+    <SocialButton label="Google ile devam et" onClick={() => googleLogin()}>
+      <GoogleIcon />
+    </SocialButton>
+  );
+}
+
 export default function LoginPage() {
-  // `useGoogleLogin` (LoginPageContent icinde, kosulsuz cagrilir) GoogleOAuthProvider
-  // OLMADAN "must be used within GoogleOAuthProvider" hatasi firlatir - client ID bos
-  // olsa bile provider HER ZAMAN sarmalar; buton yine de noopSocialLogin'e duser
-  // (asagida googleLogin yerine noopSocialLogin secilir), boylece bos script yuklemesi
-  // kullaniciya hicbir sekilde yansimaz.
+  // Anahtar yoksa provider HIC kurulmaz: bos clientId ile
+  // GoogleOAuthProvider calisma zamaninda hata firlatir.
+  if (!GOOGLE_CLIENT_ID) {
+    return <LoginPageContent />;
+  }
+
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <LoginPageContent />
