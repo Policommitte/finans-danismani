@@ -37,7 +37,7 @@ export function IntroSidebar({ registered, taken }: Props) {
       <Card>
         <p
           className="text-[11px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "var(--color-cta)" }}
+          style={{ color: "var(--color-primary)" }}
         >
           Şans Yatırımda
         </p>

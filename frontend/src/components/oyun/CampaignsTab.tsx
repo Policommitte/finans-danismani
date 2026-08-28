@@ -126,7 +126,7 @@ export function CampaignsTab({
                     onClick={() => onBuyPowerup(item.kind, item.price)}
                     disabled={!affordable}
                     className="rounded-lg px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
-                    style={{ background: "var(--color-cta)", color: "var(--color-on-primary)" }}
+                    style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}
                   >
                     {language === "tr" ? "Satın al" : "Buy"}
                   </button>
@@ -178,7 +178,7 @@ export function CampaignsTab({
                       onClick={() => onBuyDonation(item)}
                       disabled={!affordable}
                       className="rounded-lg px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
-                      style={{ background: "var(--color-cta)", color: "var(--color-on-primary)" }}
+                      style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}
                     >
                       {language === "tr" ? "Bağışla" : "Donate"}
                     </button>

@@ -126,7 +126,7 @@ export function RulesModal({ open, onAccept }: Props) {
         <div className="border-b p-6 pb-4" style={{ borderColor: "var(--color-border)" }}>
           <p
             className="text-[11px] font-bold uppercase tracking-[0.16em]"
-            style={{ color: "var(--color-cta)" }}
+            style={{ color: "var(--color-primary)" }}
           >
             Şans Yatırımda
           </p>

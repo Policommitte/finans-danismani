@@ -79,7 +79,7 @@ export function QuizScreen(props: Props) {
             <span className="app-muted flex items-center gap-1.5 text-xs">
               <span
                 className="rv-dot h-1.5 w-1.5 rounded-full"
-                style={{ background: "var(--color-cta)" }}
+                style={{ background: "var(--color-primary)" }}
               />
               <b className="app-heading font-bold tabular-nums">
                 {q.rivals.toLocaleString(language === "tr" ? "tr-TR" : "en-US")}
@@ -265,7 +265,7 @@ export function QuizScreen(props: Props) {
               disabled={q.selected === null}
               className="ml-auto rounded-lg px-7 py-3 text-sm font-semibold transition disabled:cursor-not-allowed"
               style={{
-                background: q.selected === null ? "var(--color-border)" : "var(--color-cta)",
+                background: q.selected === null ? "var(--color-border)" : "var(--color-primary)",
                 color: q.selected === null ? "var(--color-muted)" : "#fff",
               }}
             >

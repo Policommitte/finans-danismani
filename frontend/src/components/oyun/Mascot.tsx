@@ -1,6 +1,6 @@
 "use client";
 
-import { Blobatar } from "@blobatar/react";
+import { Blobatar } from "blobatar/react";
 import { thinking, happy, sad, mad } from "blobatar/expression";
 import "blobatar/motion.css";
 
@@ -13,10 +13,16 @@ type Props = {
 };
 
 /**
- * Maskot blobatar ile çizilir. `name` ve `traits` sabittir:
- * görünüm her yarışmada aynı kalır, kullanıcıya göre değişmez.
+ * Maskot blobatar ile cizilir. `name` VE `hue` birlikte gorunumu belirler:
+ * blobatar "ayni string HER ZAMAN ayni blobatar'i uretir" ilkesiyle
+ * calisir - `hue` sadece rengin TONUNU kilitler, "tone" (acik/koyu) hala
+ * isim hash'inden turetilir. Bu yuzden sitenin geneli (ChatWidget.tsx ->
+ * ChatAvatar) ile AYNI ismi ("Aichatbot") kullanmak sart: sadece hue
+ * esitlemek yeterli degildi, oyunun maskotu daha soluk/acik bir mavi
+ * cikiyordu (bkz. gorsel tutarsizlik raporu). Ayni isim = piksel piksel
+ * ayni renk/ton garantisi.
  */
-const MASCOT_NAME = "polifin-danisman";
+const MASCOT_NAME = "Aichatbot";
 const MASCOT_TRAITS = { shape: 0.933 }; // altıgen siluet
 const MASCOT_HUE = 225; // chatbot ile ayni ton
 

@@ -13,7 +13,7 @@ type Props = {
 const TOPIC_ICONS = ["📈", "💸", "🧺", "⚖️", "🛟", "💳"];
 const TOPIC_COLORS = [
   "var(--color-primary)",
-  "var(--color-cta)",
+  "var(--color-chart-yellow)",
   "var(--color-success)",
   "var(--color-chart-purple)",
   "var(--color-chart-cyan)",
@@ -44,7 +44,7 @@ export function CheatSheetScreen({ onFinish }: Props) {
         <div>
           <p
             className="text-[11px] font-bold uppercase tracking-[0.16em]"
-            style={{ color: "var(--color-cta)" }}
+            style={{ color: "var(--color-primary)" }}
           >
             {language === "tr" ? "Hazırlık" : "Preparation"}
           </p>
@@ -59,7 +59,7 @@ export function CheatSheetScreen({ onFinish }: Props) {
           </span>
           <strong
             className="block text-2xl font-bold tabular-nums"
-            style={{ color: "var(--color-cta)" }}
+            style={{ color: "var(--color-primary)" }}
           >
             {mm}:{ss}
           </strong>
@@ -72,7 +72,7 @@ export function CheatSheetScreen({ onFinish }: Props) {
       >
         <span
           className="block h-full rounded-full transition-[width] duration-1000 ease-linear"
-          style={{ width: `${progress}%`, background: "var(--color-cta)" }}
+          style={{ width: `${progress}%`, background: "var(--color-primary)" }}
         />
       </div>
 

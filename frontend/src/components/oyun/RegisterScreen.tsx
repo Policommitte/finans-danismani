@@ -123,7 +123,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
         <div className="py-6 text-center">
           <p
             className="text-[11px] font-bold uppercase tracking-[0.16em]"
-            style={{ color: "var(--color-cta)" }}
+            style={{ color: "var(--color-primary)" }}
           >
             {language === "tr" ? "Canlı finansal bilgi yarışması" : "Live financial knowledge contest"}
           </p>
@@ -171,7 +171,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
               disabled={disabled}
               className="rounded-lg px-7 py-3.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
               style={{
-                background: disabled ? "var(--color-border)" : "var(--color-cta)",
+                background: disabled ? "var(--color-border)" : "var(--color-primary)",
                 color: disabled ? "var(--color-muted)" : "#fff",
               }}
             >
@@ -213,7 +213,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
                 className="block h-full rounded-full transition-[width] duration-500"
                 style={{
                   width: `${(taken / CONFIG.capacityTotal) * 100}%`,
-                  background: isFull ? "var(--color-cta)" : "var(--color-success)",
+                  background: isFull ? "var(--color-primary)" : "var(--color-success)",
                 }}
               />
             </div>
@@ -274,7 +274,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
       <InfoFlipCard
         icon="💬"
         title={language === "tr" ? "Sıkça sorulan sorular" : "Frequently asked questions"}
-        color="var(--color-cta)"
+        color="var(--color-primary)"
         orientation="horizontal"
       >
         {FAQ.map((item) => (

@@ -35,7 +35,7 @@ function WalletIcon() {
         stroke="var(--color-market-muted)"
         strokeWidth="4"
       />
-      <circle cx="70" cy="48" r="4.5" fill="var(--color-cta)" />
+      <circle cx="70" cy="48" r="4.5" fill="var(--color-primary)" />
     </svg>
   );
 }
@@ -90,7 +90,7 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
             <div className="flex items-baseline gap-2">
               <span
                 className="text-5xl font-bold tabular-nums"
-                style={{ color: "var(--color-cta)" }}
+                style={{ color: "var(--color-primary)" }}
               >
                 {pointsBalance.toLocaleString(locale)}
               </span>

@@ -19,12 +19,12 @@ export function GameLogo({ size = 40 }: Props) {
       <path
         d="M9 30 L18 21 L24 27 L39 12"
         fill="none"
-        stroke="var(--color-cta)"
+        stroke="var(--color-primary)"
         strokeWidth="3.2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path d="M31 12 L39 12 L39 20" fill="none" stroke="var(--color-cta)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M31 12 L39 12 L39 20" fill="none" stroke="var(--color-primary)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
 
       {/* zar noktaları — şans unsuru */}
       <rect x="9" y="30" width="9" height="9" rx="2.2" fill="var(--color-on-primary)" />

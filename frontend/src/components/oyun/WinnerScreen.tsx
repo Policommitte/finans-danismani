@@ -92,7 +92,7 @@ export function WinnerScreen({ result, onGoPoints }: Props) {
           </p>
 
           <div>
-            <p className="text-5xl font-semibold tabular-nums" style={{ color: "var(--color-cta)" }}>
+            <p className="text-5xl font-semibold tabular-nums" style={{ color: "var(--color-primary)" }}>
               {payout.toLocaleString(locale)}
             </p>
             <p className="mt-1 text-sm opacity-80">
@@ -200,7 +200,7 @@ export function WinnerScreen({ result, onGoPoints }: Props) {
         <button
            onClick={onGoPoints}
               className="rounded-lg px-5 py-2.5 text-sm font-semibold transition"
-          style={{ background: "var(--color-cta)", color: "var(--color-on-primary)" }}
+          style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}
         >
           {language === "tr" ? "Puanlarımı gör" : "View my points"}
         </button>

@@ -340,7 +340,7 @@ export default function YatirimOyunuPage() {
                     goScreen("register");
                   }}
                   className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
-                  style={{ borderColor: "var(--color-cta)", color: "var(--color-cta)" }}
+                  style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
                 >
                   {PAGE_TEXT.reset[language]}
                 </button>

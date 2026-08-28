@@ -84,12 +84,15 @@ type Props = {
                   className="mt-1.5 w-full rounded-t-lg"
                   style={{
                     height: PODIUM_HEIGHT[place],
+                    // Turuncu (--color-cta) yerine madalya rengini taklit eden
+                    // notr tonlar: 1. altin/sari, 3. bronz - "turuncu"
+                    // hissi vermeyen, temaya uygun renkler.
                     background:
                       place === 1
-                        ? "var(--color-cta)"
+                        ? "var(--color-chart-yellow)"
                         : place === 2
                           ? "color-mix(in srgb, var(--color-muted) 55%, silver)"
-                          : "color-mix(in srgb, var(--color-cta) 55%, #7c4a1e)",
+                          : "color-mix(in srgb, var(--color-chart-yellow) 55%, #7c4a1e)",
                   }}
                 />
               </div>
