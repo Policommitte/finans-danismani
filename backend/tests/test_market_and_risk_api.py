@@ -62,9 +62,7 @@ def test_mum_endpointi_ohlc_serisi_doner(client, auth):
     assert govde["interval"] == "1d"
     assert govde["range"] == "1m"
     assert govde["candles"]
-    assert {"time", "open", "high", "low", "close", "volume"} == set(
-        govde["candles"][0]
-    )
+    assert {"time", "open", "high", "low", "close", "volume"} == set(govde["candles"][0])
 
 
 @pytest.mark.db

@@ -6,6 +6,7 @@ from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from app.core.errors import BusinessRuleError, NotFoundError
+from app.core.quantity import adet_gecerli_mi, gecersiz_adet_mesaji
 from app.repositories.deps import get_trading_repository
 from app.schemas.trading import (
     OrderPreview,
@@ -43,9 +44,7 @@ async def emir_onizle(
     row = await get_trading_repository().get_order_context(user_id, symbol)
     if row is None:
         raise NotFoundError(f"'{symbol.upper()}' hissesi bulunamadi.")
-    _context_validate(
-        row, side, quantity, order_type, limit_price, validity, stop_loss_price
-    )
+    _context_validate(row, side, quantity, order_type, limit_price, validity, stop_loss_price)
 
     price = float(row["current_price"])
     calculation_price = float(limit_price) if order_type == "LIMIT" else price
@@ -150,6 +149,10 @@ def _context_validate(
         raise BusinessRuleError("Islem yonu BUY veya SELL olmalidir.")
     if quantity <= 0:
         raise BusinessRuleError("Emir adedi sifirdan buyuk olmalidir.")
+    # Hisse ve ETF bolunmez: 1,18 adet INTC diye bir sey yok. Kontrol
+    # ARAYUZDE DEGIL burada: istemci dogrulamasi atlanabilir.
+    if not adet_gecerli_mi(quantity, row.get("asset_class")):
+        raise BusinessRuleError(gecersiz_adet_mesaji(row.get("asset_class")))
     if row["asset_class"] == "INDEX":
         raise BusinessRuleError("Endeksler dogrudan alinip satilamaz.")
     if float(row["current_price"] or 0) <= 0:

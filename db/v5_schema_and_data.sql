@@ -237,6 +237,26 @@ CREATE TABLE cash_ledger (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Emir bildirimleri outbox'i (bkz. db/migrations/011_notification_outbox.sql).
+-- Satir, emrin gerceklestigi AYNI transaction icinde yazilir. Mail kanali su
+-- an bagli degil; kanal kapaliyken satirlar SKIPPED olarak kapanir.
+CREATE TABLE notification_outbox (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+    event_type VARCHAR(24) NOT NULL
+        CHECK (event_type IN ('ORDER_FILLED','ORDER_REJECTED','ORDER_EXPIRED')),
+    channel VARCHAR(12) NOT NULL DEFAULT 'EMAIL' CHECK (channel IN ('EMAIL')),
+    recipient VARCHAR(200) NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(10) NOT NULL DEFAULT 'PENDING'
+        CHECK (status IN ('PENDING','SENT','SKIPPED','FAILED')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    processed_at TIMESTAMPTZ
+);
+
 
 -- =====================================================================
 -- 4 · SOHBET       AgentState.thread_id == chat_sessions.id
@@ -373,6 +393,8 @@ CREATE INDEX orders_pending_asset_idx  ON orders (asset_id, created_at) WHERE st
 CREATE INDEX order_fills_order_idx     ON order_fills (order_id, executed_at);
 CREATE INDEX cash_ledger_account_idx   ON cash_ledger (account_id, created_at DESC);
 CREATE INDEX paper_positions_portfolio_idx ON paper_positions (portfolio_id);
+CREATE INDEX notification_outbox_pending_idx ON notification_outbox (created_at) WHERE status = 'PENDING';
+CREATE INDEX notification_outbox_user_idx    ON notification_outbox (user_id, created_at DESC);
 CREATE INDEX chat_sessions_user_idx    ON chat_sessions (user_id, updated_at DESC);
 CREATE INDEX chat_messages_session_idx ON chat_messages (session_id, created_at);
 CREATE INDEX tool_calls_request_idx    ON tool_calls (request_id);

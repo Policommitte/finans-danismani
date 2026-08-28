@@ -25,6 +25,26 @@ class Settings(BaseSettings):
     database_url: str = ""
     db_echo: bool = False
 
+    #: SQLAlchemy havuz siniri. VARSAYILANA BIRAKILAMAZ.
+    #:
+    #: SQLAlchemy varsayilani pool_size=5 + max_overflow=10, yani surec basina
+    #: 15 baglanti. Supabase session pooler'inda TOPLAM 25 slot var ve ekip
+    #: bunu paylasiyor - iki gelistirici backend acinca 30 > 25 olur ve havuz
+    #: patlar. Patladiginda backend sessizce bellek ici veriye duser: sayfalar
+    #: acilir ama portfoy, risk ve likit para BOS gorunur.
+    #:
+    #: 3 + 2 = surec basina en fazla 5 baglanti; bes gelistirici ayni anda
+    #: calisabilir. Uygulamanin gercek es zamanlilik ihtiyaci bunun altinda.
+    db_pool_size: int = 3
+    db_max_overflow: int = 2
+
+    #: Havuzdan baglanti beklerken asilma suresi (saniye).
+    db_pool_timeout: int = 10
+
+    #: Baglantilar bu sure sonunda yenilenir. Pooler kendi tarafinda kopardigi
+    #: baglantiyi bize bildirmiyor; recycle olmadan olu baglanti havuzda kalir.
+    db_pool_recycle_seconds: int = 900
+
     # --- Kimlik dogrulama ----------------------------------------------
     # Uretimde MUTLAKA ortam degiskeniyle verilmelidir; varsayilan yalnizca
     # yerel gelistirme icindir.
@@ -114,6 +134,65 @@ class Settings(BaseSettings):
     #: gercek hacmin dortte birinden azdi - tavan hic tetiklenmiyordu.
     market_api_daily_quota: int = 7500
 
+    # --- Otonom oneri motoru (AUT / D-02) --------------------------------
+    #: Bu esigin ALTINDA kalan sinyal kullaniciya HIC ulasmaz; ic kayda
+    #: alinir. Filtre SUNUCU tarafindadir - istemciye gonderilip orada
+    #: gizlenmez (D-02 geliştirme notu 1).
+    signal_confidence_threshold: float = 0.55
+
+    #: BR-AUT-03: bir kullaniciya gunde en fazla kac oneri gonderilir.
+    #: Kullanici bazinda `user_trading_limits` ile ezilebilir.
+    #: Dokumandaki deger 3'tu; urun tarafi 4 istedi (3 kart ekranda tek basina
+    #: seyrek duruyordu).
+    max_daily_recommendations: int = 4
+
+    #: BR-AUT-04: tarama bazli onerinin gecerlilik suresi (dakika).
+    #: Haber bazli 60 dk olacaktir; haber hatti henuz yok (rag.documents
+    #: .asset_id tum satirlarda BOS, bkz. docs/gelecek-isler.md madde 2).
+    recommendation_ttl_minutes: int = 240
+
+    #: FR-AUT-010: sessiz saatler - bu aralikta oneri URETILMEZ.
+    #: Saat, `market_day_timezone` saat diliminde degerlendirilir.
+    quiet_hours_start: int = 22
+    quiet_hours_end: int = 8
+
+    #: Tek tick'te en fazla kac kullanici taranir.
+    #:
+    #: NEDEN SINIR VAR: her kullanici icin en az bir, oneri uretilen her
+    #: kullanici icin birkac veritabani gidis-donusu gerekiyor. 14 kullanicida
+    #: ilk tur ~40 saniye suruyordu; fiyat gorevi bu sure boyunca bir sonraki
+    #: tick'e gecemez. Kalan kullanicilar SONRAKI tick'te islenir - 5 dakikalik
+    #: aralikta herkes birkac tur icinde kapsanir.
+    recommendation_users_per_tick: int = 5
+
+    #: Onerilen tutarin portfoy buyuklugune orani (ust sinir da limitlerden).
+    recommendation_position_pct: float = 0.05
+
+    # --- Bildirim kanali (mail koprusu) ----------------------------------
+    # MAIL SU AN BAGLI DEGIL ve bu bir eksiklik degil, bilincli varsayilan.
+    # Emir olaylari her durumda `notification_outbox` tablosuna yazilir;
+    # asagidaki ayarlar tanimlanana kadar gonderim yapilmaz ve satirlar
+    # SKIPPED olarak kapanir. SMTP geldiginde KOD degismez - yalnizca
+    # NOTIFICATIONS_ENABLED=true ve SMTP_HOST tanimlanir.
+    notifications_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "Polifin <bildirim@polifin.local>"
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: int = 10
+
+    #: Bir olay bu yastan eskiyse gonderilmez, SKIPPED yazilir.
+    #:
+    #: NEDEN VAR: kanal haftalarca kapali kalip sonra acilirsa, birikmis tum
+    #: gecmis gerceklesmeler tek seferde kullaniciya gider. Eski bir emir
+    #: bildirimi kullanici icin bilgi degil gurultudur.
+    notification_max_age_minutes: int = 60
+
+    #: Tek turda islenecek azami outbox satiri (kuyruk tikanmasin diye).
+    notification_batch_size: int = 50
+
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
     agent_timeout_seconds: int = 20
     synthesizer_timeout_seconds: int = 40
@@ -121,6 +200,16 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def email_enabled(self) -> bool:
+        """Mail kanali gercekten gonderim yapabilir mi?
+
+        Ikisi birden gerekir: ozellik acik OLMALI ve bir SMTP sunucusu
+        tanimli OLMALI. Biri eksikse `NoopNotifier` secilir ve outbox
+        satirlari SKIPPED olarak kapanir - sessizce birikmezler.
+        """
+        return bool(self.notifications_enabled and self.smtp_host.strip())
 
     @property
     def database_enabled(self) -> bool:

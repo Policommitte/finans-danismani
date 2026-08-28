@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter
 
 from app.config import settings
+from app.notifications.deps import describe_channel
 from app.repositories.deps import describe_backend
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,16 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", summary="Uygulama ayakta mi")
 async def health() -> dict[str, str]:
-    """Uygulamanin ayakta oldugunu ve hangi veri kaynagina bagli oldugunu doner."""
-    return {"status": "ok", "data_source": describe_backend()}
+    """Ayakta miyiz, hangi veri kaynagi ve hangi bildirim kanali bagli?
+
+    `notifications` alani "disabled" donebilir - bu bir HATA DEGILDIR, mail
+    koprusu henuz baglanmamistir. Yine de raporlanir: kapali oldugu gizlenmez.
+    """
+    return {
+        "status": "ok",
+        "data_source": describe_backend(),
+        "notifications": describe_channel(),
+    }
 
 
 @router.get("/health/db", summary="Veritabani baglantisi calisiyor mu")

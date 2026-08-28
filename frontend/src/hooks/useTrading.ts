@@ -9,15 +9,22 @@ import {
   getTradingAccount,
   previewPaperOrder,
 } from "../services/tradingService";
+import { getPortfolioHoldings } from "../services/portfolioService";
 import { useAsyncData } from "./useAsyncData";
 import { useLanguage } from "../contexts/LanguageContext";
 import { localizeTradingMessage } from "../utils/tradingMessages";
 
 export function useTrading() {
   const { language } = useLanguage();
+  // Portfoy de AYNI turda cekilir: bir alim gerceklestikten sonra satis
+  // listesinin yeni pozisyonu gormesi icin ayri bir tazeleme beklenmemeli.
   const loader = useCallback(async () => {
-    const [account, orders] = await Promise.all([getTradingAccount(), getPaperOrders()]);
-    return { account, orders };
+    const [account, orders, holdings] = await Promise.all([
+      getTradingAccount(),
+      getPaperOrders(),
+      getPortfolioHoldings(),
+    ]);
+    return { account, orders, holdings };
   }, []);
   const state = useAsyncData(loader, [loader]);
   const [preview, setPreview] = useState<OrderPreview | null>(null);

@@ -65,22 +65,6 @@ export default function MarketPage() {
         onRangePresetExit={market.clearChartRangePreset}
         loading={market.loading}
       >
-          <div
-            role="note"
-            className="mb-4 flex gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-100"
-          >
-            <span aria-hidden="true" className="mt-0.5 text-base">ⓘ</span>
-            <div>
-              <p className="font-semibold text-sky-950 dark:text-sky-50">
-                {language === "tr" ? "Sanal işlem ve emir zamanlaması" : "Virtual trading and order timing"}
-              </p>
-              <p className="mt-1 leading-relaxed text-sky-900 dark:text-sky-200">
-                {language === "tr"
-                  ? "İşlemler sanaldır ve gerçek piyasaya iletilmez. Fiyatlar veri kaynağına göre gecikmeli olabilir (BIST yaklaşık 15 dakika). Piyasa emri sonraki doğrulanmış 5 dakikalık fiyatla; limit ve stop emirleri fiyat koşulları sağlandığında değerlendirilir. Stop fiyatı garanti edilen satış fiyatı değildir; gerçekleşme fiyatı ekrandaki son fiyattan ve stop seviyesinden farklı olabilir. Piyasa kapalıysa emir ilk uygun fiyat güncellemesini bekler."
-                  : "Trades are virtual and are not sent to a real exchange. Prices may be delayed depending on the data source (BIST by approximately 15 minutes). Market orders are evaluated at the next verified 5-minute price; limit and stop orders are evaluated when their price conditions are met. A stop price is not a guaranteed execution price; the fill may differ from both the latest displayed price and the stop level. If the market is closed, the order waits for the next eligible price update."}
-              </p>
-            </div>
-          </div>
           <p className="-mt-2 mb-4 text-xs app-muted">
             {language === "tr" ? "Grafikler " : "Charts are powered by "}
             <a
@@ -98,6 +82,8 @@ export default function MarketPage() {
               <TradeTicket
                 asset={selectedAsset}
                 assets={market.data.assets.items}
+                holdings={trading.data?.holdings.items ?? []}
+                orders={trading.data?.orders.items ?? []}
                 account={trading.data?.account ?? null}
                 preview={trading.preview}
                 submitting={trading.submitting}

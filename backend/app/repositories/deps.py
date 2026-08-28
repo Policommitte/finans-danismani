@@ -22,14 +22,17 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from time import monotonic
 
 from app.config import settings
 from app.repositories.base import (
     AuditRepository,
     ChatRepository,
     MarketRepository,
+    NotificationRepository,
     PortfolioRepository,
     RagRepository,
+    RecommendationRepository,
     TradingRepository,
     UserRepository,
 )
@@ -37,8 +40,10 @@ from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
     InMemoryMarketRepository,
+    InMemoryNotificationRepository,
     InMemoryPortfolioRepository,
     InMemoryRagRepository,
+    InMemoryRecommendationRepository,
     InMemoryTradingRepository,
     InMemoryUserRepository,
 )
@@ -64,9 +69,21 @@ def _senkron_dsn(url: str) -> str:
     return url
 
 
-@lru_cache
-def _veritabani_calisiyor() -> bool:
-    """DB tanimli mi ve gercekten baglanilabiliyor mu? (bir kez denenir)"""
+#: Baglanti kurulamadiysa kac saniye sonra TEKRAR denenir.
+#:
+#: NEDEN SURESIZ ONBELLEKLENMIYOR: eskiden bu kontrol `@lru_cache` ile bir kez
+#: yapiliyordu. Uygulama, veritabani ANLIK erisilemezken acildiysa (orn. Supabase
+#: baglanti havuzu o an doluysa) "DB yok" karari surec omru boyunca yapisiyordu.
+#: Veritabani saniyeler sonra geri gelse bile backend bellek ici veriyle calismaya
+#: devam ediyor, kullanici portfoyunu ve riskini BOS goruyordu - ve tek cozum
+#: birinin fark edip uygulamayi yeniden baslatmasiydi.
+DB_YENIDEN_DENEME_SANIYE = 60
+
+#: {"calisiyor": True/False/None, "kontrol": monotonic zaman}
+_DB_DURUM: dict = {"calisiyor": None, "kontrol": 0.0}
+
+
+def _baglanti_dene() -> bool:
     if not settings.database_enabled:
         logger.warning("DATABASE_URL tanimli degil; bellek ici veriye dusuluyor.")
         return False
@@ -87,6 +104,34 @@ def _veritabani_calisiyor() -> bool:
         return False
 
     return True
+
+
+def _veritabani_calisiyor() -> bool:
+    """DB tanimli mi ve gercekten baglanilabiliyor mu?
+
+    Olumlu sonuc yeniden denenmez (havuzu bosuna mesgul etmemek icin).
+    Olumsuz sonuc `DB_YENIDEN_DENEME_SANIYE` sonunda TEKRAR denenir; boylece
+    gecici bir kesinti uygulamayi kalici olarak yedege pinlemez.
+    """
+    simdi = monotonic()
+
+    if _DB_DURUM["calisiyor"] is True:
+        return True
+    if _DB_DURUM["calisiyor"] is False and simdi - _DB_DURUM["kontrol"] < DB_YENIDEN_DENEME_SANIYE:
+        return False
+
+    onceki = _DB_DURUM["calisiyor"]
+    sonuc = _baglanti_dene()
+    _DB_DURUM.update(calisiyor=sonuc, kontrol=simdi)
+
+    if sonuc and onceki is False:
+        # Yedekten geri donuldu. Repository saglayicilari lru_cache'li ve
+        # bellek ici ornekleri tutuyor; temizlenmezse DB geri gelse de
+        # kullanilmaz.
+        logger.info("veritabani geri geldi; repository onbellekleri temizleniyor")
+        _saglayici_onbelleklerini_temizle()
+
+    return sonuc
 
 
 @lru_cache
@@ -159,14 +204,37 @@ def get_audit_repository() -> AuditRepository:
     return InMemoryAuditRepository()
 
 
+@lru_cache
+def get_notification_repository() -> NotificationRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlNotificationRepository
+
+        return SqlNotificationRepository(_session_factory())
+    return InMemoryNotificationRepository()
+
+
+@lru_cache
+def get_recommendation_repository() -> RecommendationRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlRecommendationRepository
+
+        return SqlRecommendationRepository(_session_factory())
+    return InMemoryRecommendationRepository()
+
+
 def reset_repositories() -> None:
     """Onbellekleri temizler.
 
     Testler ortam degiskenlerini degistirdikten sonra (orn. DATABASE_URL) bu
     fonksiyonu cagirir; aksi halde ilk secim tum test oturumu boyunca yapisir.
     """
+    _DB_DURUM.update(calisiyor=None, kontrol=0.0)
+    _saglayici_onbelleklerini_temizle()
+
+
+def _saglayici_onbelleklerini_temizle() -> None:
+    """Repository saglayicilarinin lru_cache'lerini bosaltir."""
     for provider in (
-        _veritabani_calisiyor,
         _session_factory,
         get_user_repository,
         get_portfolio_repository,
@@ -175,6 +243,8 @@ def reset_repositories() -> None:
         get_rag_repository,
         get_chat_repository,
         get_audit_repository,
+        get_notification_repository,
+        get_recommendation_repository,
     ):
         provider.cache_clear()
 

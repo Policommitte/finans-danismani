@@ -46,6 +46,20 @@ const TRADING_ERRORS: Array<{ includes: string; message: MessagePair }> = [
     },
   },
   {
+    includes: "bu varlik tam adet alinip satilir",
+    message: {
+      tr: "Bu varlık tam adet alınıp satılır.",
+      en: "This asset can only be traded in whole units.",
+    },
+  },
+  {
+    includes: "doviz emirleri 0,25'in katlari olmalidir",
+    message: {
+      tr: "Döviz emirleri 0,25'in katları olmalıdır.",
+      en: "Currency orders must be in multiples of 0.25.",
+    },
+  },
+  {
     includes: "emir adedi sifirdan buyuk olmalidir",
     message: {
       tr: "Emir adedi sıfırdan büyük olmalıdır.",

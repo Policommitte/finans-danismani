@@ -155,6 +155,7 @@ def _related_symbol(kategori: str | None, baslik: str | None) -> str | None:
 
     return None
 
+
 _PEXELS_SEARCH_URL = "https://api.pexels.com/v1/search"
 _PEXELS_TIMEOUT_SECONDS = 6.0
 
@@ -285,7 +286,9 @@ async def _haber(row: dict, change_by_symbol: dict[str, float | None]) -> NewsAr
     baslik = row.get("baslik") or ""
     kategori = row.get("kategori")
     document_id = row["id"]
-    paragraphs = [p.strip() for p in raw_text.split("\n") if p.strip()] or ([raw_text] if raw_text else [])
+    paragraphs = [p.strip() for p in raw_text.split("\n") if p.strip()] or (
+        [raw_text] if raw_text else []
+    )
 
     image_url = row.get("image_url") or await resolve_image(document_id, kategori, baslik)
 
@@ -302,7 +305,9 @@ async def _haber(row: dict, change_by_symbol: dict[str, float | None]) -> NewsAr
         kategori=kategori,
         kaynak_url=row.get("kaynak_url"),
         excerpt=raw_text[:EXCERPT_LENGTH],
-        related_change_pct=None if related_change_pct is None else round(float(related_change_pct), 4),
+        related_change_pct=(
+            None if related_change_pct is None else round(float(related_change_pct), 4)
+        ),
         body=paragraphs,
         image_url=image_url,
     )

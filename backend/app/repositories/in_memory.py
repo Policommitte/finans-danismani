@@ -197,6 +197,12 @@ def reset_data() -> None:
     _TRANSACTIONS.extend(dict(row) for row in _SEED_TRANSACTIONS)
     _ORDERS.clear()
     _ORDER_FILLS.clear()
+    _NOTIFICATION_OUTBOX.clear()
+    _SIGNALS.clear()
+    _RECOMMENDATIONS.clear()
+    _REC_AUDIT.clear()
+    _USER_LIMITS.clear()
+    _KILL_SWITCH.update({"active": False, "reason": None, "activated_by": None})
 
 
 _PORTFOLIOS: list[dict] = [
@@ -270,6 +276,53 @@ _SEED_CASH_ACCOUNTS: list[dict] = [
 ]
 _CASH_ACCOUNTS: list[dict] = [dict(row) for row in _SEED_CASH_ACCOUNTS]
 _ORDERS: list[dict] = []
+#: Bellek ici bildirim outbox'i - SQL'deki `notification_outbox` karsiligi.
+_NOTIFICATION_OUTBOX: list[dict] = []
+
+#: Otonom oneri motorunun bellek ici durumu (SQL karsiliklari:
+#: signals, recommendations, recommendation_audit, user_trading_limits,
+#: autonomous_kill_switch).
+_SIGNALS: list[dict] = []
+_RECOMMENDATIONS: list[dict] = []
+_REC_AUDIT: list[dict] = []
+_USER_LIMITS: dict[int, dict] = {}
+_KILL_SWITCH: dict = {"active": False, "reason": None, "activated_by": None}
+
+
+def _kuyrukla(order: dict, event_type: str, extra: dict | None = None) -> None:
+    """Emir olayini bellek ici outbox'a yazar.
+
+    SQL tarafinda bu yazim gerceklesmeyle AYNI transaction icindedir; bellek
+    ici surumde transaction kavrami yok, bu yuzden cagri noktalari SQL ile
+    ayni yerlerde tutulur ki iki uygulama ayni olaylari uretsin.
+    """
+    user = next((u for u in _USERS if u["id"] == order.get("user_id")), None)
+    _NOTIFICATION_OUTBOX.append(
+        {
+            "id": len(_NOTIFICATION_OUTBOX) + 1,
+            "user_id": order.get("user_id"),
+            "order_id": order.get("id"),
+            "event_type": event_type,
+            "channel": "EMAIL",
+            "recipient": (user or {}).get("email", ""),
+            "payload": {
+                "symbol": order.get("symbol"),
+                "asset_name": order.get("asset_name"),
+                "side": order.get("side"),
+                "order_type": order.get("order_type"),
+                "quantity": order.get("quantity"),
+                "rejection_reason": order.get("rejection_reason"),
+                **(extra or {}),
+            },
+            "status": "PENDING",
+            "attempts": 0,
+            "last_error": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "processed_at": None,
+        }
+    )
+
+
 _ORDER_FILLS: list[dict] = []
 
 #: rag.documents + rag.chunks karsiligi. Embedding YOKTUR: model secilmedigi
@@ -567,9 +620,7 @@ class InMemoryMarketRepository:
         # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
         return []
 
-    async def get_candles(
-        self, symbol: str, interval: str = "5m", days: int = 5
-    ) -> list[dict]:
+    async def get_candles(self, symbol: str, interval: str = "5m", days: int = 5) -> list[dict]:
         return []
 
     async def upsert_candles(self, candles: list[dict], source: str = "yahoo") -> int:
@@ -654,9 +705,7 @@ class InMemoryTradingRepository:
         portfolio = _default_portfolio(user_id)
         if not portfolio:
             return None
-        account = next(
-            (a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None
-        )
+        account = next((a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None)
         if not account:
             return None
         return {**account, "portfolio_name": portfolio["name"]}
@@ -666,9 +715,7 @@ class InMemoryTradingRepository:
         asset = next((a for a in _ASSETS if a["symbol"].upper() == symbol.upper()), None)
         if not portfolio or not asset:
             return None
-        account = next(
-            (a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None
-        )
+        account = next((a for a in _CASH_ACCOUNTS if a["portfolio_id"] == portfolio["id"]), None)
         if not account:
             return None
         holding = next(
@@ -741,17 +788,27 @@ class InMemoryTradingRepository:
         if validity not in {"DAY", "GTC"}:
             raise BusinessRuleError("Gecersiz emir gecerliligi.")
         if stop_loss_price is not None:
-            reference = float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+            reference = (
+                float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+            )
             if side != "BUY" or stop_loss_price <= 0 or stop_loss_price >= reference:
-                raise BusinessRuleError("Stop-loss fiyati alim referans fiyatindan dusuk olmalidir.")
+                raise BusinessRuleError(
+                    "Stop-loss fiyati alim referans fiyatindan dusuk olmalidir."
+                )
 
         account = next(a for a in _CASH_ACCOUNTS if a["portfolio_id"] == context["portfolio_id"])
-        reserve_price = float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+        reserve_price = (
+            float(limit_price) if order_type == "LIMIT" else float(context["current_price"])
+        )
         gross = reserve_price * quantity
-        reserve = round(
-            gross * (1 if order_type == "LIMIT" else 1.02) + gross * commission_rate,
-            2,
-        ) if side == "BUY" else 0.0
+        reserve = (
+            round(
+                gross * (1 if order_type == "LIMIT" else 1.02) + gross * commission_rate,
+                2,
+            )
+            if side == "BUY"
+            else 0.0
+        )
         if side == "BUY":
             if account["available_balance"] < reserve:
                 raise BusinessRuleError(
@@ -778,7 +835,9 @@ class InMemoryTradingRepository:
             "stop_loss_price": stop_loss_price,
             "parent_order_id": None,
             "validity": validity,
-            "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
+            "expires_at": (
+                expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at
+            ),
             "quantity": quantity,
             "quoted_price": context["current_price"],
             "status": "PENDING",
@@ -817,9 +876,7 @@ class InMemoryTradingRepository:
 
     async def process_pending_orders(self, updates: list[dict], commission_rate: float) -> int:
         prices = {
-            int(u["asset_id"]): float(u["price"])
-            for u in updates
-            if float(u.get("price") or 0) > 0
+            int(u["asset_id"]): float(u["price"]) for u in updates if float(u.get("price") or 0) > 0
         }
         completed = 0
         pending_snapshot = sorted(
@@ -838,6 +895,7 @@ class InMemoryTradingRepository:
                     account["available_balance"] += reserve
                     account["reserved_balance"] -= reserve
                     order.update(status="CANCELLED", reserved_amount=0.0)
+                    _kuyrukla(order, "ORDER_EXPIRED")
                     continue
             if order["status"] != "PENDING" or order["asset_id"] not in prices:
                 continue
@@ -855,7 +913,8 @@ class InMemoryTradingRepository:
                     continue
                 current_holding = next(
                     (
-                        h for h in _PORTFOLIO_ASSETS
+                        h
+                        for h in _PORTFOLIO_ASSETS
                         if h["portfolio_id"] == order["portfolio_id"]
                         and h["asset_id"] == order["asset_id"]
                     ),
@@ -872,17 +931,18 @@ class InMemoryTradingRepository:
                 )
                 effective = min(
                     float(order["quantity"]),
-                    max(float(current_holding["quantity"]) - manual_pending, 0)
-                    if current_holding else 0,
+                    (
+                        max(float(current_holding["quantity"]) - manual_pending, 0)
+                        if current_holding
+                        else 0
+                    ),
                 )
                 if effective <= 0:
                     continue
                 order["quantity"] = effective
             gross = round(price * float(order["quantity"]), 2)
             commission = round(gross * commission_rate, 2)
-            account = next(
-                a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"]
-            )
+            account = next(a for a in _CASH_ACCOUNTS if a["portfolio_id"] == order["portfolio_id"])
             holding = next(
                 (
                     h
@@ -900,6 +960,7 @@ class InMemoryTradingRepository:
                     account["reserved_balance"] -= reserve
                     order["status"] = "REJECTED"
                     order["rejection_reason"] = "Yeni fiyatta kullanilabilir bakiye yetersiz."
+                    _kuyrukla(order, "ORDER_REJECTED")
                     continue
                 account["available_balance"] += reserve - total
                 account["reserved_balance"] -= reserve
@@ -924,6 +985,7 @@ class InMemoryTradingRepository:
                 if not holding or float(holding["quantity"]) < float(order["quantity"]):
                     order["status"] = "REJECTED"
                     order["rejection_reason"] = "Gerceklesme aninda satilabilir adet yetersiz."
+                    _kuyrukla(order, "ORDER_REJECTED")
                     continue
                 holding["quantity"] = float(holding["quantity"]) - float(order["quantity"])
                 if holding["quantity"] == 0:
@@ -949,6 +1011,17 @@ class InMemoryTradingRepository:
                 average_fill_price=price,
                 commission=commission,
                 filled_at=now,
+            )
+            _kuyrukla(
+                order,
+                "ORDER_FILLED",
+                {
+                    "price": price,
+                    "commission": commission,
+                    "total": round(
+                        gross + commission if order["side"] == "BUY" else gross - commission, 2
+                    ),
+                },
             )
             if order["side"] == "BUY" and order.get("stop_loss_price") is not None:
                 _ORDERS.append(
@@ -996,12 +1069,11 @@ class InMemoryTradingRepository:
         return completed
 
     @staticmethod
-    def _normalize_stop_orders(
-        portfolio_id: int, asset_id: int, sold_quantity: float
-    ) -> None:
+    def _normalize_stop_orders(portfolio_id: int, asset_id: int, sold_quantity: float) -> None:
         holding = next(
             (
-                row for row in _PORTFOLIO_ASSETS
+                row
+                for row in _PORTFOLIO_ASSETS
                 if row["portfolio_id"] == portfolio_id and row["asset_id"] == asset_id
             ),
             None,
@@ -1010,7 +1082,8 @@ class InMemoryTradingRepository:
         manual_reduction = sold_quantity
         stops = sorted(
             (
-                row for row in _ORDERS
+                row
+                for row in _ORDERS
                 if row["portfolio_id"] == portfolio_id
                 and row["asset_id"] == asset_id
                 and row.get("order_type") == "STOP_MARKET"
@@ -1033,6 +1106,308 @@ class InMemoryTradingRepository:
 def _default_portfolio(user_id: int) -> dict | None:
     rows = [p for p in _PORTFOLIOS if p["user_id"] == user_id]
     return next((p for p in rows if p["is_default"]), rows[0] if rows else None)
+
+
+class InMemoryNotificationRepository:
+    """`notification_outbox` yedegi (DB yokken).
+
+    SQL surumunden tek farki eszamanlilik: burada `SKIP LOCKED` yoktur cunku
+    tek surec ve tek liste vardir.
+    """
+
+    async def claim_pending(self, limit: int, max_attempts: int = 5) -> list[dict]:
+        secilen = [
+            row
+            for row in _NOTIFICATION_OUTBOX
+            if row["status"] == "PENDING" and row["attempts"] < max_attempts
+        ][:limit]
+        for row in secilen:
+            row["attempts"] += 1
+        return [dict(row) for row in secilen]
+
+    async def mark(self, outbox_id: int, status: str, error: str | None = None) -> None:
+        row = next((r for r in _NOTIFICATION_OUTBOX if r["id"] == outbox_id), None)
+        if row is None:
+            return
+        row["status"] = status
+        row["last_error"] = error
+        row["processed_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def list_for_user(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [dict(r) for r in _NOTIFICATION_OUTBOX if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows[:limit]
+
+
+def _zaman(value) -> datetime | None:
+    """ISO metni ya da datetime -> tz farkindali datetime."""
+    if value is None:
+        return None
+    an = value
+    if isinstance(an, str):
+        try:
+            an = datetime.fromisoformat(an)
+        except ValueError:
+            return None
+    return an if an.tzinfo else an.replace(tzinfo=timezone.utc)
+
+
+class InMemoryRecommendationRepository:
+    """Otonom oneri motorunun bellek ici yedegi.
+
+    SQL surumuyle AYNI davranisi tasir; tek fark eszamanlilik kilitleridir
+    (tek surec, tek liste). Testlerin cogu bu uygulamaya kosar.
+    """
+
+    VARSAYILAN_LIMITLER = {
+        "per_order_limit_try": 5000.0,
+        "daily_limit_try": 15000.0,
+        "allowed_asset_classes": [],
+        "autonomous_enabled": True,
+        "max_daily_recommendations": 4,
+    }
+
+    async def kill_switch_active(self) -> bool:
+        return bool(_KILL_SWITCH["active"])
+
+    async def set_kill_switch(self, active: bool, reason: str | None, actor: str) -> dict:
+        _KILL_SWITCH.update({"active": active, "reason": reason, "activated_by": actor})
+        return dict(_KILL_SWITCH)
+
+    async def get_limits(self, user_id: int) -> dict:
+        return dict(_USER_LIMITS.get(user_id) or self.VARSAYILAN_LIMITLER)
+
+    async def upsert_limits(self, user_id: int, fields: dict) -> dict:
+        mevcut = await self.get_limits(user_id)
+        mevcut.update({k: v for k, v in fields.items() if v is not None})
+        _USER_LIMITS[user_id] = mevcut
+        return dict(mevcut)
+
+    async def assets_for_scan(self) -> list[dict]:
+        return [
+            {
+                "asset_id": a["id"],
+                "symbol": a["symbol"],
+                "name": a["name"],
+                "asset_class": a["asset_class"],
+                "currency": a["currency"],
+                "current_price": float(a["current_price"]) * _fx_rate(a["currency"]),
+                "daily_change_pct": a.get("daily_change_pct"),
+                "weekly_change_pct": a.get("weekly_change_pct"),
+                "yearly_change_pct": a.get("yearly_change_pct"),
+                "price_updated_at": a.get("price_updated_at"),
+            }
+            for a in _ASSETS
+        ]
+
+    async def save_signals(self, signals: list[dict]) -> list[dict]:
+        yayinlanan = []
+        for sig in signals:
+            kayit = {**sig, "id": len(_SIGNALS) + 1}
+            _SIGNALS.append(kayit)
+            if sig.get("published"):
+                yayinlanan.append(dict(kayit))
+        return yayinlanan
+
+    async def autonomous_users(self) -> list[dict]:
+        sonuc = []
+        for user in _USERS:
+            portfolio = _default_portfolio(user["id"])
+            if not portfolio:
+                continue
+            hesap = next((c for c in _CASH_ACCOUNTS if c["portfolio_id"] == portfolio["id"]), None)
+            if not hesap:
+                continue
+            limitler = await self.get_limits(user["id"])
+            if not limitler["autonomous_enabled"]:
+                continue
+            deger = sum(
+                float(h["quantity"])
+                * float(_asset(h["asset_id"])["current_price"])
+                * _fx_rate(_asset(h["asset_id"])["currency"])
+                for h in _PORTFOLIO_ASSETS
+                if h["portfolio_id"] == portfolio["id"]
+            )
+            sonuc.append(
+                {
+                    "user_id": user["id"],
+                    "risk_tolerance": user.get("risk_tolerance"),
+                    "portfolio_id": portfolio["id"],
+                    "available_balance": hesap["available_balance"],
+                    "portfolio_value_try": deger,
+                    **limitler,
+                }
+            )
+        return sonuc
+
+    async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
+        return {
+            int(h["asset_id"]): float(h["quantity"])
+            for h in _PORTFOLIO_ASSETS
+            if h["portfolio_id"] == portfolio_id and float(h["quantity"]) > 0
+        }
+
+    async def daily_stats(self, user_id: int) -> dict:
+        bugun = datetime.now(timezone.utc).date().isoformat()
+        kendi = [
+            r
+            for r in _RECOMMENDATIONS
+            if r["user_id"] == user_id and str(r["created_at"])[:10] == bugun
+        ]
+        return {
+            "count": len(kendi),
+            "amount": sum(float(r["estimated_amount"]) for r in kendi),
+        }
+
+    async def open_recommendation_asset_ids(self, user_id: int) -> list[int]:
+        return [
+            r["asset_id"]
+            for r in _RECOMMENDATIONS
+            if r["user_id"] == user_id and r["status"] in {"PUBLISHED", "VIEWED", "APPROVED"}
+        ]
+
+    async def create_recommendation(self, row: dict) -> dict:
+        asset = _asset(row["asset_id"])
+        kayit = {
+            **row,
+            "id": len(_RECOMMENDATIONS) + 1,
+            "status": "PUBLISHED",
+            "rejection_reason": None,
+            "order_id": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "viewed_at": None,
+            "decided_at": None,
+            "asset_symbol": asset["symbol"],
+            "asset_name": asset["name"],
+            "asset_class": asset["asset_class"],
+        }
+        _RECOMMENDATIONS.append(kayit)
+        # SQL tarafinda bu yazim oneriyle AYNI transaction icindedir;
+        # cagri noktasi ayni tutulur ki iki uygulama ayni olaylari uretsin.
+        user = next((u for u in _USERS if u["id"] == kayit["user_id"]), None)
+        _NOTIFICATION_OUTBOX.append(
+            {
+                "id": len(_NOTIFICATION_OUTBOX) + 1,
+                "user_id": kayit["user_id"],
+                "order_id": None,
+                "event_type": "RECOMMENDATION_CREATED",
+                "channel": "EMAIL",
+                "recipient": (user or {}).get("email", ""),
+                "payload": {
+                    "symbol": asset["symbol"],
+                    "asset_name": asset["name"],
+                    "side": kayit["side"],
+                    "quantity": kayit["quantity"],
+                    "reference_price": kayit["reference_price"],
+                    "estimated_amount": kayit["estimated_amount"],
+                    "confidence": kayit["confidence"],
+                    "rationale": kayit["rationale"],
+                },
+                "status": "PENDING",
+                "attempts": 0,
+                "last_error": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "processed_at": None,
+            }
+        )
+        return dict(kayit)
+
+    async def list_recommendations(
+        self, user_id: int, status: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        rows = [
+            dict(r)
+            for r in _RECOMMENDATIONS
+            if r["user_id"] == user_id and (status is None or r["status"] == status)
+        ]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows[:limit]
+
+    async def counts_by_status(self, user_id: int) -> dict:
+        sayac: dict[str, int] = {}
+        for r in _RECOMMENDATIONS:
+            if r["user_id"] == user_id:
+                sayac[r["status"]] = sayac.get(r["status"], 0) + 1
+        return sayac
+
+    async def get_recommendation(self, user_id: int, recommendation_id: int) -> dict | None:
+        row = next(
+            (
+                r
+                for r in _RECOMMENDATIONS
+                if r["id"] == recommendation_id and r["user_id"] == user_id
+            ),
+            None,
+        )
+        return dict(row) if row else None
+
+    def _bul(self, user_id: int, rid: int) -> dict | None:
+        return next(
+            (r for r in _RECOMMENDATIONS if r["id"] == rid and r["user_id"] == user_id), None
+        )
+
+    async def mark_viewed(self, user_id: int, recommendation_id: int) -> dict | None:
+        row = self._bul(user_id, recommendation_id)
+        if row and row["status"] == "PUBLISHED":
+            row["status"] = "VIEWED"
+            row["viewed_at"] = datetime.now(timezone.utc).isoformat()
+        return dict(row) if row else None
+
+    async def reject(self, user_id: int, recommendation_id: int, reason: str) -> dict:
+        row = self._bul(user_id, recommendation_id)
+        if not row or row["status"] not in {"PUBLISHED", "VIEWED"}:
+            raise BusinessRuleError("Bu oneri artik reddedilemez.")
+        row.update(
+            status="REJECTED",
+            rejection_reason=reason,
+            decided_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return dict(row)
+
+    async def attach_order(self, user_id: int, recommendation_id: int, order_id: int) -> dict:
+        row = self._bul(user_id, recommendation_id)
+        if not row or row.get("order_id") is not None:
+            raise BusinessRuleError("Bu oneri zaten bir emre donusmus.")
+        if row["status"] not in {"PUBLISHED", "VIEWED", "APPROVED"}:
+            raise BusinessRuleError("Bu oneri artik onaylanamaz.")
+        row.update(
+            status="CONVERTED",
+            order_id=order_id,
+            decided_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return dict(row)
+
+    async def expire_due(self, now=None) -> int:
+        # ISO METIN karsilastirmasi YAPILMAZ: "+00:00" ve "Z" gibi farkli
+        # ofset yazimlari ayni ani temsil etse de metin olarak farkli siralanir.
+        an = now or datetime.now(timezone.utc)
+        sayi = 0
+        for r in _RECOMMENDATIONS:
+            if r["status"] not in {"PUBLISHED", "VIEWED"}:
+                continue
+            son = _zaman(r["expires_at"])
+            if son is not None and son <= an:
+                r["status"] = "EXPIRED"
+                sayi += 1
+        return sayi
+
+    async def halt_open(self, reason: str) -> int:
+        sayi = 0
+        for r in _RECOMMENDATIONS:
+            if r["status"] in {"PUBLISHED", "VIEWED"}:
+                r["status"] = "HALTED"
+                sayi += 1
+        return sayi
+
+    async def log_audit(self, record: dict) -> None:
+        _REC_AUDIT.append(
+            {
+                **record,
+                "id": len(_REC_AUDIT) + 1,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
 
 class InMemoryRagRepository:
