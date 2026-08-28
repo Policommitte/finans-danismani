@@ -20,6 +20,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isLogin = pathname === "/login";
   const isPublic = pathname === "/" || isLogin;
   const isLanding = pathname === "/";
+  // Yarışma ekranında piyasa şeridi ve sohbet gizlenir:
+  // şerit dikkat dağıtır, sohbet ise soruların cevabına erişim yolu olur.
+  const isGame = pathname === "/yatirim-oyunu";
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
   //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
@@ -102,11 +105,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen app-bg">
-      <MarketTicker
-        onSelect={setSelectedSymbol}
-        onLogout={handleLogout}
-        isAuthenticated={Boolean(auth.user)}
-      />
+      {!isGame && (
+        <MarketTicker
+          onSelect={setSelectedSymbol}
+          onLogout={handleLogout}
+          isAuthenticated={Boolean(auth.user)}
+        />
+      )}
       {isLanding ? (
         <>
           {children}
@@ -115,11 +120,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
       ) : (
         <>
           <Sidebar />
-          <div className="ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col pt-20">
+          <div
+            className={`ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${
+              isGame ? "pt-8" : "pt-20"
+            }`}
+          >
             <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
             <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
-          {auth.user && <ChatWidget />}
+          {auth.user && !isGame && <ChatWidget />}
         </>
       )}
       {selectedSymbol ? (
