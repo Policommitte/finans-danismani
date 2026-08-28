@@ -14,6 +14,26 @@ const RET_GEREKCELERI: Array<{ value: RejectionReason; tr: string; en: string }>
   { value: "NOT_UNDERSTOOD", tr: "Anlamadım", en: "I didn't understand it" },
 ];
 
+/** Durum kodlari kullaniciya HAM gosterilmez ("EXPIRED" hicbir sey anlatmaz). */
+const DURUM_ADLARI: Record<string, { tr: string; en: string }> = {
+  PUBLISHED: { tr: "Bekliyor", en: "Pending" },
+  VIEWED: { tr: "Görüntülendi", en: "Viewed" },
+  APPROVED: { tr: "Onaylandı", en: "Approved" },
+  CONVERTED: { tr: "Emre dönüştü", en: "Converted to order" },
+  REJECTED: { tr: "Reddedildi", en: "Rejected" },
+  EXPIRED: { tr: "Süresi doldu", en: "Expired" },
+  HALTED: { tr: "Durduruldu", en: "Halted" },
+};
+
+/** FR-AUT-023 ret gerekcelerinin okunur karsiligi. */
+const RET_ADLARI: Record<string, { tr: string; en: string }> = {
+  NOT_INTERESTED: { tr: "İlgilenmiyorum", en: "Not interested" },
+  TOO_RISKY: { tr: "Riskli buldum", en: "Too risky" },
+  NO_CASH: { tr: "Nakit yok", en: "No cash" },
+  BAD_TIMING: { tr: "Zamanlaması yanlış", en: "Bad timing" },
+  NOT_UNDERSTOOD: { tr: "Anlamadım", en: "Didn't understand" },
+};
+
 const PROFIL_ADLARI: Record<string, { tr: string; en: string }> = {
   LOW: { tr: "Düşük risk", en: "Low risk" },
   MEDIUM: { tr: "Orta risk", en: "Medium risk" },
@@ -207,8 +227,19 @@ export function RecommendationCard({ recommendation, submitting, onApprove, onRe
 
       <footer className="mt-3 flex items-center justify-between gap-3">
         <span className="text-xs app-muted">
-          {acik ? kalan : recommendation.status}
-          {recommendation.order_id ? ` · #${recommendation.order_id}` : ""}
+          {acik
+            ? kalan
+            : DURUM_ADLARI[recommendation.status]?.[language === "tr" ? "tr" : "en"]
+              ?? recommendation.status}
+          {recommendation.rejection_reason
+            ? ` · ${
+                RET_ADLARI[recommendation.rejection_reason]?.[language === "tr" ? "tr" : "en"]
+                ?? recommendation.rejection_reason
+              }`
+            : ""}
+          {recommendation.order_id
+            ? ` · ${language === "tr" ? "Emir" : "Order"} #${recommendation.order_id}`
+            : ""}
         </span>
         {acik && !suresiDoldu && (
           <div className="flex items-center gap-2">
