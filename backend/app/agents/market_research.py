@@ -92,17 +92,22 @@ _LIVE_KEYWORDS = (
     "kacta",
     "son durum",
     "deger",
-    # "THYAO nasil?" ile "THYAO ne kadar" ayni seyi soruyor ama ikincisi
-    # fiyat donerken birincisi haber indeksine dusup "veri yok" diyordu
-    # (canli testte olculdu, 27 Agustos 2026). Ayni soru, farkli yanit.
-    #
-    # Yanlis pozitif riski YOK: `_resolve_mode` bu listeye bakmadan once
-    # `task["symbol"]` dolu mu diye bakar. Sembolsuz "portfoyum nasil"
-    # canli yolu ACMAZ, RAG'de kalir.
-    "nasil",
-    "durumu",
-    "gidiyor",
 )
+
+# ⚠️ "nasil"/"durumu"/"gidiyor" BILEREK BURADA DEGIL - bir onceki denemede
+# eklenmisti ("THYAO nasil?" fiyat donsun diye) ve GERCEK BIR REGRESYONA yol
+# acti: "THYAO ikinci ceyrek karini NASIL etkiledi" gibi bilanco/analiz
+# sorularinda da "nasil" geciyor. `task["symbol"]` her ikisinde de dolu
+# oldugu icin o zamanki "yanlis pozitif riski yok" gerekcesi HATALIYDI - sembol
+# varligi ayrim yapmiyor, "nasil"in cumledeki ANLAMI yapiyor ("ne haldesin"
+# vs "nasil bir etkisi oldu") ve bunu bir kelime listesiyle ayirt etmek
+# mumkun degil. Canli testte olculdu (28 Agustos 2026, CI): bu sorunun RAG
+# sonuclari sifira dustu, kaynak listesi bos donuyordu.
+#
+# "THYAO nasil?" (baglamsiz, cikma sorusu) hala "rag" moduna duser - haber
+# indeksinde bir seyler bulunursa cevap gelir, bulunmazsa `NO_RETRIEVAL_MESSAGE`
+# durustce "veri yok" der. Bu, yanlis bir "canli fiyat" yaniti vermekten
+# (asagida hicbir zaman gerceklesmeyen bir varsayimla) daha guvenlidir.
 
 #: Alt dize (`in`) ile ARANMAMASI gereken ifadeler - kelime siniri sart.
 #:
@@ -868,9 +873,20 @@ class MarketResearchAgent(BaseAgent):
         kalmamalidir. Kalirsa `_run_rag` aramayi olmayan bir sirkete
         filtreler ve sonuc her zaman bos doner.
 
-        Router sembolu ACIKCA verdiyse (`symbol_kesin=True`) dokunulmaz.
+        Router sembolu ACIKCA verdiyse dokunulmaz.
+
+        ⚠️ "ACIKCA VERDI" ILE "symbol_kesin IS True" AYNI SEY DEGIL. `build_task`
+        sembolu KENDI TAHMIN ettiginde `symbol_kesin`'i HER ZAMAN acikca True/
+        False yazar (asagidaki `setdefault`). Router/gorev override'i ise
+        yalnizca `symbol` anahtarini verip `symbol_kesin`i hic YAZMAYABILIR -
+        bu durumda anahtar TASK'TA YOK, `False` degil. Once yalnizca `is True`
+        kontrolu vardi; sonuc: acikca verilmis ama kesinlik bayragi tasimayan
+        bir sembol de (mode="live", symbol="XXXXX" gibi router/test
+        override'lari) katalogla yeniden dogrulanmaya calisiliyor, katalogda
+        yoksa SESSIZCE SILINIYORDU - "sembol bulunamadi" yerine "hic sembol
+        yok" mesaji donuyordu (CI'da yakalandi, 28 Agustos 2026).
         """
-        if task.get("symbol") and task.get("symbol_kesin") is True:
+        if task.get("symbol") and task.get("symbol_kesin") is not False:
             return
 
         katalog = await self._sembol_katalogu()
