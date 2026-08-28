@@ -55,7 +55,16 @@ def get_engine() -> AsyncEngine:
 
     url = _async_url(settings.database_url)
     logger.info("db engine olusturuluyor", extra={"driver": url.split("://", 1)[0]})
-    return create_async_engine(url, pool_pre_ping=True, echo=settings.db_echo)
+    return create_async_engine(
+        url,
+        # Havuz siniri ACIKCA verilir - gerekcesi config.py'de.
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        pool_recycle=settings.db_pool_recycle_seconds,
+        pool_pre_ping=True,
+        echo=settings.db_echo,
+    )
 
 
 @lru_cache

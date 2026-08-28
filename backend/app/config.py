@@ -25,6 +25,26 @@ class Settings(BaseSettings):
     database_url: str = ""
     db_echo: bool = False
 
+    #: SQLAlchemy havuz siniri. VARSAYILANA BIRAKILAMAZ.
+    #:
+    #: SQLAlchemy varsayilani pool_size=5 + max_overflow=10, yani surec basina
+    #: 15 baglanti. Supabase session pooler'inda TOPLAM 25 slot var ve ekip
+    #: bunu paylasiyor - iki gelistirici backend acinca 30 > 25 olur ve havuz
+    #: patlar. Patladiginda backend sessizce bellek ici veriye duser: sayfalar
+    #: acilir ama portfoy, risk ve likit para BOS gorunur.
+    #:
+    #: 3 + 2 = surec basina en fazla 5 baglanti; bes gelistirici ayni anda
+    #: calisabilir. Uygulamanin gercek es zamanlilik ihtiyaci bunun altinda.
+    db_pool_size: int = 3
+    db_max_overflow: int = 2
+
+    #: Havuzdan baglanti beklerken asilma suresi (saniye).
+    db_pool_timeout: int = 10
+
+    #: Baglantilar bu sure sonunda yenilenir. Pooler kendi tarafinda kopardigi
+    #: baglantiyi bize bildirmiyor; recycle olmadan olu baglanti havuzda kalir.
+    db_pool_recycle_seconds: int = 900
+
     # --- Kimlik dogrulama ----------------------------------------------
     # Uretimde MUTLAKA ortam degiskeniyle verilmelidir; varsayilan yalnizca
     # yerel gelistirme icindir.
