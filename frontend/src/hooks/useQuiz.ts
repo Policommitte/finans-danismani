@@ -10,6 +10,7 @@ import {
   type PreparedQuestion,
 } from "../models/oyun";
 import type { SoundKind } from "./useSoundEffects";
+import { useLanguage } from "../contexts/LanguageContext";
 
 /** Kullanıcının elindeki jokerler */
 export type Powerups = {
@@ -45,7 +46,8 @@ export function useQuiz({
   onLose,
   playSound,
 }: Args) {
-  const [questions] = useState<PreparedQuestion[]>(() => prepareQuestions());
+  const { language } = useLanguage();
+  const [questions] = useState<PreparedQuestion[]>(() => prepareQuestions(language));
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<QuizPhase>("curtain");
   const [selected, setSelected] = useState<number | null>(null);

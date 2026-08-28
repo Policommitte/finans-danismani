@@ -6,6 +6,7 @@ import { useQuiz, type Powerups } from "../../hooks/useQuiz";
 import { MASCOT_IDLE } from "../../models/oyun";
 import type { GameResult } from "../../models/oyun";
 import type { SoundKind } from "../../hooks/useSoundEffects";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   registeredCount: number;
@@ -21,13 +22,14 @@ const LETTERS = ["A", "B", "C", "D"];
 const RING = 226; // 2πr, r = 36
 
 const MASCOT_CORRECT = [
-  "Doğru cevap, harika gidiyorsun.",
-  "Aynen öyle, tuttun.",
-  "Doğru, bu bilgiyi biliyordun.",
-  "İsabet, devam et.",
+  { tr: "Doğru cevap, harika gidiyorsun.", en: "Correct answer, you're doing great." },
+  { tr: "Aynen öyle, tuttun.", en: "Exactly right, nailed it." },
+  { tr: "Doğru, bu bilgiyi biliyordun.", en: "Correct, you knew this one." },
+  { tr: "İsabet, devam et.", en: "Spot on, keep going." },
 ];
 
 export function QuizScreen(props: Props) {
+  const { language } = useLanguage();
   const q = useQuiz(props);
 
   if (!q.question) return null;
@@ -38,14 +40,14 @@ export function QuizScreen(props: Props) {
 
   const message =
     q.mood === "happy"
-      ? MASCOT_CORRECT[q.index % MASCOT_CORRECT.length]
+      ? MASCOT_CORRECT[q.index % MASCOT_CORRECT.length][language]
       : q.mood === "sad"
         ? q.timedOut
-          ? "Süre doldu, cevap alınamadı."
-          : "Bu sefer olmadı. Doğru cevap işaretlendi."
+          ? (language === "tr" ? "Süre doldu, cevap alınamadı." : "Time's up, no answer was submitted.")
+          : (language === "tr" ? "Bu sefer olmadı. Doğru cevap işaretlendi." : "Not this time. The correct answer has been marked.")
         : q.mood === "hurry"
-          ? "Süre doluyor, kararınızı verin."
-          : MASCOT_IDLE[q.index % MASCOT_IDLE.length];
+          ? (language === "tr" ? "Süre doluyor, kararınızı verin." : "Time's running out, make your decision.")
+          : MASCOT_IDLE[q.index % MASCOT_IDLE.length][language];
 
   return (
     <div className="relative">
@@ -56,7 +58,7 @@ export function QuizScreen(props: Props) {
           style={{ background: "var(--color-panel-dark)" }}
         >
           <span className="text-4xl font-bold" style={{ color: "#fff" }}>
-            Soru {q.index + 1}
+            {language === "tr" ? "Soru" : "Question"} {q.index + 1}
           </span>
         </div>
       )}
@@ -72,7 +74,7 @@ export function QuizScreen(props: Props) {
                 color: "var(--color-primary-soft-text)",
               }}
             >
-              Soru {q.index + 1} / {q.total}
+              {language === "tr" ? "Soru" : "Question"} {q.index + 1} / {q.total}
             </span>
             <span className="app-muted flex items-center gap-1.5 text-xs">
               <span
@@ -80,9 +82,9 @@ export function QuizScreen(props: Props) {
                 style={{ background: "var(--color-cta)" }}
               />
               <b className="app-heading font-bold tabular-nums">
-                {q.rivals.toLocaleString("tr-TR")}
+                {q.rivals.toLocaleString(language === "tr" ? "tr-TR" : "en-US")}
               </b>{" "}
-              yarışta
+              {language === "tr" ? "yarışta" : "in the race"}
             </span>
           </div>
 
@@ -118,10 +120,10 @@ export function QuizScreen(props: Props) {
                 className="block text-[10px] font-bold uppercase tracking-wider"
                 style={{ color: "var(--color-muted)" }}
               >
-                Skor
+                {language === "tr" ? "Skor" : "Score"}
               </span>
               <b className="app-heading text-xl font-bold tabular-nums">
-                {q.score.toLocaleString("tr-TR")}
+                {q.score.toLocaleString(language === "tr" ? "tr-TR" : "en-US")}
               </b>
               {q.gained !== null && (
                 <span
@@ -243,9 +245,9 @@ export function QuizScreen(props: Props) {
               disabled={props.powerups.timeShield <= 0 || q.shieldUsed}
               className="rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:opacity-40"
               style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
-              title="Süreyi 10 saniye uzatır"
+              title={language === "tr" ? "Süreyi 10 saniye uzatır" : "Extends the timer by 10 seconds"}
             >
-              Zaman kalkanı ({props.powerups.timeShield})
+              {language === "tr" ? "Zaman kalkanı" : "Time shield"} ({props.powerups.timeShield})
             </button>
 
             <button
@@ -253,9 +255,9 @@ export function QuizScreen(props: Props) {
               disabled={props.powerups.fiftyFifty <= 0 || q.fiftyUsed}
               className="rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:opacity-40"
               style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
-              title="İki yanlış şıkkı eler"
+              title={language === "tr" ? "İki yanlış şıkkı eler" : "Eliminates two wrong options"}
             >
-              Çifte şans ({props.powerups.fiftyFifty})
+              {language === "tr" ? "Çifte şans" : "Double chance"} ({props.powerups.fiftyFifty})
             </button>
 
             <button
@@ -267,7 +269,7 @@ export function QuizScreen(props: Props) {
                 color: q.selected === null ? "var(--color-muted)" : "#fff",
               }}
             >
-              Cevabı onayla
+              {language === "tr" ? "Cevabı onayla" : "Confirm answer"}
             </button>
           </div>
         )}

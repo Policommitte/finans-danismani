@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Card from "../../components/ui/Card";
+import { ThemeToggle } from "../../components/ui/ThemeToggle";
+import { useLanguage } from "../../contexts/LanguageContext";
 import { RegisterScreen } from "../../components/oyun/RegisterScreen";
 import { RulesModal } from "../../components/oyun/RulesModal";
 import { WaitingScreen } from "../../components/oyun/WaitingScreen";
@@ -26,20 +28,40 @@ import { useSoundEffects } from "../../hooks/useSoundEffects";
 import { IntroSidebar } from "../../components/oyun/IntroSidebar";
 import { LeaderboardPanel } from "../../components/oyun/LeaderboardPanel";
 
-const TABS: { id: GameTab; label: string }[] = [
-  { id: "oyun", label: "Oyun" },
-  { id: "kampanyalar", label: "Mağaza" },
-  { id: "puanlar", label: "Puanlar" },
+const TABS: { id: GameTab; label: { tr: string; en: string } }[] = [
+  { id: "oyun", label: { tr: "Oyun", en: "Game" } },
+  { id: "kampanyalar", label: { tr: "Mağaza", en: "Shop" } },
+  { id: "puanlar", label: { tr: "Puanlar", en: "Points" } },
 ];
 
-const SCREEN_LABELS: Record<GameScreen, string> = {
-  register: "Kayıt",
-  waiting: "Bekleme",
-  cheatsheet: "Çalışma notu",
-  quiz: "Yarışma",
-  eliminated: "Elendi",
-  victory: "Kazandı",
-  closed: "Kayıt kapalı",
+const SCREEN_LABELS: Record<GameScreen, { tr: string; en: string }> = {
+  register: { tr: "Kayıt", en: "Registration" },
+  waiting: { tr: "Bekleme", en: "Waiting" },
+  cheatsheet: { tr: "Çalışma notu", en: "Study notes" },
+  quiz: { tr: "Yarışma", en: "Contest" },
+  eliminated: { tr: "Elendi", en: "Eliminated" },
+  victory: { tr: "Kazandı", en: "Won" },
+  closed: { tr: "Kayıt kapalı", en: "Registration closed" },
+};
+
+const PAGE_TEXT = {
+  title: { tr: "Şans Yatırımda", en: "Şans Yatırımda" },
+  subtitle: {
+    tr: "Her akşam 20.00'de düzenlenen finansal okuryazarlık yarışması.",
+    en: "A financial literacy contest held every evening at 8:00 PM.",
+  },
+  activeScreen: { tr: "Aktif ekran", en: "Active screen" },
+  score: { tr: "Skor", en: "Score" },
+  correct: { tr: "Doğru", en: "Correct" },
+  reached: { tr: "Ulaşılan soru", en: "Question reached" },
+  questionsSummary: (count: number, seconds: number, pool: string) => ({
+    tr: `${count} soru · her biri ${seconds} saniye · ${pool} bonus puan havuzu`,
+    en: `${count} questions · ${seconds} seconds each · ${pool} bonus point pool`,
+  }),
+  devPanelTitle: { tr: "Ekran testi (sadece geliştirme ortamı)", en: "Screen test (development only)" },
+  reset: { tr: "Sıfırla", en: "Reset" },
+  muteOn: { tr: "Sesi kapat", en: "Mute sound" },
+  muteOff: { tr: "Sesi aç", en: "Unmute sound" },
 };
 
 function SoundIcon({ muted }: { muted: boolean }) {
@@ -67,6 +89,7 @@ function SoundIcon({ muted }: { muted: boolean }) {
 }
 
 export default function YatirimOyunuPage() {
+  const { language, toggleLanguage } = useLanguage();
   const { tab, goTab, screen, goScreen, isFocused } = useGameFlow();
   const { play, muted, toggleMute } = useSoundEffects();
 
@@ -103,9 +126,9 @@ export default function YatirimOyunuPage() {
   }
 
   function buyDonation(item: DonationItem) {
-    if (pointsBalance < item.cost || ownedBadges.includes(item.badge)) return;
+    if (pointsBalance < item.cost || ownedBadges.includes(item.badge.tr)) return;
     setPointsBalance((b) => b - item.cost);
-    setOwnedBadges((b) => [...b, item.badge]);
+    setOwnedBadges((b) => [...b, item.badge.tr]);
     play("purchase");
   }
 
@@ -140,21 +163,32 @@ export default function YatirimOyunuPage() {
       >
         <div className="relative flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-white sm:text-3xl">Şans Yatırımda</h1>
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">{PAGE_TEXT.title[language]}</h1>
             <p className="mt-1 text-sm" style={{ color: "var(--color-market-muted)" }}>
-              Her akşam 20.00&apos;de düzenlenen finansal okuryazarlık yarışması.
+              {PAGE_TEXT.subtitle[language]}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={toggleMute}
-            aria-label={muted ? "Sesi aç" : "Sesi kapat"}
-            aria-pressed={muted}
-            title={muted ? "Sesi aç" : "Sesi kapat"}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <SoundIcon muted={muted} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle className="border-white/10 bg-white/[0.06] text-white/80 hover:bg-white/10" />
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              aria-label={language === "tr" ? "Dili İngilizce yap" : "Switch language to Turkish"}
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-sm font-black text-white/80 transition hover:bg-white/10"
+            >
+              {language === "tr" ? "EN" : "TR"}
+            </button>
+            <button
+              type="button"
+              onClick={toggleMute}
+              aria-label={muted ? PAGE_TEXT.muteOff[language] : PAGE_TEXT.muteOn[language]}
+              aria-pressed={muted}
+              title={muted ? PAGE_TEXT.muteOff[language] : PAGE_TEXT.muteOn[language]}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              <SoundIcon muted={muted} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -174,11 +208,11 @@ export default function YatirimOyunuPage() {
               className="rounded-lg px-4 py-2 text-sm font-semibold transition"
               style={
                 active
-                  ? { background: "var(--color-panel-dark)", color: "var(--color-on-primary)" }
+                  ? { background: "var(--color-primary)", color: "var(--color-on-primary)" }
                   : { color: "var(--color-muted)" }
               }
             >
-              {t.label}
+              {t.label[language]}
             </button>
           );
         })}
@@ -222,13 +256,13 @@ export default function YatirimOyunuPage() {
                     setLastResult(result);
                     const earned = Math.round(CONFIG.prizePool * 0.05);
                     setPointsBalance((b) => b + earned);
-                    setHistory((h) => [buildHistoryRow(result, earned), ...h]);
+                    setHistory((h) => [buildHistoryRow(result, earned, language), ...h]);
                     play("win");
                     goScreen("victory");
                   }}
                   onLose={(result) => {
                     setLastResult(result);
-                    setHistory((h) => [buildHistoryRow(result, 0), ...h]);
+                    setHistory((h) => [buildHistoryRow(result, 0, language), ...h]);
                     goScreen("eliminated");
                   }}
                 />
@@ -243,18 +277,23 @@ export default function YatirimOyunuPage() {
               ) : (
                 <Card>
                   <div className="space-y-4 py-10 text-center">
-                    <p className="app-muted text-xs uppercase tracking-wide">Aktif ekran</p>
-                    <p className="app-heading text-2xl font-semibold">{SCREEN_LABELS[screen]}</p>
+                    <p className="app-muted text-xs uppercase tracking-wide">{PAGE_TEXT.activeScreen[language]}</p>
+                    <p className="app-heading text-2xl font-semibold">{SCREEN_LABELS[screen][language]}</p>
                     {lastResult ? (
                       <p className="app-muted text-sm">
-                        Skor: {lastResult.score.toLocaleString("tr-TR")} · Doğru:{" "}
-                        {lastResult.correct} / {CONFIG.questionCount} · Ulaşılan soru:{" "}
+                        {PAGE_TEXT.score[language]}: {lastResult.score.toLocaleString(language === "tr" ? "tr-TR" : "en-US")} · {PAGE_TEXT.correct[language]}:{" "}
+                        {lastResult.correct} / {CONFIG.questionCount} · {PAGE_TEXT.reached[language]}:{" "}
                         {lastResult.reached}
                       </p>
                     ) : (
                       <p className="app-muted text-sm">
-                        {CONFIG.questionCount} soru · her biri {CONFIG.questionSeconds} saniye ·{" "}
-                        {CONFIG.prizePool.toLocaleString("tr-TR")} bonus puan havuzu
+                        {
+                          PAGE_TEXT.questionsSummary(
+                            CONFIG.questionCount,
+                            CONFIG.questionSeconds,
+                            CONFIG.prizePool.toLocaleString(language === "tr" ? "tr-TR" : "en-US"),
+                          )[language]
+                        }
                       </p>
                     )}
                   </div>
@@ -274,7 +313,7 @@ export default function YatirimOyunuPage() {
               yuzden SADECE local `next dev` build'inde gorunur, production'a
               hicbir zaman gitmez. */}
           {process.env.NODE_ENV !== "production" && (
-            <Card title="Ekran testi (sadece geliştirme ortamı)">
+            <Card title={PAGE_TEXT.devPanelTitle[language]}>
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
                   <button
@@ -286,7 +325,7 @@ export default function YatirimOyunuPage() {
                       color: screen === s ? "var(--color-primary)" : "var(--color-muted)",
                     }}
                   >
-                    {SCREEN_LABELS[s]}
+                    {SCREEN_LABELS[s][language]}
                   </button>
                 ))}
                 <button
@@ -303,7 +342,7 @@ export default function YatirimOyunuPage() {
                   className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
                   style={{ borderColor: "var(--color-cta)", color: "var(--color-cta)" }}
                 >
-                  Sıfırla
+                  {PAGE_TEXT.reset[language]}
                 </button>
               </div>
             </Card>

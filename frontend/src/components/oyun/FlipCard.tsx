@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   icon: string;
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export function FlipCard({ icon, title, body, color = "var(--color-primary)" }: Props) {
+  const { language } = useLanguage();
   const [flipped, setFlipped] = useState(false);
 
   return (
@@ -17,7 +19,7 @@ export function FlipCard({ icon, title, body, color = "var(--color-primary)" }: 
       type="button"
       onClick={() => setFlipped((f) => !f)}
       aria-pressed={flipped}
-      aria-label={`${title} — ${flipped ? "kartı kapat" : "kartı çevir"}`}
+      aria-label={`${title} — ${flipped ? (language === "tr" ? "kartı kapat" : "close card") : (language === "tr" ? "kartı çevir" : "flip card")}`}
       className={`flip-card h-40 w-full text-left ${flipped ? "flipped" : ""}`}
     >
       <div className="flip-card-inner">
@@ -32,7 +34,7 @@ export function FlipCard({ icon, title, body, color = "var(--color-primary)" }: 
             {icon}
           </span>
           <span className="app-heading text-sm font-semibold leading-snug">{title}</span>
-          <span className="app-muted text-[11px]">Çevirmek için tıkla</span>
+          <span className="app-muted text-[11px]">{language === "tr" ? "Çevirmek için tıkla" : "Tap to flip"}</span>
         </div>
 
         <div

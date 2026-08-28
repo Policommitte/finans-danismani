@@ -1,48 +1,83 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   open: boolean;
   onAccept: () => void;
 };
 
-const RULES: { title: string; body: string; list?: string[]; warn?: boolean }[] = [
+const RULES: { title: { tr: string; en: string }; body: { tr: string; en: string }; list?: { tr: string; en: string }[]; warn?: boolean }[] = [
   {
-    title: "Katılım koşulu",
-    body: "Yarışmaya giriş yapmış ve vadesiz hesabı bulunan kullanıcılar katılabilir. Kayıt kontenjanla sınırlıdır ve yarışma saatinden 5 dakika önce kapanır. Bir kullanıcı aynı yarışmaya yalnızca bir kez kayıt olabilir.",
+    title: { tr: "Katılım koşulu", en: "Eligibility" },
+    body: {
+      tr: "Yarışmaya giriş yapmış ve vadesiz hesabı bulunan kullanıcılar katılabilir. Kayıt kontenjanla sınırlıdır ve yarışma saatinden 5 dakika önce kapanır. Bir kullanıcı aynı yarışmaya yalnızca bir kez kayıt olabilir.",
+      en: "Logged-in users with a demand deposit account can participate. Registration is capacity-limited and closes 5 minutes before the contest starts. A user may register for the same contest only once.",
+    },
   },
   {
-    title: "Hazırlık",
-    body: "Yarışma saatinde 5 dakikalık çalışma notu açılır. Sorular yalnızca bu konulardan gelir. Not konuyu anlatır, cevap anahtarı vermez.",
+    title: { tr: "Hazırlık", en: "Preparation" },
+    body: {
+      tr: "Yarışma saatinde 5 dakikalık çalışma notu açılır. Sorular yalnızca bu konulardan gelir. Not konuyu anlatır, cevap anahtarı vermez.",
+      en: "A 5-minute study note opens at contest time. Questions come only from these topics. The note explains the topic but doesn't give an answer key.",
+    },
   },
   {
-    title: "Sorular ve süre",
-    body: "10 soru sorulur, her soru için 15 saniye verilir. Sorular tüm katılımcılara aynı anda gösterilir. Cevap onaylandıktan sonra değiştirilemez.",
+    title: { tr: "Sorular ve süre", en: "Questions and timing" },
+    body: {
+      tr: "10 soru sorulur, her soru için 15 saniye verilir. Sorular tüm katılımcılara aynı anda gösterilir. Cevap onaylandıktan sonra değiştirilemez.",
+      en: "10 questions are asked, with 15 seconds given for each. Questions are shown to all participants at the same time. An answer cannot be changed once confirmed.",
+    },
   },
   {
-    title: "Eleme",
-    body: "Yanlış cevap ve süre aşımı elenme nedenidir. Elenen katılımcı kalan soruları göremez; yalnızca elendiği sorunun doğru cevabını ve açıklamasını görür. Yarışmadan çıkmak da elenme sayılır.",
+    title: { tr: "Eleme", en: "Elimination" },
+    body: {
+      tr: "Yanlış cevap ve süre aşımı elenme nedenidir. Elenen katılımcı kalan soruları göremez; yalnızca elendiği sorunun doğru cevabını ve açıklamasını görür. Yarışmadan çıkmak da elenme sayılır.",
+      en: "A wrong answer or timing out results in elimination. An eliminated participant cannot see the remaining questions; they only see the correct answer and explanation for the question they were eliminated on. Leaving the contest also counts as elimination.",
+    },
   },
   {
-    title: "Skor ve ödül",
-    body: "Her doğru cevap 100 taban puan kazandırır, kalan süreye göre en fazla 100 puan hız bonusu eklenir. Tüm soruları doğru bilenler ödül havuzunu paylaşır; pay, skorunuzun kazananların toplam skoru içindeki oranına göre hesaplanır ve bonus puan olarak yüklenir.",
+    title: { tr: "Skor ve ödül", en: "Score and prize" },
+    body: {
+      tr: "Her doğru cevap 100 taban puan kazandırır, kalan süreye göre en fazla 100 puan hız bonusu eklenir. Tüm soruları doğru bilenler ödül havuzunu paylaşır; pay, skorunuzun kazananların toplam skoru içindeki oranına göre hesaplanır ve bonus puan olarak yüklenir.",
+      en: "Each correct answer earns 100 base points, plus up to 100 speed-bonus points based on remaining time. Those who answer all questions correctly share the prize pool; your share is calculated based on your score's proportion of the winners' total score and credited as bonus points.",
+    },
   },
   {
-    title: "Hile ve kötüye kullanım",
+    title: { tr: "Hile ve kötüye kullanım", en: "Cheating and abuse" },
     warn: true,
-    body: "Aşağıdaki davranışlar tespit edildiğinde katılım iptal edilir, kazanılan puanlar geri alınır ve hesap yarışmalardan süresiz men edilebilir:",
+    body: {
+      tr: "Aşağıdaki davranışlar tespit edildiğinde katılım iptal edilir, kazanılan puanlar geri alınır ve hesap yarışmalardan süresiz men edilebilir:",
+      en: "If any of the following behaviors are detected, participation is cancelled, points earned are reclaimed, and the account may be permanently banned from contests:",
+    },
     list: [
-      "Aynı kişiye ait birden fazla hesapla katılım",
-      "Otomasyon, bot veya betik kullanarak cevap gönderme",
-      "Yarışma sırasında soru veya cevapların üçüncü kişilerle paylaşılması",
-      "Uygulama arayüzünü veya ağ isteklerini değiştirmeye yönelik girişimler",
-      "Davet mekanizmasının sahte hesaplarla suistimali",
+      {
+        tr: "Aynı kişiye ait birden fazla hesapla katılım",
+        en: "Participating with multiple accounts belonging to the same person",
+      },
+      {
+        tr: "Otomasyon, bot veya betik kullanarak cevap gönderme",
+        en: "Submitting answers using automation, bots, or scripts",
+      },
+      {
+        tr: "Yarışma sırasında soru veya cevapların üçüncü kişilerle paylaşılması",
+        en: "Sharing questions or answers with third parties during the contest",
+      },
+      {
+        tr: "Uygulama arayüzünü veya ağ isteklerini değiştirmeye yönelik girişimler",
+        en: "Attempts to modify the application interface or network requests",
+      },
+      {
+        tr: "Davet mekanizmasının sahte hesaplarla suistimali",
+        en: "Abusing the invite mechanism with fake accounts",
+      },
     ],
   },
 ];
 
 export function RulesModal({ open, onAccept }: Props) {
+  const { language } = useLanguage();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [readToEnd, setReadToEnd] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -96,15 +131,17 @@ export function RulesModal({ open, onAccept }: Props) {
             Şans Yatırımda
           </p>
           <h3 id="rules-title" className="app-heading mt-1 text-xl font-semibold">
-            Yarışma kuralları
+            {language === "tr" ? "Yarışma kuralları" : "Contest rules"}
           </h3>
-          <p className="app-muted mt-0.5 text-sm">Katılmadan önce okuman gerekenler</p>
+          <p className="app-muted mt-0.5 text-sm">
+            {language === "tr" ? "Katılmadan önce okuman gerekenler" : "What you need to read before joining"}
+          </p>
         </div>
 
         <div ref={bodyRef} onScroll={check} className="flex-1 overflow-y-auto px-6 py-5">
           {RULES.map((r, i) => (
             <div
-              key={r.title}
+              key={r.title.tr}
               className={`mb-4 flex gap-3.5 ${r.warn ? "rounded-lg border p-4" : ""}`}
               style={
                 r.warn
@@ -129,13 +166,13 @@ export function RulesModal({ open, onAccept }: Props) {
                   className="mb-1 block text-sm font-semibold"
                   style={{ color: r.warn ? "var(--color-danger-text)" : "var(--color-heading)" }}
                 >
-                  {r.title}
+                  {r.title[language]}
                 </b>
-                <p className="app-muted text-[13px] leading-relaxed">{r.body}</p>
+                <p className="app-muted text-[13px] leading-relaxed">{r.body[language]}</p>
                 {r.list && (
                   <ul className="app-muted mt-2 list-disc pl-5 text-[13px] leading-relaxed">
                     {r.list.map((item) => (
-                      <li key={item}>{item}</li>
+                      <li key={item.tr}>{item[language]}</li>
                     ))}
                   </ul>
                 )}
@@ -147,9 +184,9 @@ export function RulesModal({ open, onAccept }: Props) {
             className="app-muted border-t pt-3 text-[11.5px] leading-relaxed"
             style={{ borderColor: "var(--color-border-soft)" }}
           >
-            Cevapların doğruluğu ve süre ölçümü sunucu tarafında yapılır; istemci üzerinden
-            yapılan müdahaleler sonucu değiştirmez. Bu bir demo ortamıdır; gösterilen tutar,
-            kampanya ve ödüller temsilîdir.
+            {language === "tr"
+              ? "Cevapların doğruluğu ve süre ölçümü sunucu tarafında yapılır; istemci üzerinden yapılan müdahaleler sonucu değiştirmez. Bu bir demo ortamıdır; gösterilen tutar, kampanya ve ödüller temsilîdir."
+              : "Answer correctness and timing are validated server-side; client-side tampering does not change the result. This is a demo environment; the amounts, campaigns, and prizes shown are illustrative."}
           </p>
         </div>
 
@@ -171,7 +208,9 @@ export function RulesModal({ open, onAccept }: Props) {
               className="text-[11.5px] font-medium"
               style={{ color: readToEnd ? "var(--color-success)" : "var(--color-muted)" }}
             >
-              {readToEnd ? "✓ Metnin tamamını okudunuz" : "Onaylamak için metnin sonuna kadar okuyun"}
+              {readToEnd
+                ? (language === "tr" ? "✓ Metnin tamamını okudunuz" : "✓ You've read the entire text")
+                : (language === "tr" ? "Onaylamak için metnin sonuna kadar okuyun" : "Scroll to the end to confirm")}
             </span>
           </div>
 
@@ -184,7 +223,7 @@ export function RulesModal({ open, onAccept }: Props) {
               color: readToEnd ? "#fff" : "var(--color-muted)",
             }}
           >
-            Anladım, devam et
+            {language === "tr" ? "Anladım, devam et" : "Understood, continue"}
           </button>
         </div>
       </div>

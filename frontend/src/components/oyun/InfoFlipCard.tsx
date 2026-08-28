@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   icon: string;
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function InfoFlipCard({ icon, title, color, children, orientation = "vertical" }: Props) {
+  const { language } = useLanguage();
   const [flipped, setFlipped] = useState(false);
   const isHorizontal = orientation === "horizontal";
 
@@ -39,7 +41,7 @@ export function InfoFlipCard({ icon, title, color, children, orientation = "vert
           </span>
           <div className={isHorizontal ? "text-left" : ""}>
             <span className="app-heading block text-base font-semibold leading-snug">{title}</span>
-            <span className="app-muted block text-[11px]">Çevirmek için tıkla</span>
+            <span className="app-muted block text-[11px]">{language === "tr" ? "Çevirmek için tıkla" : "Tap to flip"}</span>
           </div>
         </div>
 

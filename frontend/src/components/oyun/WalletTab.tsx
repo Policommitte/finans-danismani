@@ -2,6 +2,7 @@
 
 import Card from "../ui/Card";
 import type { HistoryRow } from "../../models/oyun";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   pointsBalance: number;
@@ -40,18 +41,20 @@ function WalletIcon() {
 }
 
 export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
+  const { language } = useLanguage();
+  const locale = language === "tr" ? "tr-TR" : "en-US";
   const participation = history.length;
   const wins = history.filter((row) => row.result === "win").length;
   const successRate = participation > 0 ? Math.round((wins / participation) * 100) : 0;
   const bestScore = participation > 0 ? Math.max(...history.map((row) => row.score)) : 0;
   const monthlyGain = history.reduce((sum, row) => sum + row.points, 0);
-  const lastActivity = history[0]?.date ?? "—";
+  const lastActivity = history[0]?.date[language] ?? "—";
 
   const stats = [
-    { label: "Katılım", value: String(participation) },
-    { label: "Kazanma", value: String(wins) },
-    { label: "Başarı", value: `%${successRate}` },
-    { label: "En yüksek skor", value: bestScore.toLocaleString("tr-TR") },
+    { label: language === "tr" ? "Katılım" : "Entries", value: String(participation) },
+    { label: language === "tr" ? "Kazanma" : "Wins", value: String(wins) },
+    { label: language === "tr" ? "Başarı" : "Success rate", value: `%${successRate}` },
+    { label: language === "tr" ? "En yüksek skor" : "Best score", value: bestScore.toLocaleString(locale) },
   ];
 
   return (
@@ -65,7 +68,7 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
           <div className="flex w-full flex-col items-center gap-3 sm:w-1/2">
             <WalletIcon />
             <p className="text-sm font-semibold" style={{ color: "var(--color-market-text)" }}>
-              Bonus puan cüzdanı
+              {language === "tr" ? "Bonus puan cüzdanı" : "Bonus points wallet"}
             </p>
           </div>
 
@@ -75,32 +78,32 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
               className="inline-block rounded-full px-3 py-1 text-[11px] font-semibold"
               style={{ background: "var(--color-overlay-soft)", color: "var(--color-success)" }}
             >
-              Şans Yatırımda · Aktif
+              {language === "tr" ? "Şans Yatırımda · Aktif" : "Şans Yatırımda · Active"}
             </span>
 
             <p
               className="mt-4 text-xs uppercase tracking-wide"
               style={{ color: "var(--color-market-muted)" }}
             >
-              Kullanılabilir bakiye
+              {language === "tr" ? "Kullanılabilir bakiye" : "Available balance"}
             </p>
             <div className="flex items-baseline gap-2">
               <span
                 className="text-5xl font-bold tabular-nums"
                 style={{ color: "var(--color-cta)" }}
               >
-                {pointsBalance.toLocaleString("tr-TR")}
+                {pointsBalance.toLocaleString(locale)}
               </span>
               <span className="text-sm" style={{ color: "var(--color-market-muted)" }}>
-                bonus puan
+                {language === "tr" ? "bonus puan" : "bonus points"}
               </span>
             </div>
 
             <p className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--color-market-muted)" }}>
               <span style={{ color: "var(--color-success)" }}>▲ +{monthlyGain}</span>
-              <span>toplam kazanç</span>
+              <span>{language === "tr" ? "toplam kazanç" : "total earned"}</span>
               <span>·</span>
-              <span>Son işlem {lastActivity}</span>
+              <span>{language === "tr" ? "Son işlem" : "Last activity"} {lastActivity}</span>
             </p>
 
             <div
@@ -127,25 +130,27 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
               className="mt-6 rounded-lg px-5 py-2.5 text-sm font-semibold transition"
               style={{ background: "var(--color-surface)", color: "var(--color-heading)" }}
             >
-              Puan harca
+              {language === "tr" ? "Puan harca" : "Spend points"}
             </button>
           </div>
         </div>
       </div>
 
-      <Card title="Puan geçmişi">
+      <Card title={language === "tr" ? "Puan geçmişi" : "Points history"}>
         {history.length === 0 ? (
-          <p className="app-muted text-sm">Henüz bir yarışmaya katılmadınız.</p>
+          <p className="app-muted text-sm">
+            {language === "tr" ? "Henüz bir yarışmaya katılmadınız." : "You haven't joined a contest yet."}
+          </p>
         ) : (
           <div className="space-y-2">
             {history.map((row, i) => (
               <div
-                key={`${row.date}-${i}`}
+                key={`${row.date.tr}-${i}`}
                 className="flex items-center justify-between rounded-lg px-4 py-3"
                 style={{ background: "var(--color-surface-muted)" }}
               >
                 <div>
-                  <p className="app-heading text-sm font-semibold">{row.date}</p>
+                  <p className="app-heading text-sm font-semibold">{row.date[language]}</p>
                   <p
                     className="text-xs"
                     style={{
@@ -153,11 +158,13 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
                         row.result === "win" ? "var(--color-success)" : "var(--color-muted)",
                     }}
                   >
-                    {row.detail}
+                    {row.detail[language]}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="app-muted text-xs tabular-nums">Skor {row.score}</p>
+                  <p className="app-muted text-xs tabular-nums">
+                    {language === "tr" ? "Skor" : "Score"} {row.score}
+                  </p>
                   <p
                     className="text-sm font-bold tabular-nums"
                     style={{

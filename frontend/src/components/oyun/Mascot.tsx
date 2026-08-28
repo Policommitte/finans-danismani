@@ -5,6 +5,7 @@ import { thinking, happy, sad, mad } from "blobatar/expression";
 import "blobatar/motion.css";
 
 import type { MascotMood } from "../../hooks/useQuiz";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   mood: MascotMood;
@@ -35,6 +36,7 @@ const BUBBLE_STYLE: Record<MascotMood, { bg: string; color: string }> = {
 };
 
 export function Mascot({ mood, message }: Props) {
+  const { language } = useLanguage();
   const bubble = BUBBLE_STYLE[mood];
 
   return (
@@ -47,7 +49,7 @@ export function Mascot({ mood, message }: Props) {
             hue={MASCOT_HUE}
             expression={EXPRESSION[mood]}
             animate="always"
-            title="Yarışma danışmanı"
+            title={language === "tr" ? "Yarışma danışmanı" : "Contest assistant"}
           />
         </span>
       </div>

@@ -10,13 +10,14 @@ import {
   type DonationItem,
   type PowerupKind,
 } from "../../models/oyun";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type SubTab = "jokerler" | "bagislar" | "kampanyalar";
 
-const SUB_TABS: { id: SubTab; label: string }[] = [
-  { id: "jokerler", label: "Jokerler" },
-  { id: "bagislar", label: "Bağışlar" },
-  { id: "kampanyalar", label: "Kampanyalar" },
+const SUB_TABS: { id: SubTab; label: { tr: string; en: string } }[] = [
+  { id: "jokerler", label: { tr: "Jokerler", en: "Power-ups" } },
+  { id: "bagislar", label: { tr: "Bağışlar", en: "Donations" } },
+  { id: "kampanyalar", label: { tr: "Kampanyalar", en: "Campaigns" } },
 ];
 
 type Props = {
@@ -53,6 +54,8 @@ export function CampaignsTab({
   onBuyPowerup,
   onBuyDonation,
 }: Props) {
+  const { language } = useLanguage();
+  const locale = language === "tr" ? "tr-TR" : "en-US";
   const [subTab, setSubTab] = useState<SubTab>("jokerler");
 
   return (
@@ -74,7 +77,7 @@ export function CampaignsTab({
                     : { background: "var(--color-surface-muted)", color: "var(--color-muted)" }
                 }
               >
-                {t.label}
+                {t.label[language]}
               </button>
             );
           })}
@@ -84,7 +87,9 @@ export function CampaignsTab({
           className="rounded-lg px-3 py-1.5 text-xs font-semibold"
           style={{ background: "var(--color-surface-muted)", color: "var(--color-heading)" }}
         >
-          Bakiye: <b className="tabular-nums">{pointsBalance.toLocaleString("tr-TR")}</b> puan
+          {language === "tr" ? "Bakiye" : "Balance"}:{" "}
+          <b className="tabular-nums">{pointsBalance.toLocaleString(locale)}</b>{" "}
+          {language === "tr" ? "puan" : "points"}
         </div>
       </div>
 
@@ -95,12 +100,12 @@ export function CampaignsTab({
             const affordable = pointsBalance >= item.price;
             return (
               <Card key={item.kind}>
-                <Banner src={item.image} alt={item.label} />
+                <Banner src={item.image} alt={item.label[language]} />
 
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="app-heading text-sm font-semibold">{item.label}</p>
-                    <p className="app-muted mt-1 text-xs leading-relaxed">{item.description}</p>
+                    <p className="app-heading text-sm font-semibold">{item.label[language]}</p>
+                    <p className="app-muted mt-1 text-xs leading-relaxed">{item.description[language]}</p>
                   </div>
                   <span
                     className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold"
@@ -109,13 +114,13 @@ export function CampaignsTab({
                       color: "var(--color-primary-soft-text)",
                     }}
                   >
-                    {owned} adet
+                    {owned} {language === "tr" ? "adet" : "owned"}
                   </span>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between">
                   <span className="app-heading text-sm font-bold tabular-nums">
-                    {item.price.toLocaleString("tr-TR")} puan
+                    {item.price.toLocaleString(locale)} {language === "tr" ? "puan" : "points"}
                   </span>
                   <button
                     onClick={() => onBuyPowerup(item.kind, item.price)}
@@ -123,7 +128,7 @@ export function CampaignsTab({
                     className="rounded-lg px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: "var(--color-cta)", color: "var(--color-on-primary)" }}
                   >
-                    Satın al
+                    {language === "tr" ? "Satın al" : "Buy"}
                   </button>
                 </div>
               </Card>
@@ -135,11 +140,11 @@ export function CampaignsTab({
       {subTab === "bagislar" && (
         <div className="grid gap-3 sm:grid-cols-2">
           {DONATIONS.map((item) => {
-            const owned = ownedBadges.includes(item.badge);
+            const owned = ownedBadges.includes(item.badge.tr);
             const affordable = pointsBalance >= item.cost;
             return (
               <Card key={item.id}>
-                <Banner src={item.image} alt={item.title} />
+                <Banner src={item.image} alt={item.title[language]} />
 
                 <div className="flex items-start gap-3">
                   <span
@@ -149,14 +154,14 @@ export function CampaignsTab({
                     {item.icon}
                   </span>
                   <div>
-                    <p className="app-heading text-sm font-semibold">{item.title}</p>
-                    <p className="app-muted mt-1 text-xs leading-relaxed">{item.body}</p>
+                    <p className="app-heading text-sm font-semibold">{item.title[language]}</p>
+                    <p className="app-muted mt-1 text-xs leading-relaxed">{item.body[language]}</p>
                   </div>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between">
                   <span className="app-heading text-sm font-bold tabular-nums">
-                    {item.cost.toLocaleString("tr-TR")} puan
+                    {item.cost.toLocaleString(locale)} {language === "tr" ? "puan" : "points"}
                   </span>
                   {owned ? (
                     <span
@@ -166,7 +171,7 @@ export function CampaignsTab({
                         color: "var(--color-success)",
                       }}
                     >
-                      Rozet kazanıldı
+                      {language === "tr" ? "Rozet kazanıldı" : "Badge earned"}
                     </span>
                   ) : (
                     <button
@@ -175,7 +180,7 @@ export function CampaignsTab({
                       className="rounded-lg px-4 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
                       style={{ background: "var(--color-cta)", color: "var(--color-on-primary)" }}
                     >
-                      Bağışla
+                      {language === "tr" ? "Bağışla" : "Donate"}
                     </button>
                   )}
                 </div>
@@ -189,14 +194,16 @@ export function CampaignsTab({
         <div className="grid gap-3 sm:grid-cols-2">
           {CAMPAIGNS.map((c) => (
             <Card key={c.id}>
-              <Banner src={c.image} alt={c.title} />
+              <Banner src={c.image} alt={c.title[language]} />
 
-              <p className="app-muted text-[11px]">{c.tags}</p>
-              <p className="app-heading mt-1 text-sm font-semibold leading-snug">{c.title}</p>
-              <p className="app-muted mt-2 text-xs leading-relaxed">{c.body}</p>
+              <p className="app-muted text-[11px]">{c.tags[language]}</p>
+              <p className="app-heading mt-1 text-sm font-semibold leading-snug">{c.title[language]}</p>
+              <p className="app-muted mt-2 text-xs leading-relaxed">{c.body[language]}</p>
               <div className="app-muted mt-3 flex items-center justify-between text-[11px]">
-                <span>{c.joined.toLocaleString("tr-TR")} katılımcı</span>
-                <span>{c.left}</span>
+                <span>
+                  {c.joined.toLocaleString(locale)} {language === "tr" ? "katılımcı" : "participants"}
+                </span>
+                <span>{c.left[language]}</span>
               </div>
             </Card>
           ))}

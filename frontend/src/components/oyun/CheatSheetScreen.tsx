@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Card from "../ui/Card";
 import { FlipCard } from "./FlipCard";
 import { CHEAT_SHEET, CONFIG } from "../../models/oyun";
+import { useLanguage } from "../../contexts/LanguageContext";
 
 type Props = {
   onFinish: () => void;
@@ -20,6 +21,7 @@ const TOPIC_COLORS = [
 ];
 
 export function CheatSheetScreen({ onFinish }: Props) {
+  const { language } = useLanguage();
   const [left, setLeft] = useState<number>(CONFIG.cheatSheetSeconds);
   const [ready, setReady] = useState(false);
 
@@ -44,13 +46,17 @@ export function CheatSheetScreen({ onFinish }: Props) {
             className="text-[11px] font-bold uppercase tracking-[0.16em]"
             style={{ color: "var(--color-cta)" }}
           >
-            Hazırlık
+            {language === "tr" ? "Hazırlık" : "Preparation"}
           </p>
-          <h2 className="app-heading mt-1 text-xl font-semibold">Çalışma notu</h2>
+          <h2 className="app-heading mt-1 text-xl font-semibold">
+            {language === "tr" ? "Çalışma notu" : "Study notes"}
+          </h2>
         </div>
 
         <div className="text-right">
-          <span className="app-muted block text-xs">Yarışma başlıyor</span>
+          <span className="app-muted block text-xs">
+            {language === "tr" ? "Yarışma başlıyor" : "Contest starting in"}
+          </span>
           <strong
             className="block text-2xl font-bold tabular-nums"
             style={{ color: "var(--color-cta)" }}
@@ -71,17 +77,19 @@ export function CheatSheetScreen({ onFinish }: Props) {
       </div>
 
       <p className="app-muted mt-4 max-w-3xl text-sm leading-relaxed">
-        Kartlara tıklayıp çevir, konuyu oku. Sorular bu konulardan gelecek, ancak cevaplar
-        burada doğrudan yazmıyor — konuyu anlaman gerekiyor.
+        {language === "tr"
+          ? "Kartlara tıklayıp çevir, konuyu oku. Sorular bu konulardan gelecek, ancak cevaplar burada doğrudan yazmıyor — konuyu anlaman gerekiyor."
+          : "Click the cards to flip them and read the topic. Questions will come from these topics, but the answers aren't written here directly — you need to understand the topic."}
       </p>
 
       {/* 6 flip kart */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
         {CHEAT_SHEET.map((t, i) => (
-          <FlipCard            key={t.title}
+          <FlipCard
+            key={t.title.tr}
             icon={TOPIC_ICONS[i] ?? "📌"}
-            title={t.title}
-            body={t.body}
+            title={t.title[language]}
+            body={t.body[language]}
             color={TOPIC_COLORS[i] ?? "var(--color-primary)"}
           />
          ))}
@@ -97,11 +105,15 @@ export function CheatSheetScreen({ onFinish }: Props) {
             color: ready ? "var(--color-muted)" : "#fff",
           }}
         >
-          {ready ? "Hazırsın, yarışma bekleniyor…" : "Hazırım"}
+          {ready
+            ? (language === "tr" ? "Hazırsın, yarışma bekleniyor…" : "You're ready, waiting for the contest…")
+            : (language === "tr" ? "Hazırım" : "I'm ready")}
         </button>
 
         <p className="app-muted mt-2 text-xs">
-          Yarışma tüm katılımcılar için aynı anda başlar.
+          {language === "tr"
+            ? "Yarışma tüm katılımcılar için aynı anda başlar."
+            : "The contest starts at the same time for all participants."}
         </p>
 
         <button
@@ -109,7 +121,7 @@ export function CheatSheetScreen({ onFinish }: Props) {
           className="mt-4 text-xs font-semibold underline underline-offset-4"
           style={{ color: "var(--color-muted)" }}
         >
-          Demo: yarışmaya geç
+          {language === "tr" ? "Demo: yarışmaya geç" : "Demo: skip to contest"}
         </button>
       </div>
     </Card>

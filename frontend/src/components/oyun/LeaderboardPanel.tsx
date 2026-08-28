@@ -7,11 +7,12 @@ import {
   WEEKLY_PRIZES,
   type LeaderboardPeriod,
 } from "../../models/oyun";
+import { useLanguage } from "../../contexts/LanguageContext";
 
-const PERIODS: { id: LeaderboardPeriod; label: string }[] = [
-  { id: "gunluk", label: "Günlük" },
-  { id: "haftalik", label: "Haftalık" },
-  { id: "tumzamanlar", label: "Tüm Zamanlar" },
+const PERIODS: { id: LeaderboardPeriod; label: { tr: string; en: string } }[] = [
+  { id: "gunluk", label: { tr: "Günlük", en: "Daily" } },
+  { id: "haftalik", label: { tr: "Haftalık", en: "Weekly" } },
+  { id: "tumzamanlar", label: { tr: "Tüm Zamanlar", en: "All Time" } },
 ];
 
 const PODIUM_ORDER = [2, 1, 3] as const; // görsel sıra: 2. sol, 1. orta, 3. sağ
@@ -24,12 +25,14 @@ type Props = {
 };
 
  export function LeaderboardPanel({ myScore = null }: Props) {
+  const { language } = useLanguage();
+  const locale = language === "tr" ? "tr-TR" : "en-US";
   const [period, setPeriod] = useState<LeaderboardPeriod>("gunluk");
   const [entries, setEntries] = useState<ReturnType<typeof buildLeaderboard>>([]);
 
   useEffect(() => {
-    setEntries(buildLeaderboard(period));
-  }, [period]);
+    setEntries(buildLeaderboard(period, language));
+  }, [period, language]);
 
   const podium = entries.slice(0, 3);
   const rest = entries.slice(3);
@@ -54,7 +57,7 @@ type Props = {
                     : { background: "var(--color-surface-muted)", color: "var(--color-muted)" }
                 }
               >
-                {p.label}
+                {p.label[language]}
               </button>
             );
           })}
@@ -75,7 +78,7 @@ type Props = {
                   {entry.label}
                 </span>
                 <span className="app-muted text-[10px] tabular-nums">
-                  {entry.score.toLocaleString("tr-TR")}
+                  {entry.score.toLocaleString(locale)}
                 </span>
                                 <div
                   className="mt-1.5 w-full rounded-t-lg"
@@ -108,7 +111,7 @@ type Props = {
                   {entry.label}
                 </span>
                 <span className="app-heading font-semibold tabular-nums">
-                  {entry.score.toLocaleString("tr-TR")}
+                  {entry.score.toLocaleString(locale)}
                 </span>
               </div>
             ))}
@@ -126,16 +129,19 @@ type Props = {
         >
           {myScore != null && myRank ? (
             <span className="font-semibold">
-              Sıralaman: <b className="tabular-nums">{myRank}.</b> ·{" "}
-              <b className="tabular-nums">{myScore.toLocaleString("tr-TR")}</b> puan
+              {language === "tr" ? "Sıralaman" : "Your rank"}: <b className="tabular-nums">{myRank}.</b> ·{" "}
+              <b className="tabular-nums">{myScore.toLocaleString(locale)}</b>{" "}
+              {language === "tr" ? "puan" : "points"}
             </span>
           ) : (
-            <span className="font-semibold">Sıralamaya girmek için oyuna katıl!</span>
+            <span className="font-semibold">
+              {language === "tr" ? "Sıralamaya girmek için oyuna katıl!" : "Join the game to enter the ranking!"}
+            </span>
           )}
         </div>
       </Card>
 
-      <Card title="Haftanın büyük ödülleri">
+      <Card title={language === "tr" ? "Haftanın büyük ödülleri" : "This week's big prizes"}>
         <div className="space-y-2.5">
           {WEEKLY_PRIZES.map((prize) => (
             <div
@@ -145,16 +151,16 @@ type Props = {
             >
               <span className="text-lg">{prize.badge}</span>
               <div className="min-w-0 flex-1">
-                <p className="app-heading truncate text-xs font-semibold">{prize.title}</p>
+                <p className="app-heading truncate text-xs font-semibold">{prize.title[language]}</p>
                 <p className="app-muted text-[11px] tabular-nums">
-                  +{prize.points.toLocaleString("tr-TR")} bonus puan
+                  +{prize.points.toLocaleString(locale)} {language === "tr" ? "bonus puan" : "bonus points"}
                 </p>
               </div>
             </div>
           ))}
         </div>
         <p className="app-muted mt-3 text-center text-[11px]">
-          Sıralama pazar 23.59&apos;da kapanır
+          {language === "tr" ? "Sıralama pazar 23.59'da kapanır" : "Rankings close Sunday at 11:59 PM"}
         </p>
       </Card>
     </div>
