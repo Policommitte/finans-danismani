@@ -26,6 +26,7 @@ from app.agents.risk_strategy import RiskStrategyAgent
 from app.agents.security_agent import SecurityAgent
 from app.config import settings
 from app.core.llm import get_llm_client
+from app.engine.llm_router import LlmRouter
 from app.engine.orchestrator import (
     AGENT_MARKET_RESEARCH,
     AGENT_PORTFOLIO,
@@ -91,6 +92,36 @@ def build_agents(mcp_client: MCPClient) -> dict[str, BaseAgent]:
     }
 
 
+def build_llm_router(known_agents) -> LlmRouter | None:
+    """Hibrit LLM router'i env flag'e ve LLM erisilebilirligine gore uretir.
+
+    Uc kosul birden saglanmali:
+      1. `LLM_ROUTER_ENABLED=true`.
+      2. Synthesizer ajanina ayarli bir model ve API anahtari mevcut olmali
+         (kullanici karari: router synthesizer ile ayni modeli paylasir).
+      3. LLM istemcisi hatasiz olusturulabilmeli.
+
+    Sartlardan biri saglanmazsa `None` doner - orchestrator bunu "hibrit
+    kapali" olarak yorumlar ve bugunku kural motoru fallback'ine duser. Yani
+    LLM baglanmadigi surece davranis regresyona ugramaz.
+    """
+    if not settings.llm_router_enabled:
+        return None
+
+    router_llm = build_agent_llm("synthesizer")
+    if router_llm is None:
+        logger.info("LLM_ROUTER_ENABLED=true ama LLM baglanamadi, hibrit atlandi")
+        return None
+
+    return LlmRouter(
+        llm=router_llm,
+        known_agents=known_agents,
+        timeout_seconds=settings.llm_router_timeout_seconds,
+        cache_size=settings.llm_router_cache_size,
+        cache_ttl_seconds=settings.llm_router_cache_ttl_seconds,
+    )
+
+
 def build_orchestrator(mcp_client: MCPClient | None = None, **kwargs) -> Orchestrator:
     """Uctan uca calismaya hazir orchestrator uretir.
 
@@ -102,9 +133,13 @@ def build_orchestrator(mcp_client: MCPClient | None = None, **kwargs) -> Orchest
     olaylar ve testler bundan etkilenmez.
     """
     client = mcp_client if mcp_client is not None else build_mcp_client()
+    agents = build_agents(client)
+
+    # Cagiran explicit gecmediyse env flag'e gore kurulur (opsiyonel).
+    kwargs.setdefault("llm_router", build_llm_router(known_agents=set(agents.keys())))
 
     return Orchestrator(
-        agents=build_agents(client),
+        agents=agents,
         # Guvenlik ajanina model tanimliysa LLM verilir; degilse kural motoru
         # tek basina karar verir (fail-closed).
         security_agent=SecurityAgent(

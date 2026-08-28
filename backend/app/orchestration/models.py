@@ -170,6 +170,11 @@ class AgentState(BaseModel):
     #: Yalnizca router yazar; loglama ve `chat_messages.meta` icin tutulur.
     intent: str | None = None
 
+    #: Hibrit router'in "bu sorgu sohbet mi?" karari. `True` ise graph
+    #: ajanlari ATLAR ve dogrudan synthesizer'a gider (bkz.
+    #: `Orchestrator._smalltalk_branch`). Yalnizca router yazar, catisma yok.
+    is_smalltalk: bool = False
+
     # Ajan bazli OPSIYONEL parametreler: {ajan_adi: {...}}
     #
     # Router bir ajan icin yapilandirilmis parametre uretebildiginde (orn.

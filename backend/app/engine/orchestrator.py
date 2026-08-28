@@ -47,6 +47,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
+from app.engine.llm_router import LlmRouter
 from app.orchestration.models import RESET, AgentError, AgentState, Source
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,23 @@ Uymak zorunda olduğun kurallar:
 4. Bir uzmandan veri gelmediyse bunu dürüstçe söyle, veri uydurma.
 5. Sade ve anlaşılır bir dil kullan; gereksiz teknik jargon kullanma."""
 
+#: Sohbet (smalltalk) modunda kullanilan sistem prompt'u.
+#:
+#: Selamlasma / tesekkur / genel sohbet sorularinda hicbir ajan calismaz -
+#: elimizde uzman verisi yoktur, kaynak da yoktur. Bu durumda ana prompt'taki
+#: "kaynak goster" ve "yatirim tavsiyesi degildir" kurallari yaniltici olur:
+#: kullaniciya "merhaba" dedigimizde uyari ibaresi eklemek konusmayi tuhaf
+#: kilar. Bu prompt kisa/nazik yanit ister ve veri uydurmayi bilerek yasaklar.
+SMALLTALK_SYSTEM_PROMPT = """Sen bir kişisel finans danışmanı asistanısın.
+Kullanıcı şu an sohbet ediyor (selamlaşma, teşekkür, genel soru).
+
+Kurallar:
+1. Kısa ve nazik cevap ver (1-2 cümle yeter).
+2. Bu sohbet için uzman analizi çalıştırılmadı, elinde veri yok. Veri uydurma.
+3. Finansal analiz sorulursa nasıl yardımcı olabileceğini kısaca hatırlat.
+4. "Bu bilgiler yatırım tavsiyesi değildir." ibaresini bu yanıta ekleme;
+   yalnızca gerçek analiz yanıtlarında geçer."""
+
 
 def _normalize(text: str) -> str:
     """Metni anahtar kelime eslesmesi icin normalize eder.
@@ -196,6 +214,7 @@ class Orchestrator:
         synthesizer_llm=None,
         checkpointer=None,
         synthesizer_timeout_seconds: int = 40,
+        llm_router: LlmRouter | None = None,
     ) -> None:
         """
         Args:
@@ -213,12 +232,22 @@ class Orchestrator:
                 Verilmezse bellek ici `MemorySaver` kullanilir (demo icin
                 yeterli; kalicilik gerekirse PostgreSQL checkpointer'a gecilir).
             synthesizer_timeout_seconds: Sentez adiminin ust sinir suresi.
+            llm_router: Kural motoru bos donunce cagrilan hibrit LLM router.
+                `None` ise hibrit devre disi: keyword eslesmezse bugunku gibi
+                tum ajanlar tetiklenir. Boylece LLM baglanmamis kurulumlarda
+                davranis degismez.
         """
         self.agents = agents
         self.security_agent = security_agent
         self.synthesizer_llm = synthesizer_llm
         self.synthesizer_timeout_seconds = synthesizer_timeout_seconds
+        self.llm_router = llm_router
         self.checkpointer = checkpointer if checkpointer is not None else MemorySaver()
+
+        # Router'in "smalltalk degil" durumunda tetikleyecegi ilk katman.
+        # `build_graph` sirasinda hesaplanip conditional edge'e verilir.
+        self._first_layer_after_router: list[str] = []
+
         self.graph = self.build_graph().compile(checkpointer=self.checkpointer)
 
     # ------------------------------------------------------------------
@@ -277,6 +306,10 @@ class Orchestrator:
         ve YALNIZCA kayitli ajanlar icin kenar uretilir. Bu sayede:
           - Henuz yazilmamis bir ajan graph'i bozmaz.
           - Yeni ajan eklemek icin sabit listeye bir satir eklemek yeterlidir.
+
+        Router'dan cikis STATIK degil KOSULLU bir kenardir: hibrit router sorguyu
+        "smalltalk" olarak isaretlerse hicbir ajan calistirilmadan dogrudan
+        synthesizer'a gidilir. Aksi halde bugunku fan-out akisi isler.
         """
         parallel = [name for name in PARALLEL_AGENTS if name in self.agents]
         sequential = [name for name in SEQUENTIAL_AGENTS if name in self.agents]
@@ -286,25 +319,47 @@ class Orchestrator:
         known = set(PARALLEL_AGENTS) | set(SEQUENTIAL_AGENTS)
         parallel.extend(name for name in self.agents if name not in known)
 
-        # FAN-OUT: bagimsiz ajanlarin hepsi router'dan ayni anda tetiklenir.
+        # ROUTER SONRASI ILK KATMAN:
+        #   - Paralel ajan varsa hepsi (fan-out).
+        #   - Yoksa ilk sirali ajan.
+        #   - Hic ajan yoksa dogrudan cikti guvenlik kapisi.
         if parallel:
-            for name in parallel:
-                builder.add_edge(NODE_ROUTER, name)
-            upstream: list[str] = parallel
+            first_layer = list(parallel)
+            upstream: list[str] = list(parallel)
+            kalan_sirali = sequential
+        elif sequential:
+            first_layer = [sequential[0]]
+            upstream = [sequential[0]]
+            kalan_sirali = sequential[1:]
         else:
-            upstream = [NODE_ROUTER]
+            first_layer = [NODE_SECURITY_GATE]
+            upstream = []
+            kalan_sirali = []
+
+        # Conditional edge: smalltalk -> synthesizer, aksi halde ilk katman(lar).
+        # `path_map` graph introspection icin gerekli; olmadan `get_graph().edges`
+        # bu kenari eksik gosterir ve topoloji testleri kirilir.
+        self._first_layer_after_router = first_layer
+        hedefler = [NODE_SYNTHESIZER, *first_layer]
+        builder.add_conditional_edges(
+            NODE_ROUTER,
+            self._smalltalk_branch,
+            {n: n for n in hedefler},
+        )
 
         # FAN-IN: sirali ajanlar bir onceki katmanin TAMAMINI bekler.
         # LangGraph, bir node'a gelen tum kenarlar tamamlanmadan o node'u
         # calistirmaz; bekleme mantigi otomatik yonetilir.
-        for name in sequential:
+        for name in kalan_sirali:
             for parent in upstream:
                 builder.add_edge(parent, name)
             upstream = [name]
 
-        # Son katman -> cikti guvenlik denetimi
+        # Son katman -> cikti guvenlik denetimi.
+        # Ilk katman zaten security_gate ise (hic ajan yok) tekrar baglama.
         for parent in upstream:
-            builder.add_edge(parent, NODE_SECURITY_GATE)
+            if parent != NODE_SECURITY_GATE:
+                builder.add_edge(parent, NODE_SECURITY_GATE)
 
     # ------------------------------------------------------------------
     # Dallanma kararlari (conditional edges)
@@ -320,29 +375,92 @@ class Orchestrator:
         """Ham ajan verisi temizse sentezle, degilse guvenli yanit dondur."""
         return NODE_SYNTHESIZER if state.is_output_safe else NODE_SAFE_RESPONSE
 
+    def _smalltalk_branch(self, state: AgentState) -> str | list[str]:
+        """Sohbet sorgusunda ajanlari atla, dogrudan sentezle.
+
+        LangGraph conditional edge: donen deger tek node adi ise oraya gider,
+        LISTE ise hepsine fan-out yapar. Boylece "smalltalk degil" durumunda
+        eskisi gibi paralel ajanlar ayni anda tetiklenir; ayri statik kenarlar
+        gerekmez.
+
+        Hibrit router devre disi (llm_router=None) veya sorgu keyword ile
+        eslestiyse `is_smalltalk=False` gelir; yani mevcut fan-out akisi
+        korunmus olur.
+        """
+        if state.is_smalltalk:
+            return NODE_SYNTHESIZER
+        return list(self._first_layer_after_router)
+
     # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
 
-    def route_node(self, state: AgentState) -> dict:
+    async def route_node(self, state: AgentState) -> dict:
         """Niyete gore hangi ajanlarin anlamli oldugunu isaretler.
 
-        NOT: Graph kenarlari STATIKTIR; bu node ajanlari devre disi birakmaz,
+        Hibrit strateji:
+          1. KURAL MOTORU: keyword eslesmesi varsa dogrudan onu kullan (LLM'e
+             gitmez; hizli ve deterministik).
+          2. LLM ROUTER: keyword yoksa ve `llm_router` baglysa LLM'e sor.
+             Sonuc bir ajan listesi + smalltalk bayragi. LLM cok yavassa/hata
+             verirse fallback: tum ajanlar.
+          3. FALLBACK: LLM router baglanmamissa keyword yok durumunda tum
+             ajanlar (bugunku davranis).
+
+        Graph kenarlari STATIKTIR; bu node ajanlari devre disi birakmaz,
         yalnizca `requested_agents` listesini doldurur. Ajanlar bu listeye
         bakarak kendilerini erken sonlandirabilir (ucuz no-op) - bkz.
         `BaseAgent.is_requested`. Risk ajani sirali konumda oldugu icin
         atlansa bile graph akisi bozulmaz.
+
+        `is_smalltalk=True` durumunda ROUTER conditional edge'i ajanlari tamamen
+        atlar ve dogrudan synthesizer'a gider (bkz. `_smalltalk_branch`).
         """
-        requested = self.route_intent(state)
-        return {"requested_agents": requested, "intent": self._intent_adi(requested)}
+        keyword_agents = self._keyword_match_agents(state)
+
+        if keyword_agents:
+            requested = self._risk_ile_zenginlestir(keyword_agents)
+            is_smalltalk = False
+            via = "keyword"
+        elif self.llm_router is not None:
+            decision = await self.llm_router.decide(state.user_query)
+            requested = list(decision.agents)
+            is_smalltalk = decision.is_smalltalk
+            via = "llm"
+        else:
+            requested = list(self.agents)
+            is_smalltalk = False
+            via = "fallback"
+
+        intent = self._intent_adi(requested, is_smalltalk=is_smalltalk)
+        logger.info(
+            "router karar verdi",
+            extra={
+                "via": via,
+                "intent": intent,
+                "is_smalltalk": is_smalltalk,
+                "agents": requested,
+            },
+        )
+        return {
+            "requested_agents": requested,
+            "intent": intent,
+            "is_smalltalk": is_smalltalk,
+        }
 
     @staticmethod
-    def _intent_adi(requested: list[str]) -> str:
+    def _intent_adi(requested: list[str], *, is_smalltalk: bool = False) -> str:
         """Istenen ajan kumesini tek bir niyet etiketine cevirir.
 
         Etiket `chat_messages.meta` icine yazilir ve loglarda kullanilir;
         yonlendirme karari zaten `requested_agents` ile verilmistir.
+
+        Smalltalk bayragi acikca gelirse "sohbet" doner - LLM router "hicbir
+        ajan gerek yok" derse liste zaten bostur, ama parametreyi acik tutmak
+        cagirani belirsizlikten korur.
         """
+        if is_smalltalk:
+            return "sohbet"
         kume = set(requested)
         if not kume:
             return "sohbet"
@@ -354,35 +472,46 @@ class Orchestrator:
             AGENT_RISK_STRATEGY: "risk",
         }.get(next(iter(kume)), "belirsiz")
 
-    def route_intent(self, state: AgentState) -> list[str]:
-        """Basit sorularda tum ajanlari tetiklememek icin niyet analizi.
+    def _keyword_match_agents(self, state: AgentState) -> list[str]:
+        """Sorguda anahtar kelime eslesen ajanlarin listesi (bos olabilir).
 
-        Kural tabanli calisir (LLM'siz): ucretsiz API kotasini korumak icin
-        bilincli bir tercihtir. Sorguda hicbir anahtar kelime eslesmezse
-        guvenli varsayilan olarak TUM kayitli ajanlar istenir - eksik yanit
-        vermektense biraz fazla calismak yeglenir.
-
-        TODO(Sprint 3): Basit sohbet sorularinda ("merhaba") fan-out'u tamamen
-        atlayan kisa yol eklenecek.
+        Risk zenginlestirmesi burada YAPILMAZ - `route_node` ve `route_intent`
+        gerektiginde ayrica ekler. Boylece "sadece keyword eslesti mi?" sorusu
+        tek satirda cevaplanir.
         """
         normalized = _normalize(state.user_query)
-
-        requested = [
+        return [
             name
             for name in self.agents
             if any(keyword in normalized for keyword in INTENT_KEYWORDS.get(name, ()))
         ]
 
-        if not requested:
+    def _risk_ile_zenginlestir(self, requested: list[str]) -> list[str]:
+        """Portfoy/piyasa istendiyse risk ajanini da otomatik ekler.
+
+        Risk analizi portfoy/piyasa verisine dayanir; kullanici dogrudan
+        "risk" demese bile bu ajanlardan biri istendiyse risk yorumu da
+        anlamlidir.
+        """
+        genisletilmis = list(requested)
+        if AGENT_RISK_STRATEGY in self.agents and AGENT_RISK_STRATEGY not in genisletilmis:
+            if any(name in genisletilmis for name in PARALLEL_AGENTS):
+                genisletilmis.append(AGENT_RISK_STRATEGY)
+        return genisletilmis
+
+    def route_intent(self, state: AgentState) -> list[str]:
+        """Kural tabanli niyet analizi (geriye donuk uyum icin sync).
+
+        Hibrit router `route_node` icinde calisir; bu metod yalnizca keyword
+        motorunun ciktisini doner ve dogrudan cagrilirsa (birim testler)
+        bugunku davranisi korur:
+          - Eslesme varsa -> matched ajanlar + otomatik risk.
+          - Eslesme yoksa -> tum kayitli ajanlar (guvenli varsayilan).
+        """
+        keyword_agents = self._keyword_match_agents(state)
+        if not keyword_agents:
             return list(self.agents)
-
-        # Risk ajani portfoy/piyasa verisine dayanir; sorguda dogrudan gecmese
-        # bile bu ajanlardan biri istendiyse risk analizi de anlamlidir.
-        if AGENT_RISK_STRATEGY in self.agents and AGENT_RISK_STRATEGY not in requested:
-            if any(name in requested for name in PARALLEL_AGENTS):
-                requested.append(AGENT_RISK_STRATEGY)
-
-        return requested
+        return self._risk_ile_zenginlestir(keyword_agents)
 
     # ------------------------------------------------------------------
     # Sentez ve sabit yanitlar
@@ -447,8 +576,13 @@ class Orchestrator:
 
         Onceki turlarin mesajlari da eklenir; boylece cok turlu baglam
         (FR-CHAT-03) korunur.
+
+        Sohbet modunda (`is_smalltalk=True`) sistem prompt'u degisir - ajan
+        verisi olmadigini bildiginden kaynak/uyari kurallarindan MUAF olur.
+        Baglam metni de kisalir: yalnizca kullanicinin sorusu iletilir.
         """
-        messages: list = [SystemMessage(content=SYNTHESIZER_SYSTEM_PROMPT)]
+        sistem = SMALLTALK_SYSTEM_PROMPT if state.is_smalltalk else SYNTHESIZER_SYSTEM_PROMPT
+        messages: list = [SystemMessage(content=sistem)]
 
         # Onceki konusma gecmisi (son mesaj mevcut sorgunun kendisidir).
         messages.extend(state.messages)
@@ -457,7 +591,15 @@ class Orchestrator:
         return messages
 
     def _build_context(self, state: AgentState) -> str:
-        """Ajan ciktilarini LLM'e verilecek tek bir baglam metnine cevirir."""
+        """Ajan ciktilarini LLM'e verilecek tek bir baglam metnine cevirir.
+
+        Sohbet modunda ajan verisi zaten yoktur; yalnizca kullanicinin sorusu
+        gonderilir. Bos "Portfoy analizi: None" gibi satirlar yaniti karisiklik
+        icine cekerdi.
+        """
+        if state.is_smalltalk:
+            return f"Kullanicinin sorusu: {state.user_query}"
+
         bolumler = [f"Kullanicinin sorusu: {state.user_query}"]
 
         veri_alanlari = (
@@ -487,8 +629,16 @@ class Orchestrator:
           2. LLM cagrisi zaman asimina ugradi veya hata verdi.
 
         Uretilen metin de uyum kurallarina uyar: eksik veriyi durustce belirtir
-        ve yatirim tavsiyesi ibaresini icerir.
+        ve yatirim tavsiyesi ibaresini icerir. Sohbet modunda (hicbir ajan
+        calismadi) yatirim tavsiyesi ibaresi eklenmez - "merhaba"ya cevaben
+        uyari ibaresi eklemek tuhaf olur.
         """
+        if state.is_smalltalk:
+            return (
+                "Merhaba! Portföyünüz, piyasa gelişmeleri veya risk analizi "
+                "hakkında sorularınızı yanıtlayabilirim."
+            )
+
         satirlar: list[str] = []
 
         veri_alanlari = (
@@ -724,11 +874,16 @@ class Orchestrator:
         "denetimden gecti" demek kullaniciyi yaniltir. Bu durumda ilerleme
         mesaji hic gonderilmez; hemen ardindan gelen ret/guvenli yanit metni
         durumu zaten aciklar.
+
+        Router smalltalk'a karar verdiyse "Uzmanlar belirlendi" mesaji da
+        yaniltici olur (hicbir uzman calismayacak); bu durumda mesaj atlanir.
         """
         if isinstance(update, dict):
             if node_name == NODE_SECURITY_IN and update.get("is_input_safe") is False:
                 return None
             if node_name == NODE_SECURITY_GATE and update.get("is_output_safe") is False:
+                return None
+            if node_name == NODE_ROUTER and update.get("is_smalltalk") is True:
                 return None
 
         return NODE_STATUS_MESSAGES.get(node_name)

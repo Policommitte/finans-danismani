@@ -152,6 +152,15 @@ class Settings(BaseSettings):
     agent_timeout_seconds: int = 20
     synthesizer_timeout_seconds: int = 40
 
+    # --- Hibrit router (kural motoru bos donunce LLM'e sor) ---------------
+    # `LLM_ROUTER_ENABLED=true` VE synthesizer LLM'i baglanmisken devrededir.
+    # Kapaliyken orchestrator bugunku "eslesme yoksa hepsini calistir"
+    # davranisina duser - hicbir sey bozulmaz.
+    llm_router_enabled: bool = False
+    llm_router_timeout_seconds: float = 3.0
+    llm_router_cache_size: int = 512
+    llm_router_cache_ttl_seconds: float = 3600.0
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

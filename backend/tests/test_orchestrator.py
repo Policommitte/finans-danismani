@@ -482,6 +482,188 @@ async def test_route_node_secimi_state_e_yazar():
 
 
 # ---------------------------------------------------------------------------
+# Hibrit router: keyword-first + LLM-fallback
+# ---------------------------------------------------------------------------
+
+
+from app.engine.llm_router import LlmRouteDecision  # noqa: E402  (test-only import)
+
+
+class SahteLlmRouter:
+    """`decide` metoduna sahip her nesne orchestrator icin yeterlidir.
+
+    Testte hibrit yolu izole etmek icin gercek `LlmRouter` yerine bu sinif
+    kullanilir; onbellek ve LLM baglantisi cikarilir.
+    """
+
+    def __init__(self, karar: LlmRouteDecision):
+        self.karar = karar
+        self.cagri_sayisi = 0
+
+    async def decide(self, query: str) -> LlmRouteDecision:
+        self.cagri_sayisi += 1
+        return self.karar
+
+
+async def test_keyword_eslesmesi_llm_i_atlar():
+    """Keyword tuttugunda hibrit LLM'e HIC gitmez - hiz ve determinizm icin."""
+    router = SahteLlmRouter(LlmRouteDecision(agents=[AGENT_PORTFOLIO]))
+    orchestrator = _orchestrator(llm_router=router)
+
+    await _calistir(orchestrator, "Portföyümdeki hisseler nasıl?")
+
+    assert router.cagri_sayisi == 0
+
+
+async def test_keyword_yoksa_kisa_sorguda_bile_llm_cagrilir():
+    """"thyo neden dususte" gibi keyword'sitz kisa sorgu LLM'e gitmeli."""
+    router = SahteLlmRouter(
+        LlmRouteDecision(agents=[AGENT_PORTFOLIO, AGENT_MARKET_RESEARCH])
+    )
+    orchestrator = _orchestrator(llm_router=router)
+
+    await _calistir(orchestrator, "thyo neden dususte")
+
+    assert router.cagri_sayisi == 1
+
+
+async def test_keyword_yoksa_uzun_sorguda_da_llm_cagrilir():
+    """Uzun ama keyword'siz sorgu da LLM'e gitmeli - uzunluk esik yok."""
+    router = SahteLlmRouter(LlmRouteDecision(agents=[AGENT_MARKET_RESEARCH]))
+    orchestrator = _orchestrator(llm_router=router)
+
+    await _calistir(
+        orchestrator,
+        "sadece uzun bir soru soruyorum ne dusunuyorsun bu konuda soyle",
+    )
+
+    assert router.cagri_sayisi == 1
+
+
+async def test_llm_router_none_iken_bugunku_davranis_korunur():
+    """Hibrit devre disi: keyword yoksa tum ajanlar (bugunku fallback)."""
+    orchestrator = _orchestrator()  # llm_router=None
+
+    state = await _calistir(orchestrator, "merhaba")
+
+    # Fallback: hepsi calisir.
+    assert set(state["requested_agents"]) == set(_uc_ajan())
+    assert state["is_smalltalk"] is False
+
+
+async def test_smalltalk_ajanlari_atlar_synthesizer_a_gider():
+    """`is_smalltalk=True` -> hicbir ajan calismaz, dogrudan sentez."""
+    router = SahteLlmRouter(LlmRouteDecision(agents=[], is_smalltalk=True))
+    ajanlar = _uc_ajan()
+    orchestrator = _orchestrator(agents=ajanlar, llm_router=router)
+
+    state = await _calistir(orchestrator, "merhaba")
+
+    for ajan in ajanlar.values():
+        assert ajan.cagri_sayisi == 0
+    assert state["is_smalltalk"] is True
+    assert state["final_response"]  # synthesizer yine yanit uretti
+
+
+async def test_smalltalk_yanitinda_uyari_ibaresi_yok():
+    """Kullanici karari: sohbet cevabina 'yatirim tavsiyesi degildir' eklenmez."""
+    router = SahteLlmRouter(LlmRouteDecision(agents=[], is_smalltalk=True))
+    orchestrator = _orchestrator(llm_router=router)
+
+    state = await _calistir(orchestrator, "tesekkurler")
+
+    assert "yatırım tavsiyesi değildir" not in state["final_response"]
+
+
+async def test_smalltalk_status_mesaji_yayinlanmaz():
+    """'Uzmanlar belirlendi' mesaji sohbet cevabinda yaniltici olur."""
+    router = SahteLlmRouter(LlmRouteDecision(agents=[], is_smalltalk=True))
+    orchestrator = _orchestrator(llm_router=router)
+
+    olaylar = await _olaylar(orchestrator, "merhaba")
+
+    durumlar = [o for o in olaylar if o["type"] == "status"]
+    assert not [o for o in durumlar if o["stage"] == "routing"]
+
+
+async def test_llm_router_karari_requested_agents_i_yazar():
+    router = SahteLlmRouter(
+        LlmRouteDecision(agents=[AGENT_PORTFOLIO, AGENT_MARKET_RESEARCH])
+    )
+    orchestrator = _orchestrator(llm_router=router)
+
+    state = await _calistir(orchestrator, "thyo hakkinda")
+
+    assert set(state["requested_agents"]) == {AGENT_PORTFOLIO, AGENT_MARKET_RESEARCH}
+    assert state["is_smalltalk"] is False
+
+
+async def test_llm_router_bos_liste_dondurse_bile_akis_devam_eder():
+    """LLM `agents=[]` verirse `requested_agents` bos kalir; graph statik oldugu
+    icin ajanlar cagrilir ama gercek ajanlar `is_requested` ile erken cikar.
+
+    Bu testte SahteAjan `is_requested`'i onemsemez; asil dogrulanan sey graph'in
+    ve synthesizer'in cakilmadan bir yanit uretmesidir - hibrit LLM bos liste
+    dondurse bile sistem calisir kalir.
+    """
+    router = SahteLlmRouter(LlmRouteDecision(agents=[], is_smalltalk=False))
+    orchestrator = _orchestrator(llm_router=router)
+
+    state = await _calistir(orchestrator, "genel bir soru")
+
+    assert state["requested_agents"] == []
+    assert state["is_smalltalk"] is False
+    assert state["final_response"]
+
+
+async def test_llm_router_timeout_fallback_ile_akis_devam_eder():
+    """Router LLM cok yavassa fallback tetiklenir ve mevcut fallback (hepsi) uygulanir.
+
+    Bu test gercek `LlmRouter`'i yavas LLM ile kurar; orchestrator hibritin
+    hata durumunda regresyona ugramamasini gozetir.
+    """
+    import asyncio as _asyncio
+
+    from app.engine.llm_router import LlmRouter
+
+    class YavasLLM:
+        async def ainvoke(self, prompt):
+            await _asyncio.sleep(5)
+            return type("M", (), {"content": ""})()
+
+    router = LlmRouter(
+        llm=YavasLLM(),
+        known_agents={AGENT_PORTFOLIO, AGENT_MARKET_RESEARCH, AGENT_RISK_STRATEGY},
+        timeout_seconds=0.05,
+    )
+    orchestrator = _orchestrator(llm_router=router)
+
+    state = await _calistir(orchestrator, "tesekkurler bilgi icin")
+
+    # Timeout -> fallback -> tum ajanlar
+    assert set(state["requested_agents"]) == set(_uc_ajan())
+    assert state["is_smalltalk"] is False
+    assert state["final_response"]
+
+
+async def test_keyword_sonrasi_multi_turnde_llm_cagrilmaz():
+    """Ayni thread'de once smalltalk sonra keyword'lu soru: hibrit yolu bozulmaz."""
+    router = SahteLlmRouter(LlmRouteDecision(agents=[], is_smalltalk=True))
+    ajanlar = _uc_ajan()
+    orchestrator = _orchestrator(agents=ajanlar, llm_router=router)
+
+    await _olaylar(orchestrator, "merhaba", thread_id=201)
+    assert router.cagri_sayisi == 1
+
+    await _olaylar(orchestrator, "Portföyüm nasıl?", thread_id=201)
+    # Keyword tuttu -> ikinci turda LLM'e gitmedi.
+    assert router.cagri_sayisi == 1
+
+    # Ajanlar ikinci turda calisti.
+    assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 1
+
+
+# ---------------------------------------------------------------------------
 # stream_request - SSE olaylari
 # ---------------------------------------------------------------------------
 
