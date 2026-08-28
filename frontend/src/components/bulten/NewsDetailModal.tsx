@@ -59,7 +59,12 @@ export function NewsDetailModal({ article, onClose }: { article: NewsDetailArtic
               <h2 className="mt-1 text-lg font-bold app-heading">{article.title}</h2>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Kapat"
+            className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80"
+          >
             ×
           </button>
         </div>

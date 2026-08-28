@@ -33,6 +33,13 @@ export const mainNavItems: NavItem[] = [
     icon: "/piyasa.svg",
     tourId: "nav-market",
   },
+  {
+    key: "game",
+    href: "/yatirim-oyunu",
+    label: { tr: "Yatırım Oyunu", en: "Investment Game" },
+    icon: "/oyun.svg",
+    tourId: "nav-game",
+  },
 ];
 
 export const utilityNavItems: NavItem[] = [

@@ -73,6 +73,10 @@ export type NewsLogoMatch = {
   fill?: boolean;
 };
 
+//: Yeni bir hisse/varlik (ticker) eklerken buraya da bir marka logosu
+//: eslesmesi eklemeyi unutma - eklenmezse kart jenerik bir ikonla gosterilir
+//: (hata degil, sadece daha az ozgun gorunur). Bkz. thumbnails.tsx'teki
+//: ayni amacli kapak-gorseli eslesmesi.
 export function matchNewsLogo(seed: string): NewsLogoMatch | null {
   const s = seed.toUpperCase();
 

@@ -1,12 +1,4 @@
-const gradientPalette: [string, string][] = [
-  ["#172554", "#1d4ed8"],
-  ["#0f172a", "#0891b2"],
-  ["#111827", "#334155"],
-  ["#1d4ed8", "#60a5fa"],
-  ["#172554", "#7c3aed"],
-];
-
-type Topic = "havacilik" | "sehir" | "sanayi" | "banka" | "grafik" | "kuresel";
+type Topic = "havacilik" | "sehir" | "sanayi" | "banka" | "grafik" | "kuresel" | "varlik";
 
 const topicGradients: Record<Topic, [string, string]> = {
   havacilik: ["#0c4a6e", "#38bdf8"],
@@ -15,6 +7,12 @@ const topicGradients: Record<Topic, [string, string]> = {
   banka: ["#172554", "#3b82f6"],
   grafik: ["#134e4a", "#14b8a6"],
   kuresel: ["#1e1b4b", "#7c3aed"],
+  //: Belirgin bir konu/foto eslesmesi olmayan TUM varliklarin (ticker kodu
+  //: THY/SASA/BTC gibi bilinen anahtar kelimelerle eslesmiyorsa - orn. EREGL,
+  //: TUPRS, AAPL, BIMAS) dustugu GENEL varsayilan. Once buraya dusenler eskiden
+  //: neredeyse gorunmez (opacity 0.06-0.08) iki daireyle "duz koyu arka plan"
+  //: gibi gorunuyordu (bkz. bulten-kapak-gorseli-eksik hata raporu).
+  varlik: ["#111827", "#3730a3"],
 };
 
 const topicIcons: Record<Topic, string> = {
@@ -30,8 +28,14 @@ const topicIcons: Record<Topic, string> = {
     '<g transform="translate(200,28)" fill="#fff" fill-opacity="0.85"><rect x="0" y="52" width="16" height="32"/><rect x="22" y="32" width="16" height="52"/><rect x="44" y="14" width="16" height="70"/><rect x="66" y="38" width="16" height="46"/><polyline points="8,50 30,30 52,12 74,36" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="3"/></g>',
   kuresel:
     '<g transform="translate(228,38)" fill="none" stroke="#fff" stroke-opacity="0.85" stroke-width="3"><circle cx="32" cy="32" r="32"/><ellipse cx="32" cy="32" rx="32" ry="13"/><line x1="0" y1="32" x2="64" y2="32"/><line x1="32" y1="0" x2="32" y2="64"/></g>',
+  varlik:
+    '<g transform="translate(202,30)" fill="#fff" fill-opacity="0.85"><rect x="0" y="16" width="8" height="46" rx="1.5"/><rect x="16" y="30" width="8" height="32" rx="1.5"/><rect x="32" y="4" width="8" height="58" rx="1.5"/><rect x="48" y="22" width="8" height="40" rx="1.5"/><rect x="64" y="12" width="8" height="50" rx="1.5"/><polyline points="4,14 20,28 36,2 52,20 68,10" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="3"/></g>',
 };
 
+//: YENI BIR HISSE/VARLIK (ticker) eklendiginde bu fonksiyona (veya
+//: detectPhoto'ya) o ticker icin bir anahtar kelime eslesmesi eklemeyi
+//: UNUTMA - aksi halde asagidaki jenerik "varlik" ikonuna duser (bkz.
+//: topicThumbnail). Bu unutma HATA vermez, sadece konsola uyari basar.
 function detectTopic(seed: string): Topic | null {
   const s = seed.toLowerCase();
 
@@ -60,14 +64,6 @@ function detectTopic(seed: string): Topic | null {
   }
 
   return null;
-}
-
-function hashSeed(seed: string) {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  return hash;
 }
 
 function detectPhoto(seed: string): string | null {
@@ -101,11 +97,25 @@ export function newsThumbnail(seed: string) {
 }
 
 export function topicThumbnail(seed: string) {
-  const topic = detectTopic(seed);
-  const [from, to] = topic ? topicGradients[topic] : gradientPalette[hashSeed(seed) % gradientPalette.length];
-  const icon = topic
-    ? topicIcons[topic]
-    : '<circle cx="252" cy="28" r="46" fill="#ffffff" fill-opacity="0.08" /><circle cx="34" cy="118" r="58" fill="#ffffff" fill-opacity="0.06" />';
+  //: Bilinen bir konu (havacilik/banka/... - anlatimsal Turkce anahtar
+  //: kelimelerden gelir) eslesmezse - ozellikle EREGL/TUPRS/AAPL/BIMAS gibi
+  //: duz ticker kodlari icin HICBIR zaman eslesmez - "varlik" (genel hisse/
+  //: finansal varlik) konusuna dusulur. Eskiden bu durumda gradyan rastgele
+  //: (hashSeed ile) seciliyor VE ikon neredeyse gorunmez opacity'deydi
+  //: (0.06-0.08) - sonuc "duz koyu arka plan" gibi algilaniyordu. Artik HER
+  //: eslesmeyen varlik ayni, belirgin (opacity 0.85) hisse/grafik ikonuyla
+  //: tutarli bir kapak gorseli alir.
+  const matchedTopic = detectTopic(seed);
+  if (!matchedTopic && process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `UYARI: "${seed}" için kapak görseli eşleşmesi tanımlı değil, jenerik ikon kullanılıyor. ` +
+        "Yeni bir hisse/varlık eklediysen thumbnails.tsx'teki detectPhoto/detectTopic'e de eşleşme ekle.",
+    );
+  }
+  const topic = matchedTopic ?? "varlik";
+  const [from, to] = topicGradients[topic];
+  const icon = topicIcons[topic];
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="140" viewBox="0 0 300 140">
     <defs>

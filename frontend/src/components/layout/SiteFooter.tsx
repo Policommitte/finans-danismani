@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 
 type SiteFooterProps = {
@@ -95,7 +95,18 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
   const { language } = useLanguage();
   const text = footerCopy[language];
   const [aboutOpen, setAboutOpen] = useState(false);
+  //: `onStartTour` sunucuda da fonksiyon olarak gecer (props aninda ayni),
+  //: ama turu "mount olmus" DOM'a (Sidebar/nav data-tour hedefleri) baglayan
+  //: ProductTour sadece client'ta anlamli - bu yuzden ilk render'i (server VE
+  //: client'in ilk boyasi) her zaman ayni "/destek" Link'ine sabitleriz, buton
+  //: SADECE mount sonrasi devreye girer. Boylece hydration'da yapisal fark
+  //: (server'da Link, client'ta button) hic olusmaz.
+  const [mounted, setMounted] = useState(false);
   const footerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   function setAboutVisibility(nextOpen: boolean) {
     const anchorTop = footerRef.current?.getBoundingClientRect().top;
@@ -232,7 +243,7 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
                 {link.label}
               </Link>
             ))}
-            {onStartTour ? (
+            {mounted && onStartTour ? (
               <button
                 type="button"
                 onClick={onStartTour}

@@ -148,7 +148,12 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
               </div>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Kapat"
+            className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80"
+          >
             ×
           </button>
         </div>

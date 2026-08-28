@@ -381,7 +381,12 @@ function LandingSideMenu({
                 onClose={onAuthPopoverClose}
               />
             ) : null}
-            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
+            <button
+              type="button"
+              onClick={() => onNavigate(target.href)}
+              aria-label={target.label[language]}
+              className={iconButtonClass}
+            >
               <span className="absolute left-2 top-1/2 -translate-y-1/2">
                 <MenuIcon src={target.icon} />
               </span>
@@ -401,7 +406,12 @@ function LandingSideMenu({
                 onClose={onAuthPopoverClose}
               />
             ) : null}
-            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
+            <button
+              type="button"
+              onClick={() => onNavigate(target.href)}
+              aria-label={target.label[language]}
+              className={iconButtonClass}
+            >
               <span className="absolute left-2 top-1/2 -translate-y-1/2">
                 <MenuIcon src={target.icon} />
               </span>
@@ -1008,6 +1018,7 @@ function PreviewModal({
           <button
             type="button"
             onClick={onClose}
+            aria-label={copy[language].close}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--color-border)] bg-transparent text-lg font-black app-muted transition hover:border-[var(--color-primary)] hover:text-[var(--color-heading)]"
           >
             x
