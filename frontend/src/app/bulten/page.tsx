@@ -227,6 +227,7 @@ export default function BultenPage() {
                   <NewsCard
                     key={holding.symbol}
                     icon={<HoldingIcon />}
+                    photoQuery={holding.asset_name}
                     symbol={holding.symbol}
                     time={holdingArticle.time}
                     tag={

@@ -8,15 +8,10 @@ onu ARAMA degil, duz bir liste olarak bultene sunar (bkz. repositories/base.py
 from __future__ import annotations
 
 import asyncio
-import logging
 
-import httpx
-
-from app.config import settings
 from app.repositories.deps import get_market_repository, get_rag_repository
 from app.schemas.market import NewsArticle, NewsListResponse
-
-logger = logging.getLogger(__name__)
+from app.services.pexels import search_photo
 
 #: Ozette gonderilen metin uzunlugu (kart arayuzunde tam metin gerekmez).
 EXCERPT_LENGTH = 240
@@ -156,15 +151,6 @@ def _related_symbol(kategori: str | None, baslik: str | None) -> str | None:
     return None
 
 
-_PEXELS_SEARCH_URL = "https://api.pexels.com/v1/search"
-_PEXELS_TIMEOUT_SECONDS = 6.0
-
-#: Bir sayfa yuklemesinde tek seferde ucretsiz Pexels kotasini tuketmemek
-#: icin ayni anda en fazla bu kadar istek yollanir; onbellege (image_url)
-#: dustukten sonra ayni haber icin bir daha hic istek atilmaz.
-_pexels_semaphore = asyncio.Semaphore(5)
-
-
 def _title_search_term(baslik: str | None) -> str | None:
     text = (baslik or "").lower()
     for keywords, term in _TITLE_SEARCH_TERM_RULES:
@@ -193,55 +179,6 @@ def _local_keyword_image(baslik: str | None) -> str | None:
     return None
 
 
-#: Ayni arama terimini paylasan haberler (orn. hepsi "altin" kategorisi)
-#: Pexels'ten TEK sonuc istenirse hepsi ayni fotografi alir - tam da
-#: istemedigimiz "paylasilan gorsel" sonucu. Bunun yerine bu kadar aday
-#: istenip haber ID'sine gore FARKLI (ama o haber icin hep AYNI) bir aday
-#: secilir. Pexels kotasini ETKILEMEZ: hala tek istek, sadece per_page buyur.
-#: 80 = Pexels'in izin verdigi ust sinir; en kalabalik kategoride (doviz,
-#: ~66 haber) bile her habere farkli bir aday dusmesi icin gerekli.
-_PEXELS_CANDIDATE_COUNT = 80
-
-
-async def _pexels_search(query: str, seed: int) -> str | None:
-    if not settings.pexels_api_key:
-        return None
-
-    async with _pexels_semaphore:
-        try:
-            async with httpx.AsyncClient(timeout=_PEXELS_TIMEOUT_SECONDS) as client:
-                response = await client.get(
-                    _PEXELS_SEARCH_URL,
-                    params={
-                        "query": query,
-                        "per_page": _PEXELS_CANDIDATE_COUNT,
-                        "orientation": "landscape",
-                    },
-                    headers={"Authorization": settings.pexels_api_key},
-                )
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "pexels istegi hata verdi",
-                extra={"hata": f"{type(exc).__name__}: {exc}", "query": query},
-            )
-            return None
-
-    if response.status_code != 200:
-        logger.warning(
-            "pexels istegi basarisiz",
-            extra={"status": response.status_code, "query": query},
-        )
-        return None
-
-    photos = response.json().get("photos") or []
-    if not photos:
-        return None
-
-    photo = photos[seed % len(photos)]
-    src = photo.get("src") or {}
-    return src.get("landscape") or src.get("medium") or src.get("original")
-
-
 async def resolve_image(document_id: int, kategori: str | None, baslik: str | None) -> str:
     """Haberin gorseli yoksa Pexels'ten konuyla alakali bir fotograf cozer.
 
@@ -261,7 +198,7 @@ async def resolve_image(document_id: int, kategori: str | None, baslik: str | No
         return local_image
 
     query = _search_term(document_id, kategori, baslik)
-    photo_url = await _pexels_search(query, document_id)
+    photo_url = await search_photo(query, document_id)
     if photo_url:
         await get_rag_repository().set_news_image(document_id, photo_url)
         return photo_url

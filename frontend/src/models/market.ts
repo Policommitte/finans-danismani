@@ -80,6 +80,11 @@ export type NewsListResponse = {
   items: NewsArticle[];
 };
 
+export type PhotoResponse = {
+  query: string;
+  url: string | null;
+};
+
 export type PublicMarketTickerItem = {
   symbol: string;
   label: string;

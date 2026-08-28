@@ -8,6 +8,7 @@ import type {
   MarketSearchResponse,
   NewsListResponse,
   OhlcResponse,
+  PhotoResponse,
   PublicLandingPreviewResponse,
   PublicMarketTickerResponse,
 } from "../models/market";
@@ -58,4 +59,8 @@ export function getMarketCandles(
 
 export function getPublicLandingPreview(): Promise<PublicLandingPreviewResponse> {
   return apiRequest<PublicLandingPreviewResponse>("/api/public/landing-preview", { auth: false });
+}
+
+export function getMarketPhoto(query: string): Promise<PhotoResponse> {
+  return apiRequest<PhotoResponse>(`/api/market/photo?query=${encodeURIComponent(query)}`);
 }

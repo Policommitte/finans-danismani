@@ -66,7 +66,7 @@ function detectTopic(seed: string): Topic | null {
   return null;
 }
 
-function detectPhoto(seed: string): string | null {
+export function detectPhoto(seed: string): string | null {
   const s = seed.toLowerCase();
 
   if (s.includes("thy") || s.includes("hava") || s.includes("yolcu")) {

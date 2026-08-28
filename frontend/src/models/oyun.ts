@@ -23,6 +23,8 @@ export type CheatSheetTopic = {
 export type Campaign = {
   id: number;
   image: string;
+  /** Pexels'te canli bir fotograf aranirken kullanilan sorgu (bkz. CampaignsTab). */
+  imageQuery: string;
   tags: LocalizedText;
   title: LocalizedText;
   body: LocalizedText;
@@ -387,6 +389,7 @@ export const CAMPAIGNS: Campaign[] = [
   {
     id: 1,
     image: "/oyun/kampanyalar/market.jpg",
+    imageQuery: "grocery shopping supermarket",
     tags: { tr: "#market #bonus", en: "#grocery #bonus" },
     title: { tr: "Market alışverişlerinize 500 TL bonus!", en: "500 TL bonus on your grocery shopping!" },
     body: {
@@ -400,6 +403,7 @@ export const CAMPAIGNS: Campaign[] = [
   {
     id: 2,
     image: "/oyun/kampanyalar/karekod.jpg",
+    imageQuery: "qr code payment phone",
     tags: { tr: "#karekod #bonus", en: "#QRcode #bonus" },
     title: { tr: "Karekod ödemelerinize 500 TL bonus!", en: "500 TL bonus on your QR code payments!" },
     body: {
@@ -413,6 +417,7 @@ export const CAMPAIGNS: Campaign[] = [
   {
     id: 3,
     image: "/oyun/kampanyalar/davet.jpg",
+    imageQuery: "online shopping delivery box",
     tags: { tr: "#online #yurtdışı #indirim", en: "#online #international #discount" },
     title: {
       tr: "Yurt dışı internet alışverişlerinize 600 TL'ye varan indirim!",
@@ -429,6 +434,7 @@ export const CAMPAIGNS: Campaign[] = [
   {
     id: 4,
     image: "/oyun/kampanyalar/sampiyon.jpg",
+    imageQuery: "trophy champion winner",
     tags: { tr: "#yarışma #şampiyon", en: "#contest #champion" },
     title: { tr: "Haftanın şampiyonuna 5.000 bonus puan!", en: "5,000 bonus points for the champion of the week!" },
     body: {
@@ -442,6 +448,7 @@ export const CAMPAIGNS: Campaign[] = [
   {
     id: 5,
     image: "/oyun/kampanyalar/davet.jpg",
+    imageQuery: "friends invitation gift",
     tags: { tr: "#davet #bonus", en: "#invite #bonus" },
     title: { tr: "Arkadaşını davet et, 500 bonus puan kazan!", en: "Invite a friend, earn 500 bonus points!" },
     body: {
@@ -455,6 +462,7 @@ export const CAMPAIGNS: Campaign[] = [
   {
     id: 6,
     image: "/oyun/kampanyalar/sadakat.jpg",
+    imageQuery: "loyalty badge medal",
     tags: { tr: "#sadakat #rozet", en: "#loyalty #badge" },
     title: {
       tr: "10 yarışma katılımına özel rozet ve 3.000 puan!",
@@ -669,6 +677,8 @@ export type PowerupShopItem = {
   price: number;
   description: LocalizedText;
   image: string;
+  /** Pexels'te canli bir fotograf aranirken kullanilan sorgu (bkz. CampaignsTab). */
+  imageQuery: string;
 };
 
 export const POWERUP_SHOP: PowerupShopItem[] = [
@@ -681,6 +691,7 @@ export const POWERUP_SHOP: PowerupShopItem[] = [
       en: "Extends the timer from 15 to 25 seconds, usable once per question.",
     },
     image: "/oyun/jokerler/zaman-kalkani.jpg",
+    imageQuery: "clock time",
   },
   {
     kind: "fiftyFifty",
@@ -691,6 +702,7 @@ export const POWERUP_SHOP: PowerupShopItem[] = [
       en: "Eliminates two wrong options; the correct one always remains.",
     },
     image: "/oyun/jokerler/cifte-sans.jpg",
+    imageQuery: "dice game luck",
   },
 ];
 
@@ -702,6 +714,8 @@ export type DonationItem = {
   badge: LocalizedText;
   icon: string;
   image: string;
+  /** Pexels'te canli bir fotograf aranirken kullanilan sorgu (bkz. CampaignsTab). */
+  imageQuery: string;
 };
 
 export const DONATIONS: DonationItem[] = [
@@ -716,6 +730,7 @@ export const DONATIONS: DonationItem[] = [
     badge: { tr: "Fidan Dostu", en: "Tree Friend" },
     icon: "🌱",
     image: "/oyun/bagislar/fidan.jpg",
+    imageQuery: "tree planting sapling",
   },
   {
     id: "egitim",
@@ -728,6 +743,7 @@ export const DONATIONS: DonationItem[] = [
     badge: { tr: "Eğitim Gönüllüsü", en: "Education Volunteer" },
     icon: "📚",
     image: "/oyun/bagislar/egitim.jpg",
+    imageQuery: "children studying classroom",
   },
 ];
 
@@ -791,11 +807,10 @@ export type WeeklyPrize = {
   place: 1 | 2 | 3;
   title: LocalizedText;
   points: number;
-  badge: string;
 };
 
 export const WEEKLY_PRIZES: WeeklyPrize[] = [
-  { place: 1, title: { tr: "AirPods Pro 2", en: "AirPods Pro 2" }, points: 25000, badge: "🥇" },
-  { place: 2, title: { tr: "Akıllı saat", en: "Smart watch" }, points: 15000, badge: "🥈" },
-  { place: 3, title: { tr: "2.500 TL hediye çeki", en: "2,500 TL gift card" }, points: 10000, badge: "🥉" },
+  { place: 1, title: { tr: "AirPods Pro 2", en: "AirPods Pro 2" }, points: 25000 },
+  { place: 2, title: { tr: "Akıllı saat", en: "Smart watch" }, points: 15000 },
+  { place: 3, title: { tr: "2.500 TL hediye çeki", en: "2,500 TL gift card" }, points: 10000 },
 ];

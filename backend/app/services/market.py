@@ -17,9 +17,11 @@ from app.schemas.market import (
     MarketSearchResponse,
     OhlcCandle,
     OhlcResponse,
+    PhotoResponse,
     PricePoint,
     SearchHit,
 )
+from app.services.pexels import cached_photo
 
 #: Arama sonucunda gonderilen metin uzunlugu. Tam chunk gonderilmez: kart
 #: arayuzunde okunmuyor ve yanit gövdesini gereksiz sisiriyor.
@@ -191,6 +193,19 @@ def _standart_mum_kovasi(timestamp: int, bucket_seconds: int) -> int:
     seconds_since_midnight = int((local_time - local_midnight).total_seconds())
     bucket_start = seconds_since_midnight - seconds_since_midnight % bucket_seconds
     return int((local_midnight + timedelta(seconds=bucket_start)).timestamp())
+
+
+async def fotograf_getir(query: str) -> PhotoResponse:
+    """Genel amacli Pexels fotograf aramasi (bkz. app/services/pexels.py).
+
+    Portfoy varligi kapak gorseli (bulten "Portfoyden" karti) ve Yatirim
+    Oyunu magaza karti gorselleri gibi, TEK bir habere/dokumana bagli
+    OLMAYAN gorsel ihtiyaclari icin - `resolve_image` (news.py) haber
+    basina DB'ye yazan bir onbellek kullanirken, bu fonksiyon sadece
+    sorgu-anahtarli, process-ici bir onbellek kullanir (bkz. cached_photo).
+    """
+    url = await cached_photo(query)
+    return PhotoResponse(query=query, url=url)
 
 
 async def arama_yap(

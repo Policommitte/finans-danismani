@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Card from "../ui/Card";
 import type { Powerups } from "../../hooks/useQuiz";
 import {
@@ -11,6 +11,7 @@ import {
   type PowerupKind,
 } from "../../models/oyun";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { fetchPhotoUrl } from "../../services/photoCache";
 
 type SubTab = "jokerler" | "bagislar" | "kampanyalar";
 
@@ -28,21 +29,46 @@ type Props = {
   onBuyDonation: (item: DonationItem) => void;
 };
 
-/** Görsel banner — dosya henüz yoksa sessizce boş bırakır, kırık ikon göstermez */
-function Banner({ src, alt }: { src: string; alt: string }) {
+/**
+ * Görsel banner — dosya henüz yoksa sessizce boş bırakır, kırık ikon göstermez.
+ * `query` verilirse önce Pexels'te canlı bir fotoğraf aranır; bulunursa yerel
+ * `src`'nin yerini alır, bulunamazsa/aranmıyorsa yerel `src` kullanılmaya devam eder.
+ */
+function Banner({ src, alt, query }: { src: string; alt: string; query?: string }) {
+  const [resolvedSrc, setResolvedSrc] = useState(src);
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    setResolvedSrc(src);
+    setBroken(false);
+    if (!query) {
+      return;
+    }
+    let active = true;
+    fetchPhotoUrl(query).then((url) => {
+      if (active && url) {
+        setResolvedSrc(url);
+        setBroken(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [src, query]);
+
   return (
     <div
       className="relative -mx-5 -mt-5 mb-4 aspect-[2/1] overflow-hidden rounded-t-xl"
       style={{ background: "var(--color-surface-muted)" }}
     >
-      <img
-        src={src}
-        alt={alt}
-        className="absolute inset-0 h-full w-full object-cover"
-        onError={(e) => {
-          e.currentTarget.style.visibility = "hidden";
-        }}
-      />
+      {!broken && (
+        <img
+          src={resolvedSrc}
+          alt={alt}
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={() => setBroken(true)}
+        />
+      )}
     </div>
   );
 }
@@ -100,7 +126,7 @@ export function CampaignsTab({
             const affordable = pointsBalance >= item.price;
             return (
               <Card key={item.kind}>
-                <Banner src={item.image} alt={item.label[language]} />
+                <Banner src={item.image} alt={item.label[language]} query={item.imageQuery} />
 
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -144,7 +170,7 @@ export function CampaignsTab({
             const affordable = pointsBalance >= item.cost;
             return (
               <Card key={item.id}>
-                <Banner src={item.image} alt={item.title[language]} />
+                <Banner src={item.image} alt={item.title[language]} query={item.imageQuery} />
 
                 <div className="flex items-start gap-3">
                   <span
@@ -194,7 +220,7 @@ export function CampaignsTab({
         <div className="grid gap-3 sm:grid-cols-2">
           {CAMPAIGNS.map((c) => (
             <Card key={c.id}>
-              <Banner src={c.image} alt={c.title[language]} />
+              <Banner src={c.image} alt={c.title[language]} query={c.imageQuery} />
 
               <p className="app-muted text-[11px]">{c.tags[language]}</p>
               <p className="app-heading mt-1 text-sm font-semibold leading-snug">{c.title[language]}</p>

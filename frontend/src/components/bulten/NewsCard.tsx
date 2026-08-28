@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { fetchPhotoUrl } from "../../services/photoCache";
 import { matchNewsLogo } from "./logos";
-import { newsThumbnail } from "./thumbnails";
+import { detectPhoto, topicThumbnail } from "./thumbnails";
 
 export function NewsCard({
   icon,
   image,
+  photoQuery,
   symbol,
   tag,
   time,
@@ -14,6 +16,13 @@ export function NewsCard({
 }: {
   icon?: ReactNode;
   image?: string;
+  /**
+   * Sunucudan hazir bir `image` gelmiyorsa (orn. portfoy varligi karti) VE
+   * bilinen bir yerel foto eslesmesi yoksa, bu sorguyla Pexels'te canli bir
+   * fotograf aranir. `image` verilmisse ya da yerel eslesme bulunmussa hic
+   * Pexels'e gidilmez - gereksiz istek atilmaz.
+   */
+  photoQuery?: string;
   symbol?: string;
   tag?: "positive" | "negative" | "neutral";
   time?: string;
@@ -22,6 +31,26 @@ export function NewsCard({
   onOpen?: () => void;
 }) {
   const logoMatch = matchNewsLogo(symbol ?? title);
+  const seed = `${symbol ?? ""} ${title}`;
+  const localPhoto = image ?? detectPhoto(seed);
+  const [resolvedImage, setResolvedImage] = useState(localPhoto ?? topicThumbnail(seed));
+
+  useEffect(() => {
+    setResolvedImage(localPhoto ?? topicThumbnail(seed));
+    if (localPhoto || !photoQuery) {
+      return;
+    }
+    let active = true;
+    fetchPhotoUrl(photoQuery).then((url) => {
+      if (active && url) {
+        setResolvedImage(url);
+      }
+    });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localPhoto, photoQuery, seed]);
 
   return (
     <div className="app-news-card-slot h-[320px]">
@@ -34,7 +63,7 @@ export function NewsCard({
           className="block h-[140px] w-full shrink-0 overflow-hidden border-0 bg-transparent p-0 text-left disabled:cursor-default"
         >
           <img
-            src={image ?? newsThumbnail(`${symbol ?? ""} ${title}`)}
+            src={resolvedImage}
             alt=""
             aria-hidden="true"
             className="app-hover-card-image h-full w-full object-cover"

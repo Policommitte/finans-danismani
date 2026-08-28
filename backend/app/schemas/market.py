@@ -68,6 +68,18 @@ class CandlesResponse(BaseModel):
     candles: list[Candle]
 
 
+class PhotoResponse(BaseModel):
+    """Genel amacli Pexels fotograf aramasi (bkz. app/services/pexels.py).
+
+    `url` None donebilir: API anahtari tanimsiz, sonuc yok veya istek
+    basarisiz oldu - cagiran taraf (frontend) bu durumda kendi yerel
+    ikon/gradyan geri dususune duser, hata GOSTERILMEZ.
+    """
+
+    query: str
+    url: str | None = None
+
+
 class MarketSearchRequest(BaseModel):
     query: str = Field(min_length=2, description="Dogal dilde arama sorgusu")
     top_k: int = Field(default=5, ge=1, le=20)

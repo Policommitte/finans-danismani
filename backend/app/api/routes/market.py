@@ -13,6 +13,7 @@ from app.schemas.market import (
     MarketSearchResponse,
     NewsListResponse,
     OhlcResponse,
+    PhotoResponse,
 )
 from app.services import market as service
 from app.services import news as news_service
@@ -73,6 +74,21 @@ async def candles(
 ) -> CandlesResponse:
     """Trading grafigi icin zaman kovalarina ayrilmis OHLC mumlari."""
     return await service.mumlar_getir(symbol, interval=interval, range_key=range_key)
+
+
+@router.get("/photo", response_model=PhotoResponse)
+async def photo(
+    user: CurrentUser,
+    query: str = Query(min_length=2, description="Pexels arama terimi (orn. sirket/varlik adi)"),
+) -> PhotoResponse:
+    """Genel amacli fotograf aramasi (bkz. app/services/pexels.py).
+
+    Tek bir habere bagli olmayan gorsel ihtiyaclari icin (portfoy varligi
+    kapak gorseli, Yatirim Oyunu magaza karti gorseli gibi). `url` null
+    donebilir - frontend bu durumda kendi yerel ikon/gradyan geri dususune
+    duser, 404 FIRLATILMAZ.
+    """
+    return await service.fotograf_getir(query)
 
 
 @router.post("/search", response_model=MarketSearchResponse)
