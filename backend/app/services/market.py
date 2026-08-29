@@ -271,7 +271,9 @@ async def arama_yap(
     Ajan cagrisi DEGILDIR: kullanici piyasa sekmesinden dogrudan haber/rapor
     arar, LLM devreye girmez. Bu yuzden ucuz ve hizlidir.
     """
-    rows = await get_rag_repository().search(query=query, top_k=top_k, sirket=sirket, tip=tip)
+    rows = await get_rag_repository().hybrid_search(
+        query=query, top_k=top_k, sirket=sirket, tip=tip
+    )
 
     return MarketSearchResponse(
         query=query,

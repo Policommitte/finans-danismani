@@ -52,7 +52,10 @@ export function useChatStream() {
         }
 
         if (event.type === "agent_error") {
-          agentErrors = [...agentErrors, { agent: event.agent, error_type: event.error_type }];
+          agentErrors = [
+            ...agentErrors,
+            { agent: event.agent, error_type: event.error_type, message: event.message },
+          ];
         }
 
         if (event.type === "token") {

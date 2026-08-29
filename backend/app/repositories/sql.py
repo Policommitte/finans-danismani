@@ -16,6 +16,7 @@ istegi disindan da cagrilir, dolayisiyla oturum bir request'e baglanamaz.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from decimal import ROUND_HALF_UP, Decimal
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.core.errors import BusinessRuleError, NotFoundError
+from app.ingestion.embeddings import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, onboarding_completed
+                   risk_tolerance, monthly_income, onboarding_completed, role
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -66,7 +68,7 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
-                   onboarding_completed
+                   onboarding_completed, role
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
@@ -373,6 +375,26 @@ class SqlMarketRepository(_SqlRepository):
             SELECT ts, price FROM deduplicated ORDER BY ts
             """,
             {"symbol": symbol, "days": days},
+        )
+
+    async def get_history_range(self, symbol: str, start: str, end: str) -> list[dict]:
+        """Iki tarih arasi gunluk kapanis serisi (her iki uc DAHIL).
+
+        `end` gunun kendisini de kapsasin diye `< end + 1 gun` yaziliyor:
+        `ph.ts` bir zaman damgasidir, `<= :end` yazilsaydi bitis gununun gun
+        ici saatleri disarida kalirdi.
+        """
+        return await self._rows(
+            """
+            SELECT ph.ts, ph.price
+            FROM price_history ph
+            JOIN assets a ON a.id = ph.asset_id
+            WHERE upper(a.symbol) = upper(:symbol)
+              AND ph.ts >= CAST(:start AS DATE)
+              AND ph.ts < CAST(:end AS DATE) + INTERVAL '1 day'
+            ORDER BY ph.ts
+            """,
+            {"symbol": symbol, "start": start, "end": end},
         )
 
     async def get_candles(self, symbol: str, interval: str = "5m", days: int = 5) -> list[dict]:
@@ -2029,16 +2051,30 @@ class SqlNotificationRepository(_SqlRepository):
 class SqlRagRepository(_SqlRepository):
     """Haber/rapor arama.
 
-    ⚠️ EMBEDDING MODELI SECILMEDIGI SURECE (mimari v4 bolum 16, madde 1)
-    hibrit aramanin DENSE ayagi calistirilamaz - sorgu vektore cevrilemez.
-    Bu yuzden varsayilan yol yalnizca BM25'tir. Model secilip
-    `EMBEDDING_MODEL` tanimlandiginda `rag.hybrid_search(...)` fonksiyonu
-    devreye girer; SQL zaten hazirdir ve bu sinifta yalnizca bir dal acilir.
+    Iki arama yolu vardir:
+      * `search()`        - yalnizca BM25 (tam eslesme/`content_tsv`).
+      * `hybrid_search()`  - dense (anlamsal) + BM25 -> RRF (`rag.hybrid_search`).
+        `rag_search` MCP tool'unun cagirdigi BIRINCIL yoldur.
+
+    `hybrid_search()` `search()`'in YERINE GECMEZ, UZERINE KURULUR: embedder
+    enjekte edilmediyse (`EMBEDDING_API_KEY`/`EMBEDDING_MODEL` tanimli degil)
+    ya da sorgu-zamani embedding cagrisi basarisiz/zaman asimina ugrarsa
+    dogrudan `search()`'e (BM25) duser - istek asla coker, yalnizca dense ayak
+    devre disi kalir. Bu yuzden `search()` bagimsiz, kalici bir sozlesme
+    olarak kalir (mimari v4 bolum 16, madde 1; roadmap Faz 4+5).
 
     BM25 sorgusunda `plainto_tsquery`'nin AND davranisi OR'a cevrilir: dogal
     dildeki bir sorunun TUM kelimelerinin ayni chunk'ta gecmesi neredeyse
     imkansizdir; cevrilmezse arama sessizce bos doner (db/README.md).
     """
+
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        embedder: Embedder | None = None,
+    ) -> None:
+        super().__init__(session_factory)
+        self._embedder = embedder
 
     async def search(
         self,
@@ -2046,10 +2082,9 @@ class SqlRagRepository(_SqlRepository):
         top_k: int = 5,
         sirket: str | None = None,
         tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
     ) -> list[dict]:
-        if settings.embedding_model:
-            logger.debug("embedding modeli tanimli; hibrit arama dali acilabilir")
-
         return await self._rows(
             """
             WITH q AS (
@@ -2067,20 +2102,103 @@ class SqlRagRepository(_SqlRepository):
             CROSS JOIN q
             WHERE q.tsq IS NOT NULL
               AND c.content_tsv @@ q.tsq
-              -- Sirket filtresi hem SEMBOL hem UNVAN ile eslesir: ajanlar
-              -- sorgudan sembol cikarir ("THYAO"), dokumanda ise unvan yazar
-              -- ("Turk Hava Yollari"). Yalnizca unvana bakilsaydi ajanin her
-              -- filtreli aramasi sessizce bos donerdi.
+              -- `d.sirket` KULLANILMAZ: bu kolon haberin KAYNAGINI tutar
+              -- ("AA Ekonomi", "BigPara Doviz"), haberin KONUSU olan
+              -- sirketi degil (bkz. embedding pipeline oturum notlari,
+              -- 2026-08-19). Sirket filtresi bu yuzden yalnizca `assets`
+              -- join'ine (SEMBOL - "THYAO" - ve UNVAN - "Turk Hava
+              -- Yollari") ve baslik fallback'ine bakar; `rag.hybrid_search()`
+              -- ile ayni desen.
               AND (CAST(:sirket AS TEXT) IS NULL
-                   OR upper(d.sirket) = upper(:sirket)
                    OR upper(a.symbol) = upper(:sirket)
                    OR upper(a.name) = upper(:sirket)
                    OR d.baslik ILIKE '%' || :sirket || '%')
               AND (CAST(:tip AS TEXT) IS NULL OR d.tip = :tip)
+              AND (CAST(:date_from AS DATE) IS NULL OR d.tarih >= CAST(:date_from AS DATE))
+              AND (CAST(:date_to AS DATE) IS NULL OR d.tarih <= CAST(:date_to AS DATE))
             ORDER BY score DESC
             LIMIT :top_k
             """,
-            {"query": query, "sirket": sirket, "tip": tip, "top_k": top_k},
+            {
+                "query": query,
+                "sirket": sirket,
+                "tip": tip,
+                "date_from": date_from,
+                "date_to": date_to,
+                "top_k": top_k,
+            },
+        )
+
+    async def hybrid_search(
+        self,
+        query: str,
+        top_k: int = 5,
+        sirket: str | None = None,
+        tip: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        if self._embedder is None:
+            logger.debug("embedder baglanmadi; BM25'e dusuluyor")
+            return await self.search(
+                query, top_k=top_k, sirket=sirket, tip=tip, date_from=date_from, date_to=date_to
+            )
+
+        try:
+            embedding = await asyncio.wait_for(
+                self._embedder.embed_query(query),
+                timeout=settings.rag_query_embedding_timeout_seconds,
+            )
+        except Exception:  # noqa: BLE001 - embedding basarisiz olsa da arama COKMEMELI
+            logger.warning(
+                "sorgu embedding'i basarisiz/zaman asimina ugradi; BM25'e dusuluyor",
+                exc_info=True,
+            )
+            return await self.search(
+                query, top_k=top_k, sirket=sirket, tip=tip, date_from=date_from, date_to=date_to
+            )
+
+        # `rag.hybrid_search()` `document_id`/`sirket` (KAYNAK) doner - `doc_id`
+        # (external_id) ve `symbol` icin `rag.documents`/`assets`'e geri
+        # JOIN edilir; boylece donus sekli `search()` ile BIREBIR aynidir
+        # (`_chunk_payload` ikisini ayirt etmeden isler).
+        #
+        # Isimli parametreler (`p_x => ...`) KULLANILIR: `p_asset_id` ve
+        # `p_k_rrf` varsayilanlarinda birakilir, pozisyonel cagrida aralarina
+        # NULL yazmaya gerek kalmaz.
+        #
+        # `:embedding` icin ACIK `CAST(... AS vector)` ZORUNLUDUR - aksi
+        # halde SQLAlchemy/psycopg parametreyi `double precision[]` olarak
+        # gonderir ve Postgres fonksiyon overload'unu bulamaz (bkz. embedding
+        # pipeline oturum notlari, 2026-08-19/20 - ayni hata local'de
+        # `rag.hybrid_search`'u dogrudan cagirirken de yasanmisti).
+        return await self._rows(
+            """
+            SELECT hs.chunk_id, d.external_id AS doc_id, hs.baslik, hs.sirket,
+                   a.symbol, to_char(hs.tarih, 'YYYY-MM-DD') AS tarih, hs.tip,
+                   hs.content, hs.score
+            FROM rag.hybrid_search(
+                     p_query     => CAST(:query AS TEXT),
+                     p_embedding => CAST(:embedding AS vector),
+                     p_top_k     => CAST(:top_k AS INT),
+                     p_sirket    => CAST(:sirket AS TEXT),
+                     p_tip       => CAST(:tip AS TEXT),
+                     p_date_from => CAST(:date_from AS DATE),
+                     p_date_to   => CAST(:date_to AS DATE)
+                 ) hs
+            JOIN rag.documents d ON d.id = hs.document_id
+            LEFT JOIN assets a   ON a.id = d.asset_id
+            ORDER BY hs.score DESC
+            """,
+            {
+                "query": query,
+                "embedding": embedding,
+                "top_k": top_k,
+                "sirket": sirket,
+                "tip": tip,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
         )
 
     async def list_news(self, limit: int = 20, kategori: str | None = None) -> list[dict]:
@@ -2239,6 +2357,210 @@ class SqlAuditRepository(_SqlRepository):
                 await session.commit()
         except Exception:  # noqa: BLE001
             logger.exception("security_events kaydi yazilamadi")
+
+
+class SqlLeadRepository(_SqlRepository):
+    """Lead motoru veri erisimi (`lead_scans`, `lead_queue_entries`,
+    `lead_contacts`, `v_lead_user_signals`).
+    """
+
+    async def list_lead_signals(self) -> list[dict]:
+        return await self._rows("SELECT * FROM v_lead_user_signals")
+
+    async def last_contacted_map(self, cooldown_days: int) -> dict[int, Any]:
+        rows = await self._rows(
+            """
+            SELECT user_id, MAX(created_at) AS last_contact_at
+            FROM lead_contacts
+            WHERE channel = 'EMAIL'
+              AND status = 'SENT'
+              AND created_at >= now() - make_interval(days => CAST(:cooldown_days AS INT))
+            GROUP BY user_id
+            """,
+            {"cooldown_days": cooldown_days},
+        )
+        return {row["user_id"]: row["last_contact_at"] for row in rows}
+
+    async def start_scan(self, trigger: str) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text("INSERT INTO lead_scans (trigger) VALUES (:trigger) RETURNING id"),
+                {"trigger": trigger},
+            )
+            await session.commit()
+            return int(result.scalar_one())
+
+    async def finish_scan(
+        self, scan_id: int, counts: dict[str, int], error: str | None = None
+    ) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    UPDATE lead_scans
+                    SET finished_at = now(),
+                        scanned_count = :scanned_count,
+                        bsd_count = :bsd_count,
+                        autonomous_count = :autonomous_count,
+                        excluded_count = :excluded_count,
+                        emailed_count = :emailed_count,
+                        error = :error
+                    WHERE id = :scan_id
+                    """
+                ),
+                {
+                    "scan_id": scan_id,
+                    "scanned_count": counts.get("scanned_count", 0),
+                    "bsd_count": counts.get("bsd_count", 0),
+                    "autonomous_count": counts.get("autonomous_count", 0),
+                    "excluded_count": counts.get("excluded_count", 0),
+                    "emailed_count": counts.get("emailed_count", 0),
+                    "error": error,
+                },
+            )
+            await session.commit()
+
+    async def latest_scan(self) -> dict | None:
+        return await self._row(
+            """
+            SELECT * FROM lead_scans
+            WHERE finished_at IS NOT NULL
+            ORDER BY started_at DESC
+            LIMIT 1
+            """
+        )
+
+    async def minutes_since_last_scan(self) -> float | None:
+        row = await self._row(
+            """
+            SELECT EXTRACT(EPOCH FROM (now() - MAX(finished_at))) / 60 AS dakika
+            FROM lead_scans
+            WHERE finished_at IS NOT NULL
+            """
+        )
+        return float(row["dakika"]) if row and row["dakika"] is not None else None
+
+    async def record_decision(self, scan_id: int, entry: dict) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO lead_queue_entries
+                        (scan_id, user_id, decision, exclusion_reason, score,
+                         score_components, reasons, total_value_try, monthly_income,
+                         likit_para, days_since_activity)
+                    VALUES
+                        (:scan_id, :user_id, :decision, :exclusion_reason, :score,
+                         CAST(:score_components AS JSONB), CAST(:reasons AS JSONB),
+                         :total_value_try, :monthly_income, :likit_para,
+                         :days_since_activity)
+                    """
+                ),
+                {
+                    "scan_id": scan_id,
+                    "user_id": entry["user_id"],
+                    "decision": entry["decision"],
+                    "exclusion_reason": entry.get("exclusion_reason"),
+                    "score": entry.get("score", 0),
+                    "score_components": _json(entry.get("score_components") or {}),
+                    "reasons": _json(entry.get("reasons") or []),
+                    "total_value_try": entry.get("total_value_try", 0),
+                    "monthly_income": entry.get("monthly_income", 0),
+                    "likit_para": entry.get("likit_para", 0),
+                    "days_since_activity": entry.get("days_since_activity"),
+                },
+            )
+            await session.commit()
+
+    async def claim_email_contact(
+        self, user_id: int, scan_id: int, to_email: str, subject: str
+    ) -> int | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO lead_contacts (user_id, scan_id, channel, status, to_email, subject)
+                    VALUES (:user_id, :scan_id, 'EMAIL', 'SENT', :to_email, :subject)
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                    """
+                ),
+                {"user_id": user_id, "scan_id": scan_id, "to_email": to_email, "subject": subject},
+            )
+            await session.commit()
+            row = result.first()
+            return int(row[0]) if row else None
+
+    async def mark_contact_failed(self, contact_id: int, error: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text("UPDATE lead_contacts SET status = 'FAILED', error = :error WHERE id = :id"),
+                {"id": contact_id, "error": error},
+            )
+            await session.commit()
+
+    async def mark_contact_skipped(self, contact_id: int) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text("UPDATE lead_contacts SET status = 'SKIPPED' WHERE id = :id"),
+                {"id": contact_id},
+            )
+            await session.commit()
+
+    async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT q.user_id, u.first_name, u.last_name, u.email,
+                   q.decision, q.exclusion_reason, q.score, q.score_components,
+                   q.reasons, q.total_value_try, q.monthly_income, q.likit_para,
+                   q.days_since_activity, q.created_at
+            FROM lead_queue_entries q
+            JOIN users u ON u.id = q.user_id
+            WHERE q.decision = :decision
+              AND q.scan_id = (
+                    SELECT id FROM lead_scans
+                    WHERE finished_at IS NOT NULL
+                    ORDER BY started_at DESC LIMIT 1
+                  )
+            ORDER BY q.score DESC
+            LIMIT :limit
+            """,
+            {"decision": decision, "limit": limit},
+        )
+
+    async def list_emailed(self, days: int, limit: int = 100) -> list[dict]:
+        # Skor/bakiye bilgisi mailin gonderildigi TARAMANIN karar satirindan
+        # gelir (LEFT JOIN): temas kaydi kalicidir, o taramanin satiri
+        # silinmis olsa bile satir dusmez.
+        return await self._rows(
+            """
+            SELECT * FROM (
+                SELECT DISTINCT ON (c.user_id)
+                       c.user_id, u.first_name, u.last_name, u.email,
+                       'AUTONOMOUS' AS decision,
+                       CAST(NULL AS VARCHAR) AS exclusion_reason,
+                       COALESCE(q.score, 0) AS score,
+                       COALESCE(q.score_components, '{}'::jsonb) AS score_components,
+                       COALESCE(q.reasons, '[]'::jsonb) AS reasons,
+                       COALESCE(q.total_value_try, 0) AS total_value_try,
+                       COALESCE(q.monthly_income, 0) AS monthly_income,
+                       COALESCE(q.likit_para, 0) AS likit_para,
+                       q.days_since_activity,
+                       c.created_at
+                FROM lead_contacts c
+                JOIN users u ON u.id = c.user_id
+                LEFT JOIN lead_queue_entries q
+                       ON q.scan_id = c.scan_id AND q.user_id = c.user_id
+                WHERE c.channel = 'EMAIL'
+                  AND c.status = 'SENT'
+                  AND c.created_at >= now() - make_interval(days => CAST(:days AS INT))
+                ORDER BY c.user_id, c.created_at DESC
+            ) t
+            ORDER BY t.created_at DESC
+            LIMIT :limit
+            """,
+            {"days": days, "limit": limit},
+        )
 
 
 def _json(value: Any) -> str:

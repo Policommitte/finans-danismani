@@ -19,6 +19,11 @@ basit bir modeldir; degistirilirse tek yer burasidir.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
 #: Varlik sinifi -> 0-1 arasi temel risk katsayisi.
 ASSET_CLASS_RISK: dict[str, float] = {
     "CRYPTO": 1.00,
@@ -40,6 +45,16 @@ RISK_LEVELS = (
     (101, "cok yuksek"),
 )
 
+#: Oynaklik olcumunun penceresi (gun) ve kac varlikta olculecegi.
+#:
+#: SAYININ TEK KAYNAGI BURASI: hem `RiskStrategyAgent` (sohbet yolu) hem
+#: `risk_profili_getir` (dashboard yolu) bu degerleri kullanir. Ayri ayri
+#: tanimlansalardi iki taraf farkli sayida varlik olcup FARKLI SKOR uretirdi -
+#: kullanici ekranda 70, sohbette 77 gorurdu (27 Agustos 2026'da tam olarak
+#: bu yasandi, o zaman dashboard oynakligi HIC olcmuyordu).
+VOLATILITY_WINDOW_DAYS = 30
+MAX_VOLATILITY_LOOKUPS = 3
+
 ASSET_CLASS_LABELS_TR: dict[str, str] = {
     "CRYPTO": "Kripto",
     "USA_STOCK": "ABD hissesi",
@@ -49,6 +64,22 @@ ASSET_CLASS_LABELS_TR: dict[str, str] = {
     "GOLD": "Altın",
     "BOND": "Tahvil",
 }
+
+
+def oynaklik_yuzdesi(prices: list[float]) -> float:
+    """Fiyat serisinin oynakligi: ortalamaya gore standart sapmanin yuzdesi.
+
+    HEM MCP tool'u (`market_get_history`) HEM dashboard servisi bu fonksiyonu
+    cagirir. Formul iki yerde ayri yazilsaydi, ayni portfoy icin iki farkli
+    oynaklik - dolayisiyla iki farkli risk skoru - uretilebilirdi.
+    """
+    if not prices:
+        return 0.0
+    ortalama = sum(prices) / len(prices)
+    if not ortalama:
+        return 0.0
+    varyans = sum((p - ortalama) ** 2 for p in prices) / len(prices)
+    return (varyans**0.5) / ortalama * 100
 
 
 def risk_profili_hesapla(
@@ -239,6 +270,7 @@ async def risk_profili_getir(user_id: int, portfolio_id: int | None = None) -> d
     holdings = await portfolio_repository.get_holdings(user_id, portfolio_id)
     allocation = await portfolio_repository.get_allocation(user_id, portfolio_id)
     user = await get_user_repository().get_by_id(user_id)
+    oynakliklar = await _oynakliklari_olc(holdings)
 
     return risk_profili_hesapla(
         holdings=[
@@ -254,9 +286,52 @@ async def risk_profili_getir(user_id: int, portfolio_id: int | None = None) -> d
             for a in allocation
         ],
         risk_tolerance=(user or {}).get("risk_tolerance"),
-        # Oynaklik olcumu tool katmaninda yapilir (ajan yolu). REST yolunda
-        # olculmez: dashboard'un ilk yuklemesini yavaslatmamak icin bilincli
-        # bir tercih - skorun oynaklik bileseni bu durumda 0 katkida bulunur
-        # ve `avg_volatility_pct` None doner.
-        volatility_by_symbol=None,
+        volatility_by_symbol=oynakliklar,
     )
+
+
+async def _oynakliklari_olc(holdings: list[dict]) -> dict[str, float]:
+    """En buyuk pozisyonlarin gecmis oynakligini olcer.
+
+    ⚠️ AJAN YOLUYLA BIREBIR AYNI OLMAK ZORUNDA. Burasi eskiden HIC olcmuyordu
+    ("dashboard ilk yuklemesini yavaslatmamak icin" denmisti) ve sonucu su
+    oldu: skorun 0-15 puanlik oynaklik bileseni dashboard'da hep 0 kaliyor,
+    ayni portfoy icin ekranda 70, sohbette 77 goruluyordu. Kullanici "ekrandaki
+    risk skorum kac?" diye sordugunda asistan kendi hesapladigi 77'yi
+    "ekrandaki skor" diye sunuyordu - yani yanlis bir atif uretiliyordu.
+
+    Ayni sirayi ve pencereyi kullanmak SART: `portfolio_get_holdings` MCP
+    tool'u da ayni repository metodunu (deger sirali) cagirir, bu yuzden
+    `[:MAX_VOLATILITY_LOOKUPS]` iki tarafta ayni varliklari secer.
+
+    Tek bir sembolun gecmisi okunamazsa o sembol ATLANIR; risk profili
+    tamamen dusmez (ajan tarafindaki davranisin aynisi).
+    """
+    from app.repositories.deps import get_market_repository
+
+    market_repository = get_market_repository()
+    semboller = [str(h["symbol"]) for h in holdings[:MAX_VOLATILITY_LOOKUPS] if h.get("symbol")]
+    if not semboller:
+        return {}
+
+    # PARALEL: sorgular birbirinden bagimsiz. Sirayla calistirildiginda uzak
+    # veritabaninda (Supabase ap-south-1) sorgu basina ~645 ms gidis-donus
+    # birikiyordu; olculdu: 3 sembol sirayla 1.935 ms, paralel ~700 ms.
+    # `dashboard.ozet_getir` de zaten ayni deseni (gather) kullaniyor.
+    seriler = await asyncio.gather(
+        *(market_repository.get_history(s, days=VOLATILITY_WINDOW_DAYS) for s in semboller),
+        # Tek sembolun gecmisi okunamazsa TUM risk profili dusmemeli;
+        # hata nesne olarak doner ve asagida atlanir (ajan yolundaki
+        # `except: continue` davranisinin aynisi).
+        return_exceptions=True,
+    )
+
+    sonuc: dict[str, float] = {}
+    for sembol, seri in zip(semboller, seriler, strict=True):
+        if isinstance(seri, BaseException):
+            logger.debug("oynaklik olculemedi", extra={"symbol": sembol, "hata": str(seri)[:120]})
+            continue
+        if seri:
+            sonuc[sembol] = round(oynaklik_yuzdesi([float(p["price"]) for p in seri]), 2)
+
+    return sonuc

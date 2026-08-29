@@ -41,3 +41,4 @@ class UserResponse(BaseModel):
     onboarding_completed: bool = Field(
         description="False ise AppShell zorunlu onboarding akisini (anket -> sepet -> tur) acar."
     )
+    role: str = Field(default="customer", description="customer | advisor")

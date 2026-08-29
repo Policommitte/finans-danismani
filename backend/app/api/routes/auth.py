@@ -31,6 +31,7 @@ def _user_response(user: dict) -> UserResponse:
         risk_tolerance=user.get("risk_tolerance"),
         monthly_income=float(user["monthly_income"]) if user.get("monthly_income") else None,
         onboarding_completed=user.get("onboarding_completed", True),
+        role=user.get("role", "customer"),
     )
 
 

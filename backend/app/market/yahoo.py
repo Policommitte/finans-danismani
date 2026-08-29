@@ -73,6 +73,11 @@ YAHOO_TICKERS: dict[str, str] = {
     "USD/TRY": USDTRY_TICKER,
     "EUR/TRY": "EURTRY=X",
     # ABD hisseleri - dogrudan
+    #
+    # HISSE SINIFI: birden fazla sinifi olanlarda EN DUSUK FIYATLI sinif
+    # secildi (bkz. borsa-verisi/symbols.py'deki ayni notlar):
+    #   Alphabet  -> GOOG  (Class C)
+    #   Berkshire -> BRK-B
     "AAPL": "AAPL",
     "AMZN": "AMZN",
     "BRK-B": "BRK-B",

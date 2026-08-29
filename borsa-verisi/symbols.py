@@ -138,18 +138,46 @@ ESLESMELER: tuple[VarlikEslesme, ...] = (
 
 #: `--kategori` verilmediginde toplanan gruplar. Kripto disarida: gorevde
 #: istenen kume hisse + altin + doviz + ABD hissesidir.
+#:
+#: COMMODITY, ETF ve BOND 26 Agustos 2026'da eklendi - bu varliklar da
+#: varsayilan calistirmada guncellensin diye. CRYPTO hala DISARIDA: onceki
+#: karar korunuyor, `--kategori CRYPTO` ile acikca istenmesi gerekir.
 VARSAYILAN_KATEGORILER: tuple[str, ...] = (
-    "INDEX", "STOCK", "FOREX", "GOLD", "USA_STOCK", "ETF", "COMMODITY", "BOND"
+    "INDEX",
+    "STOCK",
+    "FOREX",
+    "GOLD",
+    "USA_STOCK",
+    "COMMODITY",
+    "ETF",
+    "BOND",
 )
 
 #: Yahoo'da guvenilir karsiligi olmadigi icin hic eslenmemis DB sembolleri.
 #: Raporda "atlandi" olarak gosterilir ki eksik veri sessizce kaybolmasin.
 #:
-#: Su an BOS: TR10Y (tek eslenmeyen sembol) 16 Agustos 2026'da veritabanindan
-#: silindi (bkz. ESLESMELER yorumu). Ileride Yahoo'da karsiligi olmayan yeni
-#: bir varlik eklenirse buraya yazilir; silinmez, cunku bu liste calisan
-#: raporlama kodu tarafindan kullanilir (bkz. collect.py).
-ESLENMEYEN_SEMBOLLER: tuple[str, ...] = ()
+#: 26 Agustos 2026: asagidaki bes varlik istendi ama Yahoo'da veri DONMEDI
+#: (canli test edildi, hepsi bos/404). Veritabanina HIC eklenmediler -
+#: sahte fiyatla yer tutucu satir acmak yerine acik boslugu kayda gecirmek
+#: tercih edildi (TR10Y icin verilen kararla ayni yaklasim):
+#:
+#:   TI1, TTA, AFA  -> TEFAS yatirim fonu kodlari olabilir; Yahoo Finance
+#:                     Turkiye yatirim fonlarini indekslemiyor.
+#:   TR 2 Yil       -> Turkiye tahvil getirisi. TR10Y ile ayni sorun; denenen
+#:                     TR2YT=RR / ^TR2Y / TURKEY2Y sembollerinin hicbiri veri
+#:                     dondurmedi.
+#:   Eurobond       -> Tek bir enstruman degil, bir varlik SINIFI. Once hangi
+#:                     ihrac (vade/kupon) izlenecegine karar verilmeli.
+#:
+#: GBP kullanici karariyla ATLANDI (Yahoo'da GBPTRY=X mevcut ve calisiyor -
+#: teknik bir engel yok, istenmedi).
+ESLENMEYEN_SEMBOLLER: tuple[str, ...] = (
+    "TI1",
+    "TTA",
+    "AFA",
+    "TR2Y",
+    "EUROBOND",
+)
 
 
 def eslesmeleri_getir(kategoriler: list[str] | None = None) -> list[VarlikEslesme]:

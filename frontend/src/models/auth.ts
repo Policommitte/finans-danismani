@@ -6,6 +6,7 @@ export type User = {
   risk_tolerance: string | null;
   monthly_income: number | null;
   onboarding_completed: boolean;
+  role: string;
 };
 
 export type LoginRequest = {

@@ -25,7 +25,7 @@ from app.agents.portfolio import PortfolioAgent
 from app.agents.risk_strategy import RiskStrategyAgent
 from app.agents.security_agent import SecurityAgent
 from app.config import settings
-from app.core.llm import get_llm_client
+from app.core.llm import get_llm_client, get_streaming_llm
 from app.engine.orchestrator import (
     AGENT_MARKET_RESEARCH,
     AGENT_PORTFOLIO,
@@ -66,6 +66,35 @@ def build_agent_llm(agent: str):
         return None
 
 
+def build_synthesizer_llm():
+    """Sentez adimi icin model; iki kademeli.
+
+    1. `get_streaming_llm` -> LangChain `ChatOpenAI` (NIM). Token token akar.
+    2. Kurulamazsa `build_agent_llm` -> tek seferlik istemci. Sentez YINE LLM
+       ile yapilir, yalnizca akis olmaz: `stream_request` token uretilmeyen
+       yollarda nihai metni tek bir token olayi olarak gonderir, yani frontend
+       icin davranis degismez - metin bir anda belirir.
+    3. O da yoksa `None` -> `Orchestrator._fallback_response` (deterministik).
+
+    ⚠️ 3. KADEME UZUN SURE FARK EDILMEDI. `build_orchestrator` eskiden
+    `synthesizer_llm`'i HIC gecmiyordu; `.env` icindeki `SYNTHESIZER_MODEL`
+    okunuyor ama kullanilmiyordu. Sonuc: yanitlar her zaman deterministik
+    birlestirmeydi ("Portfoy analizi: ... Piyasa arastirmasi: ...") ve sentez
+    LLM'i hic calismamisti. Model adini degistirmek tek basina bir sey
+    degistirmiyordu - bu fonksiyon o baglantiyi kuruyor.
+    """
+    try:
+        akitan = get_streaming_llm("synthesizer")
+    except Exception:  # noqa: BLE001 - model kurulumu wiring'i dusurmemeli
+        logger.exception("akitan sentez modeli olusturulamadi")
+        akitan = None
+
+    if akitan is not None:
+        return akitan
+
+    return build_agent_llm("synthesizer")
+
+
 def build_agents(mcp_client: MCPClient) -> dict[str, BaseAgent]:
     """Node adi -> ajan ornegi eslemesi.
 
@@ -77,16 +106,19 @@ def build_agents(mcp_client: MCPClient) -> dict[str, BaseAgent]:
             mcp_client=mcp_client,
             llm=build_agent_llm("market"),
             timeout_seconds=settings.agent_timeout_seconds,
+            llm_timeout_seconds=settings.agent_llm_budget_seconds,
         ),
         AGENT_PORTFOLIO: PortfolioAgent(
             mcp_client=mcp_client,
             llm=build_agent_llm("portfolio"),
             timeout_seconds=settings.agent_timeout_seconds,
+            llm_timeout_seconds=settings.agent_llm_budget_seconds,
         ),
         AGENT_RISK_STRATEGY: RiskStrategyAgent(
             mcp_client=mcp_client,
             llm=build_agent_llm("risk"),
             timeout_seconds=settings.agent_timeout_seconds,
+            llm_timeout_seconds=settings.agent_llm_budget_seconds,
         ),
     }
 
@@ -94,14 +126,13 @@ def build_agents(mcp_client: MCPClient) -> dict[str, BaseAgent]:
 def build_orchestrator(mcp_client: MCPClient | None = None, **kwargs) -> Orchestrator:
     """Uctan uca calismaya hazir orchestrator uretir.
 
-    `synthesizer_llm` bilincli olarak BAGLANMAZ: sentez adimi token token
-    akitmak icin LangChain uyumlu (`astream`) bir chat modeli bekler; ajanlarin
-    kullandigi Gemini istemcisi ise tek seferlik `generate()` sunar. Model
-    karari verilip LangChain uyumlu bir istemci secilene kadar orchestrator
-    deterministik ozet uretir (bkz. `Orchestrator._fallback_response`) - akis,
-    olaylar ve testler bundan etkilenmez.
+    `synthesizer_llm` artik BAGLANIYOR (bkz. `build_synthesizer_llm`).
+    Cagiran taraf `synthesizer_llm=` gecerek bunu ezebilir - testler oyle
+    yapiyor.
     """
     client = mcp_client if mcp_client is not None else build_mcp_client()
+
+    kwargs.setdefault("synthesizer_llm", build_synthesizer_llm())
 
     return Orchestrator(
         agents=build_agents(client),
@@ -113,6 +144,7 @@ def build_orchestrator(mcp_client: MCPClient | None = None, **kwargs) -> Orchest
             audit=get_audit_repository(),
         ),
         synthesizer_timeout_seconds=settings.synthesizer_timeout_seconds,
+        synthesizer_stall_seconds=settings.synthesizer_stall_seconds,
         **kwargs,
     )
 

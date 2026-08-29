@@ -17,9 +17,17 @@ import asyncio
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage, HumanMessage
 
+import app.engine.orchestrator as orchestrator_modulu
 from app.agents.base import BaseAgent
 from app.agents.security_agent import SecurityAgent
+from app.engine.kapsam import (
+    KAPSAM_DISI,
+    KAPSAM_KUFUR,
+    KAPSAM_SELAMLAMA,
+    kisa_yanit,
+)
 from app.engine.orchestrator import (
     AGENT_MARKET_RESEARCH,
     AGENT_PORTFOLIO,
@@ -30,7 +38,7 @@ from app.engine.orchestrator import (
     SAFE_RESPONSE_MESSAGE,
     Orchestrator,
 )
-from app.orchestration.models import AgentState, Source
+from app.orchestration.models import AgentError, AgentState, Source
 
 # ---------------------------------------------------------------------------
 # Test yardimcilari
@@ -454,10 +462,27 @@ def test_route_intent_buyuk_harfle_de_eslesir():
     assert AGENT_PORTFOLIO in orchestrator.route_intent(state)
 
 
-def test_route_intent_eslesme_yoksa_tum_ajanlari_secer():
-    """Guvenli varsayilan: eksik yanit vermektense biraz fazla calis."""
+def test_route_intent_ilk_turda_eslesme_yoksa_piyasayi_secer():
+    """Finans sinyali var ama hangi uzman belirsiz -> piyasa arastirmasi.
+
+    Eskiden burada TUM ajanlar donuyordu; tek bir hisse sorusu kullanicinin
+    istemedigi portfoy dokumunu de tetikliyordu.
+    """
     orchestrator = _orchestrator()
-    state = AgentState(user_query="Merhaba", user_id=1, thread_id=1)
+    state = AgentState(user_query="THYAO ne kadar?", user_id=1, thread_id=1)
+
+    assert orchestrator.route_intent(state) == [AGENT_MARKET_RESEARCH]
+
+
+def test_route_intent_devam_turunda_eslesme_yoksa_tum_ajanlari_secer():
+    """Devam turunda baglam onceki turda; eski guvenli varsayilan korunur."""
+    orchestrator = _orchestrator()
+    state = AgentState(
+        user_query="Peki simdi?",
+        user_id=1,
+        thread_id=1,
+        messages=[HumanMessage(content="Portfoyum nasil?"), AIMessage(content="...")],
+    )
 
     assert set(orchestrator.route_intent(state)) == set(_uc_ajan())
 
@@ -479,6 +504,111 @@ async def test_route_node_secimi_state_e_yazar():
     state = await _calistir(orchestrator, "Portföyümün dağılımı nedir?")
 
     assert AGENT_PORTFOLIO in state["requested_agents"]
+
+
+# ---------------------------------------------------------------------------
+# Kapsam kisa yolu - finans disi girdide fan-out atlanir
+#
+# Bu bolumun varlik sebebi gercek bir hata: hakaret iceren bir mesaja sistem
+# portfoy dokumu + risk degerlendirmesi ile cevap veriyordu. Router hicbir
+# anahtar kelime eslesmedigi icin "guvenli varsayilan" olarak TUM ajanlari
+# calistiriyordu.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen_kapsam",
+    [
+        ("Merhaba", KAPSAM_SELAMLAMA),
+        ("sen bir gerizekalısın", KAPSAM_KUFUR),
+        ("hava durumu nasıl", KAPSAM_DISI),
+        ("bana bir şiir yaz", KAPSAM_DISI),
+    ],
+)
+async def test_kapsam_disi_sorgu_hicbir_ajani_calistirmaz(sorgu, beklenen_kapsam):
+    ajanlar = _uc_ajan()
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    state = await _calistir(orchestrator, sorgu)
+
+    assert state["scope"] == beklenen_kapsam
+    assert state["requested_agents"] == []
+    assert all(ajan.cagri_sayisi == 0 for ajan in ajanlar.values())
+    assert state["final_response"] == kisa_yanit(beklenen_kapsam)
+
+
+async def test_kufurlu_mesaj_portfoy_verisi_dondurmez():
+    """Hatanin birebir tekrari: hakaret -> portfoy toplami + risk skoru."""
+    orchestrator = _orchestrator()
+
+    state = await _calistir(orchestrator, "ananı sikiyom")
+
+    assert state["scope"] == KAPSAM_KUFUR
+    # `.get`: ajanlar hic calismadigi icin alanlar state'e YAZILMAMIS olabilir.
+    assert state.get("portfolio_data") is None
+    assert state.get("risk_data") is None
+    assert "100" not in state["final_response"]
+
+
+async def test_kapsam_disi_sorgu_sentezleyiciyi_cagirmaz():
+    """Sabit metin doner; LLM cagrisi yapilmaz (kota korunur)."""
+    llm = GenericFakeChatModel(messages=iter(["LLM CALISTI"]))
+    orchestrator = _orchestrator(synthesizer_llm=llm)
+
+    state = await _calistir(orchestrator, "teşekkürler")
+
+    assert "LLM CALISTI" not in state["final_response"]
+
+
+async def test_selamlama_ile_baslayan_finans_sorusu_ajanlara_gider():
+    """'Merhaba, portfoyum nasil?' sohbete DUSMEMELI - soru gercek."""
+    ajanlar = _uc_ajan()
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    state = await _calistir(orchestrator, "Merhaba, portföyüm nasıl?")
+
+    assert AGENT_PORTFOLIO in state["requested_agents"]
+    assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 1
+
+
+async def test_dolgu_kufru_gercek_soruyu_iptal_etmez():
+    """Sinirli ama gercek soru soran kullaniciya yanit verilmeli."""
+    orchestrator = _orchestrator()
+
+    state = await _calistir(orchestrator, "amk portföyüm neden düştü")
+
+    assert AGENT_PORTFOLIO in state["requested_agents"]
+
+
+async def test_devam_turunda_kisa_soru_ajanlara_gider():
+    """Cok turlu baglam (FR-CHAT-03): 'Peki simdi?' kapsam disi sayilmamali."""
+    ajanlar = _uc_ajan()
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    await _olaylar(orchestrator, "Portfoyum nasil?", thread_id=201)
+    await _olaylar(orchestrator, "Peki simdi?", thread_id=201)
+
+    assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 2
+
+
+async def test_kapsam_disi_sorgu_uzman_belirlendi_mesaji_yayinlamaz():
+    """Hicbir uzman calismayacakken 'Ilgili uzmanlar belirlendi' yanlistir."""
+    orchestrator = _orchestrator()
+
+    olaylar = await _olaylar(orchestrator, "Merhaba")
+
+    durumlar = [o for o in olaylar if o["type"] == "status"]
+    assert not [o for o in durumlar if o["stage"] == "routing"]
+
+
+async def test_kapsam_disi_yanit_token_olarak_gider():
+    """Frontend'in tek render yolu olsun diye kisa yanit da token olarak gider."""
+    orchestrator = _orchestrator()
+
+    olaylar = await _olaylar(orchestrator, "Merhaba")
+
+    token_olaylari = [o for o in olaylar if o["type"] == "token"]
+    assert "".join(o["content"] for o in token_olaylari) == kisa_yanit(KAPSAM_SELAMLAMA)
 
 
 # ---------------------------------------------------------------------------
@@ -787,3 +917,262 @@ async def test_yeni_tur_onceki_turun_ajan_verisini_tasimaz():
 
     risk_ajani = ajanlar[AGENT_RISK_STRATEGY]
     assert risk_ajani.gorulen_state.portfolio_data == {"toplam": 250_000}
+
+
+# ---------------------------------------------------------------------------
+# Kismi basari: hata veren ama VERISINI ureten ajan "ulasilamadi" sayilmamali
+# ---------------------------------------------------------------------------
+
+
+class VeriUretenAmaHataliAjan(BaseAgent):
+    """Rakamlari hesaplar, LLM yorumunu alamaz - gercek `llm_error` davranisi."""
+
+    def __init__(self, name: str, alan: str, veri: dict):
+        super().__init__(mcp_client=None, llm=None, timeout_seconds=5)
+        self.name = name
+        self.alan = alan
+        self.veri = veri
+
+    async def _execute(self, state: AgentState) -> dict:
+        return {
+            self.alan: self.veri,
+            "agent_errors": [
+                AgentError(agent_name=self.name, error_type="llm_error", message="model 400 dondu")
+            ],
+        }
+
+
+async def test_verisi_uretilen_ajan_ulasilamadi_diye_yazilmaz():
+    """Canlida goruldu: yanit portfoy toplamini ve risk skorunu eksiksiz
+    yazdiktan sonra altina 'ulasilamadi: portfolio, risk_strategy' ekliyordu."""
+    orchestrator = _orchestrator(
+        agents={
+            AGENT_PORTFOLIO: VeriUretenAmaHataliAjan(
+                AGENT_PORTFOLIO, "portfolio_data", {"summary": "toplam 100.000 TL"}
+            )
+        }
+    )
+
+    state = await _calistir(orchestrator, "Portföyüm nasıl?")
+
+    assert state["agent_errors"]  # hata gercekten kaydedildi
+    assert "ulaşılamadı" not in state["final_response"]
+    assert "toplam 100.000 TL" in state["final_response"]
+
+
+async def test_verisi_gelmeyen_ajan_ulasilamadi_diye_yazilir():
+    """Karsit durum: veri GERCEKTEN yoksa kullaniciya durustce soylenmeli."""
+    orchestrator = _orchestrator(agents={AGENT_PORTFOLIO: CokenAjan(AGENT_PORTFOLIO)})
+
+    state = await _calistir(orchestrator, "Portföyüm nasıl?")
+
+    assert "ulaşılamadı" in state["final_response"]
+    assert AGENT_PORTFOLIO in state["final_response"]
+
+
+async def test_sentez_baglami_da_ayni_ayrimi_yapar():
+    """LLM'e 'ulasilamadi' demek, eldeki veriyi kullanmasini engeller."""
+    ajan = VeriUretenAmaHataliAjan(
+        AGENT_PORTFOLIO, "portfolio_data", {"summary": "toplam 100.000 TL"}
+    )
+    orchestrator = _orchestrator(agents={AGENT_PORTFOLIO: ajan})
+    state = AgentState(
+        user_query="Portföyüm nasıl?",
+        user_id=1,
+        thread_id=1,
+        portfolio_data={"summary": "toplam 100.000 TL"},
+        agent_errors=[
+            AgentError(agent_name=AGENT_PORTFOLIO, error_type="llm_error", message="400")
+        ],
+    )
+
+    baglam = orchestrator._build_context(state)
+
+    assert "toplam 100.000 TL" in baglam
+    assert "Ulasilamayan veriler" not in baglam
+
+
+# ---------------------------------------------------------------------------
+# Hata gorunurlugu: "llm_error" tek basina hicbir sey soylemiyordu
+# ---------------------------------------------------------------------------
+
+
+class PatlayanSentezleyici:
+    """astream'i olan ama her cagrida hata veren model."""
+
+    async def astream(self, messages, config=None):
+        raise RuntimeError("Error code: 404 - model bulunamadi")
+        yield  # pragma: no cover - generator olmasi icin
+
+
+async def test_sentez_hatasi_agent_error_olarak_yayinlanir():
+    """Sentez sessizce deterministik ozete dusuyordu; hata loglara gomuluydu."""
+    orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
+
+    olaylar = await _olaylar(orchestrator, "Portfoyum nasil?")
+
+    hatalar = [o for o in olaylar if o["type"] == "agent_error"]
+    assert [o for o in hatalar if o["agent"] == NODE_SYNTHESIZER]
+
+
+async def test_gelistirmede_hata_metni_de_gider(monkeypatch):
+    monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "development")
+    orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
+
+    olaylar = await _olaylar(orchestrator, "Portfoyum nasil?")
+
+    sentez = next(
+        o for o in olaylar if o["type"] == "agent_error" and o["agent"] == NODE_SYNTHESIZER
+    )
+    assert "404" in sentez.get("message", "")
+
+
+async def test_uretimde_hata_metni_gonderilmez(monkeypatch):
+    """Istisna metni tool adi/baglanti dizesi tasiyabilir - disari cikmamali."""
+    monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "production")
+    orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
+
+    olaylar = await _olaylar(orchestrator, "Portfoyum nasil?")
+
+    sentez = next(
+        o for o in olaylar if o["type"] == "agent_error" and o["agent"] == NODE_SYNTHESIZER
+    )
+    assert "message" not in sentez
+
+
+async def test_sentez_hatasi_ulasilamadi_metnine_yazilmaz():
+    """Sentezleyici bir VERI ajani degil; kullaniciya oyle sunulmamali."""
+    orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
+
+    state = await _calistir(orchestrator, "Portfoyum nasil?")
+
+    assert "ulaşılamadı" not in state["final_response"]
+
+
+# ---------------------------------------------------------------------------
+# Sentez prompt'u: kisa ve soru-odakli yanit
+# ---------------------------------------------------------------------------
+
+
+def test_sentez_promptu_kisalik_ve_soru_odagi_ister():
+    """Kullanici sikayeti: yanitlar hep uzun ve portfoy dokumuyle basliyor."""
+    prompt = orchestrator_modulu.SYNTHESIZER_SYSTEM_PROMPT
+
+    assert "150 kelime" in prompt
+    assert "portföy dökümüyle BAŞLAMA" in prompt
+    assert "Bu bilgiler yatırım tavsiyesi değildir." in prompt
+    assert "YENİ SAYI ÜRETME" in prompt
+
+
+async def test_yedek_yanit_bolumleri_router_sirasina_gore_dizer():
+    """Sabit sira, tek hisse sorusunda bile yaniti portfoy dokumuyle
+    baslatiyordu - sorunun cevabi en alta dusuyordu."""
+    orchestrator = _orchestrator()
+
+    state = await _calistir(orchestrator, "THYAO hissesi için ne tavsiye edersin?")
+
+    metin = state["final_response"]
+    assert AGENT_MARKET_RESEARCH in state["requested_agents"]
+    assert metin.index("Piyasa araştırması") < metin.index("Portföy analizi")
+
+
+async def test_yedek_yanit_portfoy_sorusunda_portfoyle_baslar():
+    """Karsit durum: kullanici portfoyunu sorduysa basa o gelmeli."""
+    orchestrator = _orchestrator()
+
+    state = await _calistir(orchestrator, "Portföyümün dağılımı nedir?")
+
+    metin = state["final_response"]
+    assert metin.index("Portföy analizi") < metin.index("Risk değerlendirmesi")
+
+
+async def test_yedek_yanit_router_istemese_de_veriyi_kaybetmez():
+    """Router istemedigi halde veri ureten ajan yaniттan dusmemeli."""
+    orchestrator = _orchestrator()
+    state = AgentState(
+        user_query="x",
+        user_id=1,
+        thread_id=1,
+        requested_agents=[AGENT_MARKET_RESEARCH],
+        market_data={"summary": "piyasa"},
+        portfolio_data={"summary": "portfoy"},
+    )
+
+    metin = orchestrator._fallback_response(state)
+
+    assert "Piyasa araştırması" in metin and "Portföy analizi" in metin
+
+
+# ---------------------------------------------------------------------------
+# Genel tavsiye kelimeleri portfoy dokumu getirmemeli
+#
+# Kullanici uc ayri turda bildirdi: "THYAO almami tavsiye eder misin?" sorusu
+# portfoy analizi + risk raporu uretiyordu. Zincir: "tavsiye" -> risk ajani ->
+# risk portfoy verisine bagimli -> portfoy ajani da eklendi.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sorgu",
+    [
+        "THYAO almamı tavsiye eder misin",
+        "THYAO'nun getirisi ne kadar",
+        "hangi hisseyi önerirsin",
+        "SASA güvenli mi",
+        "yaz başlamadan thyao hissesi almamı tavsiye eder misin",
+    ],
+)
+def test_enstruman_tavsiyesi_portfoy_getirmez(sorgu):
+    orchestrator = _orchestrator()
+
+    secilen = orchestrator.route_intent(AgentState(user_query=sorgu, user_id=1, thread_id=1))
+
+    assert secilen == [AGENT_MARKET_RESEARCH]
+
+
+@pytest.mark.parametrize(
+    "sorgu",
+    [
+        "bana ne tavsiye edersin",
+        "bana bir öneri ver",
+        "güvenli bir yatırım önerir misin",
+    ],
+)
+def test_enstrumansiz_genel_tavsiye_portfoye_gider(sorgu):
+    """Karsit durum: hicbir enstrumandan soz edilmiyorsa kastedilen sey
+    kullanicinin KENDI durumudur - eski davranis korunmali."""
+    orchestrator = _orchestrator()
+
+    secilen = orchestrator.route_intent(AgentState(user_query=sorgu, user_id=1, thread_id=1))
+
+    assert AGENT_RISK_STRATEGY in secilen
+    assert AGENT_PORTFOLIO in secilen
+
+
+@pytest.mark.parametrize(
+    "sorgu",
+    [
+        "Riskim ne durumda?",
+        "portföyümü nasıl dengelerim",
+        "portföyümü çeşitlendirmeli miyim",
+    ],
+)
+def test_gercek_risk_kelimesi_kuralden_etkilenmez(sorgu):
+    """'risk', 'dengele', 'cesitlendir' genel tavsiye kelimesi DEGIL."""
+    orchestrator = _orchestrator()
+
+    secilen = orchestrator.route_intent(AgentState(user_query=sorgu, user_id=1, thread_id=1))
+
+    assert AGENT_RISK_STRATEGY in secilen
+    assert AGENT_PORTFOLIO in secilen
+
+
+def test_portfoy_acikca_gecerse_hepsi_calisir():
+    """'portfoyum icin THYAO almami onerir misin' -> ikisi de anlamli."""
+    orchestrator = _orchestrator()
+
+    secilen = orchestrator.route_intent(
+        AgentState(user_query="portföyüm için THYAO almamı önerir misin", user_id=1, thread_id=1)
+    )
+
+    assert set(secilen) == {AGENT_MARKET_RESEARCH, AGENT_PORTFOLIO, AGENT_RISK_STRATEGY}

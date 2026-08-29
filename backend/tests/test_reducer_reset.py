@@ -14,6 +14,7 @@ kaynak sayisini tasimali.
 
 import pytest
 
+import app.engine.orchestrator as orchestrator_modulu
 from app.agents.base import BaseAgent
 from app.engine.orchestrator import Orchestrator
 from app.orchestration.models import AgentError, AgentState, Source
@@ -85,13 +86,13 @@ def _state(orchestrator: Orchestrator) -> AgentState:
 
 async def test_kaynaklar_turlar_arasinda_birikmez(orchestrator):
     for tur in range(1, 4):
-        await _tur(orchestrator, f"{tur}. soru")
+        await _tur(orchestrator, f"{tur}. turda portfoyum nasil?")
         assert len(_state(orchestrator)["sources"]) == 2, f"{tur}. turda kaynaklar birikti"
 
 
 async def test_sse_kaynak_olayi_da_tek_kume_dondurur(orchestrator):
-    await _tur(orchestrator, "birinci soru")
-    olaylar = await _tur(orchestrator, "ikinci soru")
+    await _tur(orchestrator, "portfoyum nasil?")
+    olaylar = await _tur(orchestrator, "piyasa nasil?")
 
     kaynak_olaylari = [o for o in olaylar if o["type"] == "sources"]
     assert len(kaynak_olaylari) == 1
@@ -100,10 +101,10 @@ async def test_sse_kaynak_olayi_da_tek_kume_dondurur(orchestrator):
 
 async def test_duzelen_ajanin_hatasi_sonraki_turda_tasinmaz(orchestrator):
     """Birinci turda coken ajan ikinci turda duzelirse 'ulasilamadi' KALMAMALI."""
-    await _tur(orchestrator, "birinci soru")
+    await _tur(orchestrator, "portfoyum nasil?")
     assert len(_state(orchestrator)["agent_errors"]) == 1
 
-    olaylar = await _tur(orchestrator, "ikinci soru")
+    olaylar = await _tur(orchestrator, "piyasa nasil?")
 
     assert _state(orchestrator)["agent_errors"] == []
     metin = "".join(o["content"] for o in olaylar if o["type"] == "token")
@@ -111,15 +112,18 @@ async def test_duzelen_ajanin_hatasi_sonraki_turda_tasinmaz(orchestrator):
 
 
 async def test_agent_error_olayi_yalnizca_ilgili_turda_yayinlanir(orchestrator):
-    ilk = await _tur(orchestrator, "birinci soru")
-    ikinci = await _tur(orchestrator, "ikinci soru")
+    ilk = await _tur(orchestrator, "portfoyum nasil?")
+    ikinci = await _tur(orchestrator, "piyasa nasil?")
 
     assert [o for o in ilk if o["type"] == "agent_error"]
     assert [o for o in ikinci if o["type"] == "agent_error"] == []
 
 
-async def test_agent_error_olayi_ic_ayrinti_sizdirmaz(orchestrator):
-    olaylar = await _tur(orchestrator, "birinci soru")
+async def test_agent_error_olayi_uretimde_ic_ayrinti_sizdirmaz(orchestrator, monkeypatch):
+    """Istisna metni tool adi, baglanti dizesi, dosya yolu tasiyabilir."""
+    monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "production")
+
+    olaylar = await _tur(orchestrator, "portfoyum nasil?")
 
     hata = next(o for o in olaylar if o["type"] == "agent_error")
     assert set(hata) == {"type", "agent", "error_type"}
@@ -127,13 +131,23 @@ async def test_agent_error_olayi_ic_ayrinti_sizdirmaz(orchestrator):
     assert hata["error_type"] == "timeout"
 
 
+async def test_agent_error_olayi_gelistirmede_metni_de_tasir(orchestrator, monkeypatch):
+    """Karsit durum: gelistirirken "timeout" tek basina hicbir sey soylemiyor."""
+    monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "development")
+
+    olaylar = await _tur(orchestrator, "portfoyum nasil?")
+
+    hata = next(o for o in olaylar if o["type"] == "agent_error")
+    assert hata["message"] == "20s icinde yanit yok"
+
+
 async def test_mesaj_gecmisi_birikmeye_DEVAM_eder(orchestrator):
     """Sifirlama yalnizca reducer'li ajan alanlarina; baglam korunmali (FR-CHAT-03)."""
-    await _tur(orchestrator, "birinci soru")
-    await _tur(orchestrator, "ikinci soru")
+    await _tur(orchestrator, "portfoyum nasil?")
+    await _tur(orchestrator, "piyasa nasil?")
 
     mesajlar = _state(orchestrator)["messages"]
     icerikler = [m.content for m in mesajlar]
 
-    assert "birinci soru" in icerikler
-    assert "ikinci soru" in icerikler
+    assert "portfoyum nasil?" in icerikler
+    assert "piyasa nasil?" in icerikler

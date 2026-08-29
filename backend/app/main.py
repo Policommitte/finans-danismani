@@ -18,6 +18,7 @@ from app.api.routes import (
     chat,
     dashboard,
     health,
+    leads,
     market,
     portfolio,
     public,
@@ -35,6 +36,7 @@ from app.core.errors import (
 )
 from app.core.logging import request_id_ctx, setup_logging
 from app.db.session import dispose_engine
+from app.leads.scheduler import schedule_startup_lead_scan
 from app.market.scheduler import run_price_scheduler
 from app.mcp.context import set_request_context
 from app.repositories.deps import describe_backend
@@ -75,6 +77,10 @@ async def lifespan(_: FastAPI):
     if settings.price_tick_seconds > 0:
         gorev = asyncio.create_task(run_price_scheduler())
 
+    lead_gorev: asyncio.Task | None = None
+    if settings.lead_engine_enabled:
+        lead_gorev = asyncio.create_task(schedule_startup_lead_scan())
+
     try:
         yield
     finally:
@@ -82,6 +88,10 @@ async def lifespan(_: FastAPI):
             gorev.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await gorev
+        if lead_gorev is not None:
+            lead_gorev.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await lead_gorev
         if settings.database_enabled:
             await dispose_engine()
 
@@ -165,3 +175,4 @@ app.include_router(public.router)
 app.include_router(recommendations.router)
 app.include_router(risk.router)
 app.include_router(chat.router)
+app.include_router(leads.router)

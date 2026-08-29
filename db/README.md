@@ -33,6 +33,8 @@ psql -U finans -d finans -f db/v5_schema_and_data.sql
 | Para birimi | USD varlıklar `v_fx_rates` üzerinden TRY'ye çevrilir (`market_value_try`). |
 | `price_history` | 90 gün × 4 saat ≈ 9.200 satır backfill. Yükleme birkaç saniye sürer. |
 | Doğrulama | Dosyanın 14. bölümündeki sorgular. Portföy 1 (Mehmet) ≈ **1,64M TL** çıkmalı. |
+| `lead_*` tabloları | Soğutma kuralının tek kaynağı `lead_contacts`'tır — `UNIQUE (user_id, channel, contact_day) WHERE status='SENT'` kısmi index'i "aynı gün iki kez temas" imkansız kılar (önce-claim-sonra-gönder deseni). `lead_queue_entries` karar anındaki bir **anlık görüntüdür**; kullanıcı verisi sonradan değişse bile o günkü kararın gerekçesi kalıcı kalır. |
+| `users`/`chat_sessions` seed tarihleri | Kademeli (`now() - INTERVAL`) verilir — hepsi `now()` olsaydı lead motorunun "hareketsizlik" kuralı fresh/CI veritabanında hiç tetiklenmezdi. |
 
 ## Test durumu
 

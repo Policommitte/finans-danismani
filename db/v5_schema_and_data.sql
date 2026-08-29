@@ -7,6 +7,7 @@
 -- =====================================================================
 
 DROP SCHEMA IF EXISTS rag CASCADE;
+DROP VIEW  IF EXISTS v_lead_user_signals CASCADE;
 DROP VIEW  IF EXISTS v_portfolio_summary CASCADE;
 DROP VIEW  IF EXISTS v_portfolio_allocation CASCADE;
 DROP VIEW  IF EXISTS v_holdings_valued CASCADE;
@@ -30,6 +31,9 @@ DROP TABLE IF EXISTS portfolio_assets CASCADE;
 DROP TABLE IF EXISTS portfolios CASCADE;
 DROP TABLE IF EXISTS assets CASCADE;
 DROP TABLE IF EXISTS asset_categories CASCADE;
+DROP TABLE IF EXISTS lead_contacts CASCADE;
+DROP TABLE IF EXISTS lead_queue_entries CASCADE;
+DROP TABLE IF EXISTS lead_scans CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -49,6 +53,9 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     risk_tolerance VARCHAR(20) DEFAULT 'MEDIUM',   -- LOW · MEDIUM · HIGH
     monthly_income NUMERIC DEFAULT 0.0,
+    marketing_consent BOOLEAN NOT NULL DEFAULT TRUE, -- İYS yerine basitleştirilmiş rıza alanı; gerçek İYS entegrasyonu kapsam dışı
+    role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
+    likit_para DOUBLE PRECISION,
     onboarding_completed BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -312,6 +319,70 @@ CREATE TABLE security_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- =====================================================================
+-- 5B · LEAD MOTORU (BSD kuyruğu / otonom davet)
+--      Kayıtlı kullanıcıları tarayıp uygunluk kurallarından geçirir,
+--      skorlar ve BSD (insan danışman) ya da otonom (mail) kuyruğuna yazar.
+-- =====================================================================
+
+CREATE TABLE lead_scans (
+    id BIGSERIAL PRIMARY KEY,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    trigger VARCHAR(20) NOT NULL DEFAULT 'startup'  -- startup · manual · test
+           CHECK (trigger IN ('startup','manual','test')),
+    scanned_count INTEGER NOT NULL DEFAULT 0,
+    bsd_count INTEGER NOT NULL DEFAULT 0,
+    autonomous_count INTEGER NOT NULL DEFAULT 0,
+    excluded_count INTEGER NOT NULL DEFAULT 0,
+    emailed_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+
+CREATE TABLE lead_queue_entries (
+    id BIGSERIAL PRIMARY KEY,
+    scan_id BIGINT NOT NULL REFERENCES lead_scans(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    decision VARCHAR(20) NOT NULL                   -- BSD · AUTONOMOUS · EXCLUDED
+             CHECK (decision IN ('BSD','AUTONOMOUS','EXCLUDED')),
+    exclusion_reason VARCHAR(40)                    -- yalnizca EXCLUDED'da dolu
+             CHECK ((decision = 'EXCLUDED') = (exclusion_reason IS NOT NULL)),
+    score INTEGER NOT NULL DEFAULT 0 CHECK (score BETWEEN 0 AND 100),
+    score_components JSONB NOT NULL DEFAULT '{}'::jsonb,
+    reasons JSONB NOT NULL DEFAULT '[]'::jsonb,      -- insan-okunur TR gerekceler
+    total_value_try NUMERIC NOT NULL DEFAULT 0,      -- karar anindaki anlik goruntu
+    monthly_income NUMERIC NOT NULL DEFAULT 0,
+    likit_para NUMERIC NOT NULL DEFAULT 0,           -- karar anindaki atil bakiye
+    days_since_activity INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (scan_id, user_id)
+);
+
+CREATE TABLE lead_contacts (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scan_id BIGINT REFERENCES lead_scans(id) ON DELETE SET NULL,
+    -- Pratikte yalnizca EMAIL yazilir. BSD_QUEUE, "BSD kuyruguna dusmek de
+    -- bir temastir" varsayimindan kalmadir; o varsayim kaldirildi (kimse
+    -- aramasa bile kisi 180 gun sogutmaya giriyor ve kuyruktan sessizce
+    -- kayboluyordu). Deger, ESKI KAYITLAR okunabilsin diye CHECK'te
+    -- korunuyor - bkz. app/services/leads.py, BSD dali.
+    channel VARCHAR(20) NOT NULL                    -- EMAIL (BSD_QUEUE: tarihsel)
+            CHECK (channel IN ('EMAIL','BSD_QUEUE')),
+    status VARCHAR(20) NOT NULL                     -- SENT · FAILED · SKIPPED
+           CHECK (status IN ('SENT','FAILED','SKIPPED')),
+    to_email VARCHAR(150),                          -- gercekten gonderilen adres
+    subject VARCHAR(200),
+    error TEXT,
+    contact_day DATE NOT NULL DEFAULT CURRENT_DATE,  -- gunluk tekillik icin
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Ayni kullaniciya ayni gun icinde ayni kanaldan iki kez "SENT" dusmesin -
+-- once-claim-sonra-gonder deseninin temeli (bkz. backend/app/services/leads.py).
+CREATE UNIQUE INDEX lead_contacts_gunluk_uidx
+    ON lead_contacts (user_id, channel, contact_day) WHERE status = 'SENT';
+
 
 -- =====================================================================
 -- 6 · KAPSAM DIŞI (tablolar dursun, özellik yazılmasın)
@@ -400,6 +471,11 @@ CREATE INDEX chat_sessions_user_idx    ON chat_sessions (user_id, updated_at DES
 CREATE INDEX chat_messages_session_idx ON chat_messages (session_id, created_at);
 CREATE INDEX tool_calls_request_idx    ON tool_calls (request_id);
 CREATE INDEX security_events_block_idx ON security_events (created_at DESC) WHERE action <> 'allow';
+CREATE INDEX lead_scans_started_idx          ON lead_scans (started_at DESC);
+CREATE INDEX lead_queue_entries_scan_idx     ON lead_queue_entries (scan_id);
+CREATE INDEX lead_queue_entries_user_idx     ON lead_queue_entries (user_id, created_at DESC);
+CREATE INDEX lead_queue_entries_decision_idx ON lead_queue_entries (decision, created_at DESC);
+CREATE INDEX lead_contacts_user_idx          ON lead_contacts (user_id, created_at DESC);
 CREATE INDEX documents_asset_idx       ON rag.documents (asset_id);
 CREATE INDEX chunks_tsv_idx            ON rag.chunks USING gin (content_tsv);
 CREATE INDEX chunks_hnsw_idx           ON rag.chunks USING hnsw (embedding vector_cosine_ops);
@@ -454,6 +530,45 @@ FROM v_holdings_valued
 GROUP BY user_id, portfolio_id;
 
 
+-- Lead motorunun SEG kurallarinin okudugu tek kaynak: kullanici basina
+-- portfoy toplami + son aktiflik (islem/sohbet). `users.created_at`
+-- BILEREK kullanilmiyor - seed veride hepsi "az once" gorunur ve sinyali
+-- bozar (bkz. db/README.md).
+CREATE VIEW v_lead_user_signals AS
+WITH portfoy_degeri AS (
+    SELECT user_id,
+           SUM(total_value_try) AS total_value_try,
+           SUM(holding_count)   AS holding_count
+    FROM v_portfolio_summary
+    GROUP BY user_id
+), son_islem AS (
+    SELECT p.user_id, MAX(t.transaction_date) AS last_transaction_at
+    FROM transactions t
+    JOIN portfolios p ON p.id = t.portfolio_id
+    GROUP BY p.user_id
+), son_sohbet AS (
+    SELECT user_id, MAX(updated_at) AS last_chat_at
+    FROM chat_sessions
+    GROUP BY user_id
+)
+SELECT u.id AS user_id, u.first_name, u.last_name, u.email,
+       u.monthly_income, u.marketing_consent, u.created_at AS registered_at,
+       COALESCE(pd.total_value_try, 0) AS total_value_try,
+       COALESCE(pd.holding_count, 0)   AS holding_count,
+       si.last_transaction_at,
+       sc.last_chat_at,
+       GREATEST(si.last_transaction_at, sc.last_chat_at) AS last_activity_at,
+       FLOOR(EXTRACT(EPOCH FROM (
+           now() - GREATEST(si.last_transaction_at, sc.last_chat_at)
+       )) / 86400)::INT AS days_since_activity,
+       u.likit_para
+FROM users u
+LEFT JOIN portfoy_degeri pd ON pd.user_id = u.id
+LEFT JOIN son_islem      si ON si.user_id = u.id
+LEFT JOIN son_sohbet     sc ON sc.user_id = u.id
+WHERE u.role = 'customer';
+
+
 -- =====================================================================
 -- 10 · HİBRİT ARAMA — rag_search tool'unun tek sorgusu
 --      Dense (anlamsal) + BM25 (tam eşleşme) → RRF
@@ -464,6 +579,10 @@ CREATE OR REPLACE FUNCTION rag.hybrid_search(
     p_embedding vector(1024),                       -- ⚠️ EMBEDDING_DIM 2/2
     p_top_k     INT DEFAULT 5,
     p_asset_id  INT DEFAULT NULL,
+    p_sirket    TEXT DEFAULT NULL,
+    p_tip       VARCHAR DEFAULT NULL,
+    p_date_from DATE DEFAULT NULL,
+    p_date_to   DATE DEFAULT NULL,
     p_k_rrf     INT DEFAULT 60
 )
 RETURNS TABLE (chunk_id INT, document_id INT, content TEXT,
@@ -479,9 +598,25 @@ WITH q AS (
                           ' & ', ' | '), '')::tsquery AS tsq
 ),
 filtered AS (
+    -- p_sirket rag.documents.sirket KOLONUNA BAKMAZ: o kolon haberin
+    -- KAYNAĞINI tutar (örn. "AA Ekonomi", "BigPara Döviz"), sözü edilen
+    -- şirketi değil. Eşleşme yalnızca varlık sembolü/unvanı (assets JOIN'i)
+    -- ve başlık üzerinden yapılır - search()'ün BM25 dalındaki fallback ile
+    -- aynı mantık (bkz. app/repositories/sql.py::SqlRagRepository.search).
+    -- NOT: asset_id bugün neredeyse hiç doldurulmadığı için gerçek veride
+    -- bu filtre pratikte yalnızca başlık eşleşmesine dayanır.
     SELECT c.id, c.content, c.embedding, c.content_tsv, c.document_id
-    FROM rag.chunks c JOIN rag.documents d ON d.id = c.document_id
-    WHERE p_asset_id IS NULL OR d.asset_id = p_asset_id
+    FROM rag.chunks c
+    JOIN rag.documents d ON d.id = c.document_id
+    LEFT JOIN assets a   ON a.id = d.asset_id
+    WHERE (p_asset_id IS NULL OR d.asset_id = p_asset_id)
+      AND (p_sirket IS NULL
+           OR upper(a.symbol) = upper(p_sirket)
+           OR upper(a.name) = upper(p_sirket)
+           OR d.baslik ILIKE '%' || p_sirket || '%')
+      AND (p_tip IS NULL OR d.tip = p_tip)
+      AND (p_date_from IS NULL OR d.tarih >= p_date_from)
+      AND (p_date_to IS NULL OR d.tarih <= p_date_to)
 ),
 dense AS (
     SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> p_embedding) rnk
@@ -506,6 +641,11 @@ JOIN rag.documents doc ON doc.id = c.document_id
 ORDER BY f.rrf DESC LIMIT p_top_k;
 $$;
 -- score = RRF skorudur, kosinüs benzerliği DEĞİL.
+-- p_sirket / p_tip / p_date_from / p_date_to: sorgu bazlı filtrelerdir (şirket,
+-- doküman türü, tarih aralığı). p_k_rrf bir filtre DEĞİLDİR - RRF füzyon
+-- formülünün (1/(p_k_rrf+rank)) sabitidir; dense ve lexical sıralamalarının
+-- nihai skora ne kadar ağırlıkla katıldığını belirler, hangi satırların
+-- göründüğünü değil.
 
 
 -- =====================================================================
@@ -549,17 +689,37 @@ UPDATE assets SET prev_close = ROUND(current_price / (1 + daily_change_pct/100.0
                   price_updated_at = now();
 
 -- Şifre hepsinde: demo1234
-INSERT INTO users (first_name, last_name, email, password_hash, risk_tolerance, monthly_income) VALUES
-('Mehmet','Yılmaz','mehmet@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW','HIGH',150000.0),
-('Ayşe','Kaya','ayse@example.com','$2b$10$Yb8T7yJiAWQQD71v45o/EOpGCQVCWj9sAbJmjl5R6HKa39lyKW36S','LOW',75000.0),
-('Can','Öztürk','can@example.com','$2b$10$tFWB6HyIOE91rFskCogI1.n8WmSV4zqdJ/Y2rbOzAIOZwcutolnZq','HIGH',45000.0),
-('Zeynep','Demir','zeynep@example.com','$2b$10$bYkcSp99rikfo9Xqc0vWjO03J832PUdeC4orqCO.AJTIY1yJmnC4e','MEDIUM',95000.0),
-('Ahmet','Şahin','ahmet@example.com','$2b$10$OStPyyZDG6togEcTURO7NOPmNQoyjtzcx.LUaArmpU9LHX0ICXHre','LOW',40000.0),
-('Elif','Çelik','elif@example.com','$2b$10$U92TKkQv7nXd39NVPKYXFOVT0BEM9ltkUNaYGExj5SSuj77m2Nyou','HIGH',250000.0),
-('Burak','Tekin','burak@example.com','$2b$10$5NrnZAcGw5PZ7xSl8upei.87KMfLCacEPhUwj.DoFNizbMhbkQ9.K','MEDIUM',60000.0),
-('Selin','Aydın','selin@example.com','$2b$10$5cTFiUiaaDlCeL9vT3/1cuK5Wu/gqhOnRLDJTEeiYLNgrAmtrT3Je','MEDIUM',85000.0),
-('Kemal','Yıldız','kemal@example.com','$2b$10$tSimnfkYhkhV/dSs/t4gteqrGgWs6ut9DuCet2nihoL3w0khrswOu','LOW',30000.0),
-('Büşra','Koç','busra@example.com','$2b$10$.35my8JfMBBHGpo/AbH/0Ogb1FbMPHXuRnB8P5fuCKojKK2014GvW','HIGH',120000.0);
+-- created_at kademeli verildi: hepsi ayni anda "az once kayit olmus"
+-- gorunmesin diye (lead motorunun hareketsizlik kurali icin onemli).
+-- likit_para (atıl banka bakiyesi) lead motorunun HEDEFLEME kriteridir:
+-- 120K-1M arası + hiç yatırım yapmamış (portföyü boş) + 90 gün hareketsiz
+-- kullanıcılar kuyruğa düşer. Aşağıdaki değerler fresh/CI veritabanında
+-- motorun her dalını test edilebilir kılacak şekilde seçildi:
+--   Ahmet (5)  → 250K, portföyü yok   → OTONOM (mail)
+--   Burak (7)  → 180K, portföyü yok   → OTONOM (mail)
+--   Selin (8)  → 650K, portföyü yok   → BSD (aranacak)
+--   Kemal (9)  →  90K                 → dışlanır: balance_below_threshold
+--   Büşra (10) → 1,2M                 → dışlanır: above_upper_limit
+--   1,2,3,4,6  → portföyleri var      → dışlanır: already_invested
+INSERT INTO users (first_name, last_name, email, password_hash, risk_tolerance, monthly_income, likit_para, role, created_at) VALUES
+('Mehmet','Yılmaz','mehmet@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW','HIGH',150000.0, 200000, 'customer', now() - INTERVAL '400 days'),
+('Ayşe','Kaya','ayse@example.com','$2b$10$Yb8T7yJiAWQQD71v45o/EOpGCQVCWj9sAbJmjl5R6HKa39lyKW36S','LOW',75000.0, 150000, 'customer', now() - INTERVAL '370 days'),
+('Can','Öztürk','can@example.com','$2b$10$tFWB6HyIOE91rFskCogI1.n8WmSV4zqdJ/Y2rbOzAIOZwcutolnZq','HIGH',45000.0, 300000, 'customer', now() - INTERVAL '340 days'),
+('Zeynep','Demir','zeynep@example.com','$2b$10$bYkcSp99rikfo9Xqc0vWjO03J832PUdeC4orqCO.AJTIY1yJmnC4e','MEDIUM',95000.0, 400000, 'customer', now() - INTERVAL '310 days'),
+('Ahmet','Şahin','ahmet@example.com','$2b$10$OStPyyZDG6togEcTURO7NOPmNQoyjtzcx.LUaArmpU9LHX0ICXHre','LOW',40000.0, 250000, 'customer', now() - INTERVAL '280 days'),
+('Elif','Çelik','elif@example.com','$2b$10$U92TKkQv7nXd39NVPKYXFOVT0BEM9ltkUNaYGExj5SSuj77m2Nyou','HIGH',250000.0, 800000, 'customer', now() - INTERVAL '250 days'),
+('Burak','Tekin','burak@example.com','$2b$10$5NrnZAcGw5PZ7xSl8upei.87KMfLCacEPhUwj.DoFNizbMhbkQ9.K','MEDIUM',60000.0, 180000, 'customer', now() - INTERVAL '200 days'),
+('Selin','Aydın','selin@example.com','$2b$10$5cTFiUiaaDlCeL9vT3/1cuK5Wu/gqhOnRLDJTEeiYLNgrAmtrT3Je','MEDIUM',85000.0, 650000, 'customer', now() - INTERVAL '150 days'),
+('Kemal','Yıldız','kemal@example.com','$2b$10$tSimnfkYhkhV/dSs/t4gteqrGgWs6ut9DuCet2nihoL3w0khrswOu','LOW',30000.0, 90000, 'customer', now() - INTERVAL '90 days'),
+('Büşra','Koç','busra@example.com','$2b$10$.35my8JfMBBHGpo/AbH/0Ogb1FbMPHXuRnB8P5fuCKojKK2014GvW','HIGH',120000.0, 1200000, 'customer', now() - INTERVAL '20 days'),
+-- Danışman hesabı: /danisman-giris ekranından girer, /api/leads/* uçlarına
+-- yalnızca bu rol erişebilir. Şifresi diğer demo kullanıcılarla aynı:
+-- "demo1234". marketing_consent=FALSE çünkü bir müşteri değil - lead
+-- taraması bu hesabı hedeflememeli (role filtresi zaten eliyor, bu ikinci
+-- savunma).
+('Deniz','Danışman','danisman@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW',NULL,0.0, 0, 'advisor', now() - INTERVAL '410 days');
+
+UPDATE users SET marketing_consent = FALSE WHERE role = 'advisor';
 
 INSERT INTO portfolios (user_id, name, is_default) VALUES
 (1, 'Agresif BIST & Kripto',      TRUE),
@@ -605,9 +765,9 @@ INSERT INTO user_alerts (user_id, asset_id, target_price, condition) VALUES
 
 INSERT INTO watchlists (user_id, asset_id) VALUES (1,16), (3,12), (4,7), (10,6);
 
-INSERT INTO chat_sessions (user_id, title) VALUES
-(1,'SASA Zararı ve Kripto Fırsatları'),
-(3,'Altcoin Sepeti Yorumu');
+INSERT INTO chat_sessions (user_id, title, created_at, updated_at) VALUES
+(1,'SASA Zararı ve Kripto Fırsatları', now() - INTERVAL '52 days', now() - INTERVAL '50 days'),
+(3,'Altcoin Sepeti Yorumu', now() - INTERVAL '12 days', now() - INTERVAL '10 days');
 
 INSERT INTO chat_messages (session_id, sender_role, message_content) VALUES
 (1,'user','SASA maliyetim 52 TL, şu an 45 TL. Zarardayım. Ne yapmalıyım?'),

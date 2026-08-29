@@ -41,8 +41,19 @@ class PortfolioAgent(BaseAgent):
 
     name = AGENT_NAME
 
-    def __init__(self, mcp_client, llm=None, timeout_seconds: int = 20) -> None:
-        super().__init__(mcp_client=mcp_client, llm=llm, timeout_seconds=timeout_seconds)
+    def __init__(
+        self,
+        mcp_client,
+        llm=None,
+        timeout_seconds: int = 20,
+        llm_timeout_seconds: int | None = None,
+    ) -> None:
+        super().__init__(
+            mcp_client=mcp_client,
+            llm=llm,
+            timeout_seconds=timeout_seconds,
+            llm_timeout_seconds=llm_timeout_seconds,
+        )
 
     async def _execute(self, state: AgentState) -> dict:
         # Router bu ajani istemediyse ucuz no-op: tool/LLM cagrisi yapilmaz.
