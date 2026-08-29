@@ -18,9 +18,7 @@ from app.services.pexels import search_photo
 EXCERPT_LENGTH = 240
 FALLBACK_TITLE_LENGTH = 72
 
-_BYLINE_PREFIX = re.compile(
-    r"^[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\s+[A-ZÇĞİÖŞÜ]{2,}\s+"
-)
+_BYLINE_PREFIX = re.compile(r"^[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\s+[A-ZÇĞİÖŞÜ]{2,}\s+")
 
 _TOPIC_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Dolar/TL", ("dolar/tl",)),
@@ -42,7 +40,10 @@ _TOPIC_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 # de otomatik olarak uygun başlığı alır.
 _CONTENT_TITLE_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("tüfe", "altın piyasası"), "TÜFE verisi öncesinde altın piyasası"),
-    (("değerli metal", "orta doğu", "fed"), "Fed ve Orta Doğu gelişmeleri değerli metalleri şekillendiriyor"),
+    (
+        ("değerli metal", "orta doğu", "fed"),
+        "Fed ve Orta Doğu gelişmeleri değerli metalleri şekillendiriyor",
+    ),
     (("altın", "gümüş", "haftalık"), "Altın ve gümüşte haftalık piyasa görünümü"),
     (("yükseliş serisini", "fed"), "Altında yükseliş serisi ve Fed beklentileri"),
     (("kilogram fiyatı", "işlem hacmi"), "Kıymetli madenler piyasasında fiyat ve işlem hacmi"),
@@ -51,8 +52,14 @@ _CONTENT_TITLE_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("spot altın", "gram altın", "çeyrek altın"), "Ons ve gram altında güncel görünüm"),
     (("dolar/tl", "rekor kır"), "Dolar/TL rekor seviyeyi test etti"),
     (("dolar endeksi", "dar bant"), "Dolar endeksi ve TL kurlarında dar bant görünümü"),
-    (("dolar/tl", "üretici enflasyonu", "eylül toplantısı"), "ABD enflasyon verileri Fed beklentilerini öteledi"),
-    (("dolar/tl", "perakende satışlar", "tüketici güven"), "ABD verileri Fed beklentilerini değiştirdi"),
+    (
+        ("dolar/tl", "üretici enflasyonu", "eylül toplantısı"),
+        "ABD enflasyon verileri Fed beklentilerini öteledi",
+    ),
+    (
+        ("dolar/tl", "perakende satışlar", "tüketici güven"),
+        "ABD verileri Fed beklentilerini değiştirdi",
+    ),
     (("dolar/tl", "orta doğu", "fed"), "Fed ve Orta Doğu gelişmeleri döviz piyasasının odağında"),
     (("dolar/tl", "fed"), "Fed beklentileri döviz piyasasını şekillendiriyor"),
     (("dolar/tl", "euro/tl", "sterlin/tl"), "Dolar/TL ve çapraz kurlarda güncel görünüm"),
@@ -60,30 +67,60 @@ _CONTENT_TITLE_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("bist 100", "günün ilk yarısında"), "BIST 100'de gün ortası sektör görünümü"),
     (("bist 100", "14.000 puan"), "BIST 100'de alımlar ve 14 bin puan eşiği"),
     (("vadeli endeks kontratı", "açılış"), "Vadeli piyasada endeks kontratı görünümü"),
-    (("ticaret bakanlığı", "ilan", "denetim"), "Ticaret Bakanlığı ilan denetiminin sonuçlarını açıkladı"),
-    (("elektronik gürültü filtresi", "projesi geliştirildi"), "Elektronik Gürültü Filtresi projesi geliştirildi"),
+    (
+        ("ticaret bakanlığı", "ilan", "denetim"),
+        "Ticaret Bakanlığı ilan denetiminin sonuçlarını açıkladı",
+    ),
+    (
+        ("elektronik gürültü filtresi", "projesi geliştirildi"),
+        "Elektronik Gürültü Filtresi projesi geliştirildi",
+    ),
     (("tgfe",), "TCMB ticari gayrimenkul fiyat verilerini açıkladı"),
     (("motorlu kara taşıtları", "temmuz"), "TÜİK temmuz ayı taşıt istatistiklerini açıkladı"),
     (("aile ve gençlik fonu", "madencilik"), "Aile ve Gençlik Fonu'nun kaynak yapısı açıklandı"),
     (("insansız deniz aracı", "deniz mayınlama"), "MARLİN insansız deniz aracına yeni kabiliyet"),
-    (("elektronik haberleşme sektörü", "işletmeci sayısı"), "Elektronik haberleşme sektörünün güncel görünümü"),
+    (
+        ("elektronik haberleşme sektörü", "işletmeci sayısı"),
+        "Elektronik haberleşme sektörünün güncel görünümü",
+    ),
     (("bütçe uygulama sonuçları", "temmuz"), "Temmuz ayı bütçe uygulama sonuçları açıklandı"),
     (("çamlıhemşin tünelli geçişi", "açılış"), "Çamlıhemşin Tünelli Geçişi hizmete açıldı"),
     (("hamsi", "ihracat"), "Türkiye'nin hamsi ihracatında yedi aylık görünüm"),
     (("mehmet şimşek", "mali disiplin"), "Şimşek'ten mali disiplin ve bütçe mesajı"),
     (("oyak çimento", "yeni yapılanma"), "OYAK Çimento'dan yeni yapılanma açıklaması"),
-    (("kayseri şeker", "sermaye avansı"), "Kayseri Şeker bağlı ortaklığına sermaye avansı aktaracak"),
-    (("küresel piyasalar", "orta doğu", "temkinli"), "Orta Doğu belirsizliği küresel piyasaların odağında"),
-    (("jeopolitik gelişmeler", "piyasaların yönü"), "Jeopolitik gelişmeler piyasaların yönünü belirliyor"),
+    (
+        ("kayseri şeker", "sermaye avansı"),
+        "Kayseri Şeker bağlı ortaklığına sermaye avansı aktaracak",
+    ),
+    (
+        ("küresel piyasalar", "orta doğu", "temkinli"),
+        "Orta Doğu belirsizliği küresel piyasaların odağında",
+    ),
+    (
+        ("jeopolitik gelişmeler", "piyasaların yönü"),
+        "Jeopolitik gelişmeler piyasaların yönünü belirliyor",
+    ),
     (("anma pulu", "ilk gün zarfı"), "Anma pulu ve ilk gün zarfı satışa çıktı"),
     (("brent petrol", "hürmüz boğazı"), "Hürmüz Boğazı gelişmeleri petrol piyasasının odağında"),
     (("inşaat üretim endeksi", "haziran"), "TÜİK haziran ayı inşaat üretim verilerini açıkladı"),
-    (("türkiye buluşması", "diaspora"), "DTİK Türkiye Buluşması diaspora temsilcilerini bir araya getirdi"),
-    (("piyasa katılımcıları anketi", "ağustos"), "TCMB ağustos ayı piyasa beklentilerini yayımladı"),
-    (("küresel piyasalarda", "risk iştahı", "orta doğu"), "Enflasyon ve Orta Doğu gündemi risk iştahını şekillendiriyor"),
+    (
+        ("türkiye buluşması", "diaspora"),
+        "DTİK Türkiye Buluşması diaspora temsilcilerini bir araya getirdi",
+    ),
+    (
+        ("piyasa katılımcıları anketi", "ağustos"),
+        "TCMB ağustos ayı piyasa beklentilerini yayımladı",
+    ),
+    (
+        ("küresel piyasalarda", "risk iştahı", "orta doğu"),
+        "Enflasyon ve Orta Doğu gündemi risk iştahını şekillendiriyor",
+    ),
     (("uzay kampı türkiye", "crew dragon"), "Uzay Kampı Türkiye'de Crew Dragon deneyimi"),
     (("kurumlar vergisi", "ilk 100"), "Kurumlar vergisinde ilk 100 mükellefin sektör dağılımı"),
-    (("petrol fiyatları", "enerji üreticileri", "trump"), "Petrol fiyatları ABD enerji politikasını zorluyor"),
+    (
+        ("petrol fiyatları", "enerji üreticileri", "trump"),
+        "Petrol fiyatları ABD enerji politikasını zorluyor",
+    ),
     (("tbb risk merkezi", "nakdi krediler"), "TBB haziran ayı kredi görünümünü yayımladı"),
     (("son 25 yılda", "ticarette", "dönüşüm"), "Türkiye'nin ticarette 25 yıllık dönüşümü"),
     (("indirimli bilet", "kktc"), "KKTC uçuşları için indirimli bilet kampanyası"),
@@ -127,13 +164,17 @@ def _specific_title(context: str, topic: str) -> str | None:
     if "tüfe" in context and "yukarı yönlü ivme" in context:
         return "TÜFE öncesi altındaki yükseliş hızlandı"
 
-    match = re.search(r"yüzde\s+(\d+(?:,\d+)?)\s+(?:artışla|yükselerek|artarak|değer kazan)", context)
+    match = re.search(
+        r"yüzde\s+(\d+(?:,\d+)?)\s+(?:artışla|yükselerek|artarak|değer kazan)", context
+    )
     if match:
         if "kilogram fiyatı" in context and "altın" in context:
             return f"Altının kilogram fiyatı yüzde {match.group(1)} yükseldi"
         return f"{topic} yüzde {match.group(1)} yükseldi"
 
-    match = re.search(r"yüzde\s+(\d+(?:,\d+)?)\s+(?:azalışla|düşerek|gerileyerek|değer kay)", context)
+    match = re.search(
+        r"yüzde\s+(\d+(?:,\d+)?)\s+(?:azalışla|düşerek|gerileyerek|değer kay)", context
+    )
     if match:
         return f"{topic} yüzde {match.group(1)} geriledi"
 
@@ -144,6 +185,7 @@ def _specific_title(context: str, topic: str) -> str | None:
         return f"{topic} yatay seyretti"
 
     return None
+
 
 _CATEGORY_TOPICS = {
     "altin": "Altın fiyatları",
@@ -162,7 +204,16 @@ _TREND_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "geriliyor",
-        ("düşüş", "düştü", "azalış", "azaldı", "geriledi", "geriliyor", "gerileyerek", "değer kayb"),
+        (
+            "düşüş",
+            "düştü",
+            "azalış",
+            "azaldı",
+            "geriledi",
+            "geriliyor",
+            "gerileyerek",
+            "değer kayb",
+        ),
     ),
     ("hareketli seyrediyor", ("dalgal", "oynak", "hareketli", "hareketlen")),
     ("için riskler gündemde", ("risk", "endişe", "belirsiz")),
@@ -212,6 +263,7 @@ def _fallback_title(raw_text: str, kategori: str | None = None) -> str:
     ]
     trend = max(trend_matches, default=(-1, "gündemde"), key=lambda item: item[0])[1]
     return f"{topic} {trend}"
+
 
 _THY_IMAGE = "/news/thy-plane.jpg.webp"
 _SASA_IMAGE = "/news/sasa-factory.jpg.jfif"

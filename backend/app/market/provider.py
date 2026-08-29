@@ -197,9 +197,7 @@ class ApiMarketProvider(MarketDataProvider):
 
         cagri_sayisi = len(yahoo.gerekli_tickerlar(semboller))
         try:
-            candles = await yahoo.gecmis_mumlari_indir(
-                semboller, period="5d", interval="1h"
-            )
+            candles = await yahoo.gecmis_mumlari_indir(semboller, period="5d", interval="1h")
         except Exception as exc:  # noqa: BLE001 - uzlastirma canli akisi durdurmamali
             logger.warning(
                 "saatlik mum uzlastirmasi basarisiz: %s: %s",

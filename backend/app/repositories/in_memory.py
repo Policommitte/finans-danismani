@@ -930,9 +930,7 @@ class InMemoryTradingRepository:
             "order_type": order_type,
             "limit_price": limit_price,
             "stop_loss_price": stop_loss_price,
-            "stop_loss_currency": (
-                context["currency"] if stop_loss_price is not None else None
-            ),
+            "stop_loss_currency": (context["currency"] if stop_loss_price is not None else None),
             "parent_order_id": None,
             "validity": validity,
             "expires_at": (
@@ -1586,6 +1584,7 @@ class InMemoryRagRepository:
         for chunk in _RAG_CHUNKS:
             if chunk["chunk_id"] == document_id:
                 chunk["image_url"] = image_url
+
     async def hybrid_search(
         self,
         query: str,
