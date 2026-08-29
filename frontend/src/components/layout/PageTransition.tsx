@@ -12,9 +12,16 @@ import {
   type PageTransitionNavigation,
 } from "./transitionEvents";
 
-const COVER_DURATION_MS = 900;
-const REVEAL_DELAY_MS = 80;
-const TICKER_READY_TIMEOUT_MS = 8000;
+// index.css'teki karo koreografisiyle KILITLI: karo suresi (420ms) + son
+// karonun gecikmesi (180ms) = 600ms. CSS'te tempo degisirse burasi da
+// degismeli, yoksa gecis ya erken acilir ya bosuna bekler.
+const COVER_DURATION_MS = 600;
+const REVEAL_DELAY_MS = 40;
+// Perdenin veri bekleyecegi ust sinir. 8 sn'ydi: backend soguk acilirken
+// kullanici 8 saniye boyunca perdeye bakiyordu. Ticker gelmezse 2,5 sn
+// sonra sayfa yine acilir; serit kendi iskeletiyle sonradan dolar -
+// islevsel bir kayip yok, yalnizca kotu gunun tavani dusuyor.
+const TICKER_READY_TIMEOUT_MS = 2500;
 
 type TransitionPhase = "idle" | "covering" | "covered" | "revealing";
 
@@ -161,6 +168,17 @@ export function PageTransition({ children }: { children: ReactNode }) {
       destinationRef.current = destination;
       phaseRef.current = "covering";
       setPhase("covering");
+
+      // Rota, perde KAPANIRKEN onceden yuklenir. Eskiden router.push perde
+      // tamamen kapanana kadar bekliyordu ve hedef sayfanin kodu/verisi
+      // ancak o zaman istenmeye baslaniyordu - yukleme ile animasyon pes
+      // pese calisiyordu. Prefetch ikisini ust uste bindirir; gorsel hicbir
+      // sey degismez, perde acildiginda sayfa cogunlukla hazirdir.
+      try {
+        router.prefetch(destination);
+      } catch {
+        // prefetch en-iyi-caba: desteklenmeyen ortamda gecis yine calisir.
+      }
 
       navigationTimerRef.current = window.setTimeout(() => {
         phaseRef.current = "covered";
