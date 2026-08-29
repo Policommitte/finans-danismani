@@ -65,8 +65,7 @@ def _argumanlar() -> argparse.Namespace:
 def _tablo_yazdir(sonuc: ToplamaSonucu) -> None:
     """Cekilen veriyi okunabilir bir tabloda gosterir."""
     baslik = (
-        f"{'SEMBOL':<12}{'FIYAT':>14}{'GUNLUK':>10}{'HAFTALIK':>11}"
-        f"{'YILLIK':>10}{'GECMIS':>9}"
+        f"{'SEMBOL':<12}{'FIYAT':>14}{'GUNLUK':>10}{'HAFTALIK':>11}" f"{'YILLIK':>10}{'GECMIS':>9}"
     )
     print("\n" + baslik)
     print("-" * len(baslik))

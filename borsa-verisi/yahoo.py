@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 #: API degildir; art arda hizli istek atmak gecici engellemeye yol acabilir.
 CAGRI_ARASI_BEKLEME = 0.4
 
+
 @dataclass
 class PiyasaVerisi:
     """Tek bir varligin Yahoo'dan uretilmis tam kaydi."""

@@ -245,6 +245,12 @@ def reset_repositories() -> None:
     """
     _DB_DURUM.update(calisiyor=None, kontrol=0.0)
     _saglayici_onbelleklerini_temizle()
+    # Engine de sifirlanmali: havuz kuyrugu eski testin event loop'una bagli
+    # kalirsa yeni loop'ta beklemeye dusen ilk checkout patlar (ayrinti:
+    # app/db/session.py::reset_engine_cache).
+    from app.db.session import reset_engine_cache
+
+    reset_engine_cache()
 
 
 def _saglayici_onbelleklerini_temizle() -> None:

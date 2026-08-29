@@ -82,6 +82,10 @@ CREATE TABLE assets (
     daily_change_pct NUMERIC DEFAULT 0.0,
     weekly_change_pct NUMERIC DEFAULT 0.0,
     yearly_change_pct NUMERIC DEFAULT 0.0,
+    -- Bolum 12'deki fiyat gecmisi backfill'i ve risk ajaninin volatilite
+    -- testleri bu kolonu kullanir (main ile ayni tanim). Canli fiyat
+    -- toplayicisi bu kolonu OKUMAZ - yalnizca seed/backfill icindir.
+    sim_volatility NUMERIC NOT NULL DEFAULT 0.0150,
     price_updated_at TIMESTAMPTZ
 );
 
@@ -774,6 +778,37 @@ INSERT INTO chat_messages (session_id, sender_role, message_content) VALUES
 (1,'assistant','Mehmet Bey, portföyünüzdeki SASA pozisyonu yaklaşık %13 ekside. Agresif risk profilinize uygun olarak piyasa dönüşünü bekleyebilir veya BTC pozisyonunuzdan elde ettiğiniz kârla maliyet düşürmeyi değerlendirebilirsiniz. Bu bir yatırım tavsiyesi değildir.'),
 (2,'user','Ethereum maliyetim çok yüksek kaldı (4000$). Solana ise kârda. Nasıl dengeleyebilirim?'),
 (2,'assistant','Can Bey, Solana pozisyonunuzdaki kârı realize edip bir kısmını Ethereum tarafına kaydırmak, yüksek risk profiliniz için değerlendirilebilecek bir yeniden dengeleme yaklaşımıdır. Bu bir yatırım tavsiyesi değildir.');
+
+
+-- =====================================================================
+-- 12 · FİYAT GEÇMİŞİ BACKFILL — 90 gün · 4 saat çözünürlük (~9.200 satır)
+--      Bu olmadan grafikler boş, risk ajanı volatilite hesaplayamaz.
+-- =====================================================================
+
+INSERT INTO price_history (asset_id, ts, price, source)
+SELECT a.id, g.ts,
+       GREATEST(
+           -- ::NUMERIC sart: SIN()/RANDOM() ifadeyi double precision yapar ve
+           -- round(double precision, integer) PostgreSQL'de tanimli degildir.
+           ROUND((a.current_price * (
+               (1 - (a.yearly_change_pct/100.0) * (d.days_ago/365.0))
+               + a.sim_volatility * 2.5 * SIN(d.days_ago/6.0)
+               + a.sim_volatility * (RANDOM()-0.5) * 2
+           ))::NUMERIC, 4),
+           a.current_price * 0.05)
+       , 'backfill'
+FROM assets a
+CROSS JOIN LATERAL (
+    SELECT generate_series(now() - INTERVAL '90 days', now(), INTERVAL '4 hours') AS ts
+) g
+CROSS JOIN LATERAL (
+    SELECT EXTRACT(EPOCH FROM (now() - g.ts))/86400.0 AS days_ago
+) d;
+
+UPDATE price_history ph SET price = a.current_price
+FROM assets a
+WHERE ph.asset_id = a.id
+  AND ph.ts = (SELECT MAX(ts) FROM price_history WHERE asset_id = a.id);
 
 
 -- =====================================================================
