@@ -12,24 +12,29 @@ import {
 import type { SoundKind } from "./useSoundEffects";
 import { useLanguage } from "../contexts/LanguageContext";
 
-/** Kullanıcının elindeki jokerler */
 export type Powerups = {
-  timeShield: number; // +10 saniye
-  fiftyFifty: number; // iki yanlış şıkkı eler
+  timeShield: number; // "çift puan" jokeri olarak kullanılıyor
+  fiftyFifty: number;
 };
 
-/** Sorunun içinde bulunduğu aşama */
 export type QuizPhase =
-  | "curtain" // "Soru N" perdesi
-  | "asking" // süre işliyor, cevap bekleniyor
-  | "revealed"; // cevap verildi, doğru gösteriliyor
+  | "curtain" // "Soru N" + görünür geri sayım, HER soruda
+  | "reading" // soru metni görünür, şıklar YOK
+  | "asking" // şıklar görünür, cevap süresi işliyor
+  | "locked" // cevap kaydedildi ama SÜRE BİTENE KADAR açıklanmaz
+  | "revealed"; // süre doldu, sonuç gösteriliyor
 
 export type MascotMood = "idle" | "hurry" | "happy" | "sad";
 
-const CURTAIN_MS = 900;
+const CURTAIN_SECONDS = 8;
+const READING_SECONDS = 4;
+
+type LockedResult = {
+  correct: boolean;
+  points: number;
+};
 
 type Args = {
-  /** Yarışmaya kayıt olan kişi sayısı — rakip sayacının başlangıcı */
   registeredCount: number;
   powerups: Powerups;
   onUsePowerup: (kind: keyof Powerups) => void;
@@ -39,7 +44,7 @@ type Args = {
 };
 
 export function useQuiz({
- registeredCount,
+  registeredCount,
   powerups,
   onUsePowerup,
   onWin,
@@ -54,60 +59,82 @@ export function useQuiz({
   const [score, setScore] = useState(0);
   const [gained, setGained] = useState<number | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
+  const [locked, setLocked] = useState<LockedResult | null>(null);
 
   const [limit, setLimit] = useState<number>(CONFIG.questionSeconds);
   const [timeLeft, setTimeLeft] = useState<number>(CONFIG.questionSeconds);
+  const [curtainLeft, setCurtainLeft] = useState<number>(CURTAIN_SECONDS);
+  const [readLeft, setReadLeft] = useState<number>(READING_SECONDS);
+
   const [shares, setShares] = useState<number[]>([]);
-  const [removed, setRemoved] = useState<number[]>([]); // 50/50 ile elenen şıklar
+  const [removed, setRemoved] = useState<number[]>([]);
   const [rivals, setRivals] = useState(registeredCount);
   const [mood, setMood] = useState<MascotMood>("idle");
   const [timedOut, setTimedOut] = useState(false);
 
-  // Bu soruda joker kullanıldı mı
   const [shieldUsed, setShieldUsed] = useState(false);
+  const [doublePointsActive, setDoublePointsActive] = useState(false);
   const [fiftyUsed, setFiftyUsed] = useState(false);
 
   const startedAt = useRef<number>(0);
-  const prevShares = useRef<number>(100); // önceki sorunun doğru cevap oranı
+  const prevShares = useRef<number>(100);
   const question = questions[index];
   const isLast = index === questions.length - 1;
 
-  /* ── Soru hazırlığı: perde → soru ── */
+  /* ── Soru hazırlığı: ortak state sıfırlaması (phase ayrı yerde ayarlanır) ── */
   useEffect(() => {
     if (!question) return;
 
-    setPhase("curtain");
     setSelected(null);
     setGained(null);
     setRemoved([]);
     setShieldUsed(false);
+    setDoublePointsActive(false);
     setFiftyUsed(false);
     setTimedOut(false);
+    setLocked(null);
     setMood("idle");
     setLimit(question.timerSeconds);
     setTimeLeft(question.timerSeconds);
+    setCurtainLeft(CURTAIN_SECONDS);
+    setReadLeft(READING_SECONDS);
+
     const nextShares = buildShares(question.correctIndex);
     setShares(nextShares);
 
-    // Bir önceki soruda doğru cevabı seçen oran kadar katılımcı hayatta kalır.
-    // Böylece gösterilen yüzde ile eleme sayısı tutarlı olur.
     if (index > 0) {
       const prevCorrectShare = prevShares.current;
       setRivals((n) => Math.max(1, Math.round((n * prevCorrectShare) / 100)));
     }
     prevShares.current = nextShares[question.correctIndex];
-
-    const id = setTimeout(() => {
-      setPhase("asking");
-      startedAt.current = Date.now();
-    }, CURTAIN_MS);
-
-    return () => clearTimeout(id);
   }, [index, question]);
 
-  /* ── Geri sayım ── */
+  /* ── Perde: "Soru N" + görünür geri sayım, HER soruda ── */
   useEffect(() => {
-    if (phase !== "asking") return;
+    if (phase !== "curtain") return;
+    if (curtainLeft <= 0) {
+      setPhase("reading");
+      return;
+    }
+    const id = setTimeout(() => setCurtainLeft((n) => n - 1), 1000);
+    return () => clearTimeout(id);
+  }, [phase, curtainLeft]);
+
+  /* ── Okuma fazı: soru görünür, şıklar yok ── */
+  useEffect(() => {
+    if (phase !== "reading") return;
+    if (readLeft <= 0) {
+      setPhase("asking");
+      startedAt.current = Date.now();
+      return;
+    }
+    const id = setTimeout(() => setReadLeft((n) => n - 1), 1000);
+    return () => clearTimeout(id);
+  }, [phase, readLeft]);
+
+  /* ── Geri sayım — "asking" ve "locked" fazlarında çalışmaya devam eder ── */
+  useEffect(() => {
+    if (phase !== "asking" && phase !== "locked") return;
     if (timeLeft <= 0) return;
 
     const id = setTimeout(() => setTimeLeft((n) => n - 1), 1000);
@@ -116,29 +143,53 @@ export function useQuiz({
 
   /* ── Son 5 saniye uyarısı ── */
   useEffect(() => {
-    if (phase !== "asking") return;
+    if (phase !== "asking" && phase !== "locked") return;
     if (timeLeft <= 5 && timeLeft > 0) {
       setMood("hurry");
       playSound?.("tick");
     }
   }, [phase, timeLeft, playSound]);
-  
 
+  /* ── Süre doldu: sonucu AÇIĞA ÇIKAR ── */
   useEffect(() => {
-    if (phase !== "asking" || timeLeft > 0) return;
-    setTimedOut(true);
-    setMood("sad");
+    if ((phase !== "asking" && phase !== "locked") || timeLeft > 0) return;
+
+    if (phase === "asking") {
+      setTimedOut(true);
+      setMood("sad");
+      playSound?.("timeout");
+      setPhase("revealed");
+      return;
+    }
+
+    if (locked) {
+      if (locked.correct) {
+        setScore((s) => s + locked.points);
+        setGained(locked.points);
+        setCorrectCount((c) => c + 1);
+        setMood("happy");
+        playSound?.("correct");
+      } else {
+        setMood("sad");
+        playSound?.("wrong");
+      }
+    }
     setPhase("revealed");
-  playSound?.("timeout");
-  }, [phase, timeLeft, playSound]);
-  /* ── Cevap sonrası: sonraki soru ya da bitiş ── */
+  }, [phase, timeLeft, locked, playSound]);
+
+  /* ── Cevap sonrası: sonraki soru ya da bitiş ──
+     KRİTİK: index ve phase burada AYNI ANDA (aynı batch içinde) değişir,
+     böylece eski faz ile yeni soru metninin birlikte göründüğü "flash"
+     karesi hiç oluşmaz. */
   useEffect(() => {
     if (phase !== "revealed" || !question) return;
 
-    const wasCorrect = !timedOut && selected === question.correctIndex;
+    const wasCorrect = !timedOut && locked?.correct === true;
 
     const id = setTimeout(() => {
       if (wasCorrect && !isLast) {
+        setCurtainLeft(CURTAIN_SECONDS);
+        setPhase("curtain");
         setIndex((i) => i + 1);
         return;
       }
@@ -159,14 +210,6 @@ export function useQuiz({
     }, CONFIG.answerRevealMs);
 
     return () => clearTimeout(id);
-    //: Bilincli olarak SADECE `phase` izleniyor: bu efekt "revealed" fazina
-    //: GIRISTE bir kerelik bir zamanlayici kurar. question/selected/score/
-    //: correctCount/timedOut/isLast/onWin/onLose degerleri o an icin zaten
-    //: dogru (confirm() hepsini phase="revealed" ile AYNI batch'te set eder),
-    //: ve phase "revealed" kaldigi surece bir daha degismezler - bu yuzden
-    //: eksik-bagimlilik eslint uyarisi burada gecerli bir yeniden-calisma
-    //: riski isaret etmiyor. Tum bagimliliklari eklemek, her soru sonrasi
-    //: zamanlayiciyi gereksiz yere sifirlar/tekrar kurar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -176,8 +219,9 @@ export function useQuiz({
     (i: number) => {
       if (phase !== "asking" || removed.includes(i)) return;
       setSelected(i);
+      playSound?.("tick");
     },
-    [phase, removed]
+    [phase, removed, playSound]
   );
 
   const confirm = useCallback(() => {
@@ -185,33 +229,21 @@ export function useQuiz({
 
     const elapsed = (Date.now() - startedAt.current) / 1000;
     const correct = selected === question.correctIndex;
+    const basePoints = correct ? scoreFor(elapsed, limit) : 0;
+    const points = doublePointsActive ? basePoints * 2 : basePoints;
 
-    if (correct) {
-      const points = scoreFor(elapsed, limit);
-      setScore((s) => s + points);
-      setGained(points);
-      setCorrectCount((c) => c + 1);
-      setMood("happy");
-      playSound?.("correct");
-    } else {
-      setMood("sad");
-      playSound?.("wrong");
-    }
-    setPhase("revealed");
-  
-  }, [phase, selected, question, limit, playSound]);
+    setLocked({ correct, points });
+    setPhase("locked");
+  }, [phase, selected, question, limit, doublePointsActive]);
 
-  /** Zaman kalkanı: süreyi 10 saniye uzatır */
-  const useTimeShield = useCallback(() => {
+  const useDoublePoints = useCallback(() => {
     if (phase !== "asking" || shieldUsed || powerups.timeShield <= 0) return;
     setShieldUsed(true);
-    setLimit((l) => l + 10);
-    setTimeLeft((t) => t + 10);
+    setDoublePointsActive(true);
     onUsePowerup("timeShield");
-  playSound?.("powerup");
+    playSound?.("powerup");
   }, [phase, shieldUsed, powerups.timeShield, onUsePowerup, playSound]);
 
-  /** Çifte şans: iki yanlış şıkkı eler */
   const useFiftyFifty = useCallback(() => {
     if (phase !== "asking" || fiftyUsed || powerups.fiftyFifty <= 0 || !question) return;
 
@@ -225,8 +257,8 @@ export function useQuiz({
     if (selected !== null && wrong.includes(selected)) setSelected(null);
     setFiftyUsed(true);
     onUsePowerup("fiftyFifty");
-playSound?.("powerup");
-}, [phase, fiftyUsed, powerups.fiftyFifty, question, selected, onUsePowerup, playSound]);
+    playSound?.("powerup");
+  }, [phase, fiftyUsed, powerups.fiftyFifty, question, selected, onUsePowerup, playSound]);
 
   return {
     question,
@@ -239,16 +271,19 @@ playSound?.("powerup");
     correctCount,
     timeLeft,
     limit,
+    curtainLeft,
+    readLeft,
     shares,
     removed,
     rivals,
     mood,
     timedOut,
     shieldUsed,
+    doublePointsActive,
     fiftyUsed,
     pick,
     confirm,
-    useTimeShield,
+    useDoublePoints,
     useFiftyFifty,
   };
 }

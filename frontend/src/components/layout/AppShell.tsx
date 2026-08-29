@@ -26,6 +26,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isSupportPage = pathname === "/destek";
   const isPublic = isLanding || isLogin || isPrivacyPolicy || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
+  const [isGameFocused, setIsGameFocused] = useState(false);
+  // Sidebar/footer SADECE gerçek yarışma (soru-cevap) sırasında gizlenir,
+  // kayıt/bekleme/çalışma notu ekranlarında görünür kalır.
+  const isFocusedGame = isGame && isGameFocused;
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
   //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
   //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
@@ -101,6 +106,19 @@ function AppShellContent({ children }: { children: ReactNode }) {
     }
   }, [onboardingActive, isLanding]);
 
+  useEffect(() => {
+    function handleGameFocus(e: Event) {
+      setIsGameFocused(Boolean((e as CustomEvent<boolean>).detail));
+    }
+    window.addEventListener("polifin-game-focus", handleGameFocus);
+    return () => window.removeEventListener("polifin-game-focus", handleGameFocus);
+  }, []);
+
+  // Sayfa değişince (oyun sayfasından ayrılınca) sıfırla, takılı kalmasın.
+  useEffect(() => {
+    if (!isGame) setIsGameFocused(false);
+  }, [isGame, pathname]);
+
   if (isLogin) {
     return children;
   }
@@ -121,14 +139,24 @@ function AppShellContent({ children }: { children: ReactNode }) {
         </>
       ) : (
         <>
-          <Sidebar />
+          {!isFocusedGame && <Sidebar />}
           <div
-            className={`ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${
-              isGame ? "pt-8" : "pt-20"
-            }`}
+            className={
+              isFocusedGame
+                ? "flex min-h-screen w-full flex-col pt-4"
+                : `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+            }
           >
-            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
-            <SiteFooter onStartTour={() => setTourOpen(true)} />
+            <main
+              className={
+                isFocusedGame
+                  ? "mx-auto w-full max-w-5xl flex-1 px-4 py-4"
+                  : "mx-auto w-full max-w-7xl flex-1 px-4 py-8"
+              }
+            >
+              {children}
+            </main>
+            {!isFocusedGame && <SiteFooter onStartTour={() => setTourOpen(true)} />}
           </div>
           {!isGame && (
             <ChatWidget

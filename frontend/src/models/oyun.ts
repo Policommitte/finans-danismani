@@ -45,7 +45,7 @@ export type HistoryRow = {
 export const CONFIG = {
   questionCount: 10,
   questionSeconds: 15,
-  cheatSheetSeconds: 300, // 5 dk
+  cheatSheetSeconds: 180, // 3 dk
   prizePool: 10000,
   capacityTotal: 1000,
   answerRevealMs: 5000, // cevaptan sonra bekleme
