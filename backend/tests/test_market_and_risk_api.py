@@ -105,6 +105,61 @@ def test_arama_cok_kisa_sorguyu_reddeder(client, auth):
     assert yanit.status_code == 422
 
 
+@pytest.mark.db
+async def test_arama_dense_ayagi_gercekten_calisir(client, auth, monkeypatch):
+    """`arama_yap` artik `.search()` yerine `.hybrid_search()` cagirir (bkz.
+    `app/services/market.py`) - bu test dense (embedding) ayagin bu REST
+    yolunda da GERCEKTEN devrede oldugunu kanitlar, sadece "hata firlatmadi"
+    degil. Ayni DOC-005 deseni:
+    `test_hybrid_search.py::test_dense_ayak_gercekten_calisir`.
+
+    Sorgu metninde ("zzqx wobble flurb nonsense") DOC-005 icerigiyle hicbir
+    ORTAK kelime yoktur - BM25 boyle bir sorguda kesinlikle bos doner. DOC-005'in
+    GERCEK embedding'i sahte sorgu vektoru olarak enjekte edilerek yine de
+    bulunmasi, `get_rag_repository().hybrid_search(...)` cagrisinin gercekten
+    calistigini kanitlar.
+    """
+    from sqlalchemy import text
+
+    from app.repositories import deps
+    from app.repositories.sql import SqlRagRepository
+    from app.services import market
+
+    async with deps._session_factory()() as session:
+        satir = (
+            await session.execute(
+                text(
+                    """
+                    SELECT c.embedding FROM rag.chunks c
+                    JOIN rag.documents d ON d.id = c.document_id
+                    WHERE d.external_id = :external_id LIMIT 1
+                    """
+                ),
+                {"external_id": "DOC-005"},
+            )
+        ).first()
+    vektor = [float(x) for x in satir[0].strip("[]").split(",")]
+
+    class _SahteEmbedder:
+        async def embed_query(self, text: str) -> list[float]:
+            return vektor
+
+        async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [vektor for _ in texts]
+
+    fake_repo = SqlRagRepository(deps._session_factory(), embedder=_SahteEmbedder())
+    monkeypatch.setattr(market, "get_rag_repository", lambda: fake_repo)
+
+    yanit = client.post(
+        "/api/market/search", headers=auth, json={"query": "zzqx wobble flurb nonsense"}
+    )
+
+    assert yanit.status_code == 200
+    sonuclar = yanit.json()["items"]
+    assert sonuclar, "dense ayak calismiyorsa sonuc bos doner"
+    assert sonuclar[0]["doc_id"] == "DOC-005"
+
+
 # ---------------------------------------------------------------------------
 # Risk - skor DETERMINISTIK ve tek kaynakli
 # ---------------------------------------------------------------------------

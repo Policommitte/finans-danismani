@@ -66,14 +66,39 @@ class Settings(BaseSettings):
     # dogrudan kategori bazli sabit gorsellere duser (bkz. app/services/news.py
     # -> resolve_image). Ucretsiz Pexels hesabindan alinir.
     pexels_api_key: str = ""
+    #: Sorgu-zamani embedding cagrisinin ust siniri. Ingestion'daki toplu
+    #: embedding'den (backfill.py) FARKLI bir kaygi: kullanici akan bir sohbette
+    #: bekliyor, bu yuzden kisa tutulur. Asilirsa/hata alirsa hibrit arama
+    #: sessizce BM25'e (`SqlRagRepository.search`) duser - istek asla coker.
+    rag_query_embedding_timeout_seconds: float = 3.0
 
     # --- LLM ------------------------------------------------------------
-    # MODEL SECIMI HENUZ YAPILMADI: bu alanlar bilincli olarak BOS birakilir,
-    # koda hicbir model adi gomulmez. Anahtar veya model tanimli degilse
-    # ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) - sistem
-    # ayaga kalkar, yalnizca yanit kalitesi duser.
-    llm_api_key: str = ""
+    # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
+    # degilse ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) -
+    # sistem ayaga kalkar, yalnizca yanit kalitesi duser.
+    #
+    # SAGLAYICI MODEL ADINDAN ANLASILIR (bkz. app/core/llm.py):
+    #   gemini-3.5-flash-lite              -> gemini
+    #   nvidia/nemotron-3-super-120b-a12b  -> nvidia (NIM)
+    # NIM kimlikleri `yayinci/model` bicimindedir ve `/` icerir.
+    llm_api_key: str = ""  # geriye donuk: Gemini anahtari (GEMINI_API_KEY yoksa)
+    gemini_api_key: str = ""
+    nvidia_api_key: str = ""
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    #: Otomatik saglayici tespitini elle ezmek icin: "gemini" | "nvidia".
+    #: Normalde BOS birakilir.
+    llm_provider: str = ""
     default_model: str = ""
+
+    #: Ornekleme sicakligi. Bu uygulamada DUSUK tutulmali: ajan promptlari
+    #: "YENI SAYI URETME" ve "kaynakta olmayan bilgi uydurma" diyor, yuksek
+    #: sicaklik ikisini de zorlastirir. (Not: Nemotron model karti tum
+    #: gorevler icin 1.0 oneriyor - o modele gecerseniz olcup karar verin.)
+    llm_temperature: float = 0.2
+    llm_max_tokens: int = 2048
+    #: NIM isteklerine dusunmeyi kapatan ek govde alani EKLENMESIN.
+    #: Model o alani tanimayip 400 donerse true yapin (bkz. app/core/llm.py).
+    llm_nvidia_extra_body_off: bool = False
 
     # Ajan bazli model secimi: ucuz model ajanlarda, guclu model synthesizer'da.
     # Ucretsiz API kotasini korumak icin bilincli bir tercihtir.
@@ -189,9 +214,83 @@ class Settings(BaseSettings):
     #: Tek turda islenecek azami outbox satiri (kuyruk tikanmasin diye).
     notification_batch_size: int = 50
 
+    # --- Lead motoru (BSD kuyrugu / otonom davet) ------------------------
+    # Esik degerleri (varlik, gelir, hareketsizlik, sogutma) burada DEGIL,
+    # `app/services/lead_rules.py` icinde sabit - risk.py ile ayni desen
+    # (bkz. ASSET_CLASS_RISK). Burada yalnizca ZAMANLAMA ve DIS SERVIS
+    # (Gmail) ayarlari var.
+    lead_engine_enabled: bool = False
+
+    #: Acilistan sonra ilk taramanin baslamasi icin bekleme suresi. Fiyat
+    #: gorevinin ilk tick'iyle ayni saniyede yarismasin diye kucuk bir pay.
+    lead_scan_startup_delay_seconds: int = 10
+
+    #: Bu dakikadan daha yeni bir tarama varsa, yeni istek (acilis ya da
+    #: `force=false` ile POST) taramayi ATLAR. `run.py` `reload=True` ile
+    #: calistigi icin (her dosya kaydinda uygulama yeniden baslar) bu deger
+    #: olmadan bir gelistirme oturumu onlarca gereksiz tarama acardi.
+    lead_scan_min_interval_minutes: int = 60
+
+    # --- Gmail SMTP (bos ise mail GONDERILMEZ, uygulama dusmez) ----------
+    gmail_sender_email: str = ""
+    gmail_app_password: str = ""
+    gmail_smtp_host: str = "smtp.gmail.com"
+    gmail_smtp_port: int = 465
+    gmail_timeout_seconds: int = 15
+
+    #: Doluysa TUM lead mailleri bu adrese gider (asil alici govde icinde
+    #: yazar). Seed kullanicilarinin adresleri @example.com (teslim
+    #: edilemeyen ayrilmis alan adi) - demoda bu ayar pratikte ZORUNLUDUR.
+    lead_email_redirect_to: str = ""
+
     # --- Timeout — bir ajan asilirsa tum istek dusmesin -------------------
-    agent_timeout_seconds: int = 20
-    synthesizer_timeout_seconds: int = 40
+    #
+    # IKI KADEMELI. Neden tek bir sinir YETMIYOR:
+    #
+    #   Ajanlar once veriyi HESAPLAR (MCP tool'lari, hizli), sonra LLM'e
+    #   yorum yazdirir (yavas), en sonda dondururler. Tek bir dis sinir
+    #   `_execute`'un TAMAMINI sarar; LLM adimi butceyi asinca dis iptal
+    #   devreye girer ve `return` satirina HIC ULASILAMAZ - yani ilk adimda
+    #   zaten hesaplanmis DOGRU RAKAMLAR da cope gider. Ardindan risk ajani
+    #   portfoy verisi bulamayip `tool_error` verir, sentezleyici "veriye
+    #   ulasilamadi" der. Tek yavas LLM cagrisi, elde hazir duran veriyi
+    #   goturur.
+    #
+    #   Ic sinir (`agent_llm_timeout_seconds`) YALNIZCA LLM cagrisini sarar
+    #   (bkz. `BaseAgent.generate`). Sure asilirsa ajan kendi icinde yakalar,
+    #   deterministik ozete duser ve HESAPLANMIS VERIYI DONDURUR. Dis sinir
+    #   ise emniyet subabi olarak kalir: tool'lar ya da beklenmedik bir
+    #   dongu asilirsa yine devreye girer.
+    agent_timeout_seconds: int = 45
+
+    #: Ajan ICINDEKI LLM cagrisinin ust siniri. 0 = `agent_timeout_seconds`
+    #: uzerinden otomatik hesapla (bkz. `agent_llm_budget_seconds`).
+    #:
+    #: Elle deger verirken IC SINIR DIS SINIRDAN KUCUK OLMALI; aksi halde dis
+    #: iptal once devreye girer ve iki kademeli yapinin tum anlami kaybolur.
+    #: Bu yuzden deger `agent_llm_budget_seconds` icinde ayrica kirpilir.
+    agent_llm_timeout_seconds: int = 0
+
+    #: Sentez IC siniri: iki token ARASINDA en fazla ne kadar beklenir.
+    #:
+    #: Dis sinir (`synthesizer_timeout_seconds`) TOPLAM sureyi olcer ve uzun
+    #: ama saglikli bir yaniti da keser. Asil belirti ise model ORTADA
+    #: TAKILMASIDIR: token akisi durur, dis sinir dolana kadar bosuna beklenir
+    #: ve kullanici yarim cumleyle kalir (canli testte olculdu, 27 Agustos
+    #: 2026 - "Risk skoru 78/100 ile" diye kesildi).
+    #:
+    #: Ic sinir bu durumu ERKEN yakalar: akis durduysa beklemeyi birakip
+    #: O ANA KADAR URETILEN METNI korur.
+    synthesizer_stall_seconds: int = 20
+
+    #: Sentez adiminin ust siniri. `asyncio.wait_for` TUM sentezi sarar, yani
+    #: ilk token'a varis degil TAMAMLANMA suresidir.
+    #:
+    #: 40 sn'den yukseltildi: model secim testinde olculen iki beyin modeli de
+    #: o siniri asiyordu ve asildiginda kullanici sessizce deterministik ozete
+    #: dusuyordu. Sentez token token aktigi icin uzun sinir kotu bir bekleme
+    #: yaratmaz - kullanici metnin yazildigini gorur.
+    synthesizer_timeout_seconds: int = 90
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -208,9 +307,37 @@ class Settings(BaseSettings):
         return bool(self.notifications_enabled and self.smtp_host.strip())
 
     @property
+    def agent_llm_budget_seconds(self) -> int:
+        """Ajan icindeki LLM cagrisina ayrilan sure.
+
+        HER ZAMAN dis sinirdan (`agent_timeout_seconds`) KUCUKTUR. Aradaki
+        pay bilincli: LLM'den once yapilan MCP tool cagrilari ve sonrasindaki
+        deterministik ozet uretimi de dis sinirin icinde kalmali, yoksa ic
+        sinir tetiklendigi halde dis iptal yine yetisip veriyi goturur.
+        """
+        pay = 5  # tool cagrilari + deterministik ozet + donus icin ayrilan pay
+        tavan = max(3, self.agent_timeout_seconds - pay)
+
+        if self.agent_llm_timeout_seconds > 0:
+            return min(self.agent_llm_timeout_seconds, tavan)
+
+        # Otomatik: dis sinirin %60'i. 45 sn -> 27 sn LLM, 18 sn pay.
+        return max(3, min(int(self.agent_timeout_seconds * 0.6), tavan))
+
+    @property
     def database_enabled(self) -> bool:
         """DB bagli mi? Bagli degilse repository'ler bellek ici veriye duser."""
         return bool(self.database_url.strip())
+
+    def api_key_for(self, saglayici: str) -> str:
+        """Saglayiciya ait API anahtari.
+
+        `LLM_API_KEY` geriye donuk uyumluluk icin Gemini'nin yedegi olarak
+        duruyor: eski `.env` dosyalari onu kullaniyordu.
+        """
+        if saglayici == "nvidia":
+            return self.nvidia_api_key.strip()
+        return (self.gemini_api_key or self.llm_api_key).strip()
 
     def model_for(self, agent: str) -> str:
         """Ajana atanmis model adi; tanimli degilse `default_model`.

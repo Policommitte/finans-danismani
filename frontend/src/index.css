@@ -208,7 +208,12 @@ body {
   width: 0;
   height: 20%;
   background: var(--color-market-bar);
-  transition: width 620ms cubic-bezier(0.65, 0, 0.35, 1);
+  /* 620ms -> 420ms: ayni easing ve kademe YONU korunur, yalnizca tempo
+     hizlanir. Karo suresi + son karonun gecikmesi = perdenin tam kapanma
+     ani; PageTransition.tsx'teki COVER_DURATION_MS bu toplamla ESIT olmak
+     zorundadir (420 + 180 = 600), yoksa sayfa degisimi perde kapanmadan
+     gorunur. */
+  transition: width 420ms cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 .page-transition__tile:nth-of-type(1) {
@@ -218,22 +223,22 @@ body {
 
 .page-transition__tile:nth-of-type(2) {
   top: 20%;
-  transition-delay: 70ms;
+  transition-delay: 45ms;
 }
 
 .page-transition__tile:nth-of-type(3) {
   top: 40%;
-  transition-delay: 140ms;
+  transition-delay: 90ms;
 }
 
 .page-transition__tile:nth-of-type(4) {
   top: 60%;
-  transition-delay: 210ms;
+  transition-delay: 135ms;
 }
 
 .page-transition__tile:nth-of-type(5) {
   top: 80%;
-  transition-delay: 280ms;
+  transition-delay: 180ms;
 }
 
 .page-transition--covered .page-transition__tile {
@@ -241,19 +246,19 @@ body {
 }
 
 .page-transition[data-phase="revealing"] .page-transition__tile:nth-of-type(1) {
-  transition-delay: 280ms;
+  transition-delay: 180ms;
 }
 
 .page-transition[data-phase="revealing"] .page-transition__tile:nth-of-type(2) {
-  transition-delay: 210ms;
+  transition-delay: 135ms;
 }
 
 .page-transition[data-phase="revealing"] .page-transition__tile:nth-of-type(3) {
-  transition-delay: 140ms;
+  transition-delay: 90ms;
 }
 
 .page-transition[data-phase="revealing"] .page-transition__tile:nth-of-type(4) {
-  transition-delay: 70ms;
+  transition-delay: 45ms;
 }
 
 .page-transition[data-phase="revealing"] .page-transition__tile:nth-of-type(5) {

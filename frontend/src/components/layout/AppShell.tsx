@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
@@ -15,16 +15,18 @@ import { requestPageTransition } from "./transitionEvents";
 
 function AppShellContent({ children }: { children: ReactNode }) {
   const auth = useAuth();
+  const router = useRouter();
   const { language } = useLanguage();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
+  const isAdvisorLogin = pathname === "/danisman-giris";
   const isLanding = pathname === "/";
   // Yarışma ekranında piyasa şeridi ve sohbet gizlenir:
   // şerit dikkat dağıtır, sohbet ise soruların cevabına erişim yolu olur.
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
   const isSupportPage = pathname === "/destek";
-  const isPublic = isLanding || isLogin || isPrivacyPolicy || isSupportPage;
+  const isPublic = isLanding || isLogin || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
@@ -106,7 +108,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     }
   }, [onboardingActive, isLanding]);
 
-  useEffect(() => {
+    useEffect(() => {
     function handleGameFocus(e: Event) {
       setIsGameFocused(Boolean((e as CustomEvent<boolean>).detail));
     }
@@ -119,7 +121,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
     if (!isGame) setIsGameFocused(false);
   }, [isGame, pathname]);
 
-  if (isLogin) {
+  useEffect(() => {
+    if (!auth.loading && auth.user && pathname === "/danisman" && auth.user.role !== "advisor") {
+      router.replace("/dashboard");
+    }
+  }, [auth.loading, auth.user, pathname, router]);
+
+  if (isLogin || isAdvisorLogin) {
     return children;
   }
 

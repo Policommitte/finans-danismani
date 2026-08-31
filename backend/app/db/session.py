@@ -87,6 +87,36 @@ async def ping() -> bool:
     return True
 
 
+def reset_engine_cache() -> None:
+    """Engine ve session-factory onbelleklerini bosaltir (yalniz testler).
+
+    NEDEN GEREKLI: pytest-asyncio her teste YENI bir event loop acar.
+    Engine'in baglanti havuzu kuyrugu ilk kullanildigi loop'a baglanir;
+    onbellek temizlenmezse sonraki testin loop'unda "bound to a different
+    event loop" hatasi cikar. Bu hata ancak havuz BEKLEMEYE dustugunde
+    tetiklenir - havuz siniri kucultulunce (pool_size=3+2) dashboard'un
+    6 paralel sorgusu beklemeye dustu ve gizli kalan bu tuzak gorunur oldu.
+
+    Eski engine best-effort dispose edilir: teardown test loop'unun DISINDA
+    kostugu icin asyncio.run guvenlidir; olmadi diye test dusurulmez.
+    """
+    try:
+        if get_engine.cache_info().currsize:
+            engine = get_engine()
+            import asyncio as _asyncio
+
+            try:
+                _asyncio.run(engine.dispose())
+            except RuntimeError:
+                # calisan bir loop icindeyiz ya da loop kapali - baglantilar
+                # surec sonunda kapanir, test dogrulugu etkilenmez.
+                pass
+    except Exception:  # noqa: BLE001 - temizlik asla test dusurmez
+        pass
+    get_engine.cache_clear()
+    get_session_factory.cache_clear()
+
+
 async def dispose_engine() -> None:
     """Uygulama kapanirken havuzu kapatir (lifespan)."""
     if not settings.database_enabled:

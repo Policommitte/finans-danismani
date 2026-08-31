@@ -28,6 +28,7 @@ from app.config import settings
 from app.repositories.base import (
     AuditRepository,
     ChatRepository,
+    LeadRepository,
     MarketRepository,
     NotificationRepository,
     PortfolioRepository,
@@ -39,6 +40,7 @@ from app.repositories.base import (
 from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
+    InMemoryLeadRepository,
     InMemoryMarketRepository,
     InMemoryNotificationRepository,
     InMemoryPortfolioRepository,
@@ -180,9 +182,13 @@ def get_trading_repository() -> TradingRepository:
 @lru_cache
 def get_rag_repository() -> RagRepository:
     if _veritabani_calisiyor():
+        from app.ingestion.embeddings import get_embedder
         from app.repositories.sql import SqlRagRepository
 
-        return SqlRagRepository(_session_factory())
+        # `get_embedder()` EMBEDDING_API_KEY/EMBEDDING_MODEL tanimli degilse
+        # `None` doner - bu bir hata DEGILDIR: `hybrid_search()` embedder'siz
+        # de calisir, yalnizca BM25'e duser (bkz. SqlRagRepository docstring).
+        return SqlRagRepository(_session_factory(), embedder=get_embedder())
     return InMemoryRagRepository()
 
 
@@ -193,6 +199,15 @@ def get_chat_repository() -> ChatRepository:
 
         return SqlChatRepository(_session_factory())
     return InMemoryChatRepository()
+
+
+@lru_cache
+def get_lead_repository() -> LeadRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlLeadRepository
+
+        return SqlLeadRepository(_session_factory())
+    return InMemoryLeadRepository()
 
 
 @lru_cache
@@ -230,6 +245,12 @@ def reset_repositories() -> None:
     """
     _DB_DURUM.update(calisiyor=None, kontrol=0.0)
     _saglayici_onbelleklerini_temizle()
+    # Engine de sifirlanmali: havuz kuyrugu eski testin event loop'una bagli
+    # kalirsa yeni loop'ta beklemeye dusen ilk checkout patlar (ayrinti:
+    # app/db/session.py::reset_engine_cache).
+    from app.db.session import reset_engine_cache
+
+    reset_engine_cache()
 
 
 def _saglayici_onbelleklerini_temizle() -> None:
@@ -242,6 +263,7 @@ def _saglayici_onbelleklerini_temizle() -> None:
         get_trading_repository,
         get_rag_repository,
         get_chat_repository,
+        get_lead_repository,
         get_audit_repository,
         get_notification_repository,
         get_recommendation_repository,

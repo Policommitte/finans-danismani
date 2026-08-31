@@ -11,10 +11,21 @@ import logging
 import time
 from abc import ABC, abstractmethod
 
+from app.config import settings
 from app.mcp.client import MCPClientError
 from app.orchestration.models import AgentError, AgentState, ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+class AgentLLMTimeout(TimeoutError):
+    """Ajan ICINDEKI LLM cagrisi kendi butcesini asti.
+
+    `asyncio.TimeoutError`'dan turer ama ondan AYIRT EDILEBILIR olmasi
+    onemlidir: `BaseAgent.run()` dis zaman asimini yakalayip ajani komple
+    "timeout" olarak isaretler, oysa bu istisna ajan ICINDE yakalanip
+    deterministik ozete dusulmesi gereken - yani veriyi KURTARAN - durumdur.
+    """
 
 
 class BaseAgent(ABC):
@@ -31,7 +42,13 @@ class BaseAgent(ABC):
     #: Graph icindeki node adi. Alt siniflar mutlaka doldurur.
     name: str = "base"
 
-    def __init__(self, mcp_client, llm, timeout_seconds: int) -> None:
+    def __init__(
+        self,
+        mcp_client,
+        llm,
+        timeout_seconds: int,
+        llm_timeout_seconds: int | None = None,
+    ) -> None:
         """
         Args:
             mcp_client: Uygulama genelinde TEK olan paylasilan MCP client.
@@ -40,11 +57,31 @@ class BaseAgent(ABC):
             llm: Bu ajana atanmis dil modeli. Ajan bazli model konfigurasyonu
                 sayesinde ucuz modeller ajanlarda, guclu model synthesizer'da
                 kullanilir (ucretsiz API kotasi korunur).
-            timeout_seconds: Ajanin en fazla ne kadar calisabilecegi.
+            timeout_seconds: DIS sinir - ajanin tamaminin ust siniri
+                (`run()` icinde uygulanir). Emniyet subabidir.
+            llm_timeout_seconds: IC sinir - yalnizca LLM cagrisini sarar
+                (`generate()` icinde). `None` ise konfigurasyondan hesaplanir.
+                Dis sinirdan KUCUK olmalidir; bkz. `Settings.
+                agent_llm_budget_seconds`.
         """
         self.mcp_client = mcp_client
         self.llm = llm
         self.timeout_seconds = timeout_seconds
+        # Ic sinir HER ZAMAN bu ajanin KENDI dis sinirindan kucuk tutulur.
+        # Global butce yeterli degil: `SecurityAgent` varsayilan 10 sn ile
+        # kurulur, global butce ise 27 sn olabilir - kirpilmasaydi dis iptal
+        # once devreye girer ve ic sinir hic tetiklenmezdi.
+        self.llm_timeout_seconds = max(
+            3,
+            min(
+                (
+                    llm_timeout_seconds
+                    if llm_timeout_seconds is not None
+                    else settings.agent_llm_budget_seconds
+                ),
+                timeout_seconds - 2,
+            ),
+        )
 
     @abstractmethod
     async def _execute(self, state: AgentState) -> dict:
@@ -170,20 +207,49 @@ class BaseAgent(ABC):
         Cagri basarisiz olursa istisna yukari birakilir; ajan bunu yakalayip
         `error_type="llm_error"` uretebilir ya da deterministik bir alternatife
         dusebilir.
+
+        ⚠️ CAGRI KENDI ZAMAN SINIRIYLA SARILIR (`llm_timeout_seconds`) ve
+        asilirsa `AgentLLMTimeout` firlar. Bu, ajanin `_execute`'unu saran DIS
+        sinirdan (`run()`) BILINCLI OLARAK AYRIDIR:
+
+            dis sinir asilir  -> tum `_execute` iptal olur, o ana kadar
+                                 hesaplanmis veri de KAYBOLUR
+            ic sinir asilir   -> yalnizca bu cagri iptal olur; ajan istisnayi
+                                 yakalayip deterministik ozete duser ve
+                                 HESAPLANMIS VERIYI DONDURUR
+
+        Ikinci davranis dogru olandir: rakamlar MCP tool'lariyla zaten
+        hesaplanmistir, yalnizca yorum metni eksik kalir. Gerekce icin
+        `Settings.agent_timeout_seconds` yanindaki nota bakin.
         """
         if self.llm is None:
             raise RuntimeError(f"'{self.name}' ajani icin LLM baglanmadi.")
 
         if hasattr(self.llm, "generate"):
-            return await self.llm.generate(prompt)
+            cagri = self.llm.generate(prompt)
+        elif hasattr(self.llm, "ainvoke"):
+            cagri = self._ainvoke_metni(prompt)
+        else:
+            raise RuntimeError(
+                f"'{self.name}' ajanina verilen LLM nesnesi generate()/ainvoke() sunmuyor."
+            )
 
-        if hasattr(self.llm, "ainvoke"):
-            response = await self.llm.ainvoke(prompt)
-            return str(getattr(response, "content", response))
+        try:
+            return await asyncio.wait_for(cagri, timeout=self.llm_timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            logger.warning(
+                "ajan ici LLM cagrisi zaman asimina ugradi, deterministik ozete dusulecek",
+                extra={"agent": self.name, "limit_sn": self.llm_timeout_seconds},
+            )
+            raise AgentLLMTimeout(
+                f"Model {self.llm_timeout_seconds} saniyede yanit vermedi; "
+                f"hesaplanan veriler korundu, yalnizca yorum metni uretilemedi."
+            ) from exc
 
-        raise RuntimeError(
-            f"'{self.name}' ajanina verilen LLM nesnesi generate()/ainvoke() sunmuyor."
-        )
+    async def _ainvoke_metni(self, prompt: str) -> str:
+        """LangChain chat modeli yanitini duz metne cevirir."""
+        response = await self.llm.ainvoke(prompt)
+        return str(getattr(response, "content", response))
 
     def _log_tool_result(self, result: ToolResult) -> None:
         """Tool cagrisinin sonucunu yapisal logla (icerik degil, metrik)."""

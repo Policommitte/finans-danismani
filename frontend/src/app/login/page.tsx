@@ -1,5 +1,6 @@
 "use client";
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { requestPageTransition } from "../../components/layout/transitionEvents";
 import { useAuth } from "../../hooks/useAuth";
 
@@ -182,6 +183,14 @@ function LoginPageContent() {
             </button>
           </form>
 
+          <div className="mt-6 text-center">
+            <Link
+              href="/danisman-giris"
+              className="text-xs font-medium text-slate-500 transition hover:text-slate-700"
+            >
+              Danışman Girişi
+            </Link>
+          </div>
         </div>
       </div>
     </main>

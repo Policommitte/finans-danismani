@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 #: API degildir; art arda hizli istek atmak gecici engellemeye yol acabilir.
 CAGRI_ARASI_BEKLEME = 0.4
 
+
 @dataclass
 class PiyasaVerisi:
     """Tek bir varligin Yahoo'dan uretilmis tam kaydi."""
@@ -102,7 +103,7 @@ def kapanis_serisi(ticker: str, period: str = "1y") -> pd.Series:
         YahooHatasi: Yahoo bos sonuc dondururse (gecersiz sembol, ag hatasi
             veya gecici engelleme).
     """
-    ham = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=False)
+    ham = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=True)
 
     if ham is None or ham.empty or "Close" not in ham:
         raise YahooHatasi(f"'{ticker}' icin Yahoo bos veri dondurdu.")

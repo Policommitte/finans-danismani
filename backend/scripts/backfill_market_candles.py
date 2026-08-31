@@ -12,9 +12,7 @@ from app.market import yahoo
 from app.repositories.deps import get_market_repository
 
 
-async def main(
-    selected_interval: str = "all", selected_symbols: set[str] | None = None
-) -> None:
+async def main(selected_interval: str = "all", selected_symbols: set[str] | None = None) -> None:
     repository = get_market_repository()
     assets = await repository.get_assets_for_price_update()
     supported = yahoo.desteklenen_semboller()
@@ -58,9 +56,7 @@ async def main(
         if selected_interval == "all"
         else job_sets[selected_interval]
     )
-    calls_per_job = sum(
-        len(yahoo.gerekli_tickerlar(batch)) for batch in symbol_batches
-    )
+    calls_per_job = sum(len(yahoo.gerekli_tickerlar(batch)) for batch in symbol_batches)
     planned_calls = calls_per_job * len(jobs)
     used = await repository.get_api_usage_today()
     quota = settings.market_api_daily_quota

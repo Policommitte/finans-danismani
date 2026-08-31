@@ -54,7 +54,9 @@ içindir: `[{"field": "email", "message": "...", "type": "..."}]`.
 | POST | `/api/auth/login` | `{email, password}` → `{access_token, token_type, expires_in}` |
 | GET | `/api/auth/me` | `{id, first_name, last_name, email, risk_tolerance, monthly_income}` |
 
-Demo kullanıcılar: `mehmet@example.com` … şifre `demo1234`.
+Demo kullanıcılar: `mehmet@example.com` … şifre `demo1234`. Danışman
+rolündeki demo hesap: `danisman@example.com` (aynı şifre) — yalnızca bu
+hesap `/danisman` ekranına ve `/api/leads/*` uçlarına erişebilir.
 
 ### Dashboard
 
@@ -98,6 +100,52 @@ eşleşir.
 `risk_score` 0–100 (yüksek = riskli) ve **deterministiktir**: backend'de
 hesaplanır, sohbetteki risk ajanı da aynı fonksiyonu kullanır. Dashboard ile
 sohbet **aynı** skoru gösterir.
+
+### Lead motoru
+
+| Metot | Yol | Yanıt |
+|---|---|---|
+| GET | `/api/leads/bsd-queue?limit=` | `{items[], count, scan}` |
+| GET | `/api/leads/autonomous-queue?limit=` | `{items[], count, scan}` |
+| GET | `/api/leads/excluded?limit=` | `{items[], count, scan}` |
+| POST | `/api/leads/scan` | `{force?: bool}` → `LeadScanSummary` |
+
+`items[]` satırı: `user_id, first_name, last_name, email, decision,
+exclusion_reason, score, score_components, reasons[], total_value_try,
+monthly_income, likit_para, days_since_activity, mail_gonderildi,
+created_at`. `scan`, en son taramanın özetidir (`LeadScanSummary`), üç
+liste ucunda da aynı şekilde döner.
+
+Hedefleme kriteri **`likit_para`** (atıl banka bakiyesi) üzerindendir,
+`total_value_try` değil: motor "hiç yatırım yapmamış ama bankada 120K-1M
+TL arası parası duran" kullanıcıyı arar. `total_value_try > 0` olan
+kullanıcı `already_invested` ile dışlanır — yani kuyruğa düşen her lead
+için bu alan tanımı gereği `0`'dır.
+
+`bsd-queue` ve `excluded` **en son taramanın** satırlarını döner.
+`autonomous-queue` ise iki kaynağın birleşimidir: son 180 günde gerçekten
+mail gönderilenler (`lead_contacts`) **artı** son taramada otonom kuyruğa
+girip henüz mail gönderilememiş olanlar (kota/ardışık hata freni/Gmail
+ayarsız). `mail_gonderildi` alanı bu ikisini ayırır.
+
+`POST /scan`, asgari tarama aralığı dolmadıysa **hata değil**,
+`skipped: true` + `skip_reason` ile normal bir yanıt döner (`force: true`
+bu kontrolü atlar, soğutma kuralını atlamaz). `LEAD_ENGINE_ENABLED=false`
+iken de **her zaman** `skipped: true` döner — `force: true` bunu da
+atlamaz; motor kapalıyken hiçbir yoldan tarama çalışmaz. Bu ayarın
+varsayılanı **`false`**'tur: ortak veritabanına bağlı her geliştiricinin
+backend'i açar açmaz gerçek mail göndermesini önlemek için (bkz.
+`.env.example`).
+
+Bu uçlar yalnızca `role='advisor'` olan hesaplara açıktır — müşteri
+hesapları 403 alır (bkz. `backend/app/auth/deps.py::CurrentAdvisor`).
+Kayıt ucu olmadığı için danışman hesabı doğrudan SQL ile açılır: şifre
+`bcrypt` ile hash'lenip (`python3 -c "import bcrypt, getpass; ..."` —
+düz metin şifre komut satırına YAZILMAZ, `getpass` ile sorulur)
+`INSERT INTO users (..., role) VALUES (..., 'advisor')` çalıştırılır.
+Fresh/CI veritabanında hazır bir hesap vardır:
+`danisman@example.com` · `demo1234`.
+
 
 ### Sohbet
 

@@ -130,9 +130,12 @@ async def test_foreign_currency_stop_loss_uses_asset_currency(repository):
     )
 
     assert buy["stop_loss_currency"] == "USD"
-    assert await repository.process_pending_orders(
-        [{"asset_id": 12, "price": 66000}], commission_rate=0.0015
-    ) == 1
+    assert (
+        await repository.process_pending_orders(
+            [{"asset_id": 12, "price": 66000}], commission_rate=0.0015
+        )
+        == 1
+    )
 
     stop = next(
         row for row in await repository.list_orders(1) if row.get("parent_order_id") == buy["id"]
@@ -141,12 +144,18 @@ async def test_foreign_currency_stop_loss_uses_asset_currency(repository):
     assert stop["stop_loss_price"] == 64000
     assert stop["stop_loss_currency"] == "USD"
 
-    assert await repository.process_pending_orders(
-        [{"asset_id": 12, "price": 64500}], commission_rate=0.0015
-    ) == 0
-    assert await repository.process_pending_orders(
-        [{"asset_id": 12, "price": 63500}], commission_rate=0.0015
-    ) == 1
+    assert (
+        await repository.process_pending_orders(
+            [{"asset_id": 12, "price": 64500}], commission_rate=0.0015
+        )
+        == 0
+    )
+    assert (
+        await repository.process_pending_orders(
+            [{"asset_id": 12, "price": 63500}], commission_rate=0.0015
+        )
+        == 1
+    )
 
     filled_stop = next(row for row in await repository.list_orders(1) if row["id"] == stop["id"])
     assert filled_stop["status"] == "FILLED"

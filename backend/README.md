@@ -36,7 +36,7 @@ açılabilir. Ekip birbirini beklemez:
 |---|---|
 | `DATABASE_URL` yok | Repository katmanı bellek içi temel kayıtlara düşer; fiyat veya performans geçmişi üretmez. `/health` `data_source: in-memory` döner. |
 | `LLM_API_KEY` / model adı yok | Ajanlar LLM'siz çalışır: kaynaklardan deterministik alıntı/özet üretirler. Akış, olaylar ve testler etkilenmez. |
-| `EMBEDDING_MODEL` yok | `rag_search` yalnızca BM25 (tam eşleşme) ayağıyla çalışır; hibrit arama model kararından sonra açılır. |
+| `EMBEDDING_MODEL` / `EMBEDDING_API_KEY` yok | `rag_search` yalnızca BM25 (tam eşleşme) ayağıyla çalışır. Tanımlıysa (bugün: Cohere `embed-v4.0`) `rag_search` hibrit aramayı (dense + BM25 → RRF, `SqlRagRepository.hybrid_search`) kullanır; sorgu-zamanı embedding çağrısı başarısız/zaman aşımına uğrarsa istek düşmez, sessizce BM25'e döner. |
 
 > ⚠️ **LLM modeli henüz seçilmedi.** Kodda hiçbir model adı sabit yazılı
 > değildir; `DEFAULT_MODEL` boş olduğu sürece LLM hiç oluşturulmaz. Karar
@@ -152,7 +152,11 @@ Router'ı `app/main.py` içinde `include_router` ile ekle.
 
 ## Bilinen durum / açık işler
 
-- LLM modeli ve embedding modeli seçilmedi (mimari v4 §16).
+- LLM modeli seçilmedi (mimari v4 §16). Embedding modeli seçildi (Cohere
+  `embed-v4.0`) ve `rag_search` hibrit aramayı kullanıyor; Supabase'deki
+  paylaşılan DB'nin `rag.hybrid_search()` fonksiyonu bu genişletilmiş haliyle
+  henüz güncellenmedi (yalnızca yerel Docker DB'de uygulandı) — bkz.
+  `db/v5_schema_and_data.sql`.
 - Synthesizer LangChain uyumlu bir chat modeli bekler; model kararına kadar
   deterministik özet üretilir.
 - Gerçek piyasa API sağlayıcısı bağlanmadı (`ApiMarketProvider` simülatöre

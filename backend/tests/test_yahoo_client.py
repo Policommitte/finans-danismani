@@ -50,12 +50,48 @@ def test_altin_ve_gumus_dogrudan_eslenmez():
 
 def test_veritabanindaki_42_varligin_tumu_desteklenir():
     expected = {
-        "US10Y", "BAKIR", "BRENT", "MISIR", "BTC", "ETH", "SOL", "USDT",
-        "QQQ", "SPY", "VTI", "EUR/TRY", "USD/TRY", "GRAM_ALTIN", "GUMUS",
-        "AKCNS", "ASELS", "BIMAS", "EREGL", "GARAN", "KCHOL", "KONTR", "SASA",
-        "SISE", "TCELL", "THYAO", "TOASO", "TUPRS", "AAPL", "AMZN", "BRK-B",
-        "GOOG", "INTC", "JPM", "KO", "LLY", "META", "MSFT", "NVDA", "T",
-        "TSLA", "WMT",
+        "US10Y",
+        "BAKIR",
+        "BRENT",
+        "MISIR",
+        "BTC",
+        "ETH",
+        "SOL",
+        "USDT",
+        "QQQ",
+        "SPY",
+        "VTI",
+        "EUR/TRY",
+        "USD/TRY",
+        "GRAM_ALTIN",
+        "GUMUS",
+        "AKCNS",
+        "ASELS",
+        "BIMAS",
+        "EREGL",
+        "GARAN",
+        "KCHOL",
+        "KONTR",
+        "SASA",
+        "SISE",
+        "TCELL",
+        "THYAO",
+        "TOASO",
+        "TUPRS",
+        "AAPL",
+        "AMZN",
+        "BRK-B",
+        "GOOG",
+        "INTC",
+        "JPM",
+        "KO",
+        "LLY",
+        "META",
+        "MSFT",
+        "NVDA",
+        "T",
+        "TSLA",
+        "WMT",
     }
 
     assert expected <= yahoo.desteklenen_semboller()
@@ -376,9 +412,7 @@ def test_dogrudan_saatlik_yahoo_zamani_yeniden_kovalanmaz(monkeypatch):
             return df
 
     monkeypatch.setitem(sys.modules, "yfinance", SahteYFinance)
-    sonuc = yahoo._gecmis_mum_paketi(
-        {"THYAO.IS": "THYAO"}, period="5d", interval="1h"
-    )
+    sonuc = yahoo._gecmis_mum_paketi({"THYAO.IS": "THYAO"}, period="5d", interval="1h")
 
     assert sonuc[0]["ts"] == "2026-08-25T06:30:00+00:00"
 
@@ -424,8 +458,7 @@ def test_ilk_canli_paket_eski_saatlik_arsivin_ustune_yazmaz():
         for day in range(20, 26)
     ]
     rows.extend(
-        {"symbol": "THYAO", "interval": "5m", "ts": f"2026-08-25T09:{i:02d}:00Z"}
-        for i in range(6)
+        {"symbol": "THYAO", "interval": "5m", "ts": f"2026-08-25T09:{i:02d}:00Z"} for i in range(6)
     )
 
     sonuc = yahoo.ilk_mum_paketini_daralt(rows)
