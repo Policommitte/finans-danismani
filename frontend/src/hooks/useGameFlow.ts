@@ -20,7 +20,8 @@ export function useGameFlow() {
   const [screen, setScreen] = useState<GameScreen>("register");
 
   /** Yarışma sırasında yan kolonlar gizlenir */
-  const isFocused = screen === "quiz";
+    /** Yarışma sırasında ve sonuç ekranlarında yan kolonlar gizlenir */
+  const isFocused = screen === "quiz" || screen === "victory" || screen === "eliminated";
 
   const goTab = useCallback((next: GameTab) => {
     setTab(next);

@@ -19,44 +19,29 @@ type Props = {
 function WalletIcon() {
   return (
     <svg
-      viewBox="0 0 96 80"
-      className="h-32 w-40 sm:h-40 sm:w-48"
+      viewBox="0 0 24 24"
+      className="h-32 w-32 sm:h-40 sm:w-40"
+      fill="none"
       aria-hidden="true"
       style={{ filter: "drop-shadow(0 0 16px rgba(255, 255, 255, 0.15))" }}
     >
-      {/* arkadan gorunen kart ucu */}
-      <rect
-        x="14"
-        y="4"
-        width="40"
-        height="16"
-        rx="3"
-        fill="none"
-        stroke="var(--color-market-muted)"
-        strokeWidth="3.5"
-        opacity="0.5"
-      />
-      {/* govde */}
-      <rect
-        x="4"
-        y="16"
-        width="88"
-        height="58"
-        rx="10"
-        fill="none"
-        stroke="var(--color-market-muted)"
-        strokeWidth="4"
-      />
-      {/* on cepteki kapak kivrimi */}
+      {/* govde + ust kapak kivrimi */}
       <path
-        d="M4 36a10 10 0 0 1 10-10h64"
-        fill="none"
+        d="M21 12V7H5a2 2 0 0 1 0-4h14v4"
         stroke="var(--color-market-muted)"
-        strokeWidth="4"
+        strokeWidth="1.6"
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      {/* cıtcıt */}
-      <circle cx="70" cy="48" r="5.5" fill="var(--color-primary)" />
+      <path
+        d="M3 5v14a2 2 0 0 0 2 2h16v-5"
+        stroke="var(--color-market-muted)"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {/* cıtcıt / kart yuvası */}
+      <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" fill="var(--color-primary)" />
     </svg>
   );
 }
@@ -97,7 +82,10 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
           <div className="w-full sm:w-1/2">
             <span
               className="inline-block rounded-full px-3 py-1 text-[11px] font-semibold"
-              style={{ background: "var(--color-overlay-soft)", color: "var(--color-success)" }}
+              // Bu panel (govde arka plani) HER IKI temada da koyu; `--color-success`
+              // aydinlik modda koyu yesile donup koyu zeminde silikleşiyordu.
+              // `--color-market-*` ile ayni mantikla sabit acik yesil kullanildi.
+              style={{ background: "var(--color-overlay-soft)", color: "#34d399" }}
             >
               {language === "tr" ? "Şans Yatırımda · Aktif" : "Şans Yatırımda · Active"}
             </span>
@@ -121,7 +109,7 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
             </div>
 
             <p className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--color-market-muted)" }}>
-              <span style={{ color: "var(--color-success)" }}>▲ +{monthlyGain}</span>
+              <span style={{ color: "#34d399" }}>▲ +{monthlyGain}</span>
               <span>{language === "tr" ? "toplam kazanç" : "total earned"}</span>
               <span>·</span>
               <span>{language === "tr" ? "Son işlem" : "Last activity"} {lastActivity}</span>

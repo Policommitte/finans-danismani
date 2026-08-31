@@ -174,3 +174,50 @@
 .flip-card-back {
   transform: rotateY(180deg);
 }
+
+/* Bir şık seçildiğinde küçük bir "zıplama" animasyonu */
+@keyframes qz-pick-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+.qz-pick-bump {
+  animation: qz-pick-bump 0.25s ease-out;
+}
+
+/* Sonuç açıklanınca (doğru/yanlış) daha belirgin bir vurgu */
+@keyframes qz-reveal-pop {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(0,0,0,0); }
+  40% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+.qz-reveal-pop {
+  animation: qz-reveal-pop 0.4s ease-out;
+}
+
+/* Kazanma ekranı: konfeti düşme animasyonu */
+@keyframes qz-confetti-fall {
+  0% {
+    transform: translateY(-10px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(280px) rotate(540deg);
+    opacity: 0;
+  }
+}
+.qz-confetti {
+  animation-name: qz-confetti-fall;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+/* Ödül tutarı belirdiğinde hafif zıplama */
+@keyframes qz-payout-pop {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.qz-payout-pop {
+  animation: qz-payout-pop 0.6s ease-out;
+}

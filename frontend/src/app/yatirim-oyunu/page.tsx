@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Card from "../../components/ui/Card";
 import { ThemeToggle } from "../../components/ui/ThemeToggle";
 import { useLanguage } from "../../contexts/LanguageContext";
@@ -27,6 +27,7 @@ import { WalletTab } from "../../components/oyun/WalletTab";
 import { useSoundEffects } from "../../hooks/useSoundEffects";
 import { IntroSidebar } from "../../components/oyun/IntroSidebar";
 import { LeaderboardPanel } from "../../components/oyun/LeaderboardPanel";
+import { setGameFocus } from "../../components/layout/gameFocusEvents";
 
 const TABS: { id: GameTab; label: { tr: string; en: string } }[] = [
   { id: "oyun", label: { tr: "Oyun", en: "Game" } },
@@ -62,6 +63,11 @@ const PAGE_TEXT = {
   reset: { tr: "Sıfırla", en: "Reset" },
   muteOn: { tr: "Sesi kapat", en: "Mute sound" },
   muteOff: { tr: "Sesi aç", en: "Unmute sound" },
+  leaveContest: { tr: "Yarışmadan ayrıl", en: "Leave contest" },
+  leaveConfirm: {
+    tr: "Yarışmadan ayrılırsan bu turda elenmiş sayılırsın. Emin misin?",
+    en: "Leaving now counts as elimination for this round. Are you sure?",
+  },
 };
 
 function SoundIcon({ muted }: { muted: boolean }) {
@@ -93,26 +99,30 @@ export default function YatirimOyunuPage() {
   const { tab, goTab, screen, goScreen, isFocused } = useGameFlow();
   const { play, muted, toggleMute } = useSoundEffects();
 
-  // Sözleşme kullanıcı başına bir kez onaylanır
   const [agreementSigned, setAgreementSigned] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
 
-  // Jokerler — mağaza eklenene kadar test için başlangıç değeri veriliyor
   const [powerups, setPowerups] = useState<Powerups>({
     timeShield: 1,
     fiftyFifty: 1,
   });
 
-  // Kayıt sayısı: hem kayıt ekranında hem yarışmadaki rakip sayacında kullanılır
-  const [registeredCount, setRegisteredCount] = useState(640);
-
-  // Son yarışmanın sonucu, sonuç ekranlarında kullanılacak
+  const [registeredCount, setRegisteredCount] = useState(920);
   const [lastResult, setLastResult] = useState<GameResult | null>(null);
 
   const [pointsBalance, setPointsBalance] = useState(4200);
   const [ownedBadges, setOwnedBadges] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryRow[]>(HISTORY);
+
+  // Yarışma sırasında (isFocused) üst başlık/sekmeler/dev paneli tamamen gizlenir.
+  const inContest = isFocused && screen === "quiz";
+
+  // Sadece gerçek yarışma (soru-cevap) ekranındayken AppShell'e haber ver.
+  useEffect(() => {
+    setGameFocus(screen === "quiz");
+    return () => setGameFocus(false);
+  }, [screen]);
 
   function spendPowerup(kind: keyof Powerups) {
     setPowerups((p) => ({ ...p, [kind]: Math.max(0, p[kind] - 1) }));
@@ -150,80 +160,104 @@ export default function YatirimOyunuPage() {
     goScreen("waiting");
   }
 
+  function handleLeaveContest() {
+    const ok = window.confirm(PAGE_TEXT.leaveConfirm[language]);
+    if (!ok) return;
+    goScreen("register");
+  }
+
   return (
-    <div className="space-y-6">
+    <div className={inContest ? "" : "space-y-6"}>
       <RulesModal open={rulesOpen} onAccept={handleAcceptRules} />
 
-      <div
-        className="relative overflow-hidden rounded-2xl px-6 py-5 sm:px-8 sm:py-7"
-        style={{
-          background:
-            "linear-gradient(135deg, var(--color-panel-dark) 0%, color-mix(in srgb, var(--color-panel-dark) 80%, var(--color-primary)) 100%)",
-        }}
-      >
-        <div className="relative flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-white sm:text-3xl">{PAGE_TEXT.title[language]}</h1>
-            <p className="mt-1 text-sm" style={{ color: "var(--color-market-muted)" }}>
-              {PAGE_TEXT.subtitle[language]}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <ThemeToggle className="border-white/10 bg-white/[0.06] text-white/80 hover:bg-white/10" />
-            <button
-              type="button"
-              onClick={toggleLanguage}
-              aria-label={language === "tr" ? "Dili İngilizce yap" : "Switch language to Turkish"}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-sm font-black text-white/80 transition hover:bg-white/10"
-            >
-              {language === "tr" ? "EN" : "TR"}
-            </button>
-            <button
-              type="button"
-              onClick={toggleMute}
-              aria-label={muted ? PAGE_TEXT.muteOff[language] : PAGE_TEXT.muteOn[language]}
-              aria-pressed={muted}
-              title={muted ? PAGE_TEXT.muteOff[language] : PAGE_TEXT.muteOn[language]}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
-            >
-              <SoundIcon muted={muted} />
-            </button>
+      {!inContest && (
+        <div
+          className="relative overflow-hidden rounded-2xl px-6 py-5 sm:px-8 sm:py-7"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--color-panel-dark) 0%, color-mix(in srgb, var(--color-panel-dark) 80%, var(--color-primary)) 100%)",
+          }}
+        >
+          <div className="relative flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-white sm:text-3xl">{PAGE_TEXT.title[language]}</h1>
+              <p className="mt-1 text-sm" style={{ color: "var(--color-market-muted)" }}>
+                {PAGE_TEXT.subtitle[language]}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <ThemeToggle className="border-white/10 bg-white/[0.06] text-white/80 hover:bg-white/10" />
+              <button
+                type="button"
+                onClick={toggleLanguage}
+                aria-label={language === "tr" ? "Dili İngilizce yap" : "Switch language to Turkish"}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-sm font-black text-white/80 transition hover:bg-white/10"
+              >
+                {language === "tr" ? "EN" : "TR"}
+              </button>
+              <button
+                type="button"
+                onClick={toggleMute}
+                aria-label={muted ? PAGE_TEXT.muteOff[language] : PAGE_TEXT.muteOn[language]}
+                aria-pressed={muted}
+                title={muted ? PAGE_TEXT.muteOff[language] : PAGE_TEXT.muteOn[language]}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
+              >
+                <SoundIcon muted={muted} />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div
-        className="flex gap-2 border-b pb-3"
-        style={{ borderColor: "var(--color-border)" }}
-        role="tablist"
-      >
-        {TABS.map((t) => {
-          const active = tab === t.id;
-          return (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={active}
-              onClick={() => goTab(t.id)}
-              className="rounded-lg px-4 py-2 text-sm font-semibold transition"
-              style={
-                active
-                  ? { background: "var(--color-primary)", color: "var(--color-on-primary)" }
-                  : { color: "var(--color-muted)" }
-              }
-            >
-              {t.label[language]}
-            </button>
-          );
-        })}
-      </div>
+      {!inContest && (
+        <div
+          className="flex gap-2 border-b pb-3"
+          style={{ borderColor: "var(--color-border)" }}
+          role="tablist"
+        >
+          {TABS.map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => goTab(t.id)}
+                className="rounded-lg px-4 py-2 text-sm font-semibold transition"
+                style={
+                  active
+                    ? { background: "var(--color-primary)", color: "var(--color-on-primary)" }
+                    : { color: "var(--color-muted)" }
+                }
+              >
+                {t.label[language]}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {inContest && (
+        <div className="mb-4 flex items-center justify-between">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={handleLeaveContest}
+            className="rounded-lg border px-4 py-2 text-xs font-semibold transition"
+            style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+          >
+            {PAGE_TEXT.leaveContest[language]}
+          </button>
+        </div>
+      )}
 
       {tab === "oyun" && (
-        <div className="space-y-4">
+        <div className={inContest ? "" : "space-y-4"}>
           <div
             className={
               isFocused
-                ? "mx-auto max-w-3xl"
+                ? "mx-auto w-full max-w-4xl"
                 : "grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)_300px]"
             }
           >
@@ -254,7 +288,7 @@ export default function YatirimOyunuPage() {
                   playSound={play}
                   onWin={(result) => {
                     setLastResult(result);
-                    const earned = Math.round(CONFIG.prizePool * 0.05);
+                    const earned = result.payout;
                     setPointsBalance((b) => b + earned);
                     setHistory((h) => [buildHistoryRow(result, earned, language), ...h]);
                     play("win");
@@ -308,17 +342,37 @@ export default function YatirimOyunuPage() {
             )}
           </div>
 
-          {/* Gelistirme/QA araci: ekranlar arasi manuel gecis ve state sifirlama.
-              Gercek kullanicilar oyunu hile yapmadan, sirayla oynamali - bu
-              yuzden SADECE local `next dev` build'inde gorunur, production'a
-              hicbir zaman gitmez. */}
-          {process.env.NODE_ENV !== "production" && (
+          {process.env.NODE_ENV !== "production" && !inContest && (
             <Card title={PAGE_TEXT.devPanelTitle[language]}>
               <div className="flex flex-wrap gap-2">
-                {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
+                                {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
                   <button
                     key={s}
-                    onClick={() => goScreen(s)}
+                    onClick={() => {
+                      // "Kazandı"/"Elendi" ekranları lastResult'a ihtiyaç duyar —
+                      // demo/test amaçlı sahte bir sonuç üretip direkt atlıyoruz.
+                      if ((s === "victory" || s === "eliminated") && !lastResult) {
+                        setLastResult({
+                          won: s === "victory",
+                          score: 950,
+                          reached: s === "victory" ? CONFIG.questionCount : 4,
+                          correct: s === "victory" ? CONFIG.questionCount : 3,
+                          timedOut: false,
+                          questionText:
+                            language === "tr"
+                              ? "Örnek soru: Bileşik faiz nedir?"
+                              : "Sample question: What is compound interest?",
+                          correctAnswer: language === "tr" ? "B şıkkı" : "Option B",
+                          educationNote:
+                            language === "tr"
+                              ? "Bileşik faizde kazanılan faiz de faiz getirir."
+                              : "With compound interest, earned interest also earns interest.",
+                          rivalsAtEnd: 4,
+                          payout: 950,
+                        });
+                      }
+                      goScreen(s);
+                    }}
                     className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
                     style={{
                       borderColor: screen === s ? "var(--color-primary)" : "var(--color-border)",

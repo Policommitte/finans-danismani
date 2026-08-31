@@ -43,10 +43,14 @@ export type HistoryRow = {
 
 // ── Ayarlar ────────────────────────────────────────────────
 export const CONFIG = {
-  questionCount: 10,
+  questionCount: 5,
   questionSeconds: 15,
-  cheatSheetSeconds: 300, // 5 dk
-  prizePool: 10000,
+  cheatSheetSeconds: 180, // 3 dk
+  // Kazanan sayısı artık HER ZAMAN 100-500 arasında (bkz. pickTargetWinners).
+  // Düz 1.000.000 seçildi: en kötü senaryoda (500 kazanan) payout hâlâ 2.000
+  // (1500-2000 bandının üst sınırı); en iyi senaryoda (100 kazanan) 10.000'e
+  // çıkar — bu sadece daha cömert olur, sorun değil.
+  prizePool: 1000000,
   capacityTotal: 1000,
   answerRevealMs: 5000, // cevaptan sonra bekleme
   // TEST: doğru şık her soruda B konumuna sabitlenir. Sunumdan önce false.
@@ -572,18 +576,68 @@ export function scoreFor(elapsedSeconds: number, limitSeconds: number): number {
   return Math.round(100 + 100 * ratio);
 }
 
-/** Şık dağılımı: doğru cevap ağırlıklı, toplam 100 */
-export function buildShares(correctIndex: number): number[] {
-  const w = [0, 1, 2, 3].map((i) =>
-    i === correctIndex ? 38 + Math.random() * 26 : 6 + Math.random() * 20
+/**
+ * `survivalPercent`: bu soruyu doğru bilenlerin (rivals'ta kalacak kişilerin)
+ * GERÇEK oranı — rivalsCurve'den gelir. Ekranda gösterilen "% doğru bildi"
+ * ile rakip sayısındaki düşüş burada TEK kaynaktan, birebir tutarlı çıkar.
+ * Küçük bir görsel gürültü eklenir ama ortalama değeri asla kaydırmaz.
+ */
+export function buildShares(correctIndex: number, survivalPercent = 78): number[] {
+  const jitter = (Math.random() - 0.5) * 6; // ±3 puan görsel gürültü
+  const correctShare = Math.min(97, Math.max(3, survivalPercent + jitter));
+  const remaining = 100 - correctShare;
+
+  const w = [0, 1, 2, 3].map((i) => (i === correctIndex ? 0 : 4 + Math.random() * 8));
+  const wrongSum = w.reduce((a, b) => a + b, 0);
+
+  const shares = [0, 1, 2, 3].map((i) =>
+    i === correctIndex ? Math.round(correctShare) : Math.round((w[i] / wrongSum) * remaining)
   );
-  const sum = w.reduce((a, b) => a + b, 0);
-  const shares = w.map((v) => Math.round((v / sum) * 100));
   shares[correctIndex] += 100 - shares.reduce((a, b) => a + b, 0);
   return shares;
 }
 
-/** Yarışma bittiğinde sonuç ekranlarına taşınan veri */
+/** Yarışma başında seçilen, o oturum boyunca sabit kalan kazanan sayısı (100-500) */
+export function pickTargetWinners(min = 100, max = 500): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+/** Rakip sayısını `start`'tan `target`'a düzgün bir eğriyle indirir. */
+export function computeRivals(
+  start: number,
+  target: number,
+  totalSteps: number,
+  step: number
+): number {
+  if (totalSteps <= 0 || start <= target) return target;
+  const clampedStep = Math.min(Math.max(step, 0), totalSteps);
+  const ratio = Math.pow(target / start, clampedStep / totalSteps);
+  return Math.max(target, Math.round(start * ratio));
+}
+
+/**
+ * `start`'tan `target`'a inen, oturum başında BİR KEZ hesaplanan tam eğri
+ * (index 0 = ilk soru, index totalSteps = son soru). Ara adımlarda görsel
+ * çeşitlilik için küçük gürültü eklenir, ama dizinin SONU her zaman
+ * `target`'a birebir eşittir — kazanan sayısı asla hedef aralığın (100-500)
+ * dışına kaymaz. Bu eğri; "kaç kişi yarışta" gösterimi, şıkların "% doğru
+ * bildi" değerleri ve kazanan sayısının TEK ortak kaynağıdır.
+ */
+export function buildRivalsCurve(start: number, target: number, totalSteps: number): number[] {
+  const curve: number[] = [Math.max(target, Math.round(start))];
+  for (let step = 1; step <= totalSteps; step++) {
+    if (step === totalSteps) {
+      curve.push(target);
+      continue;
+    }
+    const baseline = computeRivals(start, target, totalSteps, step);
+    const jitter = 1 + (Math.random() * 0.12 - 0.06); // ±%6 görsel gürültü
+    const value = Math.max(target, Math.min(curve[step - 1] - 1, Math.round(baseline * jitter)));
+    curve.push(Math.max(target, value));
+  }
+  return curve;
+}
+
 export type GameResult = {
   won: boolean;
   score: number;
@@ -597,57 +651,44 @@ export type GameResult = {
   questionText: string;
   correctAnswer: string;
   educationNote: string;
+  /** Yarışmanın SON sorusunda ekranda gösterilen "yarışta kalan" sayısı —
+   *  WinnerScreen'deki kazanan sayısı bununla TUTARLI olmak zorunda. */
+  rivalsAtEnd: number;
+  /** Havuzdan bu oyuncuya düşen pay — TEK hesap noktası, her yerde aynı sayı kullanılır */
+  payout: number;
 };
 
-export type WinnerRow = {
-  label: string;
-  score: number;
-  payout: number;
-  isMe: boolean;
-};
+/** Havuzu kazanan sayısına göre böler — GameResult oluşurken BİR KEZ hesaplanır. */
+export function computePayout(rivalsAtEnd: number): number {
+  const winners = Math.max(1, rivalsAtEnd);
+  return Math.max(1, Math.round(CONFIG.prizePool / winners));
+}
 
 export type WinnerStats = {
   winners: number;
-  totalScore: number;
   myPayout: number;
   myRank: number;
-  board: WinnerRow[];
 };
 
 const COMPETITOR_LABEL: LocalizedText = { tr: "Yarışmacı", en: "Competitor" };
-const ME_LABEL: LocalizedText = { tr: "Sen", en: "You" };
 
 /**
- * Kazanan tablosu.
- * Backend gelene kadar diğer kazananlar demo amaçlı üretiliyor;
- * dağıtım formülü gerçek kuralla aynı: havuz × skor / toplam skor.
+ * Kazanma ekranında gösterilecek üç sayıyı üretir. Başka oyuncuları temsil
+ * eden uydurma bir liste ARTIK YOK (kafa karıştırıyordu) — sadece kullanıcının
+ * kendi payı gösteriliyor. `winners` ve `myPayout` dışarıdan gelen TEK doğru
+ * kaynaktır (rivalsAtEnd / computePayout); `myRank`, skorun gerçekçi bir üst
+ * sınıra (1200) oranlanmasıyla türetilen, kazanan sayısı içindeki tahmini
+ * konumdur.
  */
-export function buildWinnerStats(myScore: number, lang: Lang): WinnerStats {
-  const otherCount = Math.floor(Math.random() * 4); // 0–3 diğer kazanan
-  const others = Array.from({ length: otherCount }, () => ({
-    label: `${COMPETITOR_LABEL[lang]} #${1000 + Math.floor(Math.random() * 8999)}`,
-    score: Math.round(myScore * (0.82 + Math.random() * 0.36)),
-    isMe: false,
-  }));
+export function buildWinnerStats(myScore: number, rivalsAtEnd: number, payout: number): WinnerStats {
+  const winners = Math.max(1, rivalsAtEnd);
 
-  const all = [{ label: ME_LABEL[lang], score: myScore, isMe: true }, ...others].sort(
-    (a, b) => b.score - a.score
-  );
+  const scoreRatio = Math.min(1, Math.max(0, myScore / 1200));
+  const noise = (Math.random() - 0.5) * 0.08; // ±%4 görsel gürültü
+  const percentile = Math.min(1, Math.max(0, 1 - scoreRatio + noise));
+  const myRank = Math.max(1, Math.min(winners, Math.round(1 + percentile * (winners - 1))));
 
-  const totalScore = all.reduce((sum, r) => sum + r.score, 0);
-
-  const board: WinnerRow[] = all.map((r) => ({
-    ...r,
-    payout: Math.round((CONFIG.prizePool * r.score) / totalScore),
-  }));
-
-  return {
-    winners: board.length,
-    totalScore,
-    myPayout: board.find((r) => r.isMe)?.payout ?? 0,
-    myRank: board.findIndex((r) => r.isMe) + 1,
-    board,
-  };
+  return { winners, myPayout: payout, myRank };
 }
 
 /** Davet/referans kodu — karışsaabilen harfler (I, O, 0, 1) çıkarıldı */
