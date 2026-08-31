@@ -21,8 +21,6 @@ type Props = {
 const LETTERS = ["A", "B", "C", "D"];
 const RING = 226; // 2πr, r = 36
 
-const OPTION_COLORS = ["#e21b3c", "#1368ce", "#d89e00", "#26890c"];
-
 const MASCOT_CORRECT = [
   { tr: "Doğru cevap, harika gidiyorsun.", en: "Correct answer, you're doing great." },
   { tr: "Aynen öyle, tuttun.", en: "Exactly right, nailed it." },
@@ -222,20 +220,40 @@ export function QuizScreen(props: Props) {
                   ? " qz-pick-bump"
                   : "";
 
+              // Dolu renkli kutular yerine nötr kart: doğru/yanlış geri
+              // bildirimi (yeşil/kırmızı) fonksiyonel olduğu için solid
+              // dolgu olarak kalıyor, ama şıklar arasında ARTIK sabit
+              // renk ayrımı yok — tek accent (--color-primary) kullanılıyor.
+              const isRevealedHighlight = showCorrect || showWrong;
+              const background = showCorrect
+                ? "var(--color-success)"
+                : showWrong
+                  ? "var(--color-danger)"
+                  : isPicked && !revealed
+                    ? "var(--color-primary-soft)"
+                    : "var(--color-surface-muted)";
+              const borderColor = showCorrect
+                ? "var(--color-success)"
+                : showWrong
+                  ? "var(--color-danger)"
+                  : isPicked && !revealed
+                    ? "var(--color-primary)"
+                    : "var(--color-border)";
+              const textColor = isRevealedHighlight ? "#ffffff" : "var(--color-text)";
+              const badgeBg = isRevealedHighlight ? "rgba(255,255,255,.25)" : "var(--color-primary-soft)";
+              const badgeColor = isRevealedHighlight ? "#ffffff" : "var(--color-primary)";
+
               return (
                 <button
                   key={i}
                   onClick={() => q.pick(i)}
                   disabled={q.phase !== "asking" || isRemoved}
-                  className={"relative w-full overflow-hidden rounded-xl border-[3px] px-4 py-4 text-left transition disabled:cursor-default" + animClass}
+                  className={"relative w-full overflow-hidden rounded-xl border-2 px-4 py-4 text-left transition disabled:cursor-default" + animClass}
                   style={{
-                    background: OPTION_COLORS[i],
-                    borderColor: isPicked && !revealed ? "#fff" : "transparent",
+                    background,
+                    borderColor,
                     opacity: isRemoved ? 0.25 : showFaded ? 0.35 : 1,
-                    boxShadow:
-                      isPicked && !revealed
-                        ? "0 0 0 4px rgba(255,255,255,.9), 0 8px 20px rgba(0,0,0,.25)"
-                        : undefined,
+                    boxShadow: isPicked && !revealed ? "0 8px 20px rgba(0,0,0,.12)" : undefined,
                     transform: isPicked && !revealed ? "scale(1.03)" : undefined,
                     zIndex: isPicked && !revealed ? 1 : undefined,
                   }}
@@ -243,13 +261,13 @@ export function QuizScreen(props: Props) {
                   <div className="flex items-center gap-3">
                     <span
                       className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-bold"
-                      style={{ background: "rgba(255,255,255,.25)", color: "#fff" }}
+                      style={{ background: badgeBg, color: badgeColor }}
                     >
                       {LETTERS[i]}
                     </span>
                     <span
                       className="text-[14.5px] font-bold leading-snug"
-                      style={{ color: "#fff" }}
+                      style={{ color: textColor }}
                     >
                       {isRemoved ? "—" : opt}
                     </span>
@@ -267,7 +285,7 @@ export function QuizScreen(props: Props) {
                     {isPicked && (q.phase === "asking" || q.phase === "locked") && (
                       <span
                         className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-black"
-                        style={{ background: "#fff", color: OPTION_COLORS[i] }}
+                        style={{ background: "var(--color-primary)", color: "#fff" }}
                       >
                         ✓
                       </span>
@@ -277,7 +295,7 @@ export function QuizScreen(props: Props) {
                   {revealed && (
                     <span
                       className="mt-1.5 block text-[11px] font-bold"
-                      style={{ color: "rgba(255,255,255,.85)" }}
+                      style={{ color: isRevealedHighlight ? "rgba(255,255,255,.85)" : "var(--color-muted)" }}
                     >
                       %{q.shares[i] ?? 0}
                     </span>

@@ -239,7 +239,8 @@ export default function YatirimOyunuPage() {
       )}
 
       {inContest && (
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex items-center justify-between">
+          <ThemeToggle />
           <button
             type="button"
             onClick={handleLeaveContest}
