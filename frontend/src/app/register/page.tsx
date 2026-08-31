@@ -2,6 +2,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { requestPageTransition } from "../../components/layout/transitionEvents";
+import { IdCardScanner, type IdCardExtraction } from "../../components/register/IdCardScanner";
 import { useAuth } from "../../hooks/useAuth";
 
 const allowedNextPaths = new Set([
@@ -54,11 +55,19 @@ function EyeIcon({ off }: { off: boolean }) {
   );
 }
 
-function LoginPageContent() {
+const inputClassName =
+  "mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]";
+
+function RegisterPageContent() {
   const auth = useAuth();
-  const [email, setEmail] = useState("mehmet@example.com");
-  const [password, setPassword] = useState("demo1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [tckn, setTckn] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,14 +76,29 @@ function LoginPageContent() {
     }
   }, [auth.loading, auth.user]);
 
+  function handleIdCardExtracted(data: IdCardExtraction) {
+    if (data.firstName) setFirstName(data.firstName);
+    if (data.lastName) setLastName(data.lastName);
+    if (data.tckn) setTckn(data.tckn);
+    if (data.birthDate) setBirthDate(data.birthDate);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     try {
-      await auth.login(email, password);
+      await auth.register({
+        email,
+        password,
+        first_name: firstName,
+        last_name: lastName,
+        tckn,
+        birth_date: birthDate,
+        phone_number: phoneNumber,
+      });
       requestPageTransition(getSafeNextPath(), true);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Giris yapilamadi.");
+      setError(exc instanceof Error ? exc.message : "Kayıt oluşturulamadı.");
     }
   }
 
@@ -117,7 +141,7 @@ function LoginPageContent() {
         </g>
       </svg>
 
-      <div className="relative z-10 flex w-full max-w-sm flex-col items-center gap-7">
+      <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-7">
         <span
           aria-hidden="true"
           className="block h-9 w-36 bg-white [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
@@ -125,19 +149,90 @@ function LoginPageContent() {
         <span className="sr-only">POLIFIN</span>
 
         <div className="w-full rounded-2xl bg-[var(--color-surface-elevated)] p-7 shadow-2xl">
-          <h1 className="text-xl font-bold text-[var(--color-heading)]">Giriş Yap</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Hesabınıza güvenle erişin</p>
+          <h1 className="text-xl font-bold text-[var(--color-heading)]">Kayıt Ol</h1>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            Kimlik bilginiz NVI ile doğrulandıktan sonra hesabınız açılır
+          </p>
 
-          <form className="mt-6 space-y-4" onSubmit={submit}>
+          <div className="mt-6">
+            <IdCardScanner onExtracted={handleIdCardExtracted} />
+          </div>
+
+          <form className="mt-4 space-y-4" onSubmit={submit}>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm">
+                <span className="font-medium text-[var(--color-text)]">Ad</span>
+                <input
+                  className={inputClassName}
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
+                  type="text"
+                  autoComplete="given-name"
+                  required
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-[var(--color-text)]">Soyad</span>
+                <input
+                  className={inputClassName}
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                  type="text"
+                  autoComplete="family-name"
+                  required
+                />
+              </label>
+            </div>
+
+            <label className="block text-sm">
+              <span className="font-medium text-[var(--color-text)]">TC Kimlik Numarası</span>
+              <input
+                className={inputClassName}
+                value={tckn}
+                onChange={(event) => setTckn(event.target.value.replace(/\D/g, "").slice(0, 11))}
+                type="text"
+                inputMode="numeric"
+                maxLength={11}
+                placeholder="11 haneli TC Kimlik No"
+                required
+              />
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm">
+                <span className="font-medium text-[var(--color-text)]">Doğum Tarihi</span>
+                <input
+                  className={inputClassName}
+                  value={birthDate}
+                  onChange={(event) => setBirthDate(event.target.value)}
+                  type="date"
+                  required
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-[var(--color-text)]">Telefon Numarası</span>
+                <input
+                  className={inputClassName}
+                  value={phoneNumber}
+                  onChange={(event) => setPhoneNumber(event.target.value)}
+                  type="tel"
+                  placeholder="05XX XXX XX XX"
+                  autoComplete="tel"
+                  required
+                />
+              </label>
+            </div>
+
             <label className="block text-sm">
               <span className="font-medium text-[var(--color-text)]">E-mail</span>
               <input
-                className="mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+                className={inputClassName}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 type="email"
                 placeholder="mehmet@example.com"
                 autoComplete="username"
+                required
               />
             </label>
 
@@ -149,7 +244,9 @@ function LoginPageContent() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
                 />
                 <button
                   type="button"
@@ -162,12 +259,6 @@ function LoginPageContent() {
               </div>
             </label>
 
-            <div className="flex justify-end">
-              <a href="#" className="text-xs font-medium text-blue-600 hover:text-blue-700">
-                Şifremi unuttum?
-              </a>
-            </div>
-
             {error && (
               <div className="rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger-text)]">
                 {error}
@@ -179,23 +270,16 @@ function LoginPageContent() {
               disabled={auth.loading}
               className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {auth.loading ? "Kontrol ediliyor…" : "Giriş yap"}
+              {auth.loading ? "Kontrol ediliyor…" : "Kayıt ol"}
             </button>
           </form>
 
-          <div className="mt-6 flex items-center justify-center gap-3 text-center">
+          <div className="mt-6 text-center">
             <Link
-              href="/register"
+              href="/login"
               className="text-xs font-medium text-slate-500 transition hover:text-slate-700"
             >
-              Hesabınız yok mu? Kayıt olun
-            </Link>
-            <span className="text-xs text-slate-700">·</span>
-            <Link
-              href="/danisman-giris"
-              className="text-xs font-medium text-slate-500 transition hover:text-slate-700"
-            >
-              Danışman Girişi
+              Zaten hesabınız var mı? Giriş yapın
             </Link>
           </div>
         </div>
@@ -204,6 +288,6 @@ function LoginPageContent() {
   );
 }
 
-export default function LoginPage() {
-  return <LoginPageContent />;
+export default function RegisterPage() {
+  return <RegisterPageContent />;
 }

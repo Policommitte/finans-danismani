@@ -6,6 +6,7 @@ import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useChatStream } from "../../hooks/useChatStream";
+import type { PendingAttachment } from "./AttachmentMenu";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
@@ -268,13 +269,13 @@ export function ChatWidget({
     onOpenChange?.(nextOpen);
   }
 
-  function sendMessage(message: string) {
+  function sendMessage(message: string, attachment?: PendingAttachment) {
     const trimmed = message.trim();
-    if (!trimmed || !canSend) {
+    if ((!trimmed && !attachment) || !canSend) {
       return;
     }
 
-    chat.sendMessage(trimmed);
+    chat.sendMessage(trimmed, attachment);
   }
 
   return (

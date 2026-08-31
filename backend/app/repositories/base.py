@@ -22,6 +22,7 @@ Parasal degerler her yerde TRY'ye normalize edilmis olarak doner ve alan adlari
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Protocol
 
 
@@ -29,18 +30,41 @@ class UserRepository(Protocol):
     async def get_by_email(self, email: str) -> dict | None:
         """`password_hash` DAHIL kullanici kaydi (yalnizca auth katmani kullanir).
 
-        Donen sozlukte `role` alani da vardir ('customer' | 'advisor').
+        Donen sozlukte `role` alani da vardir ('customer' | 'advisor'),
+        `tckn_last4`/`birth_date`/`phone_number` de vardir - `tckn_hash`
+        YOKTUR (password_hash gibi hicbir zaman disari donmez).
         """
         ...
 
     async def get_by_id(self, user_id: int) -> dict | None:
-        """Profil bilgisi - `password_hash` ICERMEZ, `role` alani vardir."""
+        """Profil bilgisi - `password_hash`/`tckn_hash` ICERMEZ, `role` alani vardir."""
         ...
 
-    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
+        """Ayni TCKN ile ikinci bir hesap acilip acilmadigini kontrol icin.
+
+        `hash_tckn` DETERMINISTIK oldugundan (bkz. app/core/tckn.py) ayni
+        TCKN her zaman ayni hash'i uretir - bu yuzden esitlik sorgusu
+        anlamlidir (bcrypt'in aksine).
+        """
+        ...
+
+    async def create(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password_hash: str,
+        tckn_hash: str,
+        tckn_last4: str,
+        birth_date: date,
+        phone_number: str,
+    ) -> dict:
         """Yeni kullanici olusturur; `onboarding_completed=false` ile baslar.
 
-        Donen sozlukte `password_hash` YOKTUR.
+        `tckn_hash`/`tckn_last4` cagiran taraftan (route katmani, `password_hash`
+        ile AYNI desen) ZATEN islenmis gelir - bu katman hash mantigi bilmez,
+        yalnizca yazar. Donen sozlukte `password_hash`/`tckn_hash` YOKTUR.
         """
         ...
 
@@ -478,4 +502,17 @@ class LeadRepository(Protocol):
         Kullanici basina EN SON mail kaydi doner; siralama gonderim
         tarihine gore (en yeni ustte).
         """
+        ...
+
+
+class EconomicCalendarRepository(Protocol):
+    """Turkiye'ye ozel ekonomik olaylar (`economic_events` tablosu).
+
+    Global (yfinance kaynakli) olaylar BURADA DEGIL - onlar
+    `app/services/economic_calendar.py::fetch_global_events` ile canli
+    cekilir; ikisi `app/api/routes/economic_calendar.py`'de birlestirilir.
+    """
+
+    async def list_events(self, start: date, end: date) -> list[dict]:
+        """`start`/`end` arasindaki (dahil) TR'ye ozel olaylar, tarihe gore artan."""
         ...

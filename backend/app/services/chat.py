@@ -21,10 +21,12 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.engine.factory import get_orchestrator
 from app.mcp.context import set_current_user_id, set_request_context
 from app.repositories.deps import get_chat_repository
+from app.schemas.chat import ChatAttachment
+from app.services import chat_attachments
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,7 @@ async def stream_chat_response(
     message: str,
     session: dict,
     request_id: str,
+    attachment: ChatAttachment | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Sohbet olaylarini uretir (SSE'ye cevrilmek uzere).
 
@@ -67,7 +70,18 @@ async def stream_chat_response(
     `NotFoundError` gövde uretilirken firlar; o noktada HTTP durum kodu 200
     olarak gonderilmis olur ve global hata isleyicisi devreye giremez -
     istemci "404" yerine yarim bir akis gorur.
+
+    `attachment` VARSA cok-ajanli orkestratoru (`get_orchestrator()`) HIC
+    CAGIRMAYIZ - bkz. `app/services/chat_attachments.py` modul docstring'i
+    (mimari karar). Bunun yerine `_stream_attachment_response` calisir.
     """
+    if attachment is not None:
+        async for event in _stream_attachment_response(
+            user_id, message, session, request_id, attachment
+        ):
+            yield event
+        return
+
     repository = get_chat_repository()
     thread_id = int(session["id"])
 
@@ -110,6 +124,70 @@ async def stream_chat_response(
                 event = {**event, "message_id": mesaj["id"]}
 
         yield event
+
+
+async def _stream_attachment_response(
+    user_id: int,
+    message: str,
+    session: dict,
+    request_id: str,
+    attachment: ChatAttachment,
+) -> AsyncGenerator[dict, None]:
+    """Ek'li mesajlar icin basit, TEK PARCA yanit akisi (mimari karar:
+    modul docstring'i). Orkestratorun aksine `sources`/`agent_error`
+    uretmez - saf model yorumu doner.
+    """
+    repository = get_chat_repository()
+    thread_id = int(session["id"])
+    set_current_user_id(user_id)
+    set_request_context(request_id=request_id, session_id=thread_id)
+
+    # Orkestratorun kendisi normalde bu olayi ilk yayinlar (bkz.
+    # `app/engine/orchestrator.py`) - bu yol orkestratoru atladigi icin
+    # kendimiz uretiriz, aksi halde frontend `conversation_id`'yi hic ogrenmez.
+    yield {"type": "meta", "request_id": request_id, "conversation_id": thread_id}
+
+    kayit_icerigi = f"[Ek: {attachment.filename}]\n{message}"
+    await repository.add_message(
+        session_id=thread_id,
+        sender_role="user",
+        content=kayit_icerigi,
+        request_id=request_id,
+    )
+
+    yield {"type": "status", "stage": "attachment", "message": "Dosya inceleniyor"}
+
+    try:
+        veri = chat_attachments.decode_attachment(
+            attachment.data_base64, attachment.mime_type, attachment.kind
+        )
+        if attachment.kind == "image":
+            yanit_metni = await chat_attachments.analyze_image(message, veri, attachment.mime_type)
+        elif attachment.mime_type == chat_attachments.SUPPORTED_PDF_MIME_TYPE:
+            metin = chat_attachments.extract_pdf_text(veri)
+            yanit_metni = await chat_attachments.analyze_document(message, metin)
+        else:
+            metin = veri.decode("utf-8", errors="replace")
+            yanit_metni = await chat_attachments.analyze_document(message, metin)
+    except AppError as hata:
+        yield {"type": "error", "code": hata.code, "message": hata.message}
+        yield {"type": "done", "latency_ms": 0}
+        return
+    except Exception:  # noqa: BLE001 - beklenmeyen hata akisi cokertmesin
+        logger.exception(
+            "ek analizi beklenmeyen sekilde basarisiz oldu", extra={"thread_id": thread_id}
+        )
+        yield {"type": "error", "code": "internal_error", "message": "Beklenmeyen bir hata olustu."}
+        yield {"type": "done", "latency_ms": 0}
+        return
+
+    yield {"type": "token", "content": yanit_metni}
+
+    mesaj = await _asistan_mesajini_kaydet(thread_id, yanit_metni, [], [], request_id)
+    done_event: dict = {"type": "done", "latency_ms": 0}
+    if mesaj is not None:
+        done_event["message_id"] = mesaj["id"]
+    yield done_event
 
 
 async def _asistan_mesajini_kaydet(

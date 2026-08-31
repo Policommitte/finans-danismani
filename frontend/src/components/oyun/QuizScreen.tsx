@@ -154,7 +154,7 @@ export function QuizScreen(props: Props) {
 
         {/* maskot */}
         <div className="mt-4">
-          <Mascot mood={q.mood} message={message} />
+          <Mascot mood={q.mood} message={message} showHand={q.mood === "happy"} />
         </div>
 
         {/* soru */}

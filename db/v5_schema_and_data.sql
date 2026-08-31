@@ -57,8 +57,18 @@ CREATE TABLE users (
     role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
     likit_para DOUBLE PRECISION,
     onboarding_completed BOOLEAN NOT NULL DEFAULT true,
+    -- TCKN dogrulama (bkz. migrations/017_users_tckn_verification.sql): tam
+    -- numara DEGIL, tek yonlu HMAC-SHA256 ozeti saklanir; ekranlarda yalnizca
+    -- son 4 hane gosterilir.
+    tckn_hash VARCHAR(64),
+    tckn_last4 CHAR(4),
+    birth_date DATE,
+    phone_number VARCHAR(20),
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_tckn_hash_uidx
+    ON users (tckn_hash) WHERE tckn_hash IS NOT NULL;
 
 
 -- =====================================================================
@@ -268,6 +278,39 @@ CREATE TABLE notification_outbox (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     processed_at TIMESTAMPTZ
 );
+
+-- Turkiye'ye ozel ekonomik takvim olaylari (bkz. UC-09,
+-- db/migrations/018_economic_events.sql). Global (Fed/ECB gibi buyuk
+-- ekonomiler) taraf yfinance'ten CANLI cekilir (app/services/economic_calendar.py),
+-- burasi yfinance'te olmayan TCMB/TUIK olaylari icin.
+-- event_time: resmi aciklama saati (Turkiye saati) - TCMB PPK 14:00'te,
+-- TUIK enflasyon verisi 10:00'da aciklanir (bkz.
+-- db/migrations/019_economic_events_saat.sql).
+CREATE TABLE economic_events (
+    id SERIAL PRIMARY KEY,
+    event_date DATE NOT NULL,
+    event_time VARCHAR(5),
+    country VARCHAR(4) NOT NULL,
+    event_name VARCHAR(200) NOT NULL,
+    importance VARCHAR(10) NOT NULL CHECK (importance IN ('low', 'medium', 'high')),
+    source VARCHAR(100) NOT NULL,
+    expected VARCHAR(50),
+    actual VARCHAR(50),
+    previous VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE UNIQUE INDEX economic_events_tarih_olay_uidx
+    ON economic_events (event_date, country, event_name);
+
+INSERT INTO economic_events (event_date, event_time, country, event_name, importance, source) VALUES
+    ('2026-09-10', '14:00', 'TR', 'TCMB PPK Faiz Kararı', 'high', 'TCMB'),
+    ('2026-10-22', '14:00', 'TR', 'TCMB PPK Faiz Kararı', 'high', 'TCMB'),
+    ('2026-12-10', '14:00', 'TR', 'TCMB PPK Faiz Kararı', 'high', 'TCMB'),
+    ('2026-09-03', '10:00', 'TR', 'TÜİK Enflasyon (TÜFE) Açıklaması', 'medium', 'TÜİK'),
+    ('2026-10-03', '10:00', 'TR', 'TÜİK Enflasyon (TÜFE) Açıklaması', 'medium', 'TÜİK'),
+    ('2026-11-03', '10:00', 'TR', 'TÜİK Enflasyon (TÜFE) Açıklaması', 'medium', 'TÜİK'),
+    ('2026-12-03', '10:00', 'TR', 'TÜİK Enflasyon (TÜFE) Açıklaması', 'medium', 'TÜİK');
 
 
 -- =====================================================================

@@ -544,20 +544,42 @@ def _holdings_valued(user_id: int, portfolio_id: int | None) -> list[dict]:
     return rows
 
 
+#: `password_hash`/`tckn_hash` HICBIR zaman disari donmez (get_by_email
+#: haric - o auth katmani icin password_hash'i taşımak ZORUNDA, ama
+#: tckn_hash orada da gerekmiyor).
+_GIZLI_ALANLAR = ("password_hash", "tckn_hash")
+
+
 class InMemoryUserRepository:
     async def get_by_email(self, email: str) -> dict | None:
         for user in _USERS:
             if user["email"].lower() == email.lower():
-                return dict(user)
+                return {k: v for k, v in user.items() if k != "tckn_hash"}
         return None
 
     async def get_by_id(self, user_id: int) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
-                return {k: v for k, v in user.items() if k != "password_hash"}
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
-    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
+        for user in _USERS:
+            if user.get("tckn_hash") == tckn_hash:
+                return {"id": user["id"], "email": user["email"]}
+        return None
+
+    async def create(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password_hash: str,
+        tckn_hash: str,
+        tckn_last4: str,
+        birth_date,
+        phone_number: str,
+    ) -> dict:
         new_id = max((user["id"] for user in _USERS), default=0) + 1
         user = {
             "id": new_id,
@@ -568,16 +590,20 @@ class InMemoryUserRepository:
             "risk_tolerance": None,
             "monthly_income": 0.0,
             "onboarding_completed": False,
+            "tckn_hash": tckn_hash,
+            "tckn_last4": tckn_last4,
+            "birth_date": birth_date,
+            "phone_number": phone_number,
         }
         _USERS.append(user)
-        return {k: v for k, v in user.items() if k != "password_hash"}
+        return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
 
     async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
                 user["risk_tolerance"] = risk_tolerance
                 user["onboarding_completed"] = True
-                return {k: v for k, v in user.items() if k != "password_hash"}
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
 
@@ -1879,6 +1905,100 @@ class InMemoryLeadRepository:
                 }
             )
         return sonuc
+
+
+#: `db/migrations/018_economic_events.sql` + `019_economic_events_saat.sql`
+#: ile AYNI 7 satir - DB'siz modda da Turkiye'ye ozel ekonomik olaylar
+#: gorunsun diye (bkz. dosyanin ust yorumu). Saatler resmi/yerlesik
+#: aciklama saatleridir: TCMB PPK karari 14:00'te, TUIK enflasyon verisi
+#: 10:00'da aciklanir (Turkiye saati).
+_ECONOMIC_EVENTS: list[dict] = [
+    {
+        "event_date": date(2026, 9, 10),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 10, 22),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 12, 10),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 9, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 10, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 11, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 12, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+]
+
+
+class InMemoryEconomicCalendarRepository:
+    async def list_events(self, start: date, end: date) -> list[dict]:
+        return sorted(
+            (dict(e) for e in _ECONOMIC_EVENTS if start <= e["event_date"] <= end),
+            key=lambda e: e["event_date"],
+        )
 
 
 _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")

@@ -1,12 +1,13 @@
 "use client";
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import type { User } from "../models/auth";
+import type { RegisterRequest, User } from "../models/auth";
 import { getAccessToken } from "../services/apiClient";
 import {
   getMe,
   login as loginRequest,
   logout as logoutRequest,
+  register as registerRequest,
 } from "../services/authService";
 
 type AuthContextValue = {
@@ -15,6 +16,7 @@ type AuthContextValue = {
   error: string | null;
   hasToken: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (payload: RegisterRequest) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 };
@@ -62,6 +64,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function register(payload: RegisterRequest) {
+    setLoading(true);
+    try {
+      await registerRequest(payload);
+      setHasToken(true);
+      await refresh();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function logout() {
     logoutRequest();
     setUser(null);
@@ -73,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, error, hasToken, login, logout, refresh }),
+    () => ({ user, loading, error, hasToken, login, register, logout, refresh }),
     [user, loading, error, hasToken],
   );
 
