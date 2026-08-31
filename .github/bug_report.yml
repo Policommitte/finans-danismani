@@ -1,0 +1,95 @@
+name: "🐛 Hata Raporu (Bug)"
+description: "Beklenmeyen veya yanlış çalışan bir davranış bildir"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hata bildirdiğin için teşekkürler! Geliştiricinin hatayı 
+        senin gördüğü şekilde tekrarlayabilmesi için alanları eksiksiz doldur.
+
+  - type: input
+    id: environment
+    attributes:
+      label: "Ortam"
+      description: "Tarayıcı/sürüm, işletim sistemi, cihaz, test ortamı (staging/prod), uygulama sürümü"
+      placeholder: "Chrome 126, Windows 11, Staging (v2.4.1)"
+    validations:
+      required: true
+
+  - type: input
+    id: scenario
+    attributes:
+      label: "İlgili Test Senaryosu"
+      description: "Bu hatanın çıktığı test senaryosunun ID/adı"
+      placeholder: "TC-042"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: "Tekrarlanabilirlik"
+      options:
+        - "Her zaman"
+        - "Bazen (%50+)"
+        - "Nadir (%50 altı)"
+        - "Bir kez oldu"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: "Önem (Severity)"
+      options:
+        - "Blocker — akışı/testi tamamen durduruyor, çözüm yolu yok"
+        - "Critical — ana fonksiyon bozuk / veri kaybı / güvenlik açığı"
+        - "Major — önemli sorun ama geçici çözüm (workaround) var"
+        - "Minor — küçük işlevsel/UX sorunu"
+        - "Trivial — görsel, yazım hatası vb."
+    validations:
+      required: true
+
+  - type: textarea
+    id: preconditions
+    attributes:
+      label: "Ön Koşullar"
+      description: "Hatayı görmek için hangi durum gerekli?"
+      placeholder: "Kullanıcı giriş yapmış olmalı, sepette en az 1 ürün bulunmalı"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Tekrarlama Adımları"
+      description: "Numaralı ve tek tek yaz, hiçbir şeyi varsayma"
+      placeholder: |
+        1. Sepet sayfasına git
+        2. "İNDİRİM10" kupon kodunu gir
+        3. "Uygula"ya bas
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Beklenen Sonuç"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: "Gerçek Sonuç"
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "Kanıt"
+      description: "Ekran görüntüsü/kaydı, console/network hatası. Dosyaları doğrudan sürükleyip bırakabilirsin."
+    validations:
+      required: false

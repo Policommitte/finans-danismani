@@ -1,0 +1,27 @@
+name: "💡 Değişim İsteği (Improvement)"
+description: "Mevcut davranışta iyileştirme önerisi"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: current
+    attributes:
+      label: "Mevcut Davranış"
+      description: "Şu an nasıl çalışıyor?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: "Önerilen Değişiklik"
+      description: "Nasıl olmasını öneriyorsun?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: "Gerekçe / Fayda"
+      description: "Bu değişiklik neyi iyileştirir?"
+    validations:
+      required: true
