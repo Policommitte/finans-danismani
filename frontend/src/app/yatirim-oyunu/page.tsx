@@ -287,7 +287,7 @@ export default function YatirimOyunuPage() {
                   playSound={play}
                   onWin={(result) => {
                     setLastResult(result);
-                    const earned = Math.round(CONFIG.prizePool * 0.05);
+                    const earned = result.payout;
                     setPointsBalance((b) => b + earned);
                     setHistory((h) => [buildHistoryRow(result, earned, language), ...h]);
                     play("win");
@@ -366,6 +366,8 @@ export default function YatirimOyunuPage() {
                             language === "tr"
                               ? "Bileşik faizde kazanılan faiz de faiz getirir."
                               : "With compound interest, earned interest also earns interest.",
+                          rivalsAtEnd: 4,
+                          payout: 950,
                         });
                       }
                       goScreen(s);

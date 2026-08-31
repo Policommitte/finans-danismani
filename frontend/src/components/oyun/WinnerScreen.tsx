@@ -71,7 +71,10 @@ function Confetti() {
 
 export function WinnerScreen({ result, onGoPoints }: Props) {
   const { language } = useLanguage();
-  const stats = useMemo(() => buildWinnerStats(result.score, language), [result.score, language]);
+    const stats = useMemo(
+    () => buildWinnerStats(result.score, result.rivalsAtEnd, result.payout),
+    [result.score, result.rivalsAtEnd, result.payout]
+  );
   const code = useMemo(() => makeReferralCode(), []);
   const payout = useCountUp(stats.myPayout);
   const [copied, setCopied] = useState(false);
@@ -161,37 +164,27 @@ export function WinnerScreen({ result, onGoPoints }: Props) {
       <Card title={language === "tr" ? "Ödül dağılımı" : "Prize distribution"}>
         <p className="app-muted mb-3 text-sm">
           {language === "tr"
-            ? CONFIG.prizePool.toLocaleString("tr-TR") + " puanlık havuz, kazananlar arasında skor payı oranında bölüşüldü. Sıralama anonimdir."
-            : "The " + CONFIG.prizePool.toLocaleString("en-US") + "-point pool was split among winners in proportion to their score share. The ranking is anonymous."}
+            ? CONFIG.prizePool.toLocaleString("tr-TR") + " puanlık havuz, " + stats.winners.toLocaleString("tr-TR") + " kazanan arasında eşit bölüşüldü."
+            : "The " + CONFIG.prizePool.toLocaleString("en-US") + "-point pool was split equally among " + stats.winners.toLocaleString("en-US") + " winners."}
         </p>
 
-        <ul className="space-y-2">
-          {stats.board.map(function (row, i) {
-            return (
-              <li
-                key={row.label + "-" + i}
-                className="flex items-center justify-between rounded-lg border px-4 py-3"
-                style={{
-                  borderColor: row.isMe ? "var(--color-primary)" : "var(--color-border)",
-                  background: row.isMe ? "var(--color-primary-soft)" : "transparent",
-                }}
-              >
-                <span className="flex items-center gap-3 text-sm font-semibold">
-                  <span className="app-muted tabular-nums">{i + 1}.</span>
-                  {row.label}
-                </span>
-                <span className="flex items-center gap-4 text-sm tabular-nums">
-                  <span className="app-muted">
-                    {row.score.toLocaleString(locale)} {language === "tr" ? "skor" : "score"}
-                  </span>
-                  <span className="font-semibold" style={{ color: "var(--color-success)" }}>
-                    +{row.payout.toLocaleString(locale)}
-                  </span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <div
+          className="flex items-center justify-between rounded-lg border px-4 py-3"
+          style={{ borderColor: "var(--color-primary)", background: "var(--color-primary-soft)" }}
+        >
+          <span className="flex items-center gap-3 text-sm font-semibold">
+            <span className="app-muted tabular-nums">{stats.myRank}.</span>
+            {language === "tr" ? "Sen" : "You"}
+          </span>
+          <span className="flex items-center gap-4 text-sm tabular-nums">
+            <span className="app-muted">
+              {result.score.toLocaleString(locale)} {language === "tr" ? "skor" : "score"}
+            </span>
+            <span className="font-semibold" style={{ color: "var(--color-success)" }}>
+              +{stats.myPayout.toLocaleString(locale)}
+            </span>
+          </span>
+        </div>
       </Card>
 
       <Card title={language === "tr" ? "Arkadaşını davet et" : "Invite a friend"}>

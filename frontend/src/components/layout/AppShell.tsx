@@ -107,8 +107,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
       requestPageTransition("/dashboard", true);
     }
   }, [onboardingActive, isLanding]);
-
     useEffect(() => {
+    if (onboardingActive && isLanding) {
+      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
+      // olmasi icin kullaniciyi dashboard'a tasiriz.
+      requestPageTransition("/dashboard", true);
+    }
+  }, [onboardingActive, isLanding]);
+
+  useEffect(() => {
     function handleGameFocus(e: Event) {
       setIsGameFocused(Boolean((e as CustomEvent<boolean>).detail));
     }
@@ -132,6 +139,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }
 
   return (
+
+  
+
+  
     <div className="min-h-screen app-bg">
       {!isGame && (
         <MarketTicker

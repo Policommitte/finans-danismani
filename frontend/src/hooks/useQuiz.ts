@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CONFIG,
+  buildRivalsCurve,
   buildShares,
+  computePayout,
+  pickTargetWinners,
   prepareQuestions,
   scoreFor,
   type GameResult,
@@ -77,12 +80,22 @@ export function useQuiz({
   const [fiftyUsed, setFiftyUsed] = useState(false);
 
   const startedAt = useRef<number>(0);
-  // Bir önceki sorunun DOĞRU CEVAP YÜZDESİ — bir sonraki rivals hesabı
-  // TAM OLARAK bundan türer, böylece gösterilen yüzde ile rakip sayısındaki
-  // düşüş HER ZAMAN birebir tutarlı olur.
-  const prevCorrectShare = useRef<number>(100);
   const question = questions[index];
   const isLast = index === questions.length - 1;
+  // rivalsCurve[i] = soru i'ye GİRERKEN yarışta olan kişi sayısı;
+  // rivalsCurve[questions.length] = SON sorunun kendi sonucu uygulandıktan
+  // SONRA kalan sayı (= kazanan sayısı). Böylece son sorudaki "% doğru
+  // bildi" de tıpkı diğerleri gibi gerçek bir azalmaya karşılık gelir —
+  // ekranda donup kalan bir sayı olmaz.
+  const totalSteps = questions.length;
+
+  // Yarışma başında BİR KEZ hesaplanan hedef kazanan sayısı (100-500) ve bu
+  // hedefe inen tam rakip eğrisi — "kaç kişi yarışta", şıkların "% doğru
+  // bildi" değeri ve sonuçtaki kazanan sayısı hep BU eğriden türer.
+  const [targetWinners] = useState<number>(() => pickTargetWinners());
+  const [rivalsCurve] = useState<number[]>(() =>
+    buildRivalsCurve(registeredCount, targetWinners, totalSteps)
+  );
 
   /* ── Soru hazırlığı: ortak state sıfırlaması (phase ayrı yerde ayarlanır) ── */
   useEffect(() => {
@@ -102,16 +115,14 @@ export function useQuiz({
     setCurtainLeft(CURTAIN_SECONDS);
     setReadLeft(READING_SECONDS);
 
-    const nextShares = buildShares(question.correctIndex);
-    setShares(nextShares);
-
-    // Rivals, bir önceki sorunun EKRANDA GÖSTERİLEN doğru cevap yüzdesiyle
-    // birebir aynı oranda azalıyor — iki ayrı rastgele süreç yok, tek kaynak.
-    if (index > 0) {
-      setRivals((n) => Math.max(1, Math.round((n * prevCorrectShare.current) / 100)));
-    }
-    prevCorrectShare.current = nextShares[question.correctIndex];
-  }, [index, question]);
+    // Bu sorunun KENDİSİ de dahil, her soru rakip sayısını rivalsCurve'de bir
+    // adım aşağı indirir (son soru da farklı değil); ekranda gösterilen
+    // "% doğru bildi" bu adımın YANSIMASIdır — bağımsız rastgele bir süreç
+    // değil, tek kaynak.
+    const survivalPercent = Math.round((rivalsCurve[index + 1] / rivalsCurve[index]) * 100);
+    setShares(buildShares(question.correctIndex, survivalPercent));
+    setRivals(rivalsCurve[index]);
+  }, [index, question, rivalsCurve]);
 
   /* ── Perde: "Soru N" + görünür geri sayım, HER soruda ── */
   useEffect(() => {
@@ -198,6 +209,11 @@ export function useQuiz({
         return;
       }
 
+      // Bu sorunun SONUCU uygulandıktan sonra kalan kişi sayısı — canlı
+      // ekranda görülen `rivals` (soruya GİRERKEN gösterilen sayı) değil,
+      // bir adım ilerisi. Kazanan sayısı ve payout TEK bu değerden gelir.
+      const rivalsAfterThisQuestion = rivalsCurve[index + 1];
+
       const result: GameResult = {
         won: wasCorrect && isLast,
         score,
@@ -207,6 +223,8 @@ export function useQuiz({
         questionText: question.text,
         correctAnswer: question.options[question.correctIndex],
         educationNote: question.educationNote,
+        rivalsAtEnd: rivalsAfterThisQuestion,
+        payout: computePayout(rivalsAfterThisQuestion),
       };
 
       if (result.won) onWin(result);
