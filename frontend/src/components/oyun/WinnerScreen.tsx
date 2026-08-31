@@ -32,6 +32,23 @@ function useCountUp(target: number, ms = 1200) {
   return value;
 }
 
+function WhatsAppIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.42-1.42a9.87 9.87 0 0 0 4.62 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm5.8 14.1c-.24.68-1.4 1.3-1.93 1.38-.5.08-1.12.11-1.8-.11-.42-.13-.95-.31-1.64-.6-2.88-1.24-4.76-4.14-4.9-4.33-.14-.19-1.17-1.56-1.17-2.98 0-1.42.74-2.11 1-2.4.26-.29.57-.36.76-.36.19 0 .38 0 .55.01.18.01.41-.07.64.49.24.58.81 2 .88 2.15.07.15.12.32.02.51-.09.19-.14.31-.28.48-.14.17-.29.37-.42.5-.14.14-.28.29-.12.57.16.28.71 1.17 1.52 1.9 1.05.94 1.93 1.23 2.21 1.37.28.14.44.12.6-.07.16-.19.7-.81.88-1.09.19-.28.37-.23.62-.14.26.09 1.62.76 1.9.9.28.14.46.21.53.33.07.12.07.68-.17 1.36z" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 6-10 7L2 6" />
+    </svg>
+  );
+}
+
 const CONFETTI_COLORS = ["#e21b3c", "#1368ce", "#d89e00", "#26890c", "#f5a524", "#8b5cf6"];
 
 function Confetti() {
@@ -92,9 +109,18 @@ export function WinnerScreen({ result, onGoPoints }: Props) {
   const mailLink = "mailto:?subject=" + encodeURIComponent(mailSubject) + "&body=" + encodeURIComponent(shareText + "\n\n" + shareUrl);
 
   const invites = [
-    { label: "WhatsApp", href: waLink },
-    { label: "X", href: xLink },
-    { label: language === "tr" ? "E-posta" : "Email", href: mailLink },
+    { label: "WhatsApp", href: waLink, icon: <WhatsAppIcon /> },
+    {
+      label: "Instagram",
+      href: "#",
+      icon: <img src="/social/instagram.jpg" alt="" className="h-4 w-4 rounded-full object-cover" />,
+    },
+    {
+      label: "X",
+      href: xLink,
+      icon: <img src="/social/x.png" alt="" className="h-4 w-4 rounded-full object-cover" />,
+    },
+    { label: language === "tr" ? "E-posta" : "Email", href: mailLink, icon: <MailIcon /> },
   ];
 
   async function copyCode() {
@@ -116,7 +142,12 @@ export function WinnerScreen({ result, onGoPoints }: Props) {
           className="relative flex flex-col items-center gap-3 overflow-hidden rounded-xl px-6 py-9 text-center"
           style={{
             background: "linear-gradient(160deg, var(--color-panel-dark) 0%, color-mix(in srgb, var(--color-panel-dark) 75%, var(--color-primary)) 100%)",
-            color: "var(--color-on-primary)",
+            // `--color-panel-dark` her iki temada da KOYU (bkz. index.css) —
+            // bu yüzden metin `--color-on-primary` yerine sabit beyaz olmalı.
+            // `--color-on-primary`, karanlık modda `--color-primary` AÇIK
+            // renge döndüğü için koyu olur; bu panelle eşleşince metin
+            // karanlık modda okunmaz hale geliyordu.
+            color: "#ffffff",
           }}
         >
           <Confetti />
@@ -216,9 +247,10 @@ export function WinnerScreen({ result, onGoPoints }: Props) {
                   href={item.href}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg px-4 py-2 text-sm font-semibold transition"
+                  className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition"
                   style={{ background: "var(--color-primary)", color: "var(--color-on-primary)" }}
                 >
+                  {item.icon}
                   {language === "tr" ? item.label + " ile paylaş" : "Share via " + item.label}
                 </a>
               );
