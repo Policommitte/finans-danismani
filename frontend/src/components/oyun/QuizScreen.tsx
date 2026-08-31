@@ -112,13 +112,7 @@ export function QuizScreen(props: Props) {
       )}
 
       <Card>
-        {/* GEÇİCİ DEBUG ETİKETİ — doğrulanınca kaldırılabilir */}
-        <div
-          className="mb-2 rounded-lg px-3 py-1.5 font-mono text-[11px]"
-          style={{ background: "#000", color: "#0f0" }}
-        >
-          phase={q.phase} | curtainLeft={q.curtainLeft} | readLeft={q.readLeft} | timeLeft={q.timeLeft}
-        </div>
+        
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">

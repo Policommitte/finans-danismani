@@ -26,8 +26,8 @@ export type QuizPhase =
 
 export type MascotMood = "idle" | "hurry" | "happy" | "sad";
 
-const CURTAIN_SECONDS = 8;
-const READING_SECONDS = 4;
+const CURTAIN_SECONDS = 6;
+const READING_SECONDS = 2;
 
 type LockedResult = {
   correct: boolean;
@@ -77,7 +77,10 @@ export function useQuiz({
   const [fiftyUsed, setFiftyUsed] = useState(false);
 
   const startedAt = useRef<number>(0);
-  const prevShares = useRef<number>(100);
+  // Bir önceki sorunun DOĞRU CEVAP YÜZDESİ — bir sonraki rivals hesabı
+  // TAM OLARAK bundan türer, böylece gösterilen yüzde ile rakip sayısındaki
+  // düşüş HER ZAMAN birebir tutarlı olur.
+  const prevCorrectShare = useRef<number>(100);
   const question = questions[index];
   const isLast = index === questions.length - 1;
 
@@ -102,11 +105,12 @@ export function useQuiz({
     const nextShares = buildShares(question.correctIndex);
     setShares(nextShares);
 
+    // Rivals, bir önceki sorunun EKRANDA GÖSTERİLEN doğru cevap yüzdesiyle
+    // birebir aynı oranda azalıyor — iki ayrı rastgele süreç yok, tek kaynak.
     if (index > 0) {
-      const prevCorrectShare = prevShares.current;
-      setRivals((n) => Math.max(1, Math.round((n * prevCorrectShare) / 100)));
+      setRivals((n) => Math.max(1, Math.round((n * prevCorrectShare.current) / 100)));
     }
-    prevShares.current = nextShares[question.correctIndex];
+    prevCorrectShare.current = nextShares[question.correctIndex];
   }, [index, question]);
 
   /* ── Perde: "Soru N" + görünür geri sayım, HER soruda ── */

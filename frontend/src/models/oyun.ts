@@ -572,15 +572,41 @@ export function scoreFor(elapsedSeconds: number, limitSeconds: number): number {
   return Math.round(100 + 100 * ratio);
 }
 
-/** Şık dağılımı: doğru cevap ağırlıklı, toplam 100 */
-export function buildShares(correctIndex: number): number[] {
-  const w = [0, 1, 2, 3].map((i) =>
-    i === correctIndex ? 38 + Math.random() * 26 : 6 + Math.random() * 20
+/**
+ * `survivalPercent`: bu soruyu doğru bilenlerin (rivals'ta kalacak kişilerin)
+ * yaklaşık oranı — computeRivals'tan gelir, şık yüzdesi bununla tutarlı olur.
+ */
+export function buildShares(correctIndex: number, survivalPercent = 78): number[] {
+  // Gerçek survivalPercent'ten bağımsız olarak 70-92 arasında geniş dağılım.
+  const correctShare = 70 + Math.random() * 22;
+  const remaining = 100 - correctShare;
+
+  const w = [0, 1, 2, 3].map((i) => (i === correctIndex ? 0 : 4 + Math.random() * 8));
+  const wrongSum = w.reduce((a, b) => a + b, 0);
+
+  const shares = [0, 1, 2, 3].map((i) =>
+    i === correctIndex ? Math.round(correctShare) : Math.round((w[i] / wrongSum) * remaining)
   );
-  const sum = w.reduce((a, b) => a + b, 0);
-  const shares = w.map((v) => Math.round((v / sum) * 100));
   shares[correctIndex] += 100 - shares.reduce((a, b) => a + b, 0);
   return shares;
+}
+
+/** Yarışma başında seçilen, o oturum boyunca sabit kalan kazanan sayısı (3-10) */
+export function pickTargetWinners(min = 3, max = 10): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+/** Rakip sayısını `start`'tan `target`'a düzgün bir eğriyle indirir. */
+export function computeRivals(
+  start: number,
+  target: number,
+  totalSteps: number,
+  step: number
+): number {
+  if (totalSteps <= 0 || start <= target) return target;
+  const clampedStep = Math.min(Math.max(step, 0), totalSteps);
+  const ratio = Math.pow(target / start, clampedStep / totalSteps);
+  return Math.max(target, Math.round(start * ratio));
 }
 
 /** Yarışma bittiğinde sonuç ekranlarına taşınan veri */

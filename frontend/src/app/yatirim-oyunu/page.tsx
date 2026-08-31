@@ -108,7 +108,7 @@ export default function YatirimOyunuPage() {
     fiftyFifty: 1,
   });
 
-  const [registeredCount, setRegisteredCount] = useState(640);
+  const [registeredCount, setRegisteredCount] = useState(920);
   const [lastResult, setLastResult] = useState<GameResult | null>(null);
 
   const [pointsBalance, setPointsBalance] = useState(4200);
@@ -344,10 +344,32 @@ export default function YatirimOyunuPage() {
           {process.env.NODE_ENV !== "production" && !inContest && (
             <Card title={PAGE_TEXT.devPanelTitle[language]}>
               <div className="flex flex-wrap gap-2">
-                {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
+                                {(Object.keys(SCREEN_LABELS) as GameScreen[]).map((s) => (
                   <button
                     key={s}
-                    onClick={() => goScreen(s)}
+                    onClick={() => {
+                      // "Kazandı"/"Elendi" ekranları lastResult'a ihtiyaç duyar —
+                      // demo/test amaçlı sahte bir sonuç üretip direkt atlıyoruz.
+                      if ((s === "victory" || s === "eliminated") && !lastResult) {
+                        setLastResult({
+                          won: s === "victory",
+                          score: 950,
+                          reached: s === "victory" ? CONFIG.questionCount : 4,
+                          correct: s === "victory" ? CONFIG.questionCount : 3,
+                          timedOut: false,
+                          questionText:
+                            language === "tr"
+                              ? "Örnek soru: Bileşik faiz nedir?"
+                              : "Sample question: What is compound interest?",
+                          correctAnswer: language === "tr" ? "B şıkkı" : "Option B",
+                          educationNote:
+                            language === "tr"
+                              ? "Bileşik faizde kazanılan faiz de faiz getirir."
+                              : "With compound interest, earned interest also earns interest.",
+                        });
+                      }
+                      goScreen(s);
+                    }}
                     className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
                     style={{
                       borderColor: screen === s ? "var(--color-primary)" : "var(--color-border)",
