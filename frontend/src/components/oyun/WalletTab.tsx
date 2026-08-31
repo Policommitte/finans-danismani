@@ -82,7 +82,10 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
           <div className="w-full sm:w-1/2">
             <span
               className="inline-block rounded-full px-3 py-1 text-[11px] font-semibold"
-              style={{ background: "var(--color-overlay-soft)", color: "var(--color-success)" }}
+              // Bu panel (govde arka plani) HER IKI temada da koyu; `--color-success`
+              // aydinlik modda koyu yesile donup koyu zeminde silikleşiyordu.
+              // `--color-market-*` ile ayni mantikla sabit acik yesil kullanildi.
+              style={{ background: "var(--color-overlay-soft)", color: "#34d399" }}
             >
               {language === "tr" ? "Şans Yatırımda · Aktif" : "Şans Yatırımda · Active"}
             </span>
@@ -106,7 +109,7 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
             </div>
 
             <p className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--color-market-muted)" }}>
-              <span style={{ color: "var(--color-success)" }}>▲ +{monthlyGain}</span>
+              <span style={{ color: "#34d399" }}>▲ +{monthlyGain}</span>
               <span>{language === "tr" ? "toplam kazanç" : "total earned"}</span>
               <span>·</span>
               <span>{language === "tr" ? "Son işlem" : "Last activity"} {lastActivity}</span>
