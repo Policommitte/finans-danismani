@@ -1,13 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 import type { PublicMarketTickerItem } from "../../models/market";
 import { getPublicMarketTicker } from "../../services/marketService";
 import { ThemeToggle } from "../ui/ThemeToggle";
+import { MARKET_TICKER_READY_EVENT } from "./transitionEvents";
 
 let cachedTickerItems: PublicMarketTickerItem[] = [];
+
+const fallbackTickerItems: PublicMarketTickerItem[] = [
+  { symbol: "BIST100", label: "BIST 100", value: 10842.36, currency: "TRY", change_percent: 0.84, source: "fallback" },
+  { symbol: "USDTRY", label: "USD/TRY", value: 42.18, currency: "TRY", change_percent: 0.12, source: "fallback" },
+  { symbol: "EURTRY", label: "EUR/TRY", value: 45.62, currency: "TRY", change_percent: -0.2, source: "fallback" },
+  { symbol: "XAUTRY", label: "Gram Altın", value: 3918, currency: "TRY", change_percent: 1.24, source: "fallback" },
+  { symbol: "BTC", label: "BTC", value: 2184306, currency: "TRY", change_percent: 2.1, source: "fallback" },
+  { symbol: "THYAO", label: "THYAO", value: 312.5, currency: "TRY", change_percent: 1.16, source: "fallback" },
+];
+
+// Onceki CSS `@keyframes ticker-marquee` ile ayni his: yarim tur (bir set
+// oge) 28 saniyede tamamlaniyordu. Suruklemeyle rF-tabanli bir konuma
+// gecince de ayni hizi korumak icin ayni sureyi kullaniyoruz.
+const LOOP_DURATION_SECONDS = 28;
+const HOVER_SPEED_MULTIPLIER = 0.25;
+const DRAG_CLICK_THRESHOLD_PX = 4;
 
 function formatValue(item: PublicMarketTickerItem, language: "tr" | "en"): string {
   return new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
@@ -26,8 +43,18 @@ export function MarketTicker({
   isAuthenticated: boolean;
 }) {
   const [items, setItems] = useState<PublicMarketTickerItem[]>(() => cachedTickerItems);
+  const [isDragging, setIsDragging] = useState(false);
   const { language, toggleLanguage } = useLanguage();
-  const displayItems = items.length > 0 ? [...items, ...items] : [];
+
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const offsetRef = useRef(0);
+  const halfWidthRef = useRef(0);
+  const draggingRef = useRef(false);
+  const hoveringRef = useRef(false);
+  const draggedPastThresholdRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartOffsetRef = useRef(0);
+  const lastFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -35,15 +62,13 @@ export function MarketTicker({
     async function load() {
       try {
         const response = await getPublicMarketTicker();
-        if (active) {
-          if (response.items.length > 0) {
-            cachedTickerItems = response.items;
-            setItems(response.items);
-          }
+        if (active && response.items.length > 0) {
+          cachedTickerItems = response.items;
+          setItems(response.items);
         }
       } catch {
         if (active) {
-          setItems((current) => current);
+          setItems((current) => (current.length > 0 ? current : fallbackTickerItems));
         }
       }
     }
@@ -55,6 +80,144 @@ export function MarketTicker({
       window.clearInterval(timer);
     };
   }, []);
+
+  const displayItems = items.length > 0 ? [...items, ...items] : [];
+
+  // Bir set ogenin gercek genisligini olc (dizi ikiye katlanmis durumda,
+  // dolayisiyla scrollWidth/2 = kesintisiz donguyu tamamlayan mesafe).
+  useEffect(() => {
+    function measure() {
+      if (trackRef.current) {
+        halfWidthRef.current = trackRef.current.scrollWidth / 2;
+      }
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [displayItems.length]);
+
+  // Otomatik kayma: fare uzerindeyken tamamen durmak yerine yavaslar;
+  // suruklerken kullanici pointermove'da offset'i dogrudan gunceller ve
+  // otomatik hareket gecici olarak durur.
+  useEffect(() => {
+    let rafId: number;
+
+    function frame(timestamp: number) {
+      if (lastFrameRef.current === null) {
+        lastFrameRef.current = timestamp;
+      }
+      const deltaSeconds = (timestamp - lastFrameRef.current) / 1000;
+      lastFrameRef.current = timestamp;
+
+      const halfWidth = halfWidthRef.current;
+      if (!draggingRef.current && halfWidth > 0) {
+        const speedMultiplier = hoveringRef.current ? HOVER_SPEED_MULTIPLIER : 1;
+        const speed = (halfWidth / LOOP_DURATION_SECONDS) * speedMultiplier;
+        offsetRef.current -= speed * deltaSeconds;
+        if (offsetRef.current <= -halfWidth) {
+          offsetRef.current += halfWidth;
+        }
+      }
+
+      if (trackRef.current) {
+        trackRef.current.style.transform = `translateX(${offsetRef.current}px)`;
+      }
+
+      rafId = requestAnimationFrame(frame);
+    }
+
+    rafId = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  function wrapOffset(value: number): number {
+    const halfWidth = halfWidthRef.current;
+    if (halfWidth <= 0) {
+      return value;
+    }
+    let wrapped = value;
+    while (wrapped <= -halfWidth) {
+      wrapped += halfWidth;
+    }
+    while (wrapped > 0) {
+      wrapped -= halfWidth;
+    }
+    return wrapped;
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (halfWidthRef.current <= 0) {
+      return;
+    }
+    draggingRef.current = true;
+    draggedPastThresholdRef.current = false;
+    setIsDragging(true);
+    dragStartXRef.current = event.clientX;
+    dragStartOffsetRef.current = offsetRef.current;
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) {
+      return;
+    }
+    const delta = event.clientX - dragStartXRef.current;
+    if (!draggedPastThresholdRef.current && Math.abs(delta) > DRAG_CLICK_THRESHOLD_PX) {
+      draggedPastThresholdRef.current = true;
+      // Pointer capture'i ancak gercek bir surukleme baslayinca devreye
+      // aliyoruz: pointerdown aninda capture edilirse, dokunmadan/hareket
+      // etmeden yapilan duz bir tikin ureteceigi click olayi da bu
+      // elemente yonlendiriliyor ve altindaki butona hic ulasamiyor.
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    offsetRef.current = wrapOffset(dragStartOffsetRef.current + delta);
+  }
+
+  function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) {
+      return;
+    }
+    draggingRef.current = false;
+    setIsDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePointerEnter(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse") {
+      hoveringRef.current = true;
+    }
+  }
+
+  function handlePointerLeave(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse") {
+      hoveringRef.current = false;
+    }
+    endDrag(event);
+  }
+
+  function handleClickCapture(event: React.MouseEvent) {
+    // Suruklemenin sonunda tarayicinin otomatik urettigi click'i bastir,
+    // boylece bir sembolu suruklerken yanlislikla secmis olmayalim.
+    if (draggedPastThresholdRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      draggedPastThresholdRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (items.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.dataset.marketTickerReady = "true";
+      window.dispatchEvent(new Event(MARKET_TICKER_READY_EVENT));
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [items.length]);
 
   return (
     <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
@@ -72,16 +235,27 @@ export function MarketTicker({
           {language === "tr" ? "PİYASA VERİLERİ" : "MARKET DATA"}
         </div>
 
-        <div className="relative min-w-0 flex-1 overflow-hidden py-3">
-          <div className="ticker-track flex w-max gap-3">
+        <div className="relative min-w-0 flex-1 overflow-hidden py-3" data-tour="market-stream">
+          <div
+            ref={trackRef}
+            className={`flex w-max touch-pan-y select-none ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onPointerEnter={handlePointerEnter}
+            onPointerLeave={handlePointerLeave}
+            onClickCapture={handleClickCapture}
+          >
             {displayItems.map((item, index) => {
               const positive = (item.change_percent ?? 0) >= 0;
               return (
                 <button
                   key={`${item.symbol}-${index}`}
                   type="button"
+                  draggable={false}
                   onClick={() => onSelect(item.symbol)}
-                  className="flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] pl-6 text-left"
+                  className="ticker-item flex min-w-48 shrink-0 items-center gap-3 border-l border-[var(--color-border)] px-6 text-left"
                 >
                   <span>
                     <span className="block text-xs font-semibold text-[var(--color-market-muted)]">
@@ -104,19 +278,19 @@ export function MarketTicker({
           <button
             type="button"
             onClick={onLogout}
-            className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
+            className="flex h-11 w-20 shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/[0.06] text-sm font-semibold text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white md:w-24"
           >
             {language === "tr" ? "Çıkış" : "Logout"}
           </button>
         ) : (
           <Link
             href="/login"
-            className="shrink-0 rounded-none bg-[var(--color-cta)] px-6 py-7 text-sm font-bold text-[var(--color-market-text)] transition hover:bg-[var(--color-cta-hover)] md:px-8"
+            className="flex h-11 w-20 shrink-0 items-center justify-center rounded-md border border-white/30 bg-white/[0.13] text-sm font-bold text-white shadow-sm transition hover:border-white/45 hover:bg-white/[0.18] md:w-24"
           >
             {language === "tr" ? "Giriş" : "Login"}
           </Link>
         )}
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3" data-tour="appearance-controls">
           <ThemeToggle className="rounded-md" />
           <button
             type="button"

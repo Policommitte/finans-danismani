@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 
 type SiteFooterProps = {
   className?: string;
+  onStartTour?: () => void;
 };
 
 const socialLinks = [
@@ -17,7 +19,11 @@ const socialLinks = [
 
 const footerCopy = {
   tr: {
-    links: ["Gizlilik Politikası", "Sıkça Sorulan Sorular"],
+    links: [
+      { label: "Gizlilik Politikası", href: "/gizlilik-politikasi" },
+      { label: "Sıkça Sorulan Sorular", href: "/destek#sss" },
+    ],
+    help: "Yardım",
     about: "Hakkımızda",
     aboutEyebrow: "POLİFİN HAKKINDA",
     aboutTitle: "Finansal kararları daha anlaşılır hale getiren kişisel asistan.",
@@ -34,7 +40,11 @@ const footerCopy = {
     disclaimerEnd: "Gösterilen veriler temsilidir; yatırım tavsiyesi niteliği taşımaz.",
   },
   en: {
-    links: ["Privacy Policy", "Frequently Asked Questions"],
+    links: [
+      { label: "Privacy Policy", href: "/gizlilik-politikasi" },
+      { label: "Frequently Asked Questions", href: "/destek#sss" },
+    ],
+    help: "Help",
     about: "About Us",
     aboutEyebrow: "ABOUT POLIFIN",
     aboutTitle: "A personal assistant that makes financial decisions easier to understand.",
@@ -81,11 +91,22 @@ function PinIcon() {
   );
 }
 
-export function SiteFooter({ className = "" }: SiteFooterProps) {
+export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
   const { language } = useLanguage();
   const text = footerCopy[language];
   const [aboutOpen, setAboutOpen] = useState(false);
+  //: `onStartTour` sunucuda da fonksiyon olarak gecer (props aninda ayni),
+  //: ama turu "mount olmus" DOM'a (Sidebar/nav data-tour hedefleri) baglayan
+  //: ProductTour sadece client'ta anlamli - bu yuzden ilk render'i (server VE
+  //: client'in ilk boyasi) her zaman ayni "/destek" Link'ine sabitleriz, buton
+  //: SADECE mount sonrasi devreye girer. Boylece hydration'da yapisal fark
+  //: (server'da Link, client'ta button) hic olusmaz.
+  const [mounted, setMounted] = useState(false);
   const footerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   function setAboutVisibility(nextOpen: boolean) {
     const anchorTop = footerRef.current?.getBoundingClientRect().top;
@@ -214,14 +235,27 @@ export function SiteFooter({ className = "" }: SiteFooterProps) {
               {text.about}
             </button>
             {text.links.map((link) => (
-              <button
-                key={link}
-                type="button"
+              <Link
+                key={link.href}
+                href={link.href}
                 className="w-fit text-left transition hover:text-[var(--color-market-text)]"
               >
-                {link}
-              </button>
+                {link.label}
+              </Link>
             ))}
+            {mounted && onStartTour ? (
+              <button
+                type="button"
+                onClick={onStartTour}
+                className="w-fit text-left transition hover:text-[var(--color-market-text)]"
+              >
+                {text.help}
+              </button>
+            ) : (
+              <Link href="/destek" className="w-fit text-left transition hover:text-[var(--color-market-text)]">
+                {text.help}
+              </Link>
+            )}
           </nav>
 
           <p className="max-w-2xl text-left text-sm leading-6 lg:text-right">

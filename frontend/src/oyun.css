@@ -1,0 +1,161 @@
+
+
+/* ── Maskot renkleri*/
+.m-shadow { fill: rgba(23, 32, 51, 0.12); }
+.m-jacket { fill: red !important; }
+.m-lapel { fill: #0f1d43; }
+.m-shirt { fill: #ffffff; }
+.m-tie { fill: #ea580c; }
+.m-neck { fill: #e8bf95; }
+.m-neck-shade { fill: #d9ab7d; }
+.m-face,
+.m-ear { fill: #f2cfa8; stroke: #d3a575; stroke-width: 1.3; }
+.m-hair { fill: #1e293b; }
+.m-eye { fill: #1e293b; }
+.m-brow { fill: none; stroke: #1e293b; stroke-width: 2.2; stroke-linecap: round; }
+.m-mouth { fill: none; stroke: #1e293b; stroke-width: 2.1; stroke-linecap: round; }
+.m-glasses { fill: none; stroke: #1e293b; stroke-width: 1.9; stroke-linecap: round; }
+.m-sleeve { fill: none; stroke: #172554; stroke-width: 8.5; stroke-linecap: round; stroke-linejoin: round; }
+.m-cuff { fill: none; stroke: #ffffff; stroke-width: 2.4; stroke-linecap: round; }
+.m-hand { fill: #f2cfa8; stroke: #d3a575; stroke-width: 1.3; stroke-linejoin: round; }
+.m-eyes-shut { fill: none; stroke: #1e293b; stroke-width: 2.2; stroke-linecap: round; opacity: 0; }
+.m-think rect { fill: #ffffff; stroke: rgba(23, 32, 51, 0.28); stroke-width: 1.4; }
+.m-chart { fill: none; stroke: #047857; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.m-think { opacity: 0; }
+.m-sweat { fill: #7cc8ef; stroke: #4aa8d8; stroke-width: 1.2; opacity: 0; }
+
+/* ── Düşünüyor (varsayılan) */
+.mascot .m-head {
+  animation: m-ponder 3.6s ease-in-out infinite;
+  transform-origin: 48px 76px;
+}
+@keyframes m-ponder {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(1.5deg); }
+}
+
+.mascot--idle .m-think { animation: m-report 3.2s ease-in-out infinite; transform-origin: 83px 27px; }
+@keyframes m-report {
+  0%, 100% { opacity: 0; transform: translateY(4px) scale(0.85); }
+  30% { opacity: 1; transform: translateY(0) scale(1); }
+  75% { opacity: 0.85; transform: translateY(-3px) scale(1.02); }
+}
+
+.mascot--idle .m-brow-l {
+  animation: m-brow 3.6s ease-in-out infinite;
+  transform-origin: 36px 34px;
+}
+@keyframes m-brow {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-2.2px) rotate(-5deg); }
+}
+
+.mascot .m-eyes { animation: m-blink 5.4s infinite; transform-origin: 48px 45px; }
+@keyframes m-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+/* ── Acele (son 5 saniye) ────────────────────────────────── */
+.mascot--hurry .m-head { animation: m-shake 0.42s ease-in-out infinite; }
+@keyframes m-shake {
+  0%, 100% { transform: rotate(-3.5deg); }
+  50% { transform: rotate(3.5deg); }
+}
+.mascot--hurry .m-sweat { opacity: 1; animation: m-drip 1s ease-in-out infinite; }
+@keyframes m-drip {
+  0% { opacity: 0; transform: translateY(-4px); }
+  30% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(9px); }
+}
+.mascot--hurry .m-mouth { d: path("M42 59c3.6-2.4 8.4-2.4 12 0"); }
+
+/* ── Doğru cevap ─────────────────────────────────────────── */
+.mascot--happy .m-head { animation: m-jump 0.6s cubic-bezier(0.34, 1.5, 0.5, 1); }
+@keyframes m-jump {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  40% { transform: translateY(-4px) rotate(-3deg); }
+}
+.mascot--happy .m-eyes { opacity: 0; }
+.mascot--happy .m-eyes-shut { opacity: 1; }
+.mascot--happy .m-mouth { d: path("M39 54c5.5 6 13.5 6 18 0"); stroke-width: 2.5; }
+
+/* ── Yanlış cevap ────────────────────────────────────────── */
+.mascot--sad .m-head { animation: m-droop 0.7s ease forwards; }
+@keyframes m-droop {
+  to { transform: rotate(5deg) translateY(2px); }
+}
+.mascot--sad .m-mouth { d: path("M42 60c3.6-3.2 8.4-3.2 12 0"); }
+.mascot--sad .m-brow-l { transform: rotate(11deg); transform-origin: 36px 34px; }
+.mascot--sad .m-brow-r { transform: rotate(-11deg); transform-origin: 60px 34px; }
+
+/* Soru geçiş perdesi*/
+@keyframes qz-curtain-out {
+  0%, 46% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); visibility: hidden; }
+}
+@keyframes qz-curtain-text {
+  0% { opacity: 0; transform: translateY(16px) scale(0.85); }
+  28% { opacity: 1; transform: translateY(0) scale(1); }
+  50% { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 0; transform: translateY(-12px) scale(0.94); }
+}
+.qz-curtain { animation: qz-curtain-out 0.9s cubic-bezier(0.6, 0.02, 0.3, 1) forwards; }
+.qz-curtain span { animation: qz-curtain-text 0.9s cubic-bezier(0.34, 1.4, 0.5, 1) forwards; }
+
+/*  Kazanılan puan */
+@keyframes qz-gain {
+  0% { opacity: 0; transform: translateY(2px); }
+  20% { opacity: 1; transform: translateY(-2px); }
+  70% { opacity: 1; transform: translateY(-8px); }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+.qz-gain { animation: qz-gain 1.1s ease-out forwards; }
+
+/* Rakip sayac*/
+@keyframes rv-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.rv-dot { animation: rv-blink 1.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot *,
+  .qz-curtain,
+  .qz-curtain span,
+  .qz-gain,
+  .rv-dot {
+    animation: none !important;
+  }
+}
+/*  çalışma notuu flip kartları burada!! ── */
+.flip-card {
+  perspective: 1000px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.5s;
+  transform-style: preserve-3d;
+}
+
+.flip-card.flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flip-card-back {
+  transform: rotateY(180deg);
+}

@@ -1,0 +1,189 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Card from "../ui/Card";
+import {
+  buildLeaderboard,
+  WEEKLY_PRIZES,
+  type LeaderboardPeriod,
+} from "../../models/oyun";
+import { useLanguage } from "../../contexts/LanguageContext";
+
+const PERIODS: { id: LeaderboardPeriod; label: { tr: string; en: string } }[] = [
+  { id: "gunluk", label: { tr: "Günlük", en: "Daily" } },
+  { id: "haftalik", label: { tr: "Haftalık", en: "Weekly" } },
+  { id: "tumzamanlar", label: { tr: "Tüm Zamanlar", en: "All Time" } },
+];
+
+const PODIUM_ORDER = [2, 1, 3] as const; // görsel sıra: 2. sol, 1. orta, 3. sağ
+const PODIUM_HEIGHT: Record<number, string> = { 1: "76px", 2: "56px", 3: "44px" };
+
+//: Turuncu (--color-cta) yerine madalya rengini taklit eden notr tonlar:
+//: 1. altin/sari, 2. gumus, 3. bronz - "turuncu" hissi vermeyen, temaya
+//: uygun renkler. Hem podyum cubugunda hem madalya ikonunda kullanilir.
+const MEDAL_COLOR: Record<number, string> = {
+  1: "var(--color-chart-yellow)",
+  2: "color-mix(in srgb, var(--color-muted) 55%, silver)",
+  3: "color-mix(in srgb, var(--color-chart-yellow) 55%, #7c4a1e)",
+};
+
+function MedalIcon({ place, className = "h-6 w-6" }: { place: 1 | 2 | 3; className?: string }) {
+  const color = MEDAL_COLOR[place];
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M7.5 3h9l-2.6 6.4M16.5 3h-9l2.6 6.4"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="15" r="6.2" fill={color} />
+      <path
+        d="M12 11.8l1.1 2.3 2.5.3-1.8 1.7.5 2.5-2.3-1.3-2.3 1.3.5-2.5-1.8-1.7 2.5-.3z"
+        fill="var(--color-surface)"
+      />
+    </svg>
+  );
+}
+
+type Props = {
+  /** Kullanıcının kendi skoru — sıralamada değilse "katıl" mesajı gösterilir */
+  myScore?: number | null;
+};
+
+ export function LeaderboardPanel({ myScore = null }: Props) {
+  const { language } = useLanguage();
+  const locale = language === "tr" ? "tr-TR" : "en-US";
+  const [period, setPeriod] = useState<LeaderboardPeriod>("gunluk");
+  const [entries, setEntries] = useState<ReturnType<typeof buildLeaderboard>>([]);
+
+  useEffect(() => {
+    setEntries(buildLeaderboard(period, language));
+  }, [period, language]);
+
+  const podium = entries.slice(0, 3);
+  const rest = entries.slice(3);
+  const myRank = myScore != null ? entries.findIndex((e) => myScore > e.score) + 1 : null;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex gap-1.5" role="tablist">
+          {PERIODS.map((p) => {
+            const active = period === p.id;
+            return (
+              <button
+                key={p.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setPeriod(p.id)}
+                className="flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition"
+                style={
+                  active
+                    ? { background: "var(--color-primary)", color: "var(--color-on-primary)" }
+                    : { background: "var(--color-surface-muted)", color: "var(--color-muted)" }
+                }
+              >
+                {p.label[language]}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* podyum */}
+        <div className="mt-4 flex items-end justify-center gap-2">
+          {PODIUM_ORDER.map((place) => {
+            const entry = podium[place - 1];
+            if (!entry) return null;
+            return (
+              <div key={place} className="flex flex-1 flex-col items-center">
+                <MedalIcon place={place} />
+                <span
+                  className="app-heading mt-1 max-w-full truncate text-[11px] font-semibold"
+                  title={entry.label}
+                >
+                  {entry.label}
+                </span>
+                <span className="app-muted text-[10px] tabular-nums">
+                  {entry.score.toLocaleString(locale)}
+                </span>
+                                <div
+                  className="mt-1.5 w-full rounded-t-lg"
+                  style={{ height: PODIUM_HEIGHT[place], background: MEDAL_COLOR[place] }}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 4-6. sıralar */}
+        {rest.length > 0 && (
+          <div className="mt-4 space-y-1.5">
+            {rest.map((entry) => (
+              <div
+                key={entry.rank}
+                className="flex items-center justify-between rounded-lg px-3 py-2 text-xs"
+                style={{ background: "var(--color-surface-muted)" }}
+              >
+                <span className="app-muted flex items-center gap-2">
+                  <b className="app-heading tabular-nums">{entry.rank}.</b>
+                  {entry.label}
+                </span>
+                <span className="app-heading font-semibold tabular-nums">
+                  {entry.score.toLocaleString(locale)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* kullanıcının kendi satırı */}
+        <div
+          className="mt-4 rounded-lg border px-3 py-2.5 text-center text-xs"
+          style={{
+            borderColor: "var(--color-primary)",
+            background: "var(--color-primary-soft)",
+            color: "var(--color-primary-soft-text)",
+          }}
+        >
+          {myScore != null && myRank ? (
+            <span className="font-semibold">
+              {language === "tr" ? "Sıralaman" : "Your rank"}: <b className="tabular-nums">{myRank}.</b> ·{" "}
+              <b className="tabular-nums">{myScore.toLocaleString(locale)}</b>{" "}
+              {language === "tr" ? "puan" : "points"}
+            </span>
+          ) : (
+            <span className="font-semibold">
+              {language === "tr" ? "Sıralamaya girmek için oyuna katıl!" : "Join the game to enter the ranking!"}
+            </span>
+          )}
+        </div>
+      </Card>
+
+      <Card title={language === "tr" ? "Haftanın büyük ödülleri" : "This week's big prizes"}>
+        <div className="space-y-2.5">
+          {WEEKLY_PRIZES.map((prize) => (
+            <div
+              key={prize.place}
+              className="flex items-center gap-3 rounded-lg px-3 py-2.5"
+              style={{ background: "var(--color-surface-muted)" }}
+            >
+              <MedalIcon place={prize.place} className="h-5 w-5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="app-heading truncate text-xs font-semibold">{prize.title[language]}</p>
+                <p className="app-muted text-[11px] tabular-nums">
+                  +{prize.points.toLocaleString(locale)} {language === "tr" ? "bonus puan" : "bonus points"}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="app-muted mt-3 text-center text-[11px]">
+          {language === "tr" ? "Sıralama pazar 23.59'da kapanır" : "Rankings close Sunday at 11:59 PM"}
+        </p>
+      </Card>
+    </div>
+  );
+}

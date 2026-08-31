@@ -136,21 +136,6 @@ def test_gecmis_listesi_price_history_icin_hazir_doner():
     assert ts.tzinfo is not None  # TIMESTAMPTZ icin zaman dilimi zorunlu
 
 
-def test_volatilite_gunluk_getiri_sapmasi_olarak_hesaplanir():
-    seri = _seri([100, 102, 101, 103, 105, 104, 106, 108])
-
-    veri = metrikleri_hesapla(_ESLESME, seri)
-
-    assert veri.volatilite is not None
-    assert 0 < veri.volatilite < 0.1  # gunluk oynaklik makul aralikta
-
-
-def test_cok_kisa_seride_volatilite_none_doner():
-    veri = metrikleri_hesapla(_ESLESME, _seri([100.0, 101.0]))
-
-    assert veri.volatilite is None
-
-
 # ---------------------------------------------------------------------------
 # Gram altin turetmesi
 # ---------------------------------------------------------------------------

@@ -5,12 +5,26 @@ export type User = {
   email: string;
   risk_tolerance: string | null;
   monthly_income: number | null;
+  onboarding_completed: boolean;
   role: string;
 };
 
 export type LoginRequest = {
   email: string;
   password: string;
+};
+
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+};
+
+export type RiskTier = "LOW" | "MEDIUM" | "HIGH";
+
+export type OnboardingCompleteRequest = {
+  risk_tolerance: RiskTier;
 };
 
 export type TokenResponse = {

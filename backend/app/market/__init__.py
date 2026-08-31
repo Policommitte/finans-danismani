@@ -7,7 +7,6 @@ gorevi olarak calisir, ajanlar ve endpoint'ler yalnizca sonucunu okur.
 from app.market.provider import (
     ApiMarketProvider,
     MarketDataProvider,
-    SimulatedMarketProvider,
     build_provider,
 )
 from app.market.scheduler import price_tick, run_price_scheduler
@@ -15,7 +14,6 @@ from app.market.scheduler import price_tick, run_price_scheduler
 __all__ = [
     "ApiMarketProvider",
     "MarketDataProvider",
-    "SimulatedMarketProvider",
     "build_provider",
     "price_tick",
     "run_price_scheduler",

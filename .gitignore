@@ -33,3 +33,15 @@ data/generated/
 # baglanti dizesi icerir. `git add -A backend` bunlari bir kez surukledi.
 .env.yedek*
 *.env.yedek*
+
+# Yerel yardimci/teshis scriptleri - kisisel calisma dosyalari, repoya girmez.
+# (28 Agustos'ta bir toplu git add ile yanlislikla commit'lendiler; ruff'i
+# kirdiklari CI'da fark edildi ve takipten cikarildilar.)
+backend/db-kontrol.py
+backend/gecmis-raporu.py
+backend/gun-devri-dogrula.py
+backend/live-prices-bilgi.py
+backend/sifre-duzelt.py
+backend/simule-analiz.py
+backend/simule-temizle.py
+backend/varlik-tablosu.py

@@ -59,7 +59,6 @@ def test_yalnizca_bolum2_tablolarina_yazilir():
     tum_sql = " ".join(
         [
             database._ASSETS_UPDATE,
-            database._ASSETS_UPDATE_VOLATILITE,
             database._PRICE_HISTORY_INSERT,
             database._API_USAGE_UPSERT,
         ]
@@ -172,32 +171,6 @@ def test_gecmis_yaz_kapaliyken_price_history_yazilmaz():
     assert sonuc.yazilan_gecmis == 0
 
 
-def test_volatilite_varsayilan_olarak_guncellenmez():
-    """sim_volatility simulator ayaridir; istenmedikce DOKUNULMAZ."""
-    from yahoo import PiyasaVerisi
-
-    conn = SahteConnection({"THYAO": 1})
-    veri = PiyasaVerisi("THYAO", "STOCK", "THYAO.IS", current_price=300.0, volatilite=0.02)
-
-    database.varliklari_yaz(conn, [veri], gecmis_yaz=False, volatilite_guncelle=False)
-
-    guncelleme_sql = [s for s, _ in conn._cursor.calistirilan if "UPDATE assets" in s]
-    assert guncelleme_sql
-    assert "sim_volatility" not in guncelleme_sql[0]
-
-
-def test_volatilite_acikca_istenirse_guncellenir():
-    from yahoo import PiyasaVerisi
-
-    conn = SahteConnection({"THYAO": 1})
-    veri = PiyasaVerisi("THYAO", "STOCK", "THYAO.IS", current_price=300.0, volatilite=0.02)
-
-    database.varliklari_yaz(conn, [veri], gecmis_yaz=False, volatilite_guncelle=True)
-
-    guncelleme_sql = [s for s, _ in conn._cursor.calistirilan if "UPDATE assets" in s]
-    assert "sim_volatility" in guncelleme_sql[0]
-
-
 def test_eksik_semali_veritabaninda_yazma_yine_calisir():
     """Supabase senaryosu: 3 kolon eksik ama fiyat yazimi TAMAMLANMALI."""
     from yahoo import PiyasaVerisi
@@ -210,7 +183,7 @@ def test_eksik_semali_veritabaninda_yazma_yine_calisir():
     sonuc = database.varliklari_yaz(conn, [veri], gecmis_yaz=False)
 
     assert sonuc.guncellenen_varlik == 1
-    assert sonuc.atlanan_kolonlar == ["prev_close", "price_updated_at", "sim_volatility"]
+    assert sonuc.atlanan_kolonlar == ["prev_close", "price_updated_at"]
 
 
 def test_sifir_cagride_kullanim_kaydi_yazilmaz():
@@ -233,7 +206,6 @@ _TAM_SEMA = {
     "weekly_change_pct",
     "yearly_change_pct",
     "price_updated_at",
-    "sim_volatility",
 }
 
 #: Supabase'deki gercek sema - 3 kolon eksik.
@@ -272,18 +244,6 @@ def test_eksik_semada_sorgu_gecerli_sql_kalir():
     assert ",\nWHERE" not in sorgu
     assert sorgu.strip().endswith("WHERE symbol = %(symbol)s")
     psycopg.sql.SQL(sorgu)  # noqa: B018 - sozdizimi bozuksa patlar
-
-
-def test_volatilite_kolonu_yoksa_istense_bile_yazilmaz():
-    sorgu = database.assets_update_sorgusu(_EKSIK_SEMA, volatilite_guncelle=True)
-
-    assert "sim_volatility" not in sorgu
-
-
-def test_volatilite_kolonu_varsa_ve_istenirse_yazilir():
-    sorgu = database.assets_update_sorgusu(_TAM_SEMA, volatilite_guncelle=True)
-
-    assert "sim_volatility" in sorgu
 
 
 def test_market_api_usage_tablosu_yoksa_atlanir(monkeypatch):

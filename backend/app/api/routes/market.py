@@ -1,15 +1,22 @@
 """Piyasa uclari - varlik listesi, fiyat grafigi, RAG destekli arama."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Query
 
 from app.auth.deps import CurrentUser
 from app.schemas.market import (
     AssetsResponse,
+    CandlesResponse,
     HistoryResponse,
     MarketSearchRequest,
     MarketSearchResponse,
+    NewsListResponse,
+    OhlcResponse,
+    PhotoResponse,
 )
 from app.services import market as service
+from app.services import news as news_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -44,6 +51,46 @@ async def history(
     return await service.gecmis_getir(symbol, days=days)
 
 
+@router.get("/ohlc", response_model=OhlcResponse)
+async def ohlc(
+    user: CurrentUser,
+    symbol: str = Query(description="Varlik kodu (orn. GARAN)"),
+    days: int = Query(default=30, ge=1, le=MAX_HISTORY_GUN),
+) -> OhlcResponse:
+    """Mum grafik icin GERCEK gunluk OHLC serisi - Yahoo'dan canli cekilir.
+
+    Sadece dogrudan bir Yahoo ticker'i olan semboller desteklenir; digerleri
+    icin bos `candles` doner (404 DEGIL - frontend cizgi grafige duser).
+    """
+    return await service.ohlc_getir(symbol, days=days)
+
+
+@router.get("/candles", response_model=CandlesResponse)
+async def candles(
+    user: CurrentUser,
+    symbol: str = Query(description="Varlik kodu (orn. THYAO)"),
+    interval: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "15m",
+    range_key: Literal["1d", "5d", "1m", "3m", "1y"] = Query("1m", alias="range"),
+) -> CandlesResponse:
+    """Trading grafigi icin zaman kovalarina ayrilmis OHLC mumlari."""
+    return await service.mumlar_getir(symbol, interval=interval, range_key=range_key)
+
+
+@router.get("/photo", response_model=PhotoResponse)
+async def photo(
+    user: CurrentUser,
+    query: str = Query(min_length=2, description="Pexels arama terimi (orn. sirket/varlik adi)"),
+) -> PhotoResponse:
+    """Genel amacli fotograf aramasi (bkz. app/services/pexels.py).
+
+    Tek bir habere bagli olmayan gorsel ihtiyaclari icin (portfoy varligi
+    kapak gorseli, Yatirim Oyunu magaza karti gorseli gibi). `url` null
+    donebilir - frontend bu durumda kendi yerel ikon/gradyan geri dususune
+    duser, 404 FIRLATILMAZ.
+    """
+    return await service.fotograf_getir(query)
+
+
 @router.post("/search", response_model=MarketSearchResponse)
 async def search(user: CurrentUser, payload: MarketSearchRequest) -> MarketSearchResponse:
     """Haber/bilanco/rapor aramasi.
@@ -54,3 +101,19 @@ async def search(user: CurrentUser, payload: MarketSearchRequest) -> MarketSearc
     return await service.arama_yap(
         query=payload.query, top_k=payload.top_k, sirket=payload.sirket, tip=payload.tip
     )
+
+
+@router.get("/news", response_model=NewsListResponse)
+async def news(
+    user: CurrentUser,
+    limit: int = Query(default=20, ge=1, le=100),
+    kategori: str | None = Query(
+        default=None, description="doviz | ekonomi | hisse | altin | piyasa"
+    ),
+) -> NewsListResponse:
+    """Bulten sayfasi icin en yeni haberler (duz liste, arama degil).
+
+    Her haberin `image_url`'i doludur: gercek gorsel yoksa kategoriye/basliga
+    gore otomatik atanir (bkz. app/services/news.py -> get_fallback_image).
+    """
+    return await news_service.haberler_getir(limit=limit, kategori=kategori)

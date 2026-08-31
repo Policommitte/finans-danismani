@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useChatStream } from "../../hooks/useChatStream";
-import type { Asset, HistoryResponse } from "../../models/market";
-import { getMarketAssets, getMarketHistory } from "../../services/marketService";
+import type { Asset, HistoryResponse, OhlcResponse } from "../../models/market";
+import { getMarketAssets, getMarketHistory, getMarketOhlc } from "../../services/marketService";
+import { CandlestickChart } from "./CandlestickChart";
 
 const RANGE_TABS: { label: string; days: number }[] = [
   { label: "1G", days: 1 },
@@ -15,17 +16,107 @@ const RANGE_TABS: { label: string; days: number }[] = [
   { label: "1Y", days: 365 },
 ];
 
+const ASSET_CLASS_LABELS: Record<string, string> = {
+  STOCK: "Hisse",
+  USA_STOCK: "ABD hissesi",
+  EU_STOCK: "Avrupa hissesi",
+  CRYPTO: "Kripto",
+  FOREX: "Döviz",
+  GOLD: "Altın",
+  BOND: "Tahvil",
+  FUND: "Fon",
+};
+
 const priceFormat = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose: () => void }) {
+function assetClassLabel(assetClass: string): string {
+  return ASSET_CLASS_LABELS[assetClass.toUpperCase()] ?? assetClass;
+}
+
+function GuestAccessPrompt({ symbol, onClose }: { symbol: string; onClose: () => void }) {
+  const features = [
+    "Çizgi ve mum grafikleri",
+    "Polifin AI analizi",
+    "İşlem ve alarm araçları",
+  ];
+
+  return (
+    <>
+      <div className="rounded-2xl border app-border bg-[var(--color-surface-muted)] px-5 py-6 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-xl text-[var(--color-primary)]">
+          <span aria-hidden="true">🔒</span>
+        </div>
+        <div className="mt-4 text-xs font-bold uppercase tracking-[0.14em] text-[var(--color-primary)]">
+          Üyelere özel
+        </div>
+        <h2 className="mt-2 text-xl font-bold app-heading">
+          {symbol} grafikleri ve AI analizi için giriş yapın
+        </h2>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-6 app-muted">
+          Ayrıntılı fiyat geçmişini, çizgi ve mum grafiklerini, Polifin AI yorumunu,
+          işlem araçlarını ve alarm seçeneklerini kullanmak için hesabınıza giriş yapın.
+        </p>
+
+        <div className="mt-5 grid gap-2 text-left sm:grid-cols-3">
+          {features.map((feature) => (
+            <div
+              key={feature}
+              className="rounded-xl border app-border app-surface px-3 py-3 text-xs font-semibold app-heading"
+            >
+              <span className="mr-2 text-[var(--color-primary)]" aria-hidden="true">
+                ✓
+              </span>
+              {feature}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 flex gap-3">
+        <Link
+          href="/login?next=/market"
+          onClick={onClose}
+          className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
+        >
+          Giriş Yap
+        </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex-1 rounded-xl border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
+        >
+          Şimdilik Kapat
+        </button>
+      </div>
+    </>
+  );
+}
+
+export function AssetSummaryModal({
+  symbol,
+  isAuthenticated,
+  onClose,
+}: {
+  symbol: string;
+  isAuthenticated: boolean;
+  onClose: () => void;
+}) {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [chartMode, setChartMode] = useState<"line" | "candle">("line");
+  const [ohlc, setOhlc] = useState<OhlcResponse | null>(null);
+  const [ohlcLoading, setOhlcLoading] = useState(false);
   const chat = useChatStream();
   const askedRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setAsset(null);
+      return;
+    }
+
     let active = true;
     getMarketAssets()
       .then((response) => {
@@ -39,9 +130,15 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
     return () => {
       active = false;
     };
-  }, [symbol]);
+  }, [symbol, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setHistory(null);
+      setLoading(false);
+      return;
+    }
+
     let active = true;
     setLoading(true);
     getMarketHistory(symbol, rangeDays)
@@ -57,16 +154,43 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
     return () => {
       active = false;
     };
-  }, [symbol, rangeDays]);
+  }, [symbol, rangeDays, isAuthenticated]);
 
   useEffect(() => {
+    // Mum verisi sadece "Mum" secildiginde cekilir - Yahoo'ya gereksiz
+    // istek atmamak icin (bkz. app/market/yahoo.py OHLC onbellegi).
+    if (!isAuthenticated || chartMode !== "candle") {
+      return;
+    }
+    let active = true;
+    setOhlcLoading(true);
+    getMarketOhlc(symbol, rangeDays)
+      .then((response) => {
+        if (active) setOhlc(response);
+      })
+      .catch(() => {
+        if (active) setOhlc(null);
+      })
+      .finally(() => {
+        if (active) setOhlcLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [symbol, rangeDays, chartMode, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
     if (askedRef.current === symbol) {
       return;
     }
     askedRef.current = symbol;
     chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol]);
+  }, [symbol, isAuthenticated]);
 
   const historyTrendPositive =
     history && history.points.length >= 2
@@ -76,53 +200,127 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
   const lineColor =
     changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-success)" : "var(--color-danger)";
   const changeClass = changeIsPositive ? "app-success" : "app-danger";
+  //: AI Analizi kutusu: yukselis/dususe gore --color-brand-teal / --color-danger
+  //: (marka yesili / kirmizi, ikisi de tema-duyarli); yon belirsizse notr mavi.
+  const aiBoxAccent =
+    changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-brand-teal)" : "var(--color-danger)";
   const lastAssistantMessage = [...chat.messages].reverse().find((m) => m.role === "assistant");
+
+  const sparklinePoints = (history?.points ?? []).slice(-20);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border app-card shadow-2xl"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border app-card shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b app-border px-5 py-4">
-          <div>
-            <div className="text-lg font-bold app-heading">{symbol}</div>
-            <div className="text-sm app-muted">{asset?.name ?? "Varlık Özeti"}</div>
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+              style={{ background: `color-mix(in srgb, ${lineColor} 18%, var(--color-surface))`, color: lineColor }}
+            >
+              {symbol.slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <div className="text-lg font-bold app-heading">{asset?.name ?? symbol}</div>
+              <div className="text-xs app-muted">
+                {isAuthenticated ? (
+                  <>
+                    {symbol}
+                    {asset ? ` • ${assetClassLabel(asset.asset_class)}` : ""}
+                  </>
+                ) : (
+                  "Detaylı piyasa görünümü"
+                )}
+              </div>
+            </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Kapat"
+            className="rounded px-2 py-1 text-xl leading-none app-muted hover:opacity-80"
+          >
             ×
           </button>
         </div>
 
         <div className="px-5 py-4">
-          <div className="flex items-end gap-3">
-            <div className="text-3xl font-bold app-heading">
-              {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
+          {!isAuthenticated ? (
+            <GuestAccessPrompt symbol={symbol} onClose={onClose} />
+          ) : (
+            <>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-end gap-3">
+              <div className="text-3xl font-bold app-heading">
+                {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
+              </div>
+              {asset?.daily_change_pct != null && (
+                <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
+                  {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
+                </span>
+              )}
             </div>
-            {asset?.daily_change_pct != null && (
-              <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
-                {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
-              </span>
+            {sparklinePoints.length >= 2 && (
+              <div className="h-12 w-24 shrink-0">
+                <ResponsiveContainer>
+                  <LineChart data={sparklinePoints}>
+                    <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </div>
 
-          <div className="mt-4 inline-flex gap-1 rounded-lg border app-border bg-[var(--color-surface-muted)] p-1">
-            {RANGE_TABS.map((tab) => (
-              <button
-                key={tab.label}
-                type="button"
-                onClick={() => setRangeDays(tab.days)}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                  rangeDays === tab.days ? "app-primary" : "app-muted hover:opacity-80"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex gap-1 rounded-full border app-border bg-[var(--color-surface-muted)] p-1">
+              {RANGE_TABS.map((tab) => (
+                <button
+                  key={tab.label}
+                  type="button"
+                  onClick={() => setRangeDays(tab.days)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    rangeDays === tab.days ? "app-primary" : "app-muted hover:opacity-80"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex gap-1 rounded-full border app-border bg-[var(--color-surface-muted)] p-1">
+              {(
+                [
+                  { mode: "line" as const, label: "Çizgi" },
+                  { mode: "candle" as const, label: "Mum" },
+                ]
+              ).map((option) => (
+                <button
+                  key={option.mode}
+                  type="button"
+                  onClick={() => setChartMode(option.mode)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    chartMode === option.mode ? "app-primary" : "app-muted hover:opacity-80"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="mt-4 h-56">
-            {loading ? (
+            {chartMode === "candle" ? (
+              ohlcLoading ? (
+                <div className="flex h-full items-center justify-center text-sm app-muted">Mum grafiği yükleniyor…</div>
+              ) : ohlc && ohlc.candles.length > 0 ? (
+                <CandlestickChart candles={ohlc.candles} />
+              ) : (
+                <div className="flex h-full items-center justify-center px-4 text-center text-sm app-muted">
+                  Bu varlık için mum grafiği verisi yok - çizgi grafiğe geçebilirsiniz.
+                </div>
+              )
+            ) : loading ? (
               <div className="flex h-full items-center justify-center text-sm app-muted">Grafik yükleniyor…</div>
             ) : history && history.points.length > 0 ? (
               <ResponsiveContainer>
@@ -137,7 +335,7 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
                       color: "var(--color-text)",
                     }}
                   />
-                  <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -145,12 +343,19 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
             )}
           </div>
 
-          <div className="mt-5 rounded-lg app-primary-soft p-3.5 text-sm">
-            <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+          <div
+            className="mt-5 rounded-xl border p-3.5 text-sm"
+            style={{
+              background: `color-mix(in srgb, ${aiBoxAccent} 12%, var(--color-surface))`,
+              borderColor: `color-mix(in srgb, ${aiBoxAccent} 40%, transparent)`,
+              boxShadow: `0 0 0 1px color-mix(in srgb, ${aiBoxAccent} 15%, transparent), 0 6px 18px -6px color-mix(in srgb, ${aiBoxAccent} 40%, transparent)`,
+            }}
+          >
+            <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide" style={{ color: aiBoxAccent }}>
               <span>Polifin AI Analizi</span>
               {chat.isStreaming && <span className="app-muted normal-case">{chat.status ?? "…"}</span>}
             </div>
-            <p className="whitespace-pre-wrap leading-relaxed">
+            <p className="whitespace-pre-wrap leading-relaxed app-heading">
               {chat.error ? chat.error : lastAssistantMessage?.content || "Analiz hazırlanıyor…"}
             </p>
           </div>
@@ -159,18 +364,20 @@ export function AssetSummaryModal({ symbol, onClose }: { symbol: string; onClose
             <Link
               href="/market"
               onClick={onClose}
-              className="flex-1 rounded-lg app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
+              className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
             >
               İşlem Ekranına Git
             </Link>
             <button
               type="button"
-              className="flex-1 rounded-lg border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
+              className="flex-1 rounded-xl border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
               onClick={() => window.alert("Alarm kurma özelliği yakında eklenecek.")}
             >
               Alarm Kur
             </button>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

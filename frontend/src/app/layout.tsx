@@ -3,6 +3,7 @@ import Script from "next/script";
 import "../index.css";
 import "blobatar/motion.css";
 import { AppShell } from "../components/layout/AppShell";
+import { PageTransition } from "../components/layout/PageTransition";
 import { AuthProvider } from "../hooks/useAuth";
 
 export const metadata: Metadata = {
@@ -45,7 +46,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       */}
       <body suppressHydrationWarning>
         <AuthProvider>
-          <AppShell>{children}</AppShell>
+          <PageTransition>
+            <AppShell>{children}</AppShell>
+          </PageTransition>
         </AuthProvider>
       </body>
     </html>

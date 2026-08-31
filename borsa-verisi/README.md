@@ -58,7 +58,6 @@ olmaz (rollback).
 | `--kategori STOCK GOLD` | Yalnızca seçilen grupları çeker |
 | `--period 5y` | Yahoo geçmiş aralığı (varsayılan `2y`) |
 | `--gecmis-yok` | `price_history`'ye yazmaz, sadece `assets` |
-| `--volatilite-guncelle` | `sim_volatility`'yi gerçek oynaklıkla günceller |
 | `--dsn ...` | PostgreSQL adresi |
 
 ---
@@ -128,10 +127,6 @@ korunur — iki değer de aynı seriden türer.
 > ⚠️ **`--period 1y` tuzağı.** Yıllık değişim 365 gün öncesine bakar; `1y`
 > verilirse seri tam o tarihte başladığı için referans bulunamaz ve yıllık
 > değişim boş kalır. Varsayılan bu yüzden `2y`'dir.
-
-`sim_volatility` **varsayılan olarak güncellenmez**: bu alan simülatörün adım
-büyüklüğüdür, gerçek veriyle değiştirmek demo davranışını değiştirir.
-`--volatilite-guncelle` ile açıkça istenebilir.
 
 ---
 

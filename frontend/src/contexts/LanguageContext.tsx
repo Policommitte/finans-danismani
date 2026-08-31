@@ -38,13 +38,19 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const value = useMemo<LanguageContextValue>(
     () => ({
       language,
+      //: `setLanguage`'a verilen updater fonksiyonu SAF olmali (React
+      //: StrictMode gelistirmede arilik kontrolu icin updater'lari IKI KEZ
+      //: cagirir). Yan etkileri (localStorage yazma, event dispatch) eskiden
+      //: updater'in ICINDE calistiriyorduk - StrictMode ikinci cagrida bunlari
+      //: TEKRAR tetikliyor, dispatch edilen event bu Provider'in kendi
+      //: dinleyicisine (asagida) geri donup ikinci bir setLanguage cagrisi
+      //: yapiyor ve dil goruli tr->en->tr diye salinip GORUNURDE HIC
+      //: DEGISMIYORDU. Yan etkiler artik updater DISINDA, sadece bir kez.
       toggleLanguage: () => {
-        setLanguage((current) => {
-          const nextLanguage = current === "tr" ? "en" : "tr";
-          window.localStorage.setItem("landing-language", nextLanguage);
-          window.dispatchEvent(new CustomEvent("polifin-language-change", { detail: nextLanguage }));
-          return nextLanguage;
-        });
+        const nextLanguage = language === "tr" ? "en" : "tr";
+        window.localStorage.setItem("landing-language", nextLanguage);
+        window.dispatchEvent(new CustomEvent("polifin-language-change", { detail: nextLanguage }));
+        setLanguage(nextLanguage);
       },
     }),
     [language],

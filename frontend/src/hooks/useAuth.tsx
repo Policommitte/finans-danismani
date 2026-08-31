@@ -3,7 +3,11 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import type { User } from "../models/auth";
 import { getAccessToken } from "../services/apiClient";
-import { getMe, login as loginRequest, logout as logoutRequest } from "../services/authService";
+import {
+  getMe,
+  login as loginRequest,
+  logout as logoutRequest,
+} from "../services/authService";
 
 type AuthContextValue = {
   user: User | null;

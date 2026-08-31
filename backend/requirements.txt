@@ -42,7 +42,7 @@ psycopg[binary]==3.2.3
 
 # Canli piyasa verisi (app/market/yahoo.py). Resmi bir API DEGILDIR: Yahoo'nun
 # genel uclarini kullanir, sembol adlari ve veri surekliligi garanti degildir.
-# Ulasilamadiginda saglayici simulatore duser, sistem calismaya devam eder.
+# Ulasilamadiginda son dogrulanmis fiyat korunur; sentetik fiyat uretilmez.
 # borsa-verisi/requirements.txt ile AYNI surum tutulur.
 yfinance==1.3.0
 

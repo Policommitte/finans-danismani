@@ -17,13 +17,16 @@ istegi disindan da cagrilir, dolayisiyla oturum bir request'e baglanamaz.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
+from app.core.errors import BusinessRuleError, NotFoundError
 from app.ingestion.embeddings import Embedder
 
 logger = logging.getLogger(__name__)
@@ -55,7 +58,7 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, role
+                   risk_tolerance, monthly_income, onboarding_completed, role
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -64,11 +67,53 @@ class SqlUserRepository(_SqlRepository):
     async def get_by_id(self, user_id: int) -> dict | None:
         return await self._row(
             """
-            SELECT id, first_name, last_name, email, risk_tolerance, monthly_income, role
+            SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
+                   onboarding_completed, role
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
         )
+
+    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO users
+                        (first_name, last_name, email, password_hash, onboarding_completed)
+                    VALUES (:first_name, :last_name, :email, :password_hash, false)
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed
+                    """
+                ),
+                {
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": email,
+                    "password_hash": password_hash,
+                },
+            )
+            row = result.mappings().one()
+            await session.commit()
+            return dict(row)
+
+    async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET risk_tolerance = :risk_tolerance, onboarding_completed = true
+                    WHERE id = :user_id
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed
+                    """
+                ),
+                {"user_id": user_id, "risk_tolerance": risk_tolerance},
+            )
+            row = result.mappings().first()
+            await session.commit()
+            return dict(row) if row else None
 
 
 class SqlPortfolioRepository(_SqlRepository):
@@ -239,7 +284,9 @@ class SqlPortfolioRepository(_SqlRepository):
                        p.quantity
                        * COALESCE(h.price, p.current_price)
                        * p.try_rate
-                   ) AS total_value_try
+                   ) AS total_value_try,
+                   BOOL_AND(h.price IS NOT NULL) AS is_complete,
+                   MAX(b.price) AS bist100_price
             FROM timeline t
             CROSS JOIN positions p
             LEFT JOIN LATERAL (
@@ -250,6 +297,15 @@ class SqlPortfolioRepository(_SqlRepository):
                 ORDER BY ap.ts DESC
                 LIMIT 1
             ) h ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ap.price
+                FROM all_prices ap
+                JOIN assets benchmark ON benchmark.id = ap.asset_id
+                WHERE upper(benchmark.symbol) = 'BIST100'
+                  AND ap.ts <= t.ts
+                ORDER BY ap.ts DESC
+                LIMIT 1
+            ) b ON TRUE
             GROUP BY t.ts
             ORDER BY t.ts
             """,
@@ -293,12 +349,30 @@ class SqlMarketRepository(_SqlRepository):
     async def get_history(self, symbol: str, days: int = 30) -> list[dict]:
         return await self._rows(
             """
-            SELECT ph.ts, ph.price
-            FROM price_history ph
-            JOIN assets a ON a.id = ph.asset_id
-            WHERE upper(a.symbol) = upper(:symbol)
-              AND ph.ts >= now() - make_interval(days => :days)
-            ORDER BY ph.ts
+            WITH raw_points AS (
+                SELECT ph.ts, ph.price, 1 AS priority
+                FROM price_history ph
+                JOIN assets a ON a.id = ph.asset_id
+                WHERE upper(a.symbol) = upper(:symbol)
+                  AND ph.ts >= now() - make_interval(days => :days)
+                UNION ALL
+                SELECT lp.created_at AS ts, lp.price, 2 AS priority
+                FROM live_prices lp
+                JOIN assets a ON a.id = lp.asset_id
+                WHERE upper(a.symbol) = upper(:symbol)
+                  AND lp.created_at >= now() - make_interval(days => :days)
+                UNION ALL
+                SELECT COALESCE(a.price_updated_at, now()) AS ts,
+                       a.current_price AS price, 3 AS priority
+                FROM assets a
+                WHERE upper(a.symbol) = upper(:symbol)
+                  AND COALESCE(a.price_updated_at, now()) >= now() - make_interval(days => :days)
+            ), deduplicated AS (
+                SELECT DISTINCT ON (ts) ts, price
+                FROM raw_points
+                ORDER BY ts, priority DESC
+            )
+            SELECT ts, price FROM deduplicated ORDER BY ts
             """,
             {"symbol": symbol, "days": days},
         )
@@ -323,21 +397,82 @@ class SqlMarketRepository(_SqlRepository):
             {"symbol": symbol, "start": start, "end": end},
         )
 
-    async def get_prices_for_simulation(self) -> list[dict]:
+    async def get_candles(self, symbol: str, interval: str = "5m", days: int = 5) -> list[dict]:
         return await self._rows(
             """
-            SELECT id AS asset_id, symbol, current_price, sim_volatility
+            SELECT mc.ts, mc.open, mc.high, mc.low, mc.close, mc.volume
+            FROM market_candles mc
+            JOIN assets a ON a.id = mc.asset_id
+            WHERE upper(a.symbol) = upper(:symbol)
+              AND mc.interval = :interval
+              AND mc.ts >= now() - make_interval(days => :days)
+            ORDER BY mc.ts
+            """,
+            {"symbol": symbol, "interval": interval, "days": days},
+        )
+
+    async def upsert_candles(self, candles: list[dict], source: str = "yahoo") -> int:
+        if not candles:
+            return 0
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO market_candles (
+                        asset_id, interval, ts, open, high, low, close, volume, source
+                    )
+                    SELECT a.id, x.interval, x.ts, x.open, x.high, x.low,
+                           x.close, x.volume, :source
+                    FROM jsonb_to_recordset(CAST(:payload AS JSONB)) AS x(
+                        symbol TEXT, interval TEXT, ts TIMESTAMPTZ,
+                        open NUMERIC, high NUMERIC, low NUMERIC,
+                        close NUMERIC, volume NUMERIC
+                    )
+                    JOIN assets a ON upper(a.symbol) = upper(x.symbol)
+                    WHERE x.open > 0 AND x.high > 0 AND x.low > 0 AND x.close > 0
+                    ON CONFLICT (asset_id, interval, ts) DO UPDATE SET
+                        open = EXCLUDED.open,
+                        high = EXCLUDED.high,
+                        low = EXCLUDED.low,
+                        close = EXCLUDED.close,
+                        volume = EXCLUDED.volume,
+                        source = EXCLUDED.source,
+                        updated_at = now()
+                    """
+                ),
+                {"payload": _json(candles), "source": source},
+            )
+            await session.commit()
+            return result.rowcount or 0
+
+    async def prune_candles(self, interval: str, keep_days: int) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    DELETE FROM market_candles
+                    WHERE interval = :interval
+                      AND ts < now() - make_interval(days => :keep_days)
+                    """
+                ),
+                {"interval": interval, "keep_days": keep_days},
+            )
+            await session.commit()
+            return result.rowcount or 0
+
+    async def get_assets_for_price_update(self) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id AS asset_id, symbol, current_price
             FROM assets ORDER BY id
             """
         )
 
-    async def apply_price_updates(
-        self, updates: list[dict], write_live: bool, source: str = "simulated"
-    ) -> int:
+    async def apply_price_updates(self, updates: list[dict], write_live: bool, source: str) -> int:
         """Fiyatlari gunceller; istenirse `live_prices`'a gun ici satir yazar.
 
-        GECMIS TABLOSUNA (`price_history`) BURADAN YAZILMAZ. 15 dakikalik
-        tick'ler dogrudan oraya aksaydi tablo gunde ~1.536 satirla siserdi;
+        GECMIS TABLOSUNA (`price_history`) BURADAN YAZILMAZ. 5 dakikalik
+        tick'ler dogrudan oraya aksaydi tablo gunde ~4.608 satirla siserdi;
         grafikler icin gereken cozunurluk ise gunluk kapanistir. Bu yuzden
         tick'ler `live_prices`'a birikir ve gun bitiminde yalnizca gunun son
         fiyati `price_history`'ye tasinir (bkz. `close_out_day`).
@@ -351,13 +486,13 @@ class SqlMarketRepository(_SqlRepository):
         halde seed degerinde donar ve dashboard hep ayni yuzdeyi gosterir
         (mimari v4 bolum 8.2).
 
-        `source` cagiran tarafindan verilir ve GERCEKTEN kullanilan kaynagi
-        belirtir: saglayici Yahoo'ya ulasamayip simulatore dustuyse "api"
-        DEGIL "simulated" yazilir (bkz. `ApiMarketProvider.son_kaynak`).
-        Etiket `live_prices` uzerinden gun sonunda `price_history`'ye tasinir.
+        `source` cagiran tarafindan verilir ve gercek kaynagi belirtir. Etiket
+        `live_prices` uzerinden gun sonunda `price_history`'ye tasinir.
         """
         if not updates:
             return 0
+        if source != "api":
+            raise ValueError("yalnizca dogrulanmis 'api' fiyatlari yazilabilir")
 
         async with self._session_factory() as session:
             await session.execute(
@@ -601,6 +736,1318 @@ class SqlMarketRepository(_SqlRepository):
             await session.commit()
 
 
+class SqlTradingRepository(_SqlRepository):
+    """Paper emirleri ve sanal nakit bakiyesini atomik olarak yonetir."""
+
+    async def get_account(self, user_id: int) -> dict | None:
+        return await self._row(
+            """
+            SELECT ca.portfolio_id, p.name AS portfolio_name, ca.currency,
+                   ca.available_balance, ca.reserved_balance
+            FROM portfolios p
+            JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+            WHERE p.user_id = :user_id
+            ORDER BY p.is_default DESC, p.id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+
+    async def get_order_context(self, user_id: int, symbol: str) -> dict | None:
+        return await self._row(
+            """
+            SELECT p.id AS portfolio_id, a.id AS asset_id, a.symbol,
+                   a.name AS asset_name, ac.code AS asset_class, a.currency,
+                   a.current_price AS native_price, fx.try_rate AS fx_rate,
+                   a.current_price * fx.try_rate AS current_price,
+                   a.price_updated_at,
+                   ca.available_balance, ca.reserved_balance,
+                   COALESCE(pa.quantity, 0) AS holding_quantity,
+                   COALESCE((
+                       SELECT SUM(o.quantity - o.filled_quantity)
+                       FROM orders o
+                       WHERE o.portfolio_id = p.id AND o.asset_id = a.id
+                         AND o.side = 'SELL' AND o.status = 'PENDING'
+                         AND o.order_type <> 'STOP_MARKET'
+                   ), 0) AS pending_sell_quantity
+            FROM portfolios p
+            JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+            JOIN assets a ON upper(a.symbol) = upper(:symbol)
+            JOIN asset_categories ac ON ac.id = a.category_id
+            JOIN v_fx_rates fx ON fx.currency = a.currency
+            LEFT JOIN portfolio_assets pa
+              ON pa.portfolio_id = p.id AND pa.asset_id = a.id
+            WHERE p.user_id = :user_id
+            ORDER BY p.is_default DESC, p.id
+            LIMIT 1
+            """,
+            {"user_id": user_id, "symbol": symbol},
+        )
+
+    async def create_market_order(
+        self,
+        user_id: int,
+        symbol: str,
+        side: str,
+        quantity: float,
+        idempotency_key: str,
+        commission_rate: float,
+        order_type: str = "MARKET",
+        limit_price: float | None = None,
+        validity: str = "GTC",
+        expires_at: object | None = None,
+        stop_loss_price: float | None = None,
+    ) -> dict:
+        qty = Decimal(str(quantity))
+        if qty <= 0:
+            raise BusinessRuleError("Emir adedi sifirdan buyuk olmalidir.")
+
+        async with self._session_factory() as session:
+            async with session.begin():
+                existing = await session.execute(
+                    text(
+                        """
+                        SELECT o.*, a.symbol, a.name AS asset_name
+                        FROM orders o JOIN assets a ON a.id = o.asset_id
+                        WHERE o.user_id = :user_id AND o.idempotency_key = :key
+                        """
+                    ),
+                    {"user_id": user_id, "key": idempotency_key},
+                )
+                old = existing.mappings().first()
+                if old:
+                    return dict(old)
+
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT p.id AS portfolio_id, a.id AS asset_id, a.symbol,
+                               a.name AS asset_name, ac.code AS asset_class, a.currency,
+                               a.current_price AS native_price, fx.try_rate AS fx_rate,
+                               a.current_price * fx.try_rate AS current_price,
+                               ca.available_balance,
+                               COALESCE(pa.quantity, 0) AS holding_quantity
+                        FROM portfolios p
+                        JOIN cash_accounts ca
+                          ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+                        JOIN assets a ON upper(a.symbol) = upper(:symbol)
+                        JOIN asset_categories ac ON ac.id = a.category_id
+                        JOIN v_fx_rates fx ON fx.currency = a.currency
+                        LEFT JOIN portfolio_assets pa
+                          ON pa.portfolio_id = p.id AND pa.asset_id = a.id
+                        WHERE p.user_id = :user_id
+                        ORDER BY p.is_default DESC, p.id
+                        LIMIT 1
+                        FOR UPDATE OF p, ca
+                        """
+                    ),
+                    {"user_id": user_id, "symbol": symbol},
+                )
+                context = result.mappings().first()
+                if not context:
+                    raise NotFoundError(f"'{symbol.upper()}' hissesi veya paper hesabi bulunamadi.")
+                if context["asset_class"] == "INDEX":
+                    raise BusinessRuleError("Endeksler dogrudan alinip satilamaz.")
+                if side not in {"BUY", "SELL"}:
+                    raise BusinessRuleError("Islem yonu BUY veya SELL olmalidir.")
+                if order_type not in {"MARKET", "LIMIT"}:
+                    raise BusinessRuleError("Emir tipi MARKET veya LIMIT olmalidir.")
+                if order_type == "LIMIT" and (limit_price is None or limit_price <= 0):
+                    raise BusinessRuleError("Limit fiyati sifirdan buyuk olmalidir.")
+                if validity not in {"DAY", "GTC"}:
+                    raise BusinessRuleError("Gecerlilik DAY veya GTC olmalidir.")
+                if stop_loss_price is not None:
+                    reference = (
+                        Decimal(str(limit_price)) / Decimal(str(context["fx_rate"]))
+                        if order_type == "LIMIT"
+                        else Decimal(str(context["native_price"]))
+                    )
+                    if (
+                        side != "BUY"
+                        or Decimal(str(stop_loss_price)) <= 0
+                        or Decimal(str(stop_loss_price)) >= reference
+                    ):
+                        raise BusinessRuleError(
+                            "Stop-loss fiyati alim referans fiyatindan dusuk olmalidir."
+                        )
+
+                price = Decimal(str(context["current_price"]))
+                reserve_price = Decimal(str(limit_price)) if order_type == "LIMIT" else price
+                commission = _money(reserve_price * qty * Decimal(str(commission_rate)))
+                # Piyasa emrinde sonraki tick icin %2 tampon; limit emrinde
+                # kullanicinin belirledigi azami fiyat + komisyon bloke edilir.
+                reserve = _money(
+                    reserve_price
+                    * qty
+                    * (Decimal("1") if order_type == "LIMIT" else Decimal("1.02"))
+                    + commission
+                )
+
+                if side == "BUY":
+                    if Decimal(str(context["available_balance"])) < reserve:
+                        raise BusinessRuleError(
+                            "Fiyat tamponu dahil bu alim emri icin sanal bakiye yetersiz."
+                        )
+                    await session.execute(
+                        text(
+                            """
+                            UPDATE cash_accounts
+                            SET available_balance = available_balance - :reserve,
+                                reserved_balance = reserved_balance + :reserve,
+                                updated_at = now()
+                            WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                            """
+                        ),
+                        {"reserve": reserve, "portfolio_id": context["portfolio_id"]},
+                    )
+                else:
+                    pending = await session.scalar(
+                        text(
+                            """
+                            SELECT COALESCE(SUM(quantity - filled_quantity), 0)
+                            FROM orders
+                            WHERE portfolio_id = :portfolio_id AND asset_id = :asset_id
+                              AND side = 'SELL' AND status = 'PENDING'
+                              AND order_type <> 'STOP_MARKET'
+                            """
+                        ),
+                        {
+                            "portfolio_id": context["portfolio_id"],
+                            "asset_id": context["asset_id"],
+                        },
+                    )
+                    if Decimal(str(context["holding_quantity"])) - Decimal(str(pending)) < qty:
+                        raise BusinessRuleError(
+                            "Bekleyen emirler dusuldugunde satilabilir hisse adedi yetersiz."
+                        )
+                    reserve = Decimal("0")
+
+                inserted = await session.execute(
+                    text(
+                        """
+                        INSERT INTO orders (
+                            user_id, portfolio_id, asset_id, side, order_type,
+                            quantity, quoted_price, limit_price, stop_loss_price,
+                            stop_loss_currency,
+                            validity, expires_at,
+                            status, reserved_amount, idempotency_key
+                        ) VALUES (
+                            :user_id, :portfolio_id, :asset_id, :side, :order_type,
+                            :quantity, :quoted_price, :limit_price, :stop_loss_price,
+                            :stop_loss_currency,
+                            :validity, :expires_at,
+                            'PENDING', :reserved_amount, :idempotency_key
+                        )
+                        RETURNING *
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "portfolio_id": context["portfolio_id"],
+                        "asset_id": context["asset_id"],
+                        "side": side,
+                        "quantity": qty,
+                        "quoted_price": price,
+                        "order_type": order_type,
+                        "limit_price": limit_price,
+                        "stop_loss_price": stop_loss_price,
+                        "stop_loss_currency": (
+                            context["currency"] if stop_loss_price is not None else None
+                        ),
+                        "validity": validity,
+                        "expires_at": expires_at,
+                        "reserved_amount": reserve,
+                        "idempotency_key": idempotency_key,
+                    },
+                )
+                row = dict(inserted.mappings().one())
+                row.update(symbol=context["symbol"], asset_name=context["asset_name"])
+                return row
+
+    async def list_orders(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT o.*, a.symbol, a.name AS asset_name
+            FROM orders o
+            JOIN assets a ON a.id = o.asset_id
+            WHERE o.user_id = :user_id
+            ORDER BY o.created_at DESC, o.id DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )
+
+    async def cancel_order(self, user_id: int, order_id: int) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT o.*, a.symbol, a.name AS asset_name
+                        FROM orders o
+                        JOIN assets a ON a.id = o.asset_id
+                        WHERE o.id = :order_id AND o.user_id = :user_id
+                        FOR UPDATE OF o
+                        """
+                    ),
+                    {"order_id": order_id, "user_id": user_id},
+                )
+                order = result.mappings().first()
+                if not order:
+                    raise NotFoundError("Emir bulunamadi.")
+                if order["status"] != "PENDING":
+                    raise BusinessRuleError("Yalnizca bekleyen emirler iptal edilebilir.")
+
+                reserved = Decimal(str(order["reserved_amount"] or 0))
+                if reserved > 0:
+                    await session.execute(
+                        text(
+                            """
+                            UPDATE cash_accounts
+                            SET available_balance = available_balance + :reserved,
+                                reserved_balance = reserved_balance - :reserved,
+                                updated_at = now()
+                            WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                            """
+                        ),
+                        {"reserved": reserved, "portfolio_id": order["portfolio_id"]},
+                    )
+                await session.execute(
+                    text(
+                        """
+                        UPDATE orders
+                        SET status = 'CANCELLED', reserved_amount = 0, updated_at = now()
+                        WHERE id = :order_id
+                        """
+                    ),
+                    {"order_id": order_id},
+                )
+                updated = dict(order)
+                updated.update(status="CANCELLED", reserved_amount=Decimal("0"))
+                return updated
+
+    async def process_pending_orders(self, updates: list[dict], commission_rate: float) -> int:
+        prices = {
+            int(item["asset_id"]): Decimal(str(item["price"]))
+            for item in updates
+            if item.get("asset_id") is not None and float(item.get("price") or 0) > 0
+        }
+        completed = 0
+        async with self._session_factory() as session:
+            async with session.begin():
+                expired_result = await session.execute(
+                    text(
+                        """
+                        SELECT id, portfolio_id, reserved_amount
+                        FROM orders
+                        WHERE status = 'PENDING' AND expires_at IS NOT NULL AND expires_at <= now()
+                        FOR UPDATE SKIP LOCKED
+                        """
+                    )
+                )
+                for expired in expired_result.mappings().all():
+                    reserved = Decimal(str(expired["reserved_amount"] or 0))
+                    if reserved > 0:
+                        await session.execute(
+                            text(
+                                """
+                                UPDATE cash_accounts
+                                SET available_balance = available_balance + :reserved,
+                                    reserved_balance = reserved_balance - :reserved,
+                                    updated_at = now()
+                                WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                                """
+                            ),
+                            {"reserved": reserved, "portfolio_id": expired["portfolio_id"]},
+                        )
+                    await session.execute(
+                        text(
+                            """
+                            UPDATE orders
+                            SET status = 'CANCELLED', reserved_amount = 0, updated_at = now()
+                            WHERE id = :order_id
+                            """
+                        ),
+                        {"order_id": expired["id"]},
+                    )
+                    await self._queue_notification(session, expired["id"], "ORDER_EXPIRED")
+
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT o.*, a.currency AS asset_currency, fx.try_rate AS fx_rate
+                        FROM orders o
+                        JOIN assets a ON a.id = o.asset_id
+                        JOIN v_fx_rates fx ON fx.currency = a.currency
+                        WHERE o.status = 'PENDING'
+                          AND o.asset_id IN (
+                              SELECT CAST(value AS INT)
+                              FROM jsonb_array_elements_text(CAST(:asset_ids AS JSONB))
+                          )
+                        ORDER BY CASE WHEN o.order_type = 'STOP_MARKET' THEN 1 ELSE 0 END,
+                                 o.created_at, o.id
+                        FOR UPDATE SKIP LOCKED
+                        """
+                    ),
+                    {"asset_ids": json.dumps(list(prices))},
+                )
+                orders = [dict(row) for row in result.mappings().all()]
+
+                for order in orders:
+                    native_price = prices[order["asset_id"]]
+                    price = native_price * Decimal(str(order["fx_rate"]))
+                    if order["order_type"] == "LIMIT":
+                        limit = Decimal(str(order["limit_price"]))
+                        condition_met = price <= limit if order["side"] == "BUY" else price >= limit
+                        if not condition_met:
+                            continue
+                    elif order["order_type"] == "STOP_MARKET":
+                        stop_price = Decimal(str(order["stop_loss_price"]))
+                        comparison_price = (
+                            native_price if order.get("stop_loss_currency") else price
+                        )
+                        if comparison_price > stop_price:
+                            continue
+                    qty = Decimal(str(order["quantity"]))
+                    if order["order_type"] == "STOP_MARKET":
+                        protected_available = await session.scalar(
+                            text(
+                                """
+                                SELECT GREATEST(
+                                    COALESCE(pa.quantity, 0) - COALESCE((
+                                        SELECT SUM(o.quantity - o.filled_quantity)
+                                        FROM orders o
+                                        WHERE o.portfolio_id = :portfolio_id
+                                          AND o.asset_id = :asset_id
+                                          AND o.side = 'SELL' AND o.status = 'PENDING'
+                                          AND o.order_type <> 'STOP_MARKET'
+                                    ), 0), 0
+                                )
+                                FROM (SELECT 1) seed
+                                LEFT JOIN portfolio_assets pa
+                                  ON pa.portfolio_id = :portfolio_id AND pa.asset_id = :asset_id
+                                """
+                            ),
+                            {
+                                "portfolio_id": order["portfolio_id"],
+                                "asset_id": order["asset_id"],
+                            },
+                        )
+                        qty = min(qty, Decimal(str(protected_available or 0)))
+                        if qty <= 0:
+                            continue
+                        if qty != Decimal(str(order["quantity"])):
+                            await session.execute(
+                                text(
+                                    "UPDATE orders SET quantity = :quantity, "
+                                    "updated_at = now() WHERE id = :order_id"
+                                ),
+                                {"quantity": qty, "order_id": order["id"]},
+                            )
+                    gross = _money(price * qty)
+                    commission = _money(gross * Decimal(str(commission_rate)))
+
+                    account_result = await session.execute(
+                        text(
+                            """
+                            SELECT * FROM cash_accounts
+                            WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                            FOR UPDATE
+                            """
+                        ),
+                        {"portfolio_id": order["portfolio_id"]},
+                    )
+                    account = account_result.mappings().first()
+                    if not account:
+                        await self._reject_order(session, order, "Paper trading hesabi bulunamadi.")
+                        continue
+
+                    if order["side"] == "BUY":
+                        total = gross + commission
+                        reserved = Decimal(str(order["reserved_amount"] or 0))
+                        available = Decimal(str(account["available_balance"]))
+                        if available + reserved < total:
+                            await self._reject_order(
+                                session, order, "Yeni fiyatta kullanilabilir bakiye yetersiz."
+                            )
+                            continue
+                        await session.execute(
+                            text(
+                                """
+                                UPDATE cash_accounts
+                                SET available_balance = available_balance + :reserved - :total,
+                                    reserved_balance = reserved_balance - :reserved,
+                                    updated_at = now()
+                                WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                                """
+                            ),
+                            {
+                                "reserved": reserved,
+                                "total": total,
+                                "portfolio_id": order["portfolio_id"],
+                            },
+                        )
+                        await session.execute(
+                            text(
+                                """
+                                INSERT INTO portfolio_assets (
+                                    portfolio_id, asset_id, quantity, average_buy_price
+                                ) VALUES (:portfolio_id, :asset_id, :quantity, :price)
+                                ON CONFLICT (portfolio_id, asset_id) DO UPDATE SET
+                                    average_buy_price = CASE
+                                        WHEN portfolio_assets.quantity + EXCLUDED.quantity > 0
+                                        THEN (
+                                            portfolio_assets.quantity
+                                            * portfolio_assets.average_buy_price
+                                            + EXCLUDED.quantity * EXCLUDED.average_buy_price
+                                        ) / (portfolio_assets.quantity + EXCLUDED.quantity)
+                                        ELSE 0
+                                    END,
+                                    quantity = portfolio_assets.quantity + EXCLUDED.quantity
+                                """
+                            ),
+                            {
+                                "portfolio_id": order["portfolio_id"],
+                                "asset_id": order["asset_id"],
+                                "quantity": qty,
+                                "price": native_price,
+                            },
+                        )
+                        ledger_amount = -total
+                        ledger_type = "BUY_FILL"
+                    else:
+                        holding_result = await session.execute(
+                            text(
+                                """
+                                SELECT * FROM portfolio_assets
+                                WHERE portfolio_id = :portfolio_id AND asset_id = :asset_id
+                                FOR UPDATE
+                                """
+                            ),
+                            {
+                                "portfolio_id": order["portfolio_id"],
+                                "asset_id": order["asset_id"],
+                            },
+                        )
+                        holding = holding_result.mappings().first()
+                        if not holding or Decimal(str(holding["quantity"])) < qty:
+                            await self._reject_order(
+                                session, order, "Gerceklesme aninda satilabilir adet yetersiz."
+                            )
+                            continue
+                        net = gross - commission
+                        await session.execute(
+                            text(
+                                """
+                                UPDATE portfolio_assets
+                                SET quantity = quantity - :quantity
+                                WHERE portfolio_id = :portfolio_id AND asset_id = :asset_id
+                                """
+                            ),
+                            {
+                                "quantity": qty,
+                                "portfolio_id": order["portfolio_id"],
+                                "asset_id": order["asset_id"],
+                            },
+                        )
+                        await session.execute(
+                            text(
+                                """
+                                UPDATE cash_accounts
+                                SET available_balance = available_balance + :net,
+                                    updated_at = now()
+                                WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                                """
+                            ),
+                            {"net": net, "portfolio_id": order["portfolio_id"]},
+                        )
+                        await session.execute(
+                            text(
+                                """
+                                DELETE FROM portfolio_assets
+                                WHERE portfolio_id = :portfolio_id AND asset_id = :asset_id
+                                  AND quantity = 0
+                                """
+                            ),
+                            {
+                                "portfolio_id": order["portfolio_id"],
+                                "asset_id": order["asset_id"],
+                            },
+                        )
+                        ledger_amount = net
+                        ledger_type = "SELL_PROCEEDS"
+
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO transactions (
+                                portfolio_id, asset_id, transaction_type,
+                                quantity, unit_price, transaction_date
+                            ) VALUES (
+                                :portfolio_id, :asset_id, :side,
+                                :quantity, :unit_price, now()
+                            )
+                            """
+                        ),
+                        {
+                            "portfolio_id": order["portfolio_id"],
+                            "asset_id": order["asset_id"],
+                            "side": order["side"],
+                            "quantity": qty,
+                            "unit_price": native_price,
+                        },
+                    )
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO order_fills (order_id, quantity, price, commission)
+                            VALUES (:order_id, :quantity, :price, :commission)
+                            """
+                        ),
+                        {
+                            "order_id": order["id"],
+                            "quantity": qty,
+                            "price": price,
+                            "commission": commission,
+                        },
+                    )
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO cash_ledger (
+                                account_id, order_id, entry_type, amount, balance_after
+                            )
+                            SELECT id, :order_id, :entry_type, :amount, available_balance
+                            FROM cash_accounts
+                            WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                            """
+                        ),
+                        {
+                            "order_id": order["id"],
+                            "entry_type": ledger_type,
+                            "amount": ledger_amount,
+                            "portfolio_id": order["portfolio_id"],
+                        },
+                    )
+                    await session.execute(
+                        text(
+                            """
+                            UPDATE orders
+                            SET status = 'FILLED', filled_quantity = quantity,
+                                average_fill_price = :price, commission = :commission,
+                                filled_at = now(), updated_at = now()
+                            WHERE id = :order_id
+                            """
+                        ),
+                        {
+                            "price": price,
+                            "commission": commission,
+                            "order_id": order["id"],
+                        },
+                    )
+                    await self._queue_notification(
+                        session,
+                        order["id"],
+                        "ORDER_FILLED",
+                        {
+                            "price": float(price),
+                            "commission": float(commission),
+                            "total": float(abs(ledger_amount)),
+                            "quantity": float(qty),
+                        },
+                    )
+                    if order["side"] == "BUY" and order.get("stop_loss_price") is not None:
+                        await session.execute(
+                            text(
+                                """
+                                INSERT INTO orders (
+                                    user_id, portfolio_id, asset_id, side, order_type,
+                                    quantity, quoted_price, stop_loss_price,
+                                    stop_loss_currency, parent_order_id,
+                                    validity, status, reserved_amount, idempotency_key
+                                ) VALUES (
+                                    :user_id, :portfolio_id, :asset_id, 'SELL', 'STOP_MARKET',
+                                    :quantity, :quoted_price, :stop_loss_price,
+                                    :stop_loss_currency, :parent_order_id,
+                                    'GTC', 'PENDING', 0, :idempotency_key
+                                )
+                                ON CONFLICT (user_id, idempotency_key) DO NOTHING
+                                """
+                            ),
+                            {
+                                "user_id": order["user_id"],
+                                "portfolio_id": order["portfolio_id"],
+                                "asset_id": order["asset_id"],
+                                "quantity": qty,
+                                "quoted_price": price,
+                                "stop_loss_price": order["stop_loss_price"],
+                                "stop_loss_currency": order.get("stop_loss_currency"),
+                                "parent_order_id": order["id"],
+                                "idempotency_key": f"attached-stop-{order['id']}",
+                            },
+                        )
+                    if order["side"] == "SELL" and order["order_type"] != "STOP_MARKET":
+                        await self._normalize_stop_orders(
+                            session, order["portfolio_id"], order["asset_id"], qty
+                        )
+                    completed += 1
+
+        return completed
+
+    async def _normalize_stop_orders(
+        self, session, portfolio_id: int, asset_id: int, sold_quantity: Decimal
+    ) -> None:
+        remaining = await session.scalar(
+            text(
+                """
+                SELECT COALESCE(quantity, 0) FROM portfolio_assets
+                WHERE portfolio_id = :portfolio_id AND asset_id = :asset_id
+                """
+            ),
+            {"portfolio_id": portfolio_id, "asset_id": asset_id},
+        )
+        available = Decimal(str(remaining or 0))
+        manual_reduction = sold_quantity
+        result = await session.execute(
+            text(
+                """
+                SELECT id, quantity FROM orders
+                WHERE portfolio_id = :portfolio_id AND asset_id = :asset_id
+                  AND order_type = 'STOP_MARKET' AND status = 'PENDING'
+                ORDER BY created_at, id
+                FOR UPDATE
+                """
+            ),
+            {"portfolio_id": portfolio_id, "asset_id": asset_id},
+        )
+        for stop in result.mappings().all():
+            original = Decimal(str(stop["quantity"]))
+            reduction = min(original, manual_reduction)
+            manual_reduction -= reduction
+            protected = min(original - reduction, available)
+            if protected <= 0:
+                await session.execute(
+                    text(
+                        "UPDATE orders SET status = 'CANCELLED', updated_at = now() WHERE id = :id"
+                    ),
+                    {"id": stop["id"]},
+                )
+            elif protected != original:
+                await session.execute(
+                    text(
+                        "UPDATE orders SET quantity = :quantity, updated_at = now() WHERE id = :id"
+                    ),
+                    {"quantity": protected, "id": stop["id"]},
+                )
+            available -= protected
+
+    async def _queue_notification(
+        self, session, order_id: int, event_type: str, extra: dict | None = None
+    ) -> None:
+        """Bildirim olayini outbox'a yazar - CAGIRAN TRANSACTION ICINDE.
+
+        Ayni transaction bilincli bir tercihtir: gerceklesme geri alinirsa
+        bildirim de geri alinir; gerceklesme yazildiysa bildirim de yazilmis
+        olur. Ayri bir transaction "gerceklesmeyen emir icin bildirim" ve
+        "bildirimsiz gerceklesme" hatalarinin IKISINI DE mumkun kilardi.
+
+        Alici adresi ve sembol OLAY ANINDA fotograflanir: kullanici sonradan
+        e-postasini degistirse bile gecmis bildirim kaydi degismez.
+        """
+        await session.execute(
+            text(
+                """
+                INSERT INTO notification_outbox (
+                    user_id, order_id, event_type, channel, recipient, payload
+                )
+                SELECT o.user_id, o.id, :event_type, 'EMAIL', u.email,
+                       jsonb_build_object(
+                           'symbol', a.symbol,
+                           'asset_name', a.name,
+                           'side', o.side,
+                           'order_type', o.order_type,
+                           'quantity', o.quantity,
+                           'rejection_reason', o.rejection_reason
+                       ) || CAST(:extra AS JSONB)
+                FROM orders o
+                JOIN users u ON u.id = o.user_id
+                JOIN assets a ON a.id = o.asset_id
+                WHERE o.id = :order_id
+                """
+            ),
+            {
+                "event_type": event_type,
+                "order_id": order_id,
+                "extra": json.dumps(extra or {}),
+            },
+        )
+
+    async def _reject_order(self, session, order: dict, reason: str) -> None:
+        reserved = Decimal(str(order.get("reserved_amount") or 0))
+        if reserved > 0:
+            await session.execute(
+                text(
+                    """
+                    UPDATE cash_accounts
+                    SET available_balance = available_balance + :reserved,
+                        reserved_balance = reserved_balance - :reserved,
+                        updated_at = now()
+                    WHERE portfolio_id = :portfolio_id AND currency = 'TRY'
+                    """
+                ),
+                {"reserved": reserved, "portfolio_id": order["portfolio_id"]},
+            )
+        await session.execute(
+            text(
+                """
+                UPDATE orders
+                SET status = 'REJECTED', rejection_reason = :reason, updated_at = now()
+                WHERE id = :order_id
+                """
+            ),
+            {"reason": reason, "order_id": order["id"]},
+        )
+        await self._queue_notification(session, order["id"], "ORDER_REJECTED")
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+class SqlRecommendationRepository(_SqlRepository):
+    """Otonom oneri motorunun kalici durumu (AUT / D-02, D-07)."""
+
+    #: Kullanicinin `user_trading_limits` satiri yoksa uygulanan degerler.
+    #: Satirin YOKLUGU bir hata degildir: kullanici limit ekranina hic
+    #: girmemis olabilir ve otonom akis yine de calismalidir.
+    VARSAYILAN_LIMITLER = {
+        "per_order_limit_try": 5000.0,
+        "daily_limit_try": 15000.0,
+        "allowed_asset_classes": [],
+        "autonomous_enabled": True,
+        "max_daily_recommendations": 4,
+    }
+
+    # ---------------- kill-switch ----------------
+
+    async def kill_switch_active(self) -> bool:
+        row = await self._row("SELECT active FROM autonomous_kill_switch WHERE id")
+        return bool(row and row["active"])
+
+    async def set_kill_switch(self, active: bool, reason: str | None, actor: str) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE autonomous_kill_switch
+                        SET active = :active, reason = :reason,
+                            activated_by = :actor, updated_at = now()
+                        WHERE id
+                        RETURNING active, reason, activated_by, updated_at
+                        """
+                    ),
+                    {"active": active, "reason": reason, "actor": actor},
+                )
+                return dict(result.mappings().one())
+
+    # ---------------- limitler ----------------
+
+    async def get_limits(self, user_id: int) -> dict:
+        row = await self._row(
+            """
+            SELECT per_order_limit_try, daily_limit_try, allowed_asset_classes,
+                   autonomous_enabled, max_daily_recommendations
+            FROM user_trading_limits WHERE user_id = :user_id
+            """,
+            {"user_id": user_id},
+        )
+        if row is None:
+            return dict(self.VARSAYILAN_LIMITLER)
+        return {
+            "per_order_limit_try": float(row["per_order_limit_try"]),
+            "daily_limit_try": float(row["daily_limit_try"]),
+            "allowed_asset_classes": list(row["allowed_asset_classes"] or []),
+            "autonomous_enabled": bool(row["autonomous_enabled"]),
+            "max_daily_recommendations": int(row["max_daily_recommendations"]),
+        }
+
+    async def upsert_limits(self, user_id: int, fields: dict) -> dict:
+        mevcut = await self.get_limits(user_id)
+        birlesik = {**mevcut, **{k: v for k, v in fields.items() if v is not None}}
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO user_trading_limits (
+                            user_id, per_order_limit_try, daily_limit_try,
+                            allowed_asset_classes, autonomous_enabled,
+                            max_daily_recommendations, updated_at
+                        ) VALUES (
+                            :user_id, :per_order, :daily, CAST(:classes AS JSONB),
+                            :enabled, :max_daily, now()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            per_order_limit_try = EXCLUDED.per_order_limit_try,
+                            daily_limit_try = EXCLUDED.daily_limit_try,
+                            allowed_asset_classes = EXCLUDED.allowed_asset_classes,
+                            autonomous_enabled = EXCLUDED.autonomous_enabled,
+                            max_daily_recommendations = EXCLUDED.max_daily_recommendations,
+                            updated_at = now()
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "per_order": birlesik["per_order_limit_try"],
+                        "daily": birlesik["daily_limit_try"],
+                        "classes": _json(birlesik["allowed_asset_classes"]),
+                        "enabled": birlesik["autonomous_enabled"],
+                        "max_daily": birlesik["max_daily_recommendations"],
+                    },
+                )
+        return birlesik
+
+    # ---------------- sinyal ----------------
+
+    async def assets_for_scan(self) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT a.id AS asset_id, a.symbol, a.name, ac.code AS asset_class,
+                   a.currency, a.current_price * fx.try_rate AS current_price,
+                   a.daily_change_pct, a.weekly_change_pct, a.yearly_change_pct,
+                   a.price_updated_at
+            FROM assets a
+            JOIN asset_categories ac ON ac.id = a.category_id
+            JOIN v_fx_rates fx ON fx.currency = a.currency
+            ORDER BY a.id
+            """
+        )
+
+    async def save_signals(self, signals: list[dict]) -> list[dict]:
+        if not signals:
+            return []
+        yayinlanan: list[dict] = []
+        async with self._session_factory() as session:
+            async with session.begin():
+                for sig in signals:
+                    result = await session.execute(
+                        text(
+                            """
+                            INSERT INTO signals (
+                                asset_id, direction, confidence, rule_code,
+                                rationale, evidence, reference_price, expires_at,
+                                engine_version, published, suppressed_reason
+                            ) VALUES (
+                                :asset_id, :direction, :confidence, :rule_code,
+                                CAST(:rationale AS JSONB), CAST(:evidence AS JSONB),
+                                :reference_price, :expires_at,
+                                :engine_version, :published, :suppressed_reason
+                            )
+                            RETURNING id
+                            """
+                        ),
+                        {
+                            **{
+                                k: sig[k]
+                                for k in (
+                                    "asset_id",
+                                    "direction",
+                                    "confidence",
+                                    "rule_code",
+                                    "reference_price",
+                                    "expires_at",
+                                    "engine_version",
+                                    "published",
+                                    "suppressed_reason",
+                                )
+                            },
+                            "rationale": _json(sig["rationale"]),
+                            "evidence": _json(sig["evidence"]),
+                        },
+                    )
+                    signal_id = result.scalar_one()
+                    if sig["published"]:
+                        yayinlanan.append({**sig, "id": int(signal_id)})
+        return yayinlanan
+
+    # ---------------- oneri uretimi ----------------
+
+    async def autonomous_users(self) -> list[dict]:
+        """Otonom akisi acik, nakit hesabi olan kullanicilar ve baglamlari.
+
+        PORTFOY SECIMI `get_order_context` ILE AYNI OLMALIDIR:
+        `is_default` DESC, sonra en kucuk id. Depoda `is_default` her
+        kullanicida isaretli DEGIL (9 portfoyun 2'si) ve nakit hesaplari
+        varsayilan olmayan portfoylerde duruyor. `AND p.is_default` ile
+        zorlansaydi hicbir kullanici taranmazdi; daha kotusu, oneri bir
+        portfoye uretilip emir BASKA portfoye gitseydi bakiye ve pozisyon
+        hesaplari tutmazdi.
+        """
+        return await self._rows(
+            """
+            SELECT DISTINCT ON (u.id)
+                   u.id AS user_id, u.risk_tolerance,
+                   p.id AS portfolio_id, ca.available_balance,
+                   COALESCE(vs.total_value_try, 0) AS portfolio_value_try,
+                   COALESCE(l.autonomous_enabled, true) AS autonomous_enabled,
+                   COALESCE(l.per_order_limit_try, 5000) AS per_order_limit_try,
+                   COALESCE(l.daily_limit_try, 15000) AS daily_limit_try,
+                   COALESCE(l.allowed_asset_classes, '[]'::jsonb) AS allowed_asset_classes,
+                   COALESCE(l.max_daily_recommendations, 4) AS max_daily_recommendations
+            FROM users u
+            JOIN portfolios p ON p.user_id = u.id
+            JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+            LEFT JOIN user_trading_limits l ON l.user_id = u.id
+            LEFT JOIN v_portfolio_summary vs ON vs.portfolio_id = p.id
+            WHERE COALESCE(l.autonomous_enabled, true)
+            ORDER BY u.id, p.is_default DESC, p.id
+            """
+        )
+
+    async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
+        rows = await self._rows(
+            """
+            SELECT asset_id, quantity FROM portfolio_assets
+            WHERE portfolio_id = :portfolio_id AND quantity > 0
+            """,
+            {"portfolio_id": portfolio_id},
+        )
+        return {int(r["asset_id"]): float(r["quantity"]) for r in rows}
+
+    async def daily_stats(self, user_id: int) -> dict:
+        row = await self._row(
+            """
+            SELECT count(*) AS adet,
+                   COALESCE(SUM(estimated_amount), 0) AS toplam
+            FROM recommendations
+            WHERE user_id = :user_id AND created_at >= date_trunc('day', now())
+            """,
+            {"user_id": user_id},
+        )
+        return {"count": int(row["adet"]), "amount": float(row["toplam"])}
+
+    async def open_recommendation_asset_ids(self, user_id: int) -> list[int]:
+        rows = await self._rows(
+            """
+            SELECT DISTINCT asset_id FROM recommendations
+            WHERE user_id = :user_id AND status IN ('PUBLISHED', 'VIEWED', 'APPROVED')
+            """,
+            {"user_id": user_id},
+        )
+        return [int(r["asset_id"]) for r in rows]
+
+    async def create_recommendation(self, row: dict) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        INSERT INTO recommendations (
+                            signal_id, user_id, portfolio_id, asset_id, side,
+                            quantity, reference_price, estimated_amount, confidence,
+                            rationale, risk_note, sources, personalization, expires_at
+                        ) VALUES (
+                            :signal_id, :user_id, :portfolio_id, :asset_id, :side,
+                            :quantity, :reference_price, :estimated_amount, :confidence,
+                            CAST(:rationale AS JSONB), :risk_note,
+                            CAST(:sources AS JSONB), CAST(:personalization AS JSONB),
+                            :expires_at
+                        )
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        **{
+                            k: row[k]
+                            for k in (
+                                "signal_id",
+                                "user_id",
+                                "portfolio_id",
+                                "asset_id",
+                                "side",
+                                "quantity",
+                                "reference_price",
+                                "estimated_amount",
+                                "confidence",
+                                "risk_note",
+                                "expires_at",
+                            )
+                        },
+                        "rationale": _json(row["rationale"]),
+                        "sources": _json(row["sources"]),
+                        "personalization": _json(row["personalization"]),
+                    },
+                )
+                yeni_id = int(result.scalar_one())
+                # FR-AUT-006: bildirim, onerinin yazildigi AYNI transaction'da
+                # kuyruga girer. Geri alinan bir oneri icin bildirim uretilmez.
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO notification_outbox (
+                            user_id, order_id, event_type, channel, recipient, payload
+                        )
+                        SELECT r.user_id, NULL, 'RECOMMENDATION_CREATED', 'EMAIL', u.email,
+                               jsonb_build_object(
+                                   'symbol', a.symbol,
+                                   'asset_name', a.name,
+                                   'side', r.side,
+                                   'quantity', r.quantity,
+                                   'reference_price', r.reference_price,
+                                   'estimated_amount', r.estimated_amount,
+                                   'confidence', r.confidence,
+                                   'rationale', r.rationale
+                               )
+                        FROM recommendations r
+                        JOIN users u ON u.id = r.user_id
+                        JOIN assets a ON a.id = r.asset_id
+                        WHERE r.id = :rid
+                        """
+                    ),
+                    {"rid": yeni_id},
+                )
+        return await self.get_recommendation(row["user_id"], yeni_id) or {}
+
+    # ---------------- okuma ----------------
+
+    _SECIM = """
+        SELECT r.*, a.symbol AS asset_symbol, a.name AS asset_name,
+               ac.code AS asset_class
+        FROM recommendations r
+        JOIN assets a ON a.id = r.asset_id
+        JOIN asset_categories ac ON ac.id = a.category_id
+    """
+
+    async def list_recommendations(
+        self, user_id: int, status: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        return await self._rows(
+            self._SECIM
+            + """
+            WHERE r.user_id = :user_id
+              AND (CAST(:status AS TEXT) IS NULL OR r.status = :status)
+            ORDER BY r.created_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "status": status, "limit": limit},
+        )
+
+    async def counts_by_status(self, user_id: int) -> dict:
+        rows = await self._rows(
+            """
+            SELECT status, count(*) AS adet FROM recommendations
+            WHERE user_id = :user_id GROUP BY status
+            """,
+            {"user_id": user_id},
+        )
+        return {r["status"]: int(r["adet"]) for r in rows}
+
+    async def get_recommendation(self, user_id: int, recommendation_id: int) -> dict | None:
+        return await self._row(
+            self._SECIM + " WHERE r.user_id = :user_id AND r.id = :rid",
+            {"user_id": user_id, "rid": recommendation_id},
+        )
+
+    # ---------------- durum gecisleri (D-07) ----------------
+
+    async def mark_viewed(self, user_id: int, recommendation_id: int) -> dict | None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'VIEWED', viewed_at = now(), updated_at = now()
+                        WHERE id = :rid AND user_id = :user_id AND status = 'PUBLISHED'
+                        """
+                    ),
+                    {"rid": recommendation_id, "user_id": user_id},
+                )
+        return await self.get_recommendation(user_id, recommendation_id)
+
+    async def reject(self, user_id: int, recommendation_id: int, reason: str) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'REJECTED', rejection_reason = :reason,
+                            decided_at = now(), updated_at = now()
+                        WHERE id = :rid AND user_id = :user_id
+                          AND status IN ('PUBLISHED', 'VIEWED')
+                        RETURNING id
+                        """
+                    ),
+                    {"rid": recommendation_id, "user_id": user_id, "reason": reason},
+                )
+                if result.first() is None:
+                    raise BusinessRuleError("Bu oneri artik reddedilemez.")
+        return await self.get_recommendation(user_id, recommendation_id) or {}
+
+    async def attach_order(self, user_id: int, recommendation_id: int, order_id: int) -> dict:
+        """BR-AUT-08: bir oneri EN FAZLA bir emir dogurur.
+
+        Kosuldaki `order_id IS NULL` ve tablodaki tekil kisit birlikte calisir:
+        ilki yarisi es zamanli ikinci onayi eler, ikincisi veritabani
+        seviyesinde son sozu soyler.
+        """
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'CONVERTED', order_id = :order_id,
+                            decided_at = now(), updated_at = now()
+                        WHERE id = :rid AND user_id = :user_id
+                          AND order_id IS NULL
+                          AND status IN ('PUBLISHED', 'VIEWED', 'APPROVED')
+                        RETURNING id
+                        """
+                    ),
+                    {"rid": recommendation_id, "user_id": user_id, "order_id": order_id},
+                )
+                if result.first() is None:
+                    raise BusinessRuleError("Bu oneri zaten bir emre donusmus.")
+        return await self.get_recommendation(user_id, recommendation_id) or {}
+
+    async def expire_due(self, now=None) -> int:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'EXPIRED', updated_at = now()
+                        WHERE status IN ('PUBLISHED', 'VIEWED') AND expires_at <= now()
+                        RETURNING id
+                        """
+                    )
+                )
+                return len(result.fetchall())
+
+    async def halt_open(self, reason: str) -> int:
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        UPDATE recommendations
+                        SET status = 'HALTED', updated_at = now()
+                        WHERE status IN ('PUBLISHED', 'VIEWED')
+                        RETURNING id
+                        """
+                    )
+                )
+                return len(result.fetchall())
+
+    # ---------------- denetim ----------------
+
+    async def log_audit(self, record: dict) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO recommendation_audit (
+                            recommendation_id, user_id, event_type, actor,
+                            old_status, new_status, reason, detail
+                        ) VALUES (
+                            :recommendation_id, :user_id, :event_type, :actor,
+                            :old_status, :new_status, :reason, CAST(:detail AS JSONB)
+                        )
+                        """
+                    ),
+                    {
+                        "recommendation_id": record.get("recommendation_id"),
+                        "user_id": record.get("user_id"),
+                        "event_type": record["event_type"],
+                        "actor": record.get("actor", "SYSTEM"),
+                        "old_status": record.get("old_status"),
+                        "new_status": record.get("new_status"),
+                        "reason": record.get("reason"),
+                        "detail": _json(record.get("detail") or {}),
+                    },
+                )
+
+
+class SqlNotificationRepository(_SqlRepository):
+    """`notification_outbox` okuma ve kapatma.
+
+    Satirlari YAZAN taraf burasi degil `SqlTradingRepository`dir (bildirim,
+    gerceklesmeyle ayni transaction'da yazilir). Burasi bekleyenleri alip
+    sonucu isler.
+    """
+
+    async def claim_pending(self, limit: int, max_attempts: int = 5) -> list[dict]:
+        """Bekleyenleri alir ve deneme sayacini artirir.
+
+        `FOR UPDATE SKIP LOCKED`: ayni anda birden fazla surec (ornegin iki
+        uygulama ornegi) calisirsa ayni satir iki kez gonderilmez; kilitli
+        satir beklenmeden atlanir.
+
+        Sayac ONCEDEN artirilir. Surec gonderim sirasinda cokerse satir
+        PENDING kalir ve tekrar denenir - ama sonsuza kadar degil, cunku
+        `attempts` her denemede artar ve `max_attempts`e ulasinca artik
+        alinmaz (dispatcher onu FAILED olarak kapatir).
+        """
+        # `_rows()` KULLANILMAZ: o yardimci commit etmez ve bu bir YAZMA
+        # sorgusudur - sayac artisi geri alinirdi.
+        async with self._session_factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    text(
+                        """
+                        WITH secilen AS (
+                            SELECT id FROM notification_outbox
+                            WHERE status = 'PENDING' AND attempts < :max_attempts
+                            ORDER BY created_at
+                            LIMIT :limit
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        UPDATE notification_outbox o
+                        SET attempts = o.attempts + 1
+                        FROM secilen
+                        WHERE o.id = secilen.id
+                        RETURNING o.id, o.user_id, o.order_id, o.event_type,
+                                  o.channel, o.recipient, o.payload,
+                                  o.attempts, o.created_at
+                        """
+                    ),
+                    {"limit": limit, "max_attempts": max_attempts},
+                )
+                return [dict(row) for row in result.mappings().all()]
+
+    async def mark(self, outbox_id: int, status: str, error: str | None = None) -> None:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        UPDATE notification_outbox
+                        SET status = :status, last_error = :error, processed_at = now()
+                        WHERE id = :outbox_id
+                        """
+                    ),
+                    {"status": status, "error": error, "outbox_id": outbox_id},
+                )
+
+    async def list_for_user(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id, order_id, event_type, channel, status, payload,
+                   created_at, processed_at
+            FROM notification_outbox
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )
+
+
 class SqlRagRepository(_SqlRepository):
     """Haber/rapor arama.
 
@@ -753,6 +2200,29 @@ class SqlRagRepository(_SqlRepository):
                 "date_to": date_to,
             },
         )
+
+    async def list_news(self, limit: int = 20, kategori: str | None = None) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT d.id, d.baslik, d.sirket, a.symbol,
+                   to_char(d.tarih, 'YYYY-MM-DD') AS tarih, d.tip, d.kategori,
+                   d.kaynak_url, d.raw_text, d.image_url
+            FROM rag.documents d
+            LEFT JOIN assets a ON a.id = d.asset_id
+            WHERE CAST(:kategori AS TEXT) IS NULL OR d.kategori = :kategori
+            ORDER BY d.tarih DESC NULLS LAST, d.id DESC
+            LIMIT :limit
+            """,
+            {"kategori": kategori, "limit": limit},
+        )
+
+    async def set_news_image(self, document_id: int, image_url: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text("UPDATE rag.documents SET image_url = :image_url WHERE id = :id"),
+                {"id": document_id, "image_url": image_url},
+            )
+            await session.commit()
 
 
 class SqlChatRepository(_SqlRepository):

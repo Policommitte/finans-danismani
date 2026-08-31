@@ -1,27 +1,22 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChatWidget } from "../components/chat/ChatWidget";
+import { mainNavItems, utilityNavItems } from "../components/layout/navItems";
+import { requestPageTransition } from "../components/layout/transitionEvents";
 import { useLanguage } from "../contexts/LanguageContext";
 import { useAuth } from "../hooks/useAuth";
 import type { PublicLandingPreviewResponse } from "../models/market";
 import { getPublicLandingPreview } from "../services/marketService";
 
 type Language = "tr" | "en";
-type PreviewKey = "dashboard" | "portfolio" | "market";
+type PreviewKey = "dashboard" | "portfolio" | "market" | "newsletter";
 
-const publicMenuTargets = [
-  { key: "analysis", href: "/dashboard", icon: "/analiz.svg" },
-  { key: "newsletter", href: "/bulten", icon: "/bulten.svg" },
-  { key: "market", href: "/market", icon: "/piyasa.svg" },
-];
-
-const utilityMenuTargets = [
-  { key: "profile", href: "/profile", icon: "/profil.svg" },
-  { key: "settings", href: "/settings", icon: "/ayarlar.svg" },
-];
+//: Sidebar.tsx ile AYNI kaynaktan (navItems.ts) beslenir - giris yapilmis ve
+//: yapilmamis durumda farkli menu ogeleri/etiketleri gorunmesin diye.
+const publicMenuTargets = mainNavItems.filter((item) => item.key !== "home");
+const utilityMenuTargets = utilityNavItems;
 
 const copy = {
   tr: {
@@ -33,8 +28,6 @@ const copy = {
     authRequiredAction: "Giriş yap",
     chatLoginRequired: "Soru sormadan önce giriş yapmalısınız.",
     close: "Kapat",
-    utilityNav: ["Profil", "Ayarlar"],
-    nav: ["Genel Bakış", "Bülten", "Piyasa"],
     brand: "Finans Danışmanı",
     themeToLight: "Aydınlık moda geç",
     themeToDark: "Karanlık moda geç",
@@ -56,6 +49,14 @@ const copy = {
         badge: "Önizleme",
         icon: "/piyasa.svg",
       },
+      {
+        key: "newsletter",
+        title: "Bülten",
+        metric: "Güncel",
+        description: "Piyasa haberleri ve şirket bültenlerini takip edin",
+        badge: "Canlı",
+        icon: "/bulten.svg",
+      },
     ],
     slides: [
       {
@@ -72,6 +73,19 @@ const copy = {
         ],
       },
       {
+        key: "market",
+        tab: "Piyasalar",
+        eyebrow: "Piyasa takibi, sanal işlemler ve otonom eylemler",
+        title: "Piyasaları takip edin, işlemlerinizi tek yerden yönetin.",
+        body:
+          "Varlıkların fiyatlarını ve grafiklerini inceleyin, sanal emirlerinizi deneyin. Sistem portföyünüz ve risk profilinize göre eylem önerileri üretir; siz onaylamadan hiçbir emir iletilmez.",
+        metrics: [
+          ["Piyasalar", "Canlı takip"],
+          ["Sanal işlemler", "Emirlerini dene"],
+          ["Otonom eylemler", "Kontrol sende"],
+        ],
+      },
+      {
         key: "recommendations",
         tab: "Öneriler",
         eyebrow: "Haber araştırması ve öneri motoru",
@@ -79,9 +93,9 @@ const copy = {
         body:
           "Piyasa araştırma ajanı haberleri ve finansal dokümanları tarar. Sistem bu bilgileri portföyünüzle birleştirerek kişisel yorum ve aksiyon önerileri çıkarır.",
         metrics: [
-          ["RAG kaynakları", "Haber + rapor"],
-          ["Sinyal", "Piyasa etkisi"],
-          ["Çıktı", "Aksiyon önerisi"],
+          ["Haber takibi", "Gündemi yakala"],
+          ["Sana özel", "Portföy etkisi"],
+          ["Sonraki adım", "Net öneriler"],
         ],
       },
       {
@@ -90,11 +104,24 @@ const copy = {
         eyebrow: "AI finans asistanı",
         title: "Sorularınızı sayfadan ayrılmadan chatbot ile sorun.",
         body:
-          "Sağ altta duran sohbet aracı, kullanıcının sorusunu backend orchestrator akışına iletir. Ajanlardan gelen yanıtlar tek bir asistan cevabına dönüşür.",
+          "Sağ alttaki finans asistanına portföyünüz ve piyasa gelişmeleri hakkında sorular sorabilir, sayfadan ayrılmadan anlaşılır ve size özel yanıtlar alabilirsiniz.",
         metrics: [
-          ["Kanal", "SSE stream"],
-          ["Akış", "Orchestrator"],
-          ["Yan panel", "Global widget"],
+          ["Her an yanında", "Hızlı yanıt"],
+          ["Sana özel", "Portföy odaklı"],
+          ["Kolay erişim", "Tek tıkla sor"],
+        ],
+      },
+      {
+        key: "game",
+        tab: "Yatırım Oyunu",
+        eyebrow: "Finansal farkındalık ve karar pratiği",
+        title: "Yatırım kararlarınızı oyunla geliştirin.",
+        body:
+          "Gerçek para kullanmadan farklı piyasa senaryolarında seçimler yapın, sonuçlarını görün ve finansal bilginizi adım adım geliştirin.",
+        metrics: [
+          ["Senaryolar", "Kararını ver"],
+          ["İlerleme", "Puanını artır"],
+          ["Öğrenme", "Anında geri bildirim"],
         ],
       },
     ],
@@ -131,8 +158,6 @@ const copy = {
     authRequiredAction: "Log in",
     chatLoginRequired: "You need to log in before asking a question.",
     close: "Close",
-    utilityNav: ["Profile", "Settings"],
-    nav: ["Overview", "Newsletter", "Market"],
     brand: "Finance Advisor",
     themeToLight: "Switch to light mode",
     themeToDark: "Switch to dark mode",
@@ -154,6 +179,14 @@ const copy = {
         badge: "Preview",
         icon: "/piyasa.svg",
       },
+      {
+        key: "newsletter",
+        title: "Newsletter",
+        metric: "Live",
+        description: "Follow market news and company bulletins",
+        badge: "Live",
+        icon: "/bulten.svg",
+      },
     ],
     slides: [
       {
@@ -170,6 +203,19 @@ const copy = {
         ],
       },
       {
+        key: "market",
+        tab: "Markets",
+        eyebrow: "Market tracking, virtual trading and autonomous actions",
+        title: "Follow the markets and manage your actions in one place.",
+        body:
+          "Explore asset prices and charts, then try virtual orders. The system generates action suggestions based on your portfolio and risk profile; no order is placed without your approval.",
+        metrics: [
+          ["Markets", "Live tracking"],
+          ["Virtual trading", "Try your orders"],
+          ["Autonomous actions", "You stay in control"],
+        ],
+      },
+      {
         key: "recommendations",
         tab: "Recommendations",
         eyebrow: "News research and recommendation engine",
@@ -177,9 +223,9 @@ const copy = {
         body:
           "The market research agent scans news and financial documents. The system combines that context with your portfolio to generate personalized comments and action ideas.",
         metrics: [
-          ["RAG sources", "News + reports"],
-          ["Signal", "Market impact"],
-          ["Output", "Action idea"],
+          ["News tracking", "Stay up to date"],
+          ["Personalized", "Portfolio impact"],
+          ["Next step", "Clear suggestions"],
         ],
       },
       {
@@ -188,11 +234,24 @@ const copy = {
         eyebrow: "AI finance assistant",
         title: "Ask questions with the chatbot without leaving the page.",
         body:
-          "The bottom-right chat widget sends the user's question to the backend orchestrator flow. Agent outputs are merged into one assistant response.",
+          "Ask the financial assistant about your portfolio and market developments, and receive clear, personalized answers without leaving the page.",
         metrics: [
-          ["Channel", "SSE stream"],
-          ["Flow", "Orchestrator"],
-          ["Panel", "Global widget"],
+          ["Always available", "Quick answers"],
+          ["Personalized", "Portfolio-aware"],
+          ["Easy access", "Ask in one click"],
+        ],
+      },
+      {
+        key: "game",
+        tab: "Investment Game",
+        eyebrow: "Financial awareness and decision practice",
+        title: "Improve your investment decisions through play.",
+        body:
+          "Make choices in different market scenarios without using real money, see the outcomes, and improve your financial knowledge step by step.",
+        metrics: [
+          ["Scenarios", "Make your choice"],
+          ["Progress", "Build your score"],
+          ["Learning", "Instant feedback"],
         ],
       },
     ],
@@ -226,11 +285,11 @@ function displayUpper(value: string, language: Language): string {
   return value.toLocaleUpperCase(language === "tr" ? "tr-TR" : "en-US");
 }
 
-function MenuIcon({ src }: { src: string }) {
+function MenuIcon({ src, className = "h-8 w-8" }: { src: string; className?: string }) {
   return (
     <span
       aria-hidden="true"
-      className="block h-8 w-8 shrink-0 bg-current [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+      className={`block shrink-0 bg-current [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain] ${className}`}
       style={{ maskImage: `url('${src}')`, WebkitMaskImage: `url('${src}')` }}
     />
   );
@@ -304,11 +363,13 @@ function LandingSideMenu({
   }, [authRequiredPath, onAuthPopoverClose]);
 
   const iconButtonClass =
-    "relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/10 bg-white/[0.06] px-0 font-black tracking-wide text-white/70 transition hover:border-white/30 hover:bg-white/15 hover:text-white";
+    "group relative flex h-16 w-full items-center justify-center overflow-visible rounded-md border border-white/10 bg-white/[0.06] px-0 text-white/70 transition hover:border-white/30 hover:bg-white/15 hover:text-white";
   const homeButtonClass =
-    "group relative flex h-16 w-full items-center overflow-visible rounded-md border border-white/15 bg-white/10 px-0 font-black tracking-wide text-white/80";
+    "group relative flex h-16 w-full items-center justify-center overflow-visible rounded-md border border-white/20 bg-white/10 px-0 text-white transition";
   const tooltipClass =
-    "pointer-events-none absolute left-1/2 -top-4 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[13px] font-bold leading-none text-white/70 transition-colors group-hover:text-white";
+    "pointer-events-none absolute left-1/2 -top-3 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[11px] font-bold leading-none text-white/70 transition-colors group-hover:text-white";
+  const activeTooltipClass =
+    "pointer-events-none absolute left-1/2 -top-3 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[11px] font-bold leading-none text-white";
 
   return (
     <aside
@@ -324,22 +385,21 @@ function LandingSideMenu({
       }}
       className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
     >
-      <div aria-hidden="true" className="h-20" />
+      <div aria-hidden="true" className="h-20 shrink-0" />
 
-      <nav className="mt-10 space-y-7">
+      <nav className="mt-8 space-y-4">
         <Link
           href="/"
+          data-tour="nav-home"
           onClick={onAuthPopoverClose}
           aria-current="page"
           className={homeButtonClass}
         >
-          <span className="absolute bottom-3 left-0 top-3 w-1 rounded-r-full bg-[var(--color-primary)]" />
-          <span className="absolute left-2 top-1/2 -translate-y-1/2">
-            <MenuIcon src="/ana-sayfa.svg" />
-          </span>
-          <span className={tooltipClass}>{copy[language].home}</span>
+          <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-[var(--color-primary)]" />
+          <MenuIcon src="/ana-sayfa.svg" className="h-5 w-5" />
+          <span className={activeTooltipClass}>{copy[language].home}</span>
         </Link>
-        {publicMenuTargets.map((target, index) => (
+        {publicMenuTargets.map((target) => (
           <div key={target.key} className="group relative">
             {authRequiredPath === target.href ? (
               <AuthRequiredPopover
@@ -348,20 +408,26 @@ function LandingSideMenu({
                 onClose={onAuthPopoverClose}
               />
             ) : null}
-            <button type="button" onClick={() => onNavigate(target.href)} className={iconButtonClass}>
+            <button
+              type="button"
+              data-tour={target.tourId}
+              onClick={() => onNavigate(target.href)}
+              aria-label={target.label[language]}
+              className={iconButtonClass}
+            >
               <span className="absolute left-2 top-1/2 -translate-y-1/2">
                 <MenuIcon src={target.icon} />
               </span>
             </button>
-            <span className={tooltipClass}>{copy[language].nav[index]}</span>
+            <span className={tooltipClass}>{target.label[language]}</span>
           </div>
         ))}
       </nav>
 
-      <div className="mt-auto space-y-5 pt-6">
-        {utilityMenuTargets.map((target, index) => (
+      <div className="mt-auto space-y-4 pt-6">
+        {utilityMenuTargets.map((target) => (
           <div key={target.key} className="group relative">
-            {target.key !== "settings" && authRequiredPath === target.href ? (
+            {authRequiredPath === target.href ? (
               <AuthRequiredPopover
                 language={language}
                 nextPath={target.href}
@@ -370,29 +436,87 @@ function LandingSideMenu({
             ) : null}
             <button
               type="button"
-              onClick={() => {
-                if (target.key === "settings") {
-                  onAuthPopoverClose();
-                  return;
-                }
-
-                onNavigate(target.href);
-              }}
+              data-tour={target.tourId}
+              onClick={() => onNavigate(target.href)}
+              aria-label={target.label[language]}
               className={iconButtonClass}
             >
               <span className="absolute left-2 top-1/2 -translate-y-1/2">
                 <MenuIcon src={target.icon} />
               </span>
             </button>
-            <span className={tooltipClass}>{copy[language].utilityNav[index]}</span>
+            <span className={tooltipClass}>{target.label[language]}</span>
           </div>
         ))}
       </div>
     </aside>
   );
 }
+
 function HeroVisual({ slideKey, language }: { slideKey: string; language: Language }) {
   const visual = copy[language].visual;
+
+  if (slideKey === "game") {
+    const gameCopy = language === "tr"
+      ? {
+          title: "Yatırım Oyunu",
+          level: "Seviye 3",
+          progress: "Senaryo 2 / 5",
+          question: "Piyasa dalgalanırken ilk adımınız ne olur?",
+          choices: ["Hemen alım yaparım", "Önce riskleri incelerim", "Tüm varlıkları satarım"],
+          score: "+120 puan",
+          feedback: "Dengeli karar",
+        }
+      : {
+          title: "Investment Game",
+          level: "Level 3",
+          progress: "Scenario 2 / 5",
+          question: "What is your first move when markets become volatile?",
+          choices: ["Buy immediately", "Review the risks first", "Sell every asset"],
+          score: "+120 points",
+          feedback: "Balanced decision",
+        };
+
+    return (
+      <div className="relative min-h-80 overflow-hidden rounded-md bg-[var(--color-panel-dark)] p-6 text-[var(--color-market-text)] shadow-xl">
+        <div className="flex items-center justify-between gap-4 border-b border-white/15 pb-4">
+          <div>
+            <div className="text-lg font-black">{gameCopy.title}</div>
+            <div className="mt-1 text-xs text-[var(--color-on-primary-muted)]">{gameCopy.level}</div>
+          </div>
+          <div className="rounded-full bg-[var(--color-primary)] px-3 py-1.5 text-xs font-black text-white">
+            {gameCopy.score}
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-md bg-[var(--color-surface)] p-5 text-[var(--color-text)] shadow-sm">
+          <div className="flex items-center justify-between gap-3 text-xs font-bold app-muted">
+            <span>{displayUpper(gameCopy.progress, language)}</span>
+            <span className="app-success">{gameCopy.feedback}</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full app-card-muted">
+            <div className="h-full w-2/5 rounded-full bg-[var(--color-primary)]" />
+          </div>
+          <div className="mt-5 text-lg font-black leading-6 app-heading">{gameCopy.question}</div>
+          <div className="mt-4 space-y-2">
+            {gameCopy.choices.map((choice, index) => (
+              <div
+                key={choice}
+                className={`rounded-md border px-4 py-3 text-sm font-semibold ${
+                  index === 1
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] app-primary-text"
+                    : "app-border app-muted"
+                }`}
+              >
+                <span className="mr-3 font-black">{String.fromCharCode(65 + index)}</span>
+                {choice}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (slideKey === "chat") {
     return (
@@ -443,6 +567,86 @@ function HeroVisual({ slideKey, language }: { slideKey: string; language: Langua
             </p>
             <div className="mt-5 h-2 w-full rounded-full app-card-muted">
               <div className="h-2 w-3/4 rounded-full bg-[var(--color-success)]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (slideKey === "market") {
+    const marketItems = [
+      { symbol: "THYAO", value: "₺314,10", change: "+2,14%" },
+      { symbol: "BTC", value: "₺3,21 Mn", change: "+0,84%" },
+    ];
+
+    return (
+      <div className="relative min-h-80 overflow-hidden rounded-md bg-[var(--color-panel-dark)] p-6 text-[var(--color-market-text)] shadow-xl">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold text-[var(--color-on-primary-muted)]">
+              {language === "tr" ? "SEÇİLİ VARLIK" : "SELECTED ASSET"}
+            </div>
+            <div className="mt-2 flex items-baseline gap-3">
+              <span className="text-2xl font-black">THYAO</span>
+              <span className="text-lg font-bold">₺314,10</span>
+              <span className="text-sm font-bold app-success">+2,14%</span>
+            </div>
+          </div>
+          <div className="flex gap-2 text-xs font-bold">
+            {["1G", "1H", "1A", "1Y"].map((range, index) => (
+              <span key={range} className={`rounded px-2 py-1 ${index === 2 ? "app-primary" : "bg-[var(--color-overlay-soft)]"}`}>
+                {range}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-[1fr_0.72fr]">
+          <div className="rounded-md bg-[var(--color-overlay-soft)] p-4">
+            <svg viewBox="0 0 420 180" className="h-44 w-full" role="img" aria-label={language === "tr" ? "Temsili fiyat grafiği" : "Representative price chart"}>
+              {[30, 75, 120, 165].map((y) => (
+                <line key={y} x1="0" y1={y} x2="420" y2={y} stroke="var(--color-border)" strokeOpacity="0.28" />
+              ))}
+              <path d="M0 151 C35 145 48 104 78 119 S128 137 150 91 S205 42 230 73 S278 130 302 85 S352 39 420 51 L420 180 L0 180 Z" fill="var(--color-primary)" fillOpacity="0.18" />
+              <path d="M0 151 C35 145 48 104 78 119 S128 137 150 91 S205 42 230 73 S278 130 302 85 S352 39 420 51" fill="none" stroke="var(--color-accent)" strokeWidth="4" strokeLinecap="round" />
+            </svg>
+          </div>
+          <div className="space-y-3 rounded-md bg-[var(--color-surface)] p-4 text-[var(--color-text)]">
+            <div className="text-xs font-bold app-muted">
+              {language === "tr" ? "TAKİP LİSTESİ" : "WATCHLIST"}
+            </div>
+            {marketItems.map((item) => (
+              <div key={item.symbol} className="rounded-md border app-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-black app-heading">{item.symbol}</span>
+                  <span className="text-xs font-bold app-success">{item.change}</span>
+                </div>
+                <div className="mt-1 text-sm font-semibold app-muted">{item.value}</div>
+              </div>
+            ))}
+            <div className="rounded-md border border-[var(--color-primary)] bg-[var(--color-primary-soft)] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-black app-primary-text">
+                  {language === "tr" ? "OTONOM EYLEM" : "AUTONOMOUS ACTION"}
+                </span>
+                <span className="text-xs font-bold app-success">
+                  {language === "tr" ? "%86 güven" : "86% confidence"}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-black app-heading">
+                    {language === "tr" ? "THYAO için AL önerisi" : "BUY suggestion for THYAO"}
+                  </div>
+                  <div className="mt-1 text-xs app-muted">
+                    {language === "tr" ? "Emir için onayınız bekleniyor" : "Waiting for your approval"}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-md bg-[var(--color-primary)] px-3 py-2 text-xs font-black text-white">
+                  {language === "tr" ? "İncele" : "Review"}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -708,6 +912,75 @@ function PreviewBody({
     );
   }
 
+  if (preview === "newsletter") {
+    const newsItems = copy[language].visual.news.map((title, index) => ({
+      title,
+      category:
+        language === "tr"
+          ? ["Şirket", "Piyasalar", "Küresel"][index]
+          : ["Company", "Markets", "Global"][index],
+      time:
+        language === "tr"
+          ? ["12 dk önce", "28 dk önce", "45 dk önce"][index]
+          : ["12 min ago", "28 min ago", "45 min ago"][index],
+    }));
+    const selectedNews = newsItems[0];
+
+    return (
+      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-md border app-card p-4">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="text-sm font-black app-heading">
+              {language === "tr" ? "Güncel haberler" : "Latest news"}
+            </div>
+            <span className="rounded-full bg-[var(--color-surface-muted)] px-3 py-1 text-xs font-bold app-success">
+              {language === "tr" ? "Canlı akış" : "Live feed"}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {newsItems.map((item, index) => (
+              <article
+                key={item.title}
+                className={`rounded-md border p-3 ${index === 0 ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)]" : "app-border app-card-muted"}`}
+              >
+                <div className="flex items-center justify-between gap-3 text-xs font-bold app-muted">
+                  <span>{item.category}</span>
+                  <span>{item.time}</span>
+                </div>
+                <div className="mt-2 text-sm font-black leading-5 app-heading">{item.title}</div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <article className="rounded-md border app-card p-5">
+          <div className="flex items-center justify-between gap-3 text-xs font-bold app-muted">
+            <span>{selectedNews.category}</span>
+            <span>{selectedNews.time}</span>
+          </div>
+          <h3 className="mt-4 text-2xl font-black leading-tight app-heading">{selectedNews.title}</h3>
+          <p className="mt-4 text-sm leading-6 app-muted">
+            {language === "tr"
+              ? "Piyasaları ve şirketleri etkileyen güncel gelişmeleri tek akışta takip edin. Haber ayrıntılarını, ilgili varlıkları ve piyasa bağlamını bülten ekranında inceleyin."
+              : "Follow current developments affecting markets and companies in one feed. Review story details, related assets and market context on the newsletter screen."}
+          </p>
+          <div className="mt-6 border-t app-border pt-4">
+            <div className="text-xs font-bold app-muted">
+              {language === "tr" ? "İLGİLİ VARLIKLAR" : "RELATED ASSETS"}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {["THYAO", "BIST 100", "USD/TRY"].map((symbol) => (
+                <span key={symbol} className="rounded-full app-primary-soft px-3 py-1 text-xs font-bold">
+                  {symbol}
+                </span>
+              ))}
+            </div>
+          </div>
+        </article>
+      </div>
+    );
+  }
+
   if (preview === "market") {
     const rows = [
       ["BIST 100", language === "tr" ? "14.241" : "14,241", "+0.80%"],
@@ -906,6 +1179,10 @@ function PreviewModal({
       ? language === "tr"
         ? "Bu önizleme temsili piyasa verileriyle hazırlanmıştır."
         : "This preview is prepared with representative market data."
+      : preview === "newsletter"
+        ? language === "tr"
+          ? "Bu önizleme temsili haber içerikleriyle hazırlanmıştır."
+          : "This preview is prepared with representative news content."
       : language === "tr"
         ? "Bu önizleme temsili portföy verileriyle hazırlanmıştır."
         : "This preview is prepared with representative portfolio data.";
@@ -927,6 +1204,7 @@ function PreviewModal({
           <button
             type="button"
             onClick={onClose}
+            aria-label={copy[language].close}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--color-border)] bg-transparent text-lg font-black app-muted transition hover:border-[var(--color-primary)] hover:text-[var(--color-heading)]"
           >
             x
@@ -971,6 +1249,13 @@ function QuickAccessCards({
       };
     }
 
+    if (cardKey === "newsletter") {
+      return {
+        value: fallback,
+        unit: language === "tr" ? "haber akışı" : "news feed",
+      };
+    }
+
     return {
       value: fallback,
       unit: language === "tr" ? "öne çıkan" : "featured",
@@ -979,7 +1264,7 @@ function QuickAccessCards({
 
   return (
     <section id="ozellikler" className="border-t app-border app-card-muted py-14">
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-2">
+      <div className="mx-auto grid max-w-7xl gap-5 px-4 md:grid-cols-3">
         {cards.map((card) => {
           const metric = cardMetric(card.key, card.metric);
 
@@ -1022,7 +1307,6 @@ function QuickAccessCards({
 
 export default function HomePage() {
   const auth = useAuth();
-  const router = useRouter();
   const { language } = useLanguage();
   const [authRequiredPath, setAuthRequiredPath] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -1053,13 +1337,19 @@ export default function HomePage() {
   }, []);
 
   function handleProtectedNavigate(href: string) {
+    if (href === "/destek" || href.startsWith("/destek#")) {
+      setAuthRequiredPath(null);
+      requestPageTransition(href);
+      return;
+    }
+
     if (auth.loading) {
       return;
     }
 
     if (auth.user) {
       setAuthRequiredPath(null);
-      router.push(href);
+      requestPageTransition(href);
       return;
     }
 

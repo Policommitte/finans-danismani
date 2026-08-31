@@ -22,6 +22,7 @@ KORUMALI_UCLAR = [
     "/api/portfolio/allocation",
     "/api/portfolio/transactions",
     "/api/market/assets",
+    "/api/trading/account",
     "/api/risk/profile",
     "/api/conversations",
 ]
@@ -111,3 +112,119 @@ def test_bozuk_hash_istisna_firlatmaz():
     """Bozuk hash 500 degil 'gecersiz kimlik' anlamina gelmeli."""
     assert verify_password("demo1234", "bu-bir-bcrypt-hashi-degil") is False
     assert verify_password("", "") is False
+
+
+# --- register / onboarding (US16) -------------------------------------------
+
+
+async def _kullaniciyi_sil(email: str) -> None:
+    """Testin olusturdugu satiri temizler - `create()` testler disinda hicbir
+    yerden cagrilmadigindan, bu yardimci olmadan test veritabani birikir."""
+    from sqlalchemy import text
+
+    from app.db.session import get_session_factory
+
+    async with get_session_factory()() as session:
+        await session.execute(text("DELETE FROM users WHERE email = :email"), {"email": email})
+        await session.commit()
+
+
+def test_register_kullanici_olusturur_ve_token_doner(client):
+    import asyncio
+
+    eposta = "onboarding-test-register@example.com"
+    try:
+        yanit = client.post(
+            "/api/auth/register",
+            json={
+                "email": eposta,
+                "password": "Test1234!",
+                "first_name": "Test",
+                "last_name": "Kullanici",
+            },
+        )
+
+        assert yanit.status_code == 201
+        govde = yanit.json()
+        assert govde["token_type"] == "bearer"
+        assert decode_access_token(govde["access_token"]) is not None
+    finally:
+        asyncio.run(_kullaniciyi_sil(eposta))
+
+
+def test_register_yinelenen_eposta_409_doner(client):
+    yanit = client.post(
+        "/api/auth/register",
+        json={
+            "email": DEMO_EMAIL,
+            "password": "Test1234!",
+            "first_name": "Test",
+            "last_name": "Kullanici",
+        },
+    )
+
+    assert yanit.status_code == 409
+    assert yanit.json()["error"]["code"] == "conflict"
+
+
+def test_me_onboarding_completed_alanini_dondurur(client, auth):
+    yanit = client.get("/api/auth/me", headers=auth)
+
+    assert yanit.status_code == 200
+    assert yanit.json()["onboarding_completed"] is True  # demo kullanici seed'de true
+
+
+def test_yeni_kayitli_kullanici_onboarding_completed_false_baslar(client):
+    import asyncio
+
+    eposta = "onboarding-test-flag@example.com"
+    try:
+        kayit = client.post(
+            "/api/auth/register",
+            json={
+                "email": eposta,
+                "password": "Test1234!",
+                "first_name": "Test",
+                "last_name": "Kullanici",
+            },
+        )
+        token = kayit.json()["access_token"]
+
+        yanit = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+        assert yanit.json()["onboarding_completed"] is False
+    finally:
+        asyncio.run(_kullaniciyi_sil(eposta))
+
+
+def test_onboarding_complete_risk_toleransini_ve_bayragi_gunceller(client):
+    import asyncio
+
+    eposta = "onboarding-test-complete@example.com"
+    try:
+        kayit = client.post(
+            "/api/auth/register",
+            json={
+                "email": eposta,
+                "password": "Test1234!",
+                "first_name": "Test",
+                "last_name": "Kullanici",
+            },
+        )
+        headers = {"Authorization": f"Bearer {kayit.json()['access_token']}"}
+
+        yanit = client.post(
+            "/api/auth/onboarding/complete", json={"risk_tolerance": "HIGH"}, headers=headers
+        )
+
+        assert yanit.status_code == 200
+        govde = yanit.json()
+        assert govde["risk_tolerance"] == "HIGH"
+        assert govde["onboarding_completed"] is True
+
+        # /me uzerinden de kalicilik dogrulanir
+        me = client.get("/api/auth/me", headers=headers).json()
+        assert me["risk_tolerance"] == "HIGH"
+        assert me["onboarding_completed"] is True
+    finally:
+        asyncio.run(_kullaniciyi_sil(eposta))

@@ -24,6 +24,20 @@ export type HistoryResponse = {
   points: PricePoint[];
 };
 
+export type OhlcCandle = {
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+export type OhlcResponse = {
+  symbol: string;
+  days: number;
+  candles: OhlcCandle[];
+};
+
 export type MarketSearchRequest = {
   query: string;
   top_k?: number;
@@ -47,6 +61,30 @@ export type MarketSearchResponse = {
   items: SearchHit[];
 };
 
+export type NewsArticle = {
+  id: string;
+  baslik: string;
+  sirket: string | null;
+  symbol: string | null;
+  tarih: string | null;
+  tip: string | null;
+  kategori: string | null;
+  kaynak_url: string | null;
+  excerpt: string;
+  body: string[];
+  image_url: string;
+  related_change_pct: number | null;
+};
+
+export type NewsListResponse = {
+  items: NewsArticle[];
+};
+
+export type PhotoResponse = {
+  query: string;
+  url: string | null;
+};
+
 export type PublicMarketTickerItem = {
   symbol: string;
   label: string;
@@ -58,6 +96,25 @@ export type PublicMarketTickerItem = {
 
 export type PublicMarketTickerResponse = {
   items: PublicMarketTickerItem[];
+};
+
+export type ChartInterval = "5m" | "15m" | "1h" | "4h" | "1d";
+export type ChartRange = "1d" | "5d" | "1m" | "3m" | "1y";
+
+export type Candle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+};
+
+export type CandlesResponse = {
+  symbol: string;
+  interval: ChartInterval;
+  range: ChartRange;
+  candles: Candle[];
 };
 
 export type PublicLandingAllocationItem = {

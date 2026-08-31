@@ -1,0 +1,91 @@
+"""Paper trading API sozlesmeleri."""
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+OrderSide = Literal["BUY", "SELL"]
+OrderStatus = Literal["PENDING", "FILLED", "REJECTED", "CANCELLED"]
+EntryOrderType = Literal["MARKET", "LIMIT"]
+OrderType = Literal["MARKET", "LIMIT", "STOP_MARKET"]
+OrderValidity = Literal["DAY", "GTC"]
+
+
+class TradingAccount(BaseModel):
+    portfolio_id: int
+    portfolio_name: str
+    currency: str = "TRY"
+    available_balance: float
+    reserved_balance: float
+
+
+class OrderPreviewRequest(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    side: OrderSide
+    quantity: float = Field(gt=0)
+    order_type: EntryOrderType = "MARKET"
+    limit_price: float | None = Field(default=None, gt=0)
+    stop_loss_price: float | None = Field(default=None, gt=0)
+    validity: OrderValidity = "GTC"
+
+    @model_validator(mode="after")
+    def validate_limit_price(self):
+        if self.order_type == "LIMIT" and self.limit_price is None:
+            raise ValueError("Limit emri için limit fiyatı zorunludur.")
+        if self.side == "SELL" and self.stop_loss_price is not None:
+            raise ValueError("Stop-loss yalnızca alım emrine eklenebilir.")
+        return self
+
+
+class OrderPreview(BaseModel):
+    symbol: str
+    asset_name: str
+    side: OrderSide
+    quantity: float
+    order_type: OrderType
+    limit_price: float | None = None
+    stop_loss_price: float | None = None
+    stop_loss_currency: str | None = None
+    validity: OrderValidity
+    expires_at: str | None = None
+    quoted_price: float
+    gross_amount: float
+    estimated_commission: float
+    estimated_total: float
+    estimated_reserve: float
+    available_balance: float
+    holding_quantity: float
+    price_updated_at: str | None = None
+    execution_note: str
+
+
+class CreateOrderRequest(OrderPreviewRequest):
+    idempotency_key: str = Field(min_length=8, max_length=100)
+
+
+class PaperOrder(BaseModel):
+    id: int
+    symbol: str
+    asset_name: str
+    side: OrderSide
+    order_type: OrderType = "MARKET"
+    limit_price: float | None = None
+    stop_loss_price: float | None = None
+    stop_loss_currency: str | None = None
+    parent_order_id: int | None = None
+    validity: OrderValidity = "GTC"
+    expires_at: str | None = None
+    quantity: float
+    quoted_price: float
+    status: OrderStatus
+    filled_quantity: float
+    average_fill_price: float | None = None
+    commission: float
+    rejection_reason: str | None = None
+    created_at: str
+    filled_at: str | None = None
+
+
+class OrdersResponse(BaseModel):
+    items: list[PaperOrder]
+    limit: int

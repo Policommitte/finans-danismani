@@ -50,6 +50,22 @@ def test_fiyat_gecmisi_kronolojik_sirali(client, auth):
 
 
 @pytest.mark.db
+def test_mum_endpointi_ohlc_serisi_doner(client, auth):
+    yanit = client.get(
+        "/api/market/candles?symbol=THYAO&interval=1d&range=1m",
+        headers=auth,
+    )
+
+    assert yanit.status_code == 200
+    govde = yanit.json()
+    assert govde["symbol"] == "THYAO"
+    assert govde["interval"] == "1d"
+    assert govde["range"] == "1m"
+    assert govde["candles"]
+    assert {"time", "open", "high", "low", "close", "volume"} == set(govde["candles"][0])
+
+
+@pytest.mark.db
 def test_bilinmeyen_sembol_404_doner(client, auth):
     yanit = client.get("/api/market/history?symbol=YOKBOYLE", headers=auth)
 
