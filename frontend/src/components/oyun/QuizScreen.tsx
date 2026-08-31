@@ -340,10 +340,10 @@ export function QuizScreen(props: Props) {
               title={language === "tr" ? "İki yanlış şıkkı eler" : "Eliminates two wrong options"}
             >
               <span
-                className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[9px] font-black leading-none"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-black leading-none"
                 style={{ background: "#8b5cf6", color: "#fff" }}
               >
-                50/50
+                50
               </span>
               {language === "tr" ? "Çifte şans" : "Double chance"} ({props.powerups.fiftyFifty})
             </button>
