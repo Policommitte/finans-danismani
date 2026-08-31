@@ -1065,7 +1065,7 @@ class Orchestrator:
             {"type": "token",       "content": ...}
             {"type": "agent_error", "agent": ..., "error_type": ...}
             {"type": "error",       "code": ..., "message": ...}
-            {"type": "done",        "latency_ms": ...}
+            {"type": "done",        "latency_ms": ..., "mentioned_assets": [...]}
 
         SIRA GARANTISI: `meta` ilk, `sources` ilk `token`'dan once, `done` en
         son. Frontend kaynak kartlarini yanit akmaya baslamadan yerlestirir;
@@ -1117,6 +1117,12 @@ class Orchestrator:
         token_yayinlandi = False
         kaynaklar_yayinlandi = False
         toplanan_kaynaklar: list[Source] = []
+        #: `market_research` ajaninin katalogla dogruladigi sembol - reducer'li
+        #: DEGIL (state.market_data tek bir dict, birikmez), o yuzden basit
+        #: atama yeterli. `done` olayina eklenir (bkz. asagisi); "sources" gibi
+        #: ilk token'dan once gitme zorunlulugu yok, cunku frontend karti
+        #: cevap TAMAMLANDIKTAN sonra gosterir.
+        bahsedilen_semboller: list[str] = []
         son_yanit: str | None = None
         #: Kullaniciya GERCEKTEN gonderilmis token'lar. Nihai metin bundan
         #: uzunsa aradaki fark sonda ek token olarak yollanir (bkz. asagisi).
@@ -1156,6 +1162,10 @@ class Orchestrator:
 
                     if isinstance(update, dict):
                         toplanan_kaynaklar.extend(update.get("sources") or [])
+
+                        piyasa_verisi = update.get("market_data")
+                        if isinstance(piyasa_verisi, dict) and piyasa_verisi.get("symbol"):
+                            bahsedilen_semboller = [piyasa_verisi["symbol"]]
 
                         # Kismi basarisizlik: tek ajan coktu, sohbet DEVAM
                         # ediyor. Frontend bunu uyari olarak gosterir, akisi
@@ -1222,6 +1232,7 @@ class Orchestrator:
         yield {
             "type": "done",
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
+            "mentioned_assets": bahsedilen_semboller,
         }
 
     @staticmethod

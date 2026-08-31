@@ -795,6 +795,10 @@ class MarketResearchAgent(BaseAgent):
                 "live_data": canli_veri,
                 "confidence": guven,
                 "mode": mode,
+                # Katalogla dogrulanmis sembol (bkz. `_sembolu_katalogdan_coz`) -
+                # orchestrator bunu "mentioned_assets" SSE olayina tasir, frontend
+                # sohbet cevabinin altinda varlik karti gostermek icin kullanir.
+                "symbol": task.get("symbol"),
             },
             # Reducer'li alan: yalnizca bu turda bulunan kaynaklar eklenir.
             "sources": kaynaklar,

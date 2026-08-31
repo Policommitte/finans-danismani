@@ -1,14 +1,17 @@
 import type { ReactNode } from "react";
 import type { ChatMessage } from "../../models/chat";
 import { AgentErrorNotice } from "./AgentErrorNotice";
+import { MentionedAssetCard } from "./MentionedAssetCard";
 import { SourceList } from "./SourceList";
 
 export function MessageList({
   messages,
   emptyState = "Portföyün, piyasa verileri veya risk durumun hakkında soru sorabilirsin.",
+  onSelectAsset,
 }: {
   messages: ChatMessage[];
   emptyState?: ReactNode;
+  onSelectAsset?: (symbol: string) => void;
 }) {
   return (
     <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -56,6 +59,9 @@ export function MessageList({
           <div className="whitespace-pre-wrap">{message.content || "..."}</div>
           {message.role === "assistant" && <SourceList sources={message.sources ?? []} />}
           {message.role === "assistant" && <AgentErrorNotice errors={message.agent_errors ?? []} />}
+          {message.role === "assistant" && onSelectAsset && (
+            <MentionedAssetCard symbols={message.mentioned_assets ?? []} onOpenAsset={onSelectAsset} />
+          )}
         </div>
       ))}
     </div>

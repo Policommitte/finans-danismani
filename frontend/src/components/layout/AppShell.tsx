@@ -148,6 +148,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   ? "Soru sormadan önce giriş yapmalısınız."
                   : "You need to log in before asking a question."
               }
+              onSelectAsset={setSelectedSymbol}
             />
           )}
         </>

@@ -57,11 +57,16 @@ export function ChatWidget({
   blockedMessage = "Soru sormadan önce giriş yapmalısınız.",
   open: controlledOpen,
   onOpenChange,
+  onSelectAsset,
 }: {
   canSend?: boolean;
   blockedMessage?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Cevapta bahsedilen varlik kartina tiklandiginda cagrilir - AppShell bunu
+   * MarketTicker'in kullandigi AYNI `selectedSymbol` state'ine baglar, boylece
+   * ayni AssetSummaryModal mekanizmasi calisir. */
+  onSelectAsset?: (symbol: string) => void;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -314,6 +319,7 @@ export function ChatWidget({
           {chat.error && <div className="app-danger-box px-4 py-2 text-xs">{chat.error}</div>}
           <MessageList
             messages={messages}
+            onSelectAsset={onSelectAsset}
             emptyState={
               canSend ? undefined : (
                 <Link href="/login" className="font-semibold text-[var(--color-primary)] underline-offset-4 hover:underline">

@@ -51,6 +51,7 @@ export function useChatStream() {
     let assistantText = "";
     let sources: Source[] = [];
     let agentErrors: AgentError[] = [];
+    let mentionedAssets: string[] = [];
 
     setMessages((current) => [
       ...current,
@@ -99,6 +100,7 @@ export function useChatStream() {
         }
 
         if (event.type === "done") {
+          mentionedAssets = event.mentioned_assets ?? [];
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantId
@@ -108,6 +110,7 @@ export function useChatStream() {
                     sources,
                     agent_errors: agentErrors,
                     message_id: event.message_id,
+                    mentioned_assets: mentionedAssets,
                   }
                 : message,
             ),

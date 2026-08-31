@@ -50,6 +50,8 @@ export type ChatMessage = {
   agent_errors?: AgentError[];
   message_id?: number;
   attachment?: ChatMessageAttachment;
+  /** Cevapta bahsedilen (katalogla dogrulanmis) varlik sembolleri - orn. ["TUPRS"]. */
+  mentioned_assets?: string[];
 };
 
 export type ChatRequest = {
@@ -65,4 +67,4 @@ export type ChatEvent =
   | { type: "token"; content: string }
   | { type: "agent_error"; agent: string; error_type: AgentError["error_type"]; message?: string }
   | { type: "error"; code: string; message: string }
-  | { type: "done"; message_id?: number; latency_ms: number };
+  | { type: "done"; message_id?: number; latency_ms: number; mentioned_assets?: string[] };
