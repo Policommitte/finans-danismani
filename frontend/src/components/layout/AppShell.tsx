@@ -19,6 +19,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const { language } = useLanguage();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
+  const isRegister = pathname === "/register";
   const isAdvisorLogin = pathname === "/danisman-giris";
   const isLanding = pathname === "/";
   // Yarışma ekranında piyasa şeridi ve sohbet gizlenir:
@@ -32,6 +33,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isWidePage = pathname === "/danisman";
   const isPublic = isLanding || isLogin || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
+  const [isGameFocused, setIsGameFocused] = useState(false);
+  // Sidebar/footer SADECE gerçek yarışma (soru-cevap) sırasında gizlenir,
+  // kayıt/bekleme/çalışma notu ekranlarında görünür kalır.
+  const isFocusedGame = isGame && isGameFocused;
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
   //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
   //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
@@ -106,6 +112,26 @@ function AppShellContent({ children }: { children: ReactNode }) {
       requestPageTransition("/dashboard", true);
     }
   }, [onboardingActive, isLanding]);
+    useEffect(() => {
+    if (onboardingActive && isLanding) {
+      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
+      // olmasi icin kullaniciyi dashboard'a tasiriz.
+      requestPageTransition("/dashboard", true);
+    }
+  }, [onboardingActive, isLanding]);
+
+  useEffect(() => {
+    function handleGameFocus(e: Event) {
+      setIsGameFocused(Boolean((e as CustomEvent<boolean>).detail));
+    }
+    window.addEventListener("polifin-game-focus", handleGameFocus);
+    return () => window.removeEventListener("polifin-game-focus", handleGameFocus);
+  }, []);
+
+  // Sayfa değişince (oyun sayfasından ayrılınca) sıfırla, takılı kalmasın.
+  useEffect(() => {
+    if (!isGame) setIsGameFocused(false);
+  }, [isGame, pathname]);
 
   useEffect(() => {
     if (!auth.loading && auth.user && pathname === "/danisman" && auth.user.role !== "advisor") {
@@ -113,11 +139,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
     }
   }, [auth.loading, auth.user, pathname, router]);
 
-  if (isLogin || isAdvisorLogin) {
+  if (isLogin || isRegister || isAdvisorLogin) {
     return children;
   }
 
   return (
+
+  
+
+  
     <div className="min-h-screen app-bg">
       {!isGame && (
         <MarketTicker
@@ -133,11 +163,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
         </>
       ) : (
         <>
-          <Sidebar />
+          {!isFocusedGame && <Sidebar />}
           <div
-            className={`ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${
-              isGame ? "pt-8" : "pt-20"
-            }`}
+            className={
+              isFocusedGame
+                ? "flex min-h-screen w-full flex-col pt-4"
+                : `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+            }
           >
             <main
               className={`mx-auto w-full flex-1 px-4 py-8 ${
@@ -156,6 +188,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   ? "Soru sormadan önce giriş yapmalısınız."
                   : "You need to log in before asking a question."
               }
+              onSelectAsset={setSelectedSymbol}
             />
           )}
         </>

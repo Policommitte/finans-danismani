@@ -183,7 +183,14 @@ function LoginPageContent() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-6 flex items-center justify-center gap-3 text-center">
+            <Link
+              href="/register"
+              className="text-xs font-medium text-slate-500 transition hover:text-slate-700"
+            >
+              Hesabınız yok mu? Kayıt olun
+            </Link>
+            <span className="text-xs text-slate-700">·</span>
             <Link
               href="/danisman-giris"
               className="text-xs font-medium text-slate-500 transition hover:text-slate-700"

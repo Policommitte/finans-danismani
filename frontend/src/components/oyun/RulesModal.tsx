@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { CONFIG } from "../../models/oyun";
 
 type Props = {
   open: boolean;
@@ -26,8 +27,8 @@ const RULES: { title: { tr: string; en: string }; body: { tr: string; en: string
   {
     title: { tr: "Sorular ve süre", en: "Questions and timing" },
     body: {
-      tr: "10 soru sorulur, her soru için 15 saniye verilir. Sorular tüm katılımcılara aynı anda gösterilir. Cevap onaylandıktan sonra değiştirilemez.",
-      en: "10 questions are asked, with 15 seconds given for each. Questions are shown to all participants at the same time. An answer cannot be changed once confirmed.",
+      tr: `${CONFIG.questionCount} soru sorulur, her soru için ${CONFIG.questionSeconds} saniye verilir. Sorular tüm katılımcılara aynı anda gösterilir. Cevap onaylandıktan sonra değiştirilemez.`,
+      en: `${CONFIG.questionCount} questions are asked, with ${CONFIG.questionSeconds} seconds given for each. Questions are shown to all participants at the same time. An answer cannot be changed once confirmed.`,
     },
   },
   {

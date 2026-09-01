@@ -3,111 +3,221 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CONFIG,
+  buildRivalsCurve,
   buildShares,
-  prepareQuestions,
-  scoreFor,
+  pickTargetWinners,
   type GameResult,
-  type PreparedQuestion,
+  type LocalizedText,
 } from "../models/oyun";
+import type { ContestQuestionApi } from "../models/contestApi";
+import {
+  fiftyFiftyContest,
+  finishParticipation,
+  startParticipation,
+  submitContestAnswer,
+} from "../services/contestService";
 import type { SoundKind } from "./useSoundEffects";
 import { useLanguage } from "../contexts/LanguageContext";
 
-/** Kullanıcının elindeki jokerler */
 export type Powerups = {
-  timeShield: number; // +10 saniye
-  fiftyFifty: number; // iki yanlış şıkkı eler
+  doublePoints: number;
+  fiftyFifty: number;
 };
 
-/** Sorunun içinde bulunduğu aşama */
 export type QuizPhase =
-  | "curtain" // "Soru N" perdesi
-  | "asking" // süre işliyor, cevap bekleniyor
-  | "revealed"; // cevap verildi, doğru gösteriliyor
+  | "loading" // katılım kaydı + soru listesi backend'den geliyor
+  | "curtain" // "Soru N" + görünür geri sayım, HER soruda
+  | "reading" // soru metni görünür, şıklar YOK
+  | "asking" // şıklar görünür, cevap süresi işliyor
+  | "locked" // cevap gönderildi (onaylanarak ya da süre dolarak) — sunucu
+  //          sonucu VE süre bitişi ikisi de beklenir
+  | "revealed"; // sonuç açıklandı
 
 export type MascotMood = "idle" | "hurry" | "happy" | "sad";
 
-const CURTAIN_MS = 900;
+const CURTAIN_SECONDS = 6;
+const READING_SECONDS = 2;
+
+/** Sunucudan gelen cevap sonucu — `correctIndex`/`educationNote` ancak
+ * cevap gönderildikten SONRA bilinir, bu yüzden soru yüklenirken değil,
+ * burada state'e girer. Ağ hatasında `correctIndex: null` ile devam edilir
+ * (doğru şık vurgulanmaz, ama oyun akışı tıkanmaz). */
+type LocalAnswerResult = {
+  isCorrect: boolean;
+  pointsEarned: number;
+  correctIndex: number | null;
+  educationNote: LocalizedText | null;
+};
+
+/** Backend'den gelen ham soruyu güncel dile göre görüntülenecek hale getirir.
+ * BİLEREK doğru şık/eğitim notu YOK — hile önleme, bkz. backend
+ * `ContestQuestion` şeması. */
+type LiveQuestion = {
+  contestQuestionId: number;
+  text: string;
+  options: string[];
+  timerSeconds: number;
+};
+
+function toLiveQuestion(raw: ContestQuestionApi, lang: "tr" | "en"): LiveQuestion {
+  return {
+    contestQuestionId: raw.contest_question_id,
+    text: raw.text[lang],
+    options: raw.options.map((o) => o[lang]),
+    timerSeconds: raw.timer_seconds,
+  };
+}
 
 type Args = {
-  /** Yarışmaya kayıt olan kişi sayısı — rakip sayacının başlangıcı */
   registeredCount: number;
   powerups: Powerups;
   onUsePowerup: (kind: keyof Powerups) => void;
   onWin: (result: GameResult) => void;
   onLose: (result: GameResult) => void;
+  /** Katılım başlatılamazsa (ör. bugünkü hak zaten kullanılmış, kontenjan
+   * dolu) çağrılır — ekran "quiz" fazında asılı kalmasın diye. */
+  onStartError: (message: string) => void;
   playSound?: (kind: SoundKind) => void;
 };
 
 export function useQuiz({
- registeredCount,
+  registeredCount,
   powerups,
   onUsePowerup,
   onWin,
   onLose,
+  onStartError,
   playSound,
 }: Args) {
   const { language } = useLanguage();
-  const [questions] = useState<PreparedQuestion[]>(() => prepareQuestions(language));
+
+  const [participationId, setParticipationId] = useState<number | null>(null);
+  const [rawQuestions, setRawQuestions] = useState<ContestQuestionApi[] | null>(null);
+  const [networkError, setNetworkError] = useState<string | null>(null);
+
   const [index, setIndex] = useState(0);
-  const [phase, setPhase] = useState<QuizPhase>("curtain");
+  const [phase, setPhase] = useState<QuizPhase>("loading");
   const [selected, setSelected] = useState<number | null>(null);
   const [score, setScore] = useState(0);
   const [gained, setGained] = useState<number | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
+  const [answerResult, setAnswerResult] = useState<LocalAnswerResult | null>(null);
 
   const [limit, setLimit] = useState<number>(CONFIG.questionSeconds);
   const [timeLeft, setTimeLeft] = useState<number>(CONFIG.questionSeconds);
+  const [curtainLeft, setCurtainLeft] = useState<number>(CURTAIN_SECONDS);
+  const [readLeft, setReadLeft] = useState<number>(READING_SECONDS);
+
   const [shares, setShares] = useState<number[]>([]);
-  const [removed, setRemoved] = useState<number[]>([]); // 50/50 ile elenen şıklar
+  const [removed, setRemoved] = useState<number[]>([]);
   const [rivals, setRivals] = useState(registeredCount);
   const [mood, setMood] = useState<MascotMood>("idle");
   const [timedOut, setTimedOut] = useState(false);
 
-  // Bu soruda joker kullanıldı mı
-  const [shieldUsed, setShieldUsed] = useState(false);
+  const [doublePointsUsed, setDoublePointsUsed] = useState(false);
+  const [doublePointsActive, setDoublePointsActive] = useState(false);
   const [fiftyUsed, setFiftyUsed] = useState(false);
 
   const startedAt = useRef<number>(0);
-  const prevShares = useRef<number>(100); // önceki sorunun doğru cevap oranı
-  const question = questions[index];
-  const isLast = index === questions.length - 1;
+  const startedRef = useRef(false);
+  const totalSteps = CONFIG.questionCount;
+  const question = rawQuestions ? toLiveQuestion(rawQuestions[index], language) : undefined;
+  const isLast = index === totalSteps - 1;
 
-  /* ── Soru hazırlığı: perde → soru ── */
+  // Yarışma başında BİR KEZ hesaplanan hedef kazanan sayısı (100-500) ve bu
+  // hedefe inen tam rakip eğrisi — "kaç kişi yarışta" ve şıkların "% doğru
+  // bildi" değeri hep BU eğriden türer. BİLEREK simüle: gerçek rakip verisi
+  // yok, bkz. backend `ContestRepository` docstring'i.
+  const [targetWinners] = useState<number>(() => pickTargetWinners());
+  const [rivalsCurve] = useState<number[]>(() =>
+    buildRivalsCurve(registeredCount, targetWinners, totalSteps)
+  );
+
+  /* ── Katılımı başlat: soru listesini (doğru cevap OLMADAN) backend'den al ──
+     `startParticipation` idempotent DEĞİL — günlük katılım hakkını TÜKETİR.
+     React'ın geliştirme modunda efektleri iki kez çalıştırması (StrictMode)
+     bu çağrıyı iki kez ateşlerse ikincisi haklı olarak 422 döner ve yanlışlıkla
+     hataymış gibi görünür. `startedRef` ile TEK seferliğini garanti ediyoruz -
+     cleanup'ta SIFIRLANMAZ, aksi halde ikinci StrictMode denemesi de gerçek
+     bir çağrı sayılırdı. */
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    startParticipation()
+      .then((data) => {
+        setParticipationId(data.participation_id);
+        setRawQuestions(data.questions);
+        setPhase("curtain");
+      })
+      .catch((exc) => {
+        onStartError(exc instanceof Error ? exc.message : "Yarışma başlatılamadı.");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── Soru hazırlığı: ortak state sıfırlaması (phase ayrı yerde ayarlanır) ── */
   useEffect(() => {
     if (!question) return;
 
-    setPhase("curtain");
     setSelected(null);
     setGained(null);
     setRemoved([]);
-    setShieldUsed(false);
+    setDoublePointsUsed(false);
+    setDoublePointsActive(false);
     setFiftyUsed(false);
     setTimedOut(false);
+    setAnswerResult(null);
+    setShares([]);
     setMood("idle");
     setLimit(question.timerSeconds);
     setTimeLeft(question.timerSeconds);
-    const nextShares = buildShares(question.correctIndex);
-    setShares(nextShares);
+    setCurtainLeft(CURTAIN_SECONDS);
+    setReadLeft(READING_SECONDS);
 
-    // Bir önceki soruda doğru cevabı seçen oran kadar katılımcı hayatta kalır.
-    // Böylece gösterilen yüzde ile eleme sayısı tutarlı olur.
-    if (index > 0) {
-      const prevCorrectShare = prevShares.current;
-      setRivals((n) => Math.max(1, Math.round((n * prevCorrectShare) / 100)));
+    // Bu sorudan bir sonrakine geçerken rakip sayısının ne kadar azalacağı
+    // ÖNCEDEN hesaplanmış rivalsCurve'den gelir; ekranda gösterilen "% doğru
+    // bildi" (asıl hesap cevap açıklandığında yapılır, bkz. aşağıdaki
+    // answerResult efekti) bu oranın YANSIMASIdır.
+    setRivals(rivalsCurve[index]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, rawQuestions]);
+
+  /* ── Cevap açıklandığında (sunucudan sonuç geldiğinde) şık yüzdelerini
+     kur — doğru şık artık biliniyor, önceden kurulamazdı. ── */
+  useEffect(() => {
+    if (!answerResult || answerResult.correctIndex === null) return;
+    const survivalPercent = Math.round((rivalsCurve[index + 1] / rivalsCurve[index]) * 100);
+    setShares(buildShares(answerResult.correctIndex, survivalPercent));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answerResult]);
+
+  /* ── Perde: "Soru N" + görünür geri sayım, HER soruda ── */
+  useEffect(() => {
+    if (phase !== "curtain") return;
+    if (curtainLeft <= 0) {
+      setPhase("reading");
+      return;
     }
-    prevShares.current = nextShares[question.correctIndex];
+    const id = setTimeout(() => setCurtainLeft((n) => n - 1), 1000);
+    return () => clearTimeout(id);
+  }, [phase, curtainLeft]);
 
-    const id = setTimeout(() => {
+  /* ── Okuma fazı: soru görünür, şıklar yok ── */
+  useEffect(() => {
+    if (phase !== "reading") return;
+    if (readLeft <= 0) {
       setPhase("asking");
       startedAt.current = Date.now();
-    }, CURTAIN_MS);
-
+      return;
+    }
+    const id = setTimeout(() => setReadLeft((n) => n - 1), 1000);
     return () => clearTimeout(id);
-  }, [index, question]);
+  }, [phase, readLeft]);
 
-  /* ── Geri sayım ── */
+  /* ── Geri sayım — "asking" ve "locked" fazlarında çalışmaya devam eder ── */
   useEffect(() => {
-    if (phase !== "asking") return;
+    if (phase !== "asking" && phase !== "locked") return;
     if (timeLeft <= 0) return;
 
     const id = setTimeout(() => setTimeLeft((n) => n - 1), 1000);
@@ -116,57 +226,113 @@ export function useQuiz({
 
   /* ── Son 5 saniye uyarısı ── */
   useEffect(() => {
-    if (phase !== "asking") return;
+    if (phase !== "asking" && phase !== "locked") return;
     if (timeLeft <= 5 && timeLeft > 0) {
       setMood("hurry");
       playSound?.("tick");
     }
   }, [phase, timeLeft, playSound]);
-  
 
+  /* ── Süre asking'de dolduysa: hiç onaylanmadan cevabı (boş) sunucuya
+     bildir ve "locked"e geç — cevaplanmış/zaman aşımı ikisi de artık AYNI
+     bekleme fazından geçer (sunucu sonucu gelene kadar açıklanmaz). ── */
   useEffect(() => {
     if (phase !== "asking" || timeLeft > 0) return;
+    if (!question || participationId === null) return;
+
     setTimedOut(true);
     setMood("sad");
-    setPhase("revealed");
-  playSound?.("timeout");
-  }, [phase, timeLeft, playSound]);
-  /* ── Cevap sonrası: sonraki soru ya da bitiş ── */
-  useEffect(() => {
-    if (phase !== "revealed" || !question) return;
+    playSound?.("timeout");
+    setPhase("locked");
 
-    const wasCorrect = !timedOut && selected === question.correctIndex;
+    const elapsed = (Date.now() - startedAt.current) / 1000;
+    submitContestAnswer(participationId, {
+      contest_question_id: question.contestQuestionId,
+      selected_index: null,
+      elapsed_seconds: elapsed,
+      double_points_active: doublePointsActive,
+    })
+      .then((result) =>
+        setAnswerResult({
+          isCorrect: result.is_correct,
+          pointsEarned: result.points_earned,
+          correctIndex: result.correct_index,
+          educationNote: result.education_note,
+        })
+      )
+      .catch((exc) => {
+        setNetworkError(exc instanceof Error ? exc.message : "Cevap gönderilemedi.");
+        setAnswerResult({ isCorrect: false, pointsEarned: 0, correctIndex: null, educationNote: null });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, timeLeft]);
+
+  /* ── "locked" fazında süre de doldu VE sunucu sonucu da geldiyse: sonucu
+     AÇIĞA ÇIKAR. İki koşul birden — normal onaylamada süre zaten sunucudan
+     çok önce bitmez, zaman aşımında ise sunucu cevabı hemen gelir. ── */
+  useEffect(() => {
+    if (phase !== "locked" || timeLeft > 0 || !answerResult) return;
+
+    if (answerResult.isCorrect) {
+      setScore((s) => s + answerResult.pointsEarned);
+      setGained(answerResult.pointsEarned);
+      setCorrectCount((c) => c + 1);
+      setMood("happy");
+      playSound?.("correct");
+    } else {
+      setMood("sad");
+      playSound?.("wrong");
+    }
+    setPhase("revealed");
+  }, [phase, timeLeft, answerResult, playSound]);
+
+  /* ── Cevap sonrası: sonraki soru ya da bitiş ──
+     KRİTİK: index ve phase burada AYNI ANDA (aynı batch içinde) değişir,
+     böylece eski faz ile yeni soru metninin birlikte göründüğü "flash"
+     karesi hiç oluşmaz. */
+  useEffect(() => {
+    if (phase !== "revealed" || !question || participationId === null) return;
+
+    const wasCorrect = !timedOut && answerResult?.isCorrect === true;
 
     const id = setTimeout(() => {
       if (wasCorrect && !isLast) {
+        setCurtainLeft(CURTAIN_SECONDS);
+        setPhase("curtain");
         setIndex((i) => i + 1);
         return;
       }
 
-      const result: GameResult = {
-        won: wasCorrect && isLast,
-        score,
-        reached: index + 1,
-        correct: correctCount,
-        timedOut,
-        questionText: question.text,
-        correctAnswer: question.options[question.correctIndex],
-        educationNote: question.educationNote,
-      };
-
-      if (result.won) onWin(result);
-      else onLose(result);
+      // Yarışma bitti — final skor/doğru sayısı SUNUCUDAN gelir, yereldeki
+      // toplamlara güvenilmez. Ödül havuzunu bölen sayı ise BİLEREK gerçek
+      // katılımcı sayısı değil, bu oturumun simüle rakip eğrisinin (bkz.
+      // rivalsCurve) son değeri — "kaç kişi kazandı" zaten frontend'de
+      // simüle edildiği için ödül de AYNI sayıyla hesaplanmalı, yoksa az
+      // sayıda gerçek test kullanıcısıyla ödül gerçekçi olmayan şekilde şişer.
+      finishParticipation(participationId, { rivals_at_end: targetWinners })
+        .then((finishResult) => {
+          const result: GameResult = {
+            won: finishResult.won,
+            score: finishResult.final_score,
+            reached: finishResult.reached_question,
+            correct: finishResult.correct_count,
+            timedOut,
+            questionText: question.text,
+            correctAnswer:
+              answerResult?.correctIndex != null ? question.options[answerResult.correctIndex] : "",
+            educationNote: answerResult?.educationNote?.[language] ?? "",
+            rivalsAtEnd: finishResult.rivals_at_end,
+            payout: finishResult.payout_points,
+          };
+          if (result.won) onWin(result);
+          else onLose(result);
+        })
+        .catch((exc) => {
+          setNetworkError(exc instanceof Error ? exc.message : "Yarışma sonucu kaydedilemedi.");
+        });
     }, CONFIG.answerRevealMs);
 
     return () => clearTimeout(id);
-    //: Bilincli olarak SADECE `phase` izleniyor: bu efekt "revealed" fazina
-    //: GIRISTE bir kerelik bir zamanlayici kurar. question/selected/score/
-    //: correctCount/timedOut/isLast/onWin/onLose degerleri o an icin zaten
-    //: dogru (confirm() hepsini phase="revealed" ile AYNI batch'te set eder),
-    //: ve phase "revealed" kaldigi surece bir daha degismezler - bu yuzden
-    //: eksik-bagimlilik eslint uyarisi burada gecerli bir yeniden-calisma
-    //: riski isaret etmiyor. Tum bagimliliklari eklemek, her soru sonrasi
-    //: zamanlayiciyi gereksiz yere sifirlar/tekrar kurar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -176,62 +342,67 @@ export function useQuiz({
     (i: number) => {
       if (phase !== "asking" || removed.includes(i)) return;
       setSelected(i);
+      playSound?.("tick");
     },
-    [phase, removed]
+    [phase, removed, playSound]
   );
 
   const confirm = useCallback(() => {
-    if (phase !== "asking" || selected === null || !question) return;
+    if (phase !== "asking" || selected === null || !question || participationId === null) return;
 
     const elapsed = (Date.now() - startedAt.current) / 1000;
-    const correct = selected === question.correctIndex;
+    setPhase("locked");
 
-    if (correct) {
-      const points = scoreFor(elapsed, limit);
-      setScore((s) => s + points);
-      setGained(points);
-      setCorrectCount((c) => c + 1);
-      setMood("happy");
-      playSound?.("correct");
-    } else {
-      setMood("sad");
-      playSound?.("wrong");
-    }
-    setPhase("revealed");
-  
-  }, [phase, selected, question, limit, playSound]);
+    submitContestAnswer(participationId, {
+      contest_question_id: question.contestQuestionId,
+      selected_index: selected,
+      elapsed_seconds: elapsed,
+      double_points_active: doublePointsActive,
+    })
+      .then((result) =>
+        setAnswerResult({
+          isCorrect: result.is_correct,
+          pointsEarned: result.points_earned,
+          correctIndex: result.correct_index,
+          educationNote: result.education_note,
+        })
+      )
+      .catch((exc) => {
+        setNetworkError(exc instanceof Error ? exc.message : "Cevap gönderilemedi.");
+        setAnswerResult({ isCorrect: false, pointsEarned: 0, correctIndex: null, educationNote: null });
+      });
+  }, [phase, selected, question, participationId, doublePointsActive]);
 
-  /** Zaman kalkanı: süreyi 10 saniye uzatır */
-  const useTimeShield = useCallback(() => {
-    if (phase !== "asking" || shieldUsed || powerups.timeShield <= 0) return;
-    setShieldUsed(true);
-    setLimit((l) => l + 10);
-    setTimeLeft((t) => t + 10);
-    onUsePowerup("timeShield");
-  playSound?.("powerup");
-  }, [phase, shieldUsed, powerups.timeShield, onUsePowerup, playSound]);
+  const useDoublePoints = useCallback(() => {
+    if (phase !== "asking" || doublePointsUsed || powerups.doublePoints <= 0) return;
+    setDoublePointsUsed(true);
+    setDoublePointsActive(true);
+    onUsePowerup("doublePoints");
+    playSound?.("powerup");
+  }, [phase, doublePointsUsed, powerups.doublePoints, onUsePowerup, playSound]);
 
-  /** Çifte şans: iki yanlış şıkkı eler */
   const useFiftyFifty = useCallback(() => {
-    if (phase !== "asking" || fiftyUsed || powerups.fiftyFifty <= 0 || !question) return;
-
-    const wrong = question.options
-      .map((_, i) => i)
-      .filter((i) => i !== question.correctIndex)
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 2);
-
-    setRemoved(wrong);
-    if (selected !== null && wrong.includes(selected)) setSelected(null);
+    if (phase !== "asking" || fiftyUsed || powerups.fiftyFifty <= 0 || !question || participationId === null) {
+      return;
+    }
     setFiftyUsed(true);
     onUsePowerup("fiftyFifty");
-playSound?.("powerup");
-}, [phase, fiftyUsed, powerups.fiftyFifty, question, selected, onUsePowerup, playSound]);
+    playSound?.("powerup");
+
+    fiftyFiftyContest(participationId, question.contestQuestionId)
+      .then((result) => {
+        setRemoved(result.removed_indices);
+        setSelected((cur) => (cur !== null && result.removed_indices.includes(cur) ? null : cur));
+      })
+      .catch((exc) => {
+        setNetworkError(exc instanceof Error ? exc.message : "Joker kullanılamadı.");
+      });
+  }, [phase, fiftyUsed, powerups.fiftyFifty, question, participationId, onUsePowerup, playSound]);
 
   return {
     question,
     index,
-    total: questions.length,
+    total: totalSteps,
     phase,
     selected,
     score,
@@ -239,16 +410,21 @@ playSound?.("powerup");
     correctCount,
     timeLeft,
     limit,
+    curtainLeft,
+    readLeft,
     shares,
     removed,
     rivals,
     mood,
     timedOut,
-    shieldUsed,
+    doublePointsUsed,
+    doublePointsActive,
     fiftyUsed,
+    revealedCorrectIndex: answerResult?.correctIndex ?? null,
+    networkError,
     pick,
     confirm,
-    useTimeShield,
+    useDoublePoints,
     useFiftyFifty,
   };
 }

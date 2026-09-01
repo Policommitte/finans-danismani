@@ -112,6 +112,20 @@
 }
 .qz-gain { animation: qz-gain 1.1s ease-out forwards; }
 
+/* Dogru cevap - blob'un govdesinden basparmak-yukari el cikar (konfeti YERINE) */
+@keyframes qz-hand-wave {
+  0%   { opacity: 0; transform: translateX(-6px) rotate(-24deg) scale(0.65); }
+  24%  { opacity: 1; transform: translateX(34px) rotate(8deg) scale(1.08); }
+  38%  { transform: translateX(27px) rotate(-6deg) scale(1); }
+  50%  { transform: translateX(30px) rotate(2deg) scale(1); }
+  82%  { opacity: 1; transform: translateX(30px) rotate(0deg) scale(1); }
+  100% { opacity: 0; transform: translateX(-6px) rotate(-20deg) scale(0.68); }
+}
+.qz-hand {
+  animation: qz-hand-wave 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: 20% 78%;
+}
+
 /* Rakip sayac*/
 @keyframes rv-blink {
   0%, 100% { opacity: 1; }
@@ -124,6 +138,7 @@
   .qz-curtain,
   .qz-curtain span,
   .qz-gain,
+  .qz-hand,
   .rv-dot {
     animation: none !important;
   }
@@ -158,4 +173,51 @@
 
 .flip-card-back {
   transform: rotateY(180deg);
+}
+
+/* Bir şık seçildiğinde küçük bir "zıplama" animasyonu */
+@keyframes qz-pick-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+.qz-pick-bump {
+  animation: qz-pick-bump 0.25s ease-out;
+}
+
+/* Sonuç açıklanınca (doğru/yanlış) daha belirgin bir vurgu */
+@keyframes qz-reveal-pop {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(0,0,0,0); }
+  40% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+.qz-reveal-pop {
+  animation: qz-reveal-pop 0.4s ease-out;
+}
+
+/* Kazanma ekranı: konfeti düşme animasyonu */
+@keyframes qz-confetti-fall {
+  0% {
+    transform: translateY(-10px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(280px) rotate(540deg);
+    opacity: 0;
+  }
+}
+.qz-confetti {
+  animation-name: qz-confetti-fall;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+/* Ödül tutarı belirdiğinde hafif zıplama */
+@keyframes qz-payout-pop {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.qz-payout-pop {
+  animation: qz-payout-pop 0.6s ease-out;
 }

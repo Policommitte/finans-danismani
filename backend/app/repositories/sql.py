@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -58,7 +59,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, onboarding_completed, role
+                   risk_tolerance, monthly_income, onboarding_completed, role,
+                   tckn_last4, birth_date, phone_number
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -68,22 +70,40 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
-                   onboarding_completed, role
+                   onboarding_completed, role, tckn_last4, birth_date, phone_number
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
         )
 
-    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
+        return await self._row(
+            "SELECT id, email FROM users WHERE tckn_hash = :tckn_hash",
+            {"tckn_hash": tckn_hash},
+        )
+
+    async def create(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password_hash: str,
+        tckn_hash: str,
+        tckn_last4: str,
+        birth_date,
+        phone_number: str,
+    ) -> dict:
         async with self._session_factory() as session:
             result = await session.execute(
                 text(
                     """
                     INSERT INTO users
-                        (first_name, last_name, email, password_hash, onboarding_completed)
-                    VALUES (:first_name, :last_name, :email, :password_hash, false)
+                        (first_name, last_name, email, password_hash, onboarding_completed,
+                         tckn_hash, tckn_last4, birth_date, phone_number)
+                    VALUES (:first_name, :last_name, :email, :password_hash, false,
+                            :tckn_hash, :tckn_last4, :birth_date, :phone_number)
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed
+                              onboarding_completed, tckn_last4, birth_date, phone_number
                     """
                 ),
                 {
@@ -91,6 +111,10 @@ class SqlUserRepository(_SqlRepository):
                     "last_name": last_name,
                     "email": email,
                     "password_hash": password_hash,
+                    "tckn_hash": tckn_hash,
+                    "tckn_last4": tckn_last4,
+                    "birth_date": birth_date,
+                    "phone_number": phone_number,
                 },
             )
             row = result.mappings().one()
@@ -106,7 +130,7 @@ class SqlUserRepository(_SqlRepository):
                     SET risk_tolerance = :risk_tolerance, onboarding_completed = true
                     WHERE id = :user_id
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed
+                              onboarding_completed, tckn_last4, birth_date, phone_number
                     """
                 ),
                 {"user_id": user_id, "risk_tolerance": risk_tolerance},
@@ -2565,7 +2589,396 @@ class SqlLeadRepository(_SqlRepository):
         )
 
 
+class SqlEconomicCalendarRepository(_SqlRepository):
+    async def list_events(self, start: date, end: date) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT event_date, event_time, country, event_name, importance, source,
+                   expected, actual, previous
+            FROM economic_events
+            WHERE event_date BETWEEN :start AND :end
+            ORDER BY event_date
+            """,
+            {"start": start, "end": end},
+        )
+
+
 def _json(value: Any) -> str:
     import json
 
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+class SqlContestRepository(_SqlRepository):
+    """Sans Yatirimda oyunu (`db/v5_schema_and_data.sql` 7B bolumu).
+
+    Rakip simulasyonu (isim/skor/yuzde) icin sorgu YOK - bkz.
+    base.py::ContestRepository. `answer.is_correct` / `points_earned`
+    servis katmanindan HAZIR gelir, burada hesaplanmaz.
+    """
+
+    async def get_active_contest(self) -> dict | None:
+        return await self._row(
+            """
+            SELECT id, contest_date, starts_at, capacity_total,
+                   prize_pool_points, question_count, created_at
+            FROM contest
+            WHERE contest_date = CURRENT_DATE
+            """
+        )
+
+    async def get_contest_topics(self, contest_id: int) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT t.id, t.title_tr, t.title_en, t.body_tr, t.body_en
+            FROM contest_topic ct
+            JOIN topic t ON t.id = ct.topic_id
+            WHERE ct.contest_id = :contest_id
+            ORDER BY ct.sort_order
+            """,
+            {"contest_id": contest_id},
+        )
+
+    async def get_contest_questions(self, contest_id: int) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT cq.id AS contest_question_id, cq.sort_order,
+                   q.id, q.topic_id, q.text_tr, q.text_en, q.options,
+                   q.correct_index, q.education_note_tr, q.education_note_en,
+                   q.difficulty, q.timer_seconds
+            FROM contest_question cq
+            JOIN question q ON q.id = cq.question_id
+            WHERE cq.contest_id = :contest_id
+            ORDER BY cq.sort_order
+            """,
+            {"contest_id": contest_id},
+        )
+
+    async def has_agreement(self, user_id: int) -> bool:
+        row = await self._row(
+            "SELECT 1 AS x FROM contest_agreement WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
+        return row is not None
+
+    async def create_agreement(self, user_id: int) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO contest_agreement (user_id)
+                    VALUES (:user_id)
+                    ON CONFLICT (user_id) DO NOTHING
+                    """
+                ),
+                {"user_id": user_id},
+            )
+            await session.commit()
+
+    async def count_participants(self, contest_id: int) -> int:
+        row = await self._row(
+            "SELECT count(*) AS n FROM participation WHERE contest_id = :contest_id",
+            {"contest_id": contest_id},
+        )
+        return int(row["n"]) if row else 0
+
+    async def register_participation(self, contest_id: int, user_id: int) -> dict:
+        """`UNIQUE (user_id, contest_date)` kisitina dayanir - once-SELECT-sonra-
+        INSERT yerine `ON CONFLICT DO NOTHING RETURNING` kullanilir (bkz.
+        `claim_email_contact`'teki ayni desen); boylece iki es zamanli istek
+        arasinda yaris durumu (race condition) olmaz."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO participation (contest_id, user_id, contest_date)
+                    VALUES (:contest_id, :user_id, CURRENT_DATE)
+                    ON CONFLICT (user_id, contest_date) DO NOTHING
+                    RETURNING id, contest_id, user_id, contest_date, registered_at,
+                              eliminated_at_question, final_score, won
+                    """
+                ),
+                {"contest_id": contest_id, "user_id": user_id},
+            )
+            row = result.mappings().first()
+            await session.commit()
+            if row is None:
+                raise BusinessRuleError("Bugun icin katilim hakkini zaten kullandin.")
+            return dict(row)
+
+    async def get_participation(self, participation_id: int) -> dict | None:
+        return await self._row(
+            """
+            SELECT id, contest_id, user_id, contest_date, registered_at,
+                   eliminated_at_question, final_score, won
+            FROM participation
+            WHERE id = :participation_id
+            """,
+            {"participation_id": participation_id},
+        )
+
+    async def reset_todays_participation(self, user_id: int) -> None:
+        # `answer`/`payout` -> participation ON DELETE CASCADE (bkz. schema),
+        # tek DELETE ucu de siler.
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    (
+                        "DELETE FROM participation WHERE user_id = :user_id AND "
+                        "contest_date = CURRENT_DATE"
+                    )
+                ),
+                {"user_id": user_id},
+            )
+            await session.commit()
+
+    async def submit_answer(
+        self,
+        participation_id: int,
+        contest_question_id: int,
+        selected_index: int | None,
+        is_correct: bool,
+        points_earned: int,
+        elapsed_seconds: float,
+    ) -> dict:
+        # NOT: `answer` tablosunda `elapsed_seconds` kolonu yok (bkz. schema);
+        # servis bunu yalnizca `points_earned` hesabi icin kullanir, ayrica
+        # saklanmaz. Parametre yine de aliniyor ki Protocol iki implementasyonda
+        # da AYNI imzaya sahip olsun.
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    INSERT INTO answer (
+                        participation_id, contest_question_id, selected_index,
+                        is_correct, points_earned
+                    ) VALUES (
+                        :participation_id, :contest_question_id, :selected_index,
+                        :is_correct, :points_earned
+                    )
+                    RETURNING id, participation_id, contest_question_id, selected_index,
+                              is_correct, points_earned, answered_at
+                    """
+                ),
+                {
+                    "participation_id": participation_id,
+                    "contest_question_id": contest_question_id,
+                    "selected_index": selected_index,
+                    "is_correct": is_correct,
+                    "points_earned": points_earned,
+                },
+            )
+            row = result.mappings().one()
+            await session.commit()
+            return dict(row)
+
+    async def list_answers(self, participation_id: int) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT a.id, a.participation_id, a.contest_question_id, a.selected_index,
+                   a.is_correct, a.points_earned, a.answered_at
+            FROM answer a
+            JOIN contest_question cq ON cq.id = a.contest_question_id
+            WHERE a.participation_id = :participation_id
+            ORDER BY cq.sort_order
+            """,
+            {"participation_id": participation_id},
+        )
+
+    async def finalize_participation(
+        self,
+        participation_id: int,
+        won: bool,
+        final_score: int,
+        eliminated_at_question: int | None,
+    ) -> dict:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE participation
+                    SET won = :won, final_score = :final_score,
+                        eliminated_at_question = :eliminated_at_question
+                    WHERE id = :participation_id
+                    RETURNING id, contest_id, user_id, contest_date, registered_at,
+                              eliminated_at_question, final_score, won
+                    """
+                ),
+                {
+                    "participation_id": participation_id,
+                    "won": won,
+                    "final_score": final_score,
+                    "eliminated_at_question": eliminated_at_question,
+                },
+            )
+            row = result.mappings().first()
+            await session.commit()
+            if row is None:
+                raise NotFoundError("Katilim bulunamadi.")
+            return dict(row)
+
+    async def create_payout(self, participation_id: int, payout_points: int) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO payout (participation_id, points_awarded)
+                    VALUES (:participation_id, :points_awarded)
+                    ON CONFLICT (participation_id) DO NOTHING
+                    """
+                ),
+                {"participation_id": participation_id, "points_awarded": payout_points},
+            )
+            await session.commit()
+
+    async def get_leaderboard(self, period: str) -> list[dict]:
+        days = {"gunluk": 1, "haftalik": 7}.get(period)
+        return await self._rows(
+            """
+            SELECT row_number() OVER (ORDER BY p.final_score DESC) AS rank,
+                   u.first_name || ' ' || u.last_name AS label,
+                   p.final_score AS score
+            FROM participation p
+            JOIN users u ON u.id = p.user_id
+            WHERE CAST(:days AS INT) IS NULL
+               OR p.registered_at >= now() - make_interval(days => CAST(:days AS INT))
+            ORDER BY p.final_score DESC
+            LIMIT 50
+            """,
+            {"days": days},
+        )
+
+    async def list_participations(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT p.id, p.contest_id, p.user_id, p.contest_date, p.registered_at,
+                   p.eliminated_at_question, p.final_score, p.won,
+                   COALESCE(pay.points_awarded, 0) AS points_awarded
+            FROM participation p
+            LEFT JOIN payout pay ON pay.participation_id = p.id
+            WHERE p.user_id = :user_id
+            ORDER BY p.registered_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )
+
+    async def get_points_balance(self, user_id: int) -> int:
+        row = await self._row(
+            """
+            SELECT
+                COALESCE((
+                    SELECT sum(pay.points_awarded)
+                    FROM payout pay
+                    JOIN participation p ON p.id = pay.participation_id
+                    WHERE p.user_id = :user_id
+                ), 0)
+                - COALESCE((
+                    SELECT sum(price_points) FROM powerup_purchase WHERE user_id = :user_id
+                ), 0)
+                - COALESCE((
+                    SELECT sum(price_points) FROM donation_purchase WHERE user_id = :user_id
+                ), 0) AS balance
+            """,
+            {"user_id": user_id},
+        )
+        return int(row["balance"]) if row else 0
+
+    async def get_user_powerups(self, user_id: int) -> dict[str, int]:
+        rows = await self._rows(
+            "SELECT kind, quantity FROM user_powerup WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
+        return {row["kind"]: row["quantity"] for row in rows}
+
+    async def consume_powerup(self, user_id: int, kind: str) -> bool:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE user_powerup SET quantity = quantity - 1
+                    WHERE user_id = :user_id AND kind = :kind AND quantity > 0
+                    RETURNING id
+                    """
+                ),
+                {"user_id": user_id, "kind": kind},
+            )
+            row = result.first()
+            await session.commit()
+            return row is not None
+
+    async def record_powerup_purchase(self, user_id: int, kind: str, price_points: int) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO powerup_purchase (user_id, kind, price_points)
+                    VALUES (:user_id, :kind, :price_points)
+                    """
+                ),
+                {"user_id": user_id, "kind": kind, "price_points": price_points},
+            )
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO user_powerup (user_id, kind, quantity)
+                    VALUES (:user_id, :kind, 1)
+                    ON CONFLICT (user_id, kind) DO UPDATE SET
+                        quantity = user_powerup.quantity + 1
+                    """
+                ),
+                {"user_id": user_id, "kind": kind},
+            )
+            await session.commit()
+
+    async def list_powerup_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id, user_id, kind, price_points, purchased_at
+            FROM powerup_purchase
+            WHERE user_id = :user_id
+            ORDER BY purchased_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )
+
+    async def get_user_badges(self, user_id: int) -> list[str]:
+        rows = await self._rows(
+            "SELECT badge_label FROM donation_purchase WHERE user_id = :user_id",
+            {"user_id": user_id},
+        )
+        return [row["badge_label"] for row in rows]
+
+    async def record_donation_purchase(
+        self, user_id: int, donation_key: str, badge_label: str, price_points: int
+    ) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO donation_purchase (user_id, donation_key, badge_label, price_points)
+                    VALUES (:user_id, :donation_key, :badge_label, :price_points)
+                    ON CONFLICT (user_id, donation_key) DO NOTHING
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "donation_key": donation_key,
+                    "badge_label": badge_label,
+                    "price_points": price_points,
+                },
+            )
+            await session.commit()
+
+    async def list_donation_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id, user_id, donation_key, badge_label, price_points, purchased_at
+            FROM donation_purchase
+            WHERE user_id = :user_id
+            ORDER BY purchased_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )

@@ -9,7 +9,14 @@ from fastapi import APIRouter, status
 from app.auth.deps import CurrentUser
 from app.auth.security import TOKEN_TYPE, create_access_token, hash_password, verify_password
 from app.config import settings
-from app.core.errors import AuthenticationError, ConflictError
+from app.core.errors import (
+    AuthenticationError,
+    BusinessRuleError,
+    ConflictError,
+    ServiceUnavailableError,
+)
+from app.core.tckn import hash_tckn, tckn_checksum_valid
+from app.core.tckn import tckn_last4 as tckn_last4_of
 from app.repositories.deps import get_user_repository
 from app.schemas.auth import (
     LoginRequest,
@@ -18,6 +25,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from app.services.nvi import verify_identity
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -32,6 +40,9 @@ def _user_response(user: dict) -> UserResponse:
         monthly_income=float(user["monthly_income"]) if user.get("monthly_income") else None,
         onboarding_completed=user.get("onboarding_completed", True),
         role=user.get("role", "customer"),
+        tckn_last4=user.get("tckn_last4"),
+        birth_date=user.get("birth_date"),
+        phone_number=user.get("phone_number"),
     )
 
 
@@ -58,18 +69,47 @@ async def login(payload: LoginRequest) -> TokenResponse:
 async def register(payload: RegisterRequest) -> TokenResponse:
     """Yeni kullanici olusturur ve dogrudan giris yapar (otomatik login).
 
-    `onboarding_completed=false` ile baslar - AppShell bir sonraki yuklemede
-    zorunlu onboarding akisini (anket -> sepet -> tur) acar.
+    Kayittan once NVI'nin ucretsiz kimlik dogrulama servisiyle TC Kimlik No
+    + Ad + Soyad + Dogum Yili nufus kayitlariyla karsilastirilir - eslesmezse
+    kayit TAMAMLANMAZ (bkz. app/services/nvi.py). `onboarding_completed=false`
+    ile baslar - AppShell bir sonraki yuklemede zorunlu onboarding akisini
+    (anket -> sepet -> tur) acar.
     """
     repo = get_user_repository()
     if await repo.get_by_email(payload.email) is not None:
         raise ConflictError("Bu e-posta zaten kayitli.")
+
+    if not tckn_checksum_valid(payload.tckn):
+        raise BusinessRuleError("Girdiğiniz TC Kimlik Numarası geçersiz.")
+
+    tckn_hash = hash_tckn(payload.tckn)
+    if await repo.get_by_tckn_hash(tckn_hash) is not None:
+        raise ConflictError("Bu TC Kimlik Numarasi ile zaten bir hesap kayitli.")
+
+    dogrulandi = await verify_identity(
+        tckn=payload.tckn,
+        ad=payload.first_name,
+        soyad=payload.last_name,
+        dogum_yili=payload.birth_date.year,
+    )
+    if dogrulandi is None:
+        raise ServiceUnavailableError(
+            "Doğrulama servisine şu an ulaşılamıyor, lütfen birazdan tekrar deneyin."
+        )
+    if dogrulandi is False:
+        raise BusinessRuleError(
+            "Girdiğiniz bilgiler nüfus kayıtlarıyla eşleşmiyor, lütfen kontrol edin."
+        )
 
     user = await repo.create(
         first_name=payload.first_name,
         last_name=payload.last_name,
         email=payload.email,
         password_hash=hash_password(payload.password),
+        tckn_hash=tckn_hash,
+        tckn_last4=tckn_last4_of(payload.tckn),
+        birth_date=payload.birth_date,
+        phone_number=payload.phone_number,
     )
 
     return TokenResponse(

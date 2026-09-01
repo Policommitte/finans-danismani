@@ -1,8 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import type { AgentError, ChatMessage, Source } from "../models/chat";
+import type { PendingAttachment } from "../components/chat/AttachmentMenu";
+import type { AgentError, ChatAttachment, ChatMessage, Source } from "../models/chat";
 import { streamChat } from "../services/chatService";
+
+//: Ek varsa ama mesaj kutusu bosbiraktilarsa, dosya turune gore makul bir
+//: varsayilan soru - backend `ChatRequest.message` bos gecemez (min_length=1).
+const DEFAULT_ATTACHMENT_PROMPTS: Record<PendingAttachment["kind"], string> = {
+  image: "Bu görseli analiz et.",
+  file: "Bu dosyayı analiz et.",
+};
 
 export function useChatStream() {
   const [conversationId, setConversationId] = useState<number | null>(null);
@@ -11,21 +19,39 @@ export function useChatStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, pendingAttachment?: PendingAttachment) {
     const trimmed = content.trim();
-    if (!trimmed || isStreaming) {
+    if ((!trimmed && !pendingAttachment) || isStreaming) {
       return;
     }
+
+    const effectiveMessage = trimmed || (pendingAttachment ? DEFAULT_ATTACHMENT_PROMPTS[pendingAttachment.kind] : "");
+    const attachment: ChatAttachment | undefined = pendingAttachment
+      ? {
+          kind: pendingAttachment.kind,
+          filename: pendingAttachment.filename,
+          mime_type: pendingAttachment.mimeType,
+          data_base64: pendingAttachment.dataUrl.split(",")[1] ?? "",
+        }
+      : undefined;
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: trimmed,
+      content: effectiveMessage,
+      attachment: pendingAttachment
+        ? {
+            kind: pendingAttachment.kind,
+            filename: pendingAttachment.filename,
+            previewUrl: pendingAttachment.kind === "image" ? pendingAttachment.dataUrl : undefined,
+          }
+        : undefined,
     };
     const assistantId = crypto.randomUUID();
     let assistantText = "";
     let sources: Source[] = [];
     let agentErrors: AgentError[] = [];
+    let mentionedAssets: string[] = [];
 
     setMessages((current) => [
       ...current,
@@ -37,7 +63,7 @@ export function useChatStream() {
     setStatus("Gonderiliyor");
 
     try {
-      await streamChat({ message: trimmed, conversation_id: conversationId }, (event) => {
+      await streamChat({ message: effectiveMessage, conversation_id: conversationId, attachment }, (event) => {
         if (event.type === "meta") {
           setConversationId(event.conversation_id);
           setStatus("Baglandi");
@@ -74,6 +100,7 @@ export function useChatStream() {
         }
 
         if (event.type === "done") {
+          mentionedAssets = event.mentioned_assets ?? [];
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantId
@@ -83,6 +110,7 @@ export function useChatStream() {
                     sources,
                     agent_errors: agentErrors,
                     message_id: event.message_id,
+                    mentioned_assets: mentionedAssets,
                   }
                 : message,
             ),
