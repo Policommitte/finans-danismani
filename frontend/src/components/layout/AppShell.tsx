@@ -110,13 +110,24 @@ function AppShellContent({ children }: { children: ReactNode }) {
       requestPageTransition("/dashboard", true);
     }
   }, [onboardingActive, isLanding]);
-    useEffect(() => {
-    if (onboardingActive && isLanding) {
-      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
-      // olmasi icin kullaniciyi dashboard'a tasiriz.
+
+  //: Portfoyu olan (onboarding tamamlanmis) giris yapmis bir kullanici
+  //: anasayfada ("/") HIC gorunmemeli - dogrudan dashboard'a gitmeli (bug
+  //: raporu: "ana sayfa flash edip sonra yonlendiriliyor"). `auth.loading`
+  //: netlesene kadar durum belirsiz sayilir; bu pencerede ve yonlendirme
+  //: hedefliyken render'da `children` GOSTERILMEZ (asagida) - flash'i onleyen
+  //: asil kisim budur, useEffect'in kendisi degil (o zaten render SONRASI
+  //: calisir, tek basina flash'i onleyemez).
+  //: Onboarding tamamlanmamis kullanicilar (portfoyu HENUZ yok) bu kosula
+  //: girmez - onlar icin anasayfa/onboarding akisi eskisi gibi davranir.
+  const shouldSkipLandingContent =
+    isLanding && (auth.loading || Boolean(auth.user && auth.user.onboarding_completed === true));
+
+  useEffect(() => {
+    if (isLanding && !auth.loading && auth.user && auth.user.onboarding_completed === true) {
       requestPageTransition("/dashboard", true);
     }
-  }, [onboardingActive, isLanding]);
+  }, [isLanding, auth.loading, auth.user]);
 
   useEffect(() => {
     function handleGameFocus(e: Event) {
@@ -142,10 +153,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }
 
   return (
-
-  
-
-  
     <div className="min-h-screen app-bg">
       {!isGame && (
         <MarketTicker
@@ -155,10 +162,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
         />
       )}
       {isLanding ? (
-        <>
-          {children}
-          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" onStartTour={() => setTourOpen(true)} />
-        </>
+        shouldSkipLandingContent ? null : (
+          <>
+            {children}
+            <SiteFooter className="ml-24 w-[calc(100%-6rem)]" onStartTour={() => setTourOpen(true)} />
+          </>
+        )
       ) : (
         <>
           {!isFocusedGame && <Sidebar />}
