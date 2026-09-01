@@ -2090,6 +2090,18 @@ class SqlRagRepository(_SqlRepository):
     BM25 sorgusunda `plainto_tsquery`'nin AND davranisi OR'a cevrilir: dogal
     dildeki bir sorunun TUM kelimelerinin ayni chunk'ta gecmesi neredeyse
     imkansizdir; cevrilmezse arama sessizce bos doner (db/README.md).
+
+    ALAKA ESIGI (`settings.rag_min_similarity`)
+    -------------------------------------------
+    OR'lama aramayi calisir kilar ama BEDELI vardir: tek bir genel kelime
+    ("sektor") alakasiz dokumanlari aday havuzuna sokar. Donen `score` bunu
+    ayiklamaya YETMEZ - RRF rank tabanlidir, 1. sira alakasiz olsa da ayni
+    degeri alir. Bu yuzden `hybrid_search()` ayrica gercek kosinus benzerligini
+    (`cos_sim`) doner ve esigin altindakileri `rag.hybrid_search`'un ICINDE,
+    `LIMIT`ten ONCE eler.
+
+    Esik YALNIZCA bu yolda islenir; `search()` (BM25) yolunda karsilastirilacak
+    vektor olmadigi icin uygulanamaz.
     """
 
     def __init__(
@@ -2196,11 +2208,17 @@ class SqlRagRepository(_SqlRepository):
         # gonderir ve Postgres fonksiyon overload'unu bulamaz (bkz. embedding
         # pipeline oturum notlari, 2026-08-19/20 - ayni hata local'de
         # `rag.hybrid_search`'u dogrudan cagirirken de yasanmisti).
+        # ASGARI BENZERLIK ESIGI: `0` kapali demektir ve SQL tarafina NULL gider
+        # (fonksiyon NULL'da hicbir satir elemez). Esik SQL'in ICINDE, `LIMIT`ten
+        # ONCE uygulanir - Python'da sonradan filtrelemek `top_k` satirin bir
+        # kismini silip geriye cok az sonuc birakirdi; SQL'de elenenlerin yeri
+        # aday havuzunun derinliginden dolar.
+        esik = settings.rag_min_similarity
         return await self._rows(
             """
             SELECT hs.chunk_id, d.external_id AS doc_id, hs.baslik, hs.sirket,
                    a.symbol, to_char(hs.tarih, 'YYYY-MM-DD') AS tarih, hs.tip,
-                   hs.content, hs.score
+                   hs.content, hs.score, hs.cos_sim
             FROM rag.hybrid_search(
                      p_query     => CAST(:query AS TEXT),
                      p_embedding => CAST(:embedding AS vector),
@@ -2208,7 +2226,8 @@ class SqlRagRepository(_SqlRepository):
                      p_sirket    => CAST(:sirket AS TEXT),
                      p_tip       => CAST(:tip AS TEXT),
                      p_date_from => CAST(:date_from AS DATE),
-                     p_date_to   => CAST(:date_to AS DATE)
+                     p_date_to   => CAST(:date_to AS DATE),
+                     p_min_cos   => CAST(:min_cos AS DOUBLE PRECISION)
                  ) hs
             JOIN rag.documents d ON d.id = hs.document_id
             LEFT JOIN assets a   ON a.id = d.asset_id
@@ -2222,6 +2241,7 @@ class SqlRagRepository(_SqlRepository):
                 "tip": tip,
                 "date_from": date_from,
                 "date_to": date_to,
+                "min_cos": esik if esik > 0 else None,
             },
         )
 

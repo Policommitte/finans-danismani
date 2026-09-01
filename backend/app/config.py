@@ -85,6 +85,70 @@ class Settings(BaseSettings):
     #: sessizce BM25'e (`SqlRagRepository.search`) duser - istek asla coker.
     rag_query_embedding_timeout_seconds: float = 3.0
 
+    #: Bir chunk'in kaynak olarak GOSTERILEBILMESI icin gereken asgari kosinus
+    #: benzerligi. `0` = filtre kapali (eski davranis).
+    #:
+    #: NEDEN GEREKLI: `rag.hybrid_search`'un dondurdugu `score` RRF'tir ve RANK
+    #: tabanlidir - 1. sira her zaman 1/(60+1) eder, sonuc alakasiz olsa bile.
+    #: Yani skor uzerinden "bu yeterince alakali mi?" sorusu YANITLANAMAZ. Esik
+    #: bu yuzden ayri bir kolona (`cos_sim`) dayanir.
+    #:
+    #: NE COZER: BM25 ayagi `plainto_tsquery`yi OR'ladigi icin tek bir genel
+    #: kelime ("sektor") alakasiz haberleri listeye sokuyordu - "bankacilik
+    #: sektorundeki haberleri ozetle" sorgusu insaat/istihdam haberlerini kaynak
+    #: gosteriyordu. Esik bunlari LLM'e gitmeden ve kullaniciya kaynak olarak
+    #: gorunmeden eler.
+    #:
+    #: ⚠️ EMBEDDER YOKSA ETKISIZDIR. EMBEDDING_API_KEY/EMBEDDING_MODEL tanimli
+    #: degilse arama saf BM25'e duser (`SqlRagRepository.search`), orada
+    #: karsilastirilacak vektor yoktur ve esik UYGULANMAZ.
+    #:
+    #: ⚠️ DEGER KALIBRASYON ISTER. 0.30, CANLI indekste olculerek secildi
+    #: (234 dokuman / 917 chunk; sorgu: "havacilik sektoruyle ilgili haberleri
+    #: getir"; 20 aday). Gercek sorgu->dokuman dagilimi:
+    #:
+    #:     Baykar ihracat (havacilik) ....... 0.370   <- ILGILI
+    #:     Vergi haberi / havacilik chunk'i . 0.360   <- ILGILI (bkz. asagisi)
+    #:     Turk savunma sanayisi ............ 0.328   <- ILGILI
+    #:     "5 yildir zirve degismedi" ....... 0.314   <- sinirda
+    #:     Bulgaristan maaslar .............. 0.282   <- alakasiz
+    #:     Ucretli calisan sayisi ........... 0.272   <- alakasiz
+    #:     Havalimani kapasitesi ............ 0.271   <- ILGILI ama DUSUK
+    #:     Insaat sektoru ................... 0.261   <- alakasiz
+    #:
+    #: ⚠️ TEMIZ BIR AYRIM YOK. Dagilim 0.249-0.370'e sikismis ve kumeler
+    #: ORTUSUYOR: dogrudan havalimani haberi (0.271) alakasiz bir maas
+    #: haberinin (0.282) ALTINDA kaliyor. 0.30 acikca alakasiz olanlari keser
+    #: ama havalimani haberini de kaybeder - bu bir DENGE, cozum degil. Kalici
+    #: iyilesme esikten degil, retrieval kalitesinden gelir.
+    #:
+    #: ⚠️ BASLIK CHUNK'I TEMSIL ETMEZ. Yukaridaki "vergi haberi" aslinda
+    #: alakalidir: eslesen chunk "Savunma ve havacilik sektorunde son 5 yilin
+    #: ihracat lideri olan Baykar..." metnini tasiyor. Eslesme CHUNK bazinda
+    #: olurken kaynak kartinda DOKUMAN basligi gosteriliyor; bu yuzden dogru
+    #: sonuclar alakasiz gorunebiliyor (bkz. `_to_source`).
+    #:
+    #: ⚠️ ONCEKI DEGER 0.40 YANLISTI. Seed verideki DOKUMAN-DOKUMAN benzerligiyle
+    #: secilmisti (orada tepe 1.0 idi). Gercek sorgular Cohere'e
+    #: `input_type="search_query"` ile gider ve dokuman vektorleriyle ASIMETRIK
+    #: eslesir; skorlar sistematik olarak cok daha dusuktur. 0.40 canlida
+    #: HICBIR sonucun gecmemesine yol acti ("haber bulunamadi").
+    #:
+    #: YENIDEN OLCMEK ICIN: `RAG_MIN_SIMILARITY=0` yapip sorguyu calistirin ve
+    #: `market_research._alaka_skorlarini_logla` satirina bakin - butun adaylar
+    #: gercek skorlariyla gorunur. `RAG_TOP_K` ile aday havuzunu genisletin.
+    rag_min_similarity: float = 0.30
+
+    #: `rag_search`'un dondurecegi chunk sayisi. AYNI ANDA IKI ISI birden yapar
+    #: (bkz. `rag.hybrid_search`): aday havuzu `top_k * 4` genisliginde acilir,
+    #: nihai `LIMIT` ise `top_k`'dir. Yani buyutmek hem daha genis arama hem
+    #: daha cok kaynak demektir.
+    #:
+    #: TESHIS ICIN GECICI OLARAK BUYUTUN: `_alaka_skorlarini_logla` yalnizca
+    #: nihai satirlari gorebilir; bir dokumanin havuza girip girmedigini
+    #: anlamak icin `RAG_TOP_K=20` yapip logdaki `cos_sim` dagilimina bakin.
+    rag_top_k: int = 5
+
     # --- LLM ------------------------------------------------------------
     # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
     # degilse ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) -
