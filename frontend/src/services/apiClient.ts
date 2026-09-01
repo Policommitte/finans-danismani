@@ -5,6 +5,8 @@ type RequestOptions = RequestInit & {
   auth?: boolean;
 };
 
+const GET_RETRY_DELAYS_MS = [300, 900];
+
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") {
     return null;
@@ -24,6 +26,25 @@ export function getApiUrl(path: string): string {
   return `${API_BASE_URL}${path}`;
 }
 
+async function fetchWithNetworkRetry(url: string, options: RequestInit): Promise<Response> {
+  const method = (options.method ?? "GET").toUpperCase();
+  const retryDelays = method === "GET" ? GET_RETRY_DELAYS_MS : [];
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      if (options.signal?.aborted || attempt >= retryDelays.length) {
+        throw error;
+      }
+
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, retryDelays[attempt]);
+      });
+    }
+  }
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const token = getAccessToken();
   const headers = new Headers(options.headers);
@@ -36,7 +57,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(getApiUrl(path), {
+  const response = await fetchWithNetworkRetry(getApiUrl(path), {
     ...options,
     headers,
   });

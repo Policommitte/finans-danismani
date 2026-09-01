@@ -29,6 +29,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isSupportPage = pathname === "/destek";
   const isPublic =
     isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
+  const showHomeNavigation = !auth.user && !auth.hasToken;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
@@ -109,13 +110,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
       requestPageTransition("/dashboard", true);
     }
   }, [onboardingActive, isLanding]);
-    useEffect(() => {
-    if (onboardingActive && isLanding) {
-      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
-      // olmasi icin kullaniciyi dashboard'a tasiriz.
-      requestPageTransition("/dashboard", true);
-    }
-  }, [onboardingActive, isLanding]);
 
   useEffect(() => {
     function handleGameFocus(e: Event) {
@@ -160,7 +154,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         </>
       ) : (
         <>
-          {!isFocusedGame && <Sidebar />}
+          {!isFocusedGame && <Sidebar showHome={showHomeNavigation} />}
           <div
             className={
               isFocusedGame
@@ -172,10 +166,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
               className={
                 isFocusedGame
                   ? "mx-auto w-full max-w-5xl flex-1 px-4 py-4"
-                  : "mx-auto w-full max-w-7xl flex-1 px-4 py-8"
+                  : "relative w-full flex-1"
               }
             >
-              {children}
+              {isFocusedGame ? children : <div className="mx-auto w-full max-w-7xl px-4 py-8">{children}</div>}
             </main>
             {!isFocusedGame && <SiteFooter onStartTour={() => setTourOpen(true)} />}
           </div>
@@ -204,6 +198,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         open={tourOpen}
         onClose={() => setTourOpen(false)}
         storageKey={`polifin-product-tour-v1:${auth.user?.id ?? "guest"}`}
+        showHomeStep={showHomeNavigation}
       />
       {logoutNoticeName !== null ? (
         <div

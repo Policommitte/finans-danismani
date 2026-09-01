@@ -1366,6 +1366,32 @@ class InMemoryRecommendationRepository:
             )
         return sonuc
 
+    async def user_context(self, user_id: int) -> dict | None:
+        user = next((u for u in _USERS if int(u["id"]) == user_id), None)
+        portfolio = _default_portfolio(user_id)
+        if user is None or portfolio is None:
+            return None
+        hesap = next((c for c in _CASH_ACCOUNTS if c["portfolio_id"] == portfolio["id"]), None)
+        if hesap is None:
+            return None
+        limitler = await self.get_limits(user_id)
+        deger = sum(
+            float(h["quantity"])
+            * float(_asset(h["asset_id"])["current_price"])
+            * _fx_rate(_asset(h["asset_id"])["currency"])
+            for h in _PORTFOLIO_ASSETS
+            if h["portfolio_id"] == portfolio["id"]
+        )
+        return {
+            "user_id": user_id,
+            "risk_tolerance": user.get("risk_tolerance"),
+            "idle_balance_try": user.get("likit_para", 0),
+            "portfolio_id": portfolio["id"],
+            "available_balance": hesap["available_balance"],
+            "portfolio_value_try": deger,
+            "allowed_asset_classes": limitler["allowed_asset_classes"],
+        }
+
     async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
         return {
             int(h["asset_id"]): float(h["quantity"])

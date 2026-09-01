@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
 
@@ -93,6 +94,7 @@ function PinIcon() {
 
 export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
   const { language } = useLanguage();
+  const pathname = usePathname();
   const text = footerCopy[language];
   const [aboutOpen, setAboutOpen] = useState(false);
   //: `onStartTour` sunucuda da fonksiyon olarak gecer (props aninda ayni),
@@ -107,6 +109,10 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setAboutOpen(false);
+  }, [pathname]);
 
   function setAboutVisibility(nextOpen: boolean) {
     const anchorTop = footerRef.current?.getBoundingClientRect().top;

@@ -1638,12 +1638,16 @@ class SqlRecommendationRepository(_SqlRepository):
         return await self._rows(
             """
             SELECT a.id AS asset_id, a.symbol, a.name, ac.code AS asset_class,
-                   a.currency, a.current_price * fx.try_rate AS current_price,
+                   a.currency,
+                   CASE
+                       WHEN fx.try_rate IS NULL THEN a.current_price
+                       ELSE a.current_price * fx.try_rate
+                   END AS current_price,
                    a.daily_change_pct, a.weekly_change_pct, a.yearly_change_pct,
                    a.price_updated_at
             FROM assets a
             JOIN asset_categories ac ON ac.id = a.category_id
-            JOIN v_fx_rates fx ON fx.currency = a.currency
+            LEFT JOIN v_fx_rates fx ON fx.currency = a.currency
             ORDER BY a.id
             """
         )
@@ -1727,6 +1731,26 @@ class SqlRecommendationRepository(_SqlRepository):
             WHERE COALESCE(l.autonomous_enabled, true)
             ORDER BY u.id, p.is_default DESC, p.id
             """
+        )
+
+    async def user_context(self, user_id: int) -> dict | None:
+        return await self._row(
+            """
+            SELECT u.id AS user_id, u.risk_tolerance,
+                   COALESCE(u.likit_para, 0) AS idle_balance_try,
+                   p.id AS portfolio_id, ca.available_balance,
+                   COALESCE(vs.total_value_try, 0) AS portfolio_value_try,
+                   COALESCE(l.allowed_asset_classes, '[]'::jsonb) AS allowed_asset_classes
+            FROM users u
+            JOIN portfolios p ON p.user_id = u.id
+            JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+            LEFT JOIN user_trading_limits l ON l.user_id = u.id
+            LEFT JOIN v_portfolio_summary vs ON vs.portfolio_id = p.id
+            WHERE u.id = :user_id
+            ORDER BY p.is_default DESC, p.id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
         )
 
     async def holdings_map(self, portfolio_id: int) -> dict[int, float]:

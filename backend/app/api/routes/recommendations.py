@@ -9,6 +9,11 @@ from fastapi import APIRouter, Query
 
 from app.auth.deps import CurrentUser
 from app.repositories.deps import get_recommendation_repository
+from app.schemas.idle_cash import (
+    IdleCashBasketCatalog,
+    IdleCashSuggestion,
+    IdleCashSuggestionRequest,
+)
 from app.schemas.recommendation import (
     ApproveRequest,
     AutonomousSettings,
@@ -17,6 +22,10 @@ from app.schemas.recommendation import (
     RejectRequest,
 )
 from app.services import recommendation as service
+from app.services.idle_cash import (
+    idle_cash_basket_catalog_for_goal,
+    idle_cash_suggestion_for_goal,
+)
 
 router = APIRouter(prefix="/api/oneriler", tags=["oneriler"])
 
@@ -43,6 +52,22 @@ async def ayarlari_getir(user: CurrentUser) -> AutonomousSettings:
 async def ayarlari_guncelle(user: CurrentUser, payload: AutonomousSettings) -> AutonomousSettings:
     row = await get_recommendation_repository().upsert_limits(user["id"], payload.model_dump())
     return AutonomousSettings(**row)
+
+
+@router.post("/sepet", response_model=IdleCashSuggestion)
+async def sepet_onerisi(
+    user: CurrentUser, payload: IdleCashSuggestionRequest
+) -> IdleCashSuggestion:
+    """Atıl bakiye için risk profiline ve seçilen hedefe göre kurallı sepet."""
+    return await idle_cash_suggestion_for_goal(user["id"], payload.goal)
+
+
+@router.post("/sepetler", response_model=IdleCashBasketCatalog)
+async def sepet_alternatifleri(
+    user: CurrentUser, payload: IdleCashSuggestionRequest
+) -> IdleCashBasketCatalog:
+    """Seçilen hedef için atıl bakiyeye uygun farklı sepet alternatifleri."""
+    return await idle_cash_basket_catalog_for_goal(user["id"], payload.goal)
 
 
 @router.get("/{oneri_id}", response_model=Recommendation)

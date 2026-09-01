@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import type { PendingAttachment } from "../components/chat/AttachmentMenu";
-import type { AgentError, ChatAttachment, ChatMessage, Source } from "../models/chat";
+import type {
+  AgentError,
+  ChatAttachment,
+  ChatMessage,
+  IdleCashSuggestion,
+  Source,
+} from "../models/chat";
 import { streamChat } from "../services/chatService";
 
 //: Ek varsa ama mesaj kutusu bosbiraktilarsa, dosya turune gore makul bir
@@ -18,6 +24,7 @@ export function useChatStream() {
   const [status, setStatus] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [idleCashSuggestion, setIdleCashSuggestion] = useState<IdleCashSuggestion | null>(null);
 
   async function sendMessage(content: string, pendingAttachment?: PendingAttachment) {
     const trimmed = content.trim();
@@ -60,6 +67,7 @@ export function useChatStream() {
     ]);
     setIsStreaming(true);
     setError(null);
+    setIdleCashSuggestion(null);
     setStatus("Gonderiliyor");
 
     try {
@@ -95,6 +103,10 @@ export function useChatStream() {
           );
         }
 
+        if (event.type === "idle_cash_suggestion") {
+          setIdleCashSuggestion(event.suggestion);
+        }
+
         if (event.type === "error") {
           setError(event.message);
         }
@@ -125,5 +137,13 @@ export function useChatStream() {
     }
   }
 
-  return { messages, status, isStreaming, error, sendMessage };
+  return {
+    messages,
+    status,
+    isStreaming,
+    error,
+    idleCashSuggestion,
+    closeIdleCashSuggestion: () => setIdleCashSuggestion(null),
+    sendMessage,
+  };
 }

@@ -60,11 +60,53 @@ export type ChatRequest = {
   attachment?: ChatAttachment;
 };
 
+export type IdleCashSuggestionItem = {
+  asset_id: number;
+  symbol: string;
+  name: string;
+  asset_class: string;
+  quantity: number;
+  reference_price: number;
+  estimated_amount: number;
+  weight_pct: number;
+  rationale: string[];
+};
+
+export type IdleCashSuggestion = {
+  mode: "basket" | "single";
+  balance_source: "idle_balance" | "paper_cash";
+  available_balance: number;
+  investable_amount: number;
+  estimated_total: number;
+  unallocated_balance: number;
+  risk_profile: "LOW" | "MEDIUM" | "HIGH";
+  goal: "LONG_TERM" | "GROWTH" | "MOMENTUM" | "LOW_VOLATILITY";
+  preference_summary: string;
+  items: IdleCashSuggestionItem[];
+  disclaimer: string;
+  generated_at: string;
+};
+
+export type IdleCashBasketOption = {
+  id: string;
+  title: string;
+  summary: string;
+  suggestion: IdleCashSuggestion;
+};
+
+export type IdleCashBasketCatalog = {
+  goal: IdleCashSuggestion["goal"];
+  universe_size: number;
+  eligible_asset_count: number;
+  options: IdleCashBasketOption[];
+};
+
 export type ChatEvent =
   | { type: "meta"; request_id: string; conversation_id: number }
   | { type: "status"; stage: string; message: string }
   | { type: "sources"; items: Source[] }
   | { type: "token"; content: string }
+  | { type: "idle_cash_suggestion"; suggestion: IdleCashSuggestion }
   | { type: "agent_error"; agent: string; error_type: AgentError["error_type"]; message?: string }
   | { type: "error"; code: string; message: string }
   | { type: "done"; message_id?: number; latency_ms: number; mentioned_assets?: string[] };

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useChatStream } from "../../hooks/useChatStream";
 import type { PendingAttachment } from "./AttachmentMenu";
+import { IdleCashSuggestionModal } from "./IdleCashSuggestionModal";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
@@ -22,6 +23,8 @@ type ResizeState = {
 const PANEL_MIN_WIDTH = 320;
 const PANEL_MIN_HEIGHT = 360;
 const PANEL_VIEWPORT_MARGIN = 12;
+const PANEL_SIDEBAR_WIDTH = 96;
+const PANEL_LEFT_BOUNDARY = PANEL_SIDEBAR_WIDTH + PANEL_VIEWPORT_MARGIN;
 const PANEL_TOP_BOUNDARY = 80;
 const PANEL_DEFAULT_RIGHT = 20;
 const PANEL_DEFAULT_BOTTOM = 116;
@@ -40,6 +43,16 @@ const resizeHandles: Array<{ direction: ResizeDirection; className: string }> = 
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
+}
+
+function getPanelLeftBoundary(viewportWidth: number): number {
+  return Math.max(
+    PANEL_VIEWPORT_MARGIN,
+    Math.min(
+      PANEL_LEFT_BOUNDARY,
+      viewportWidth - PANEL_MIN_WIDTH - PANEL_VIEWPORT_MARGIN,
+    ),
+  );
 }
 
 export function ChatAvatar() {
@@ -116,7 +129,8 @@ export function ChatWidget({
         return;
       }
 
-      const maximumWidth = window.innerWidth - PANEL_VIEWPORT_MARGIN * 2;
+      const leftBoundary = getPanelLeftBoundary(window.innerWidth);
+      const maximumWidth = window.innerWidth - leftBoundary - PANEL_VIEWPORT_MARGIN;
       const maximumHeight =
         window.innerHeight - PANEL_TOP_BOUNDARY - PANEL_VIEWPORT_MARGIN;
       const minimumWidth = Math.min(PANEL_MIN_WIDTH, maximumWidth);
@@ -128,7 +142,7 @@ export function ChatWidget({
         height,
         left: clamp(
           window.innerWidth - width - PANEL_DEFAULT_RIGHT,
-          PANEL_VIEWPORT_MARGIN,
+          leftBoundary,
           window.innerWidth - width - PANEL_VIEWPORT_MARGIN,
         ),
         top: clamp(
@@ -151,7 +165,11 @@ export function ChatWidget({
           return current;
         }
 
-        const width = Math.min(current.width, window.innerWidth - PANEL_VIEWPORT_MARGIN * 2);
+        const leftBoundary = getPanelLeftBoundary(window.innerWidth);
+        const width = Math.min(
+          current.width,
+          window.innerWidth - leftBoundary - PANEL_VIEWPORT_MARGIN,
+        );
         const height = Math.min(
           current.height,
           window.innerHeight - PANEL_TOP_BOUNDARY - PANEL_VIEWPORT_MARGIN,
@@ -161,7 +179,7 @@ export function ChatWidget({
           height,
           left: clamp(
             current.left,
-            PANEL_VIEWPORT_MARGIN,
+            leftBoundary,
             window.innerWidth - width - PANEL_VIEWPORT_MARGIN,
           ),
           top: clamp(
@@ -213,7 +231,11 @@ export function ChatWidget({
     event.preventDefault();
     const deltaX = event.clientX - resizeState.pointerX;
     const deltaY = event.clientY - resizeState.pointerY;
-    const minimumWidth = Math.min(PANEL_MIN_WIDTH, window.innerWidth - PANEL_VIEWPORT_MARGIN * 2);
+    const leftBoundary = getPanelLeftBoundary(window.innerWidth);
+    const minimumWidth = Math.min(
+      PANEL_MIN_WIDTH,
+      window.innerWidth - leftBoundary - PANEL_VIEWPORT_MARGIN,
+    );
     const minimumHeight = Math.min(
       PANEL_MIN_HEIGHT,
       window.innerHeight - PANEL_TOP_BOUNDARY - PANEL_VIEWPORT_MARGIN,
@@ -231,7 +253,7 @@ export function ChatWidget({
       );
     }
     if (resizeState.direction.includes("w")) {
-      left = clamp(left + deltaX, PANEL_VIEWPORT_MARGIN, right - minimumWidth);
+      left = clamp(left + deltaX, leftBoundary, right - minimumWidth);
     }
     if (resizeState.direction.includes("s")) {
       bottom = clamp(
@@ -284,7 +306,12 @@ export function ChatWidget({
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-40">
+    <>
+      <IdleCashSuggestionModal
+        suggestion={chat.idleCashSuggestion}
+        onClose={chat.closeIdleCashSuggestion}
+      />
+      <div className="fixed bottom-5 right-5 z-40">
       {renderPanel && (
         <section
           ref={panelRef}
@@ -360,6 +387,7 @@ export function ChatWidget({
       >
         <ChatAvatar />
       </button>
-    </div>
+      </div>
+    </>
   );
 }
