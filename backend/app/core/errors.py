@@ -52,6 +52,15 @@ class ConflictError(AppError):
     status_code = 409
 
 
+class ServiceUnavailableError(AppError):
+    """Dis servise (orn. NVI kimlik dogrulama) ulasilamadi - GECICI bir
+    durum, kullanicinin hatasi DEGIL. Cagiran taraf tekrar denemeyi
+    onerebilir."""
+
+    code = "service_unavailable"
+    status_code = 503
+
+
 def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", str(uuid.uuid4()))
 

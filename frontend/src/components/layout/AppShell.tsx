@@ -19,6 +19,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const { language } = useLanguage();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
+  const isRegister = pathname === "/register";
   const isAdvisorLogin = pathname === "/danisman-giris";
   const isLanding = pathname === "/";
   // Yarışma ekranında piyasa şeridi ve sohbet gizlenir:
@@ -26,7 +27,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
   const isSupportPage = pathname === "/destek";
-  const isPublic = isLanding || isLogin || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
+  const isPublic =
+    isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
@@ -134,7 +136,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     }
   }, [auth.loading, auth.user, pathname, router]);
 
-  if (isLogin || isAdvisorLogin) {
+  if (isLogin || isRegister || isAdvisorLogin) {
     return children;
   }
 
@@ -185,6 +187,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   ? "Soru sormadan önce giriş yapmalısınız."
                   : "You need to log in before asking a question."
               }
+              onSelectAsset={setSelectedSymbol}
             />
           )}
         </>

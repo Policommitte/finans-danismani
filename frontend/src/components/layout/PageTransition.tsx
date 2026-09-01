@@ -61,7 +61,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
       const marketPageIsReady = document.documentElement.dataset.marketPageReady === "true";
       const bulletinPageIsReady = document.documentElement.dataset.bulletinPageReady === "true";
       const autonomousActionsIsReady = document.documentElement.dataset.autonomousActionsReady === "true";
-      const pageHasTicker = pathname !== "/login";
+      const pageHasTicker = pathname !== "/login" && pathname !== "/register";
       const pageNeedsDashboard = pathname === "/dashboard" || pathname === "/portfolio";
       const pageNeedsMarket = pathname === "/market";
       const pageNeedsBulletin = pathname === "/bulten";

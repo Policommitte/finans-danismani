@@ -6,6 +6,7 @@ import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useChatStream } from "../../hooks/useChatStream";
+import type { PendingAttachment } from "./AttachmentMenu";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
@@ -56,11 +57,16 @@ export function ChatWidget({
   blockedMessage = "Soru sormadan önce giriş yapmalısınız.",
   open: controlledOpen,
   onOpenChange,
+  onSelectAsset,
 }: {
   canSend?: boolean;
   blockedMessage?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Cevapta bahsedilen varlik kartina tiklandiginda cagrilir - AppShell bunu
+   * MarketTicker'in kullandigi AYNI `selectedSymbol` state'ine baglar, boylece
+   * ayni AssetSummaryModal mekanizmasi calisir. */
+  onSelectAsset?: (symbol: string) => void;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
@@ -268,13 +274,13 @@ export function ChatWidget({
     onOpenChange?.(nextOpen);
   }
 
-  function sendMessage(message: string) {
+  function sendMessage(message: string, attachment?: PendingAttachment) {
     const trimmed = message.trim();
-    if (!trimmed || !canSend) {
+    if ((!trimmed && !attachment) || !canSend) {
       return;
     }
 
-    chat.sendMessage(trimmed);
+    chat.sendMessage(trimmed, attachment);
   }
 
   return (
@@ -313,6 +319,7 @@ export function ChatWidget({
           {chat.error && <div className="app-danger-box px-4 py-2 text-xs">{chat.error}</div>}
           <MessageList
             messages={messages}
+            onSelectAsset={onSelectAsset}
             emptyState={
               canSend ? undefined : (
                 <Link href="/login" className="font-semibold text-[var(--color-primary)] underline-offset-4 hover:underline">

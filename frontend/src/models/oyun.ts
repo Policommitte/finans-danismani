@@ -35,7 +35,7 @@ export type Campaign = {
 
 export type HistoryRow = {
   date: LocalizedText;
-  result: "win" | "out";
+  result: "win" | "out" | "purchase";
   detail: LocalizedText;
   score: number;
   points: number;
@@ -482,71 +482,6 @@ export const CAMPAIGNS: Campaign[] = [
   },
 ];
 
-// ── Puan geçmişi ───────────────────────────────────────────
-/** N gün önceki tarihi `buildHistoryRow` ile AYNI biçimde döner - sabit bir
- * tarih yazılırsa demo verisi birkaç gün içinde bayatlar, bu yüzden hep
- * "bugüne göre" hesaplanır. */
-function daysAgo(n: number): LocalizedText {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return {
-    tr: d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
-    en: d.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
-  };
-}
-
-export const HISTORY: HistoryRow[] = [
-  {
-    date: daysAgo(1),
-    result: "out",
-    detail: { tr: "Elendi · Soru 4", en: "Eliminated · Question 4" },
-    score: 260,
-    points: 0,
-  },
-  {
-    date: daysAgo(2),
-    result: "win",
-    detail: { tr: "Kazandı", en: "Won" },
-    score: 905,
-    points: 3150,
-  },
-  {
-    date: daysAgo(3),
-    result: "out",
-    detail: { tr: "Elendi · Soru 2", en: "Eliminated · Question 2" },
-    score: 340,
-    points: 0,
-  },
-  {
-    date: daysAgo(4),
-    result: "win",
-    detail: { tr: "Kazandı", en: "Won" },
-    score: 810,
-    points: 3480,
-  },
-  {
-    date: daysAgo(5),
-    result: "win",
-    detail: { tr: "Kazandı", en: "Won" },
-    score: 720,
-    points: 2260,
-  },
-  {
-    date: daysAgo(6),
-    result: "out",
-    detail: { tr: "Elendi · Soru 1", en: "Eliminated · Question 1" },
-    score: 180,
-    points: 0,
-  },
-];
-
-/** HISTORY'deki (sahte, `daysAgo` ile üretilen) satırların puan toplamı.
- * Cüzdan bakiyesi görüntülenirken gerçek bakiyeye eklenir - yoksa "Puan
- * geçmişi"nde görünen kazançlarla "Kullanılabilir bakiye" tutmaz. Gerçek
- * backend işlemleri (satın alma vb.) HÂLÂ yalnızca gerçek bakiyeyle
- * çalışır - bu sabit yalnızca GÖRÜNTÜLEME için. */
-export const FAKE_HISTORY_POINTS = HISTORY.reduce((sum, row) => sum + row.points, 0);
-
 // ── Yardımcılar ────────────────────────────────────────────
 
 /** Diziyi yerinde karıştırır (Fisher-Yates) */
@@ -813,31 +748,6 @@ const WON_LABEL: LocalizedText = { tr: "Kazandı", en: "Won" };
 const ELIMINATED_LABEL: LocalizedText = { tr: "Elendi", en: "Eliminated" };
 const QUESTION_LABEL: LocalizedText = { tr: "Soru", en: "Question" };
 
-export function buildHistoryRow(
-  result: { won: boolean; score: number; reached: number },
-  earnedPoints: number,
-  lang: Lang
-): HistoryRow {
-  const today = new Date();
-  const date: LocalizedText = {
-    tr: today.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
-    en: today.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
-  };
-  const detail: LocalizedText = result.won
-    ? WON_LABEL
-    : {
-        tr: `${ELIMINATED_LABEL.tr} · ${QUESTION_LABEL.tr} ${result.reached}`,
-        en: `${ELIMINATED_LABEL.en} · ${QUESTION_LABEL.en} ${result.reached}`,
-      };
-  return {
-    date,
-    result: result.won ? "win" : "out",
-    detail,
-    score: result.score,
-    points: earnedPoints,
-  };
-}
-
 /**
  * Backend'in `/api/contest/wallet/history` satırını (bkz.
  * `models/contestApi.ts::ContestHistoryRowApi`) ekranda gösterilen
@@ -845,19 +755,52 @@ export function buildHistoryRow(
  * değil) — `contestApi.ts` zaten `LocalizedText`'i buradan alıyor, tersten
  * bir import döngü yaratırdı; TypeScript'in yapısal tipleme özelliği
  * `ContestHistoryRowApi`'yi buraya sorunsuz geçirmeyi sağlıyor.
+ *
+ * Satır üç türden biri olabilir (`kind`): yarışma katılımı, joker satın
+ * alma veya bağış — mağaza fiyat/etiket bilgisi burada `POWERUP_SHOP` /
+ * `DONATIONS`'tan okunur, backend yalnızca kind + miktarı taşır (bkz.
+ * services/contest.py::get_history docstring'i).
  */
 export function apiHistoryRowToDisplay(row: {
-  contest_date: string;
-  won: boolean;
-  final_score: number;
+  occurred_at: string;
+  kind: "contest" | "powerup_purchase" | "donation_purchase";
+  points: number;
+  won: boolean | null;
+  final_score: number | null;
   eliminated_at_question: number | null;
-  points_earned: number;
+  powerup_kind: string | null;
+  donation_key: string | null;
 }): HistoryRow {
-  const d = new Date(`${row.contest_date}T00:00:00`);
+  const d = new Date(row.occurred_at);
   const date: LocalizedText = {
     tr: d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
     en: d.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
   };
+
+  if (row.kind === "powerup_purchase") {
+    const item = POWERUP_SHOP.find((p) => p.kind === row.powerup_kind);
+    const name = item?.label ?? { tr: row.powerup_kind ?? "", en: row.powerup_kind ?? "" };
+    return {
+      date,
+      result: "purchase",
+      detail: { tr: `${name.tr} satın alındı`, en: `${name.en} purchased` },
+      score: 0,
+      points: row.points,
+    };
+  }
+
+  if (row.kind === "donation_purchase") {
+    const item = DONATIONS.find((donation) => donation.id === row.donation_key);
+    const name = item?.title ?? { tr: row.donation_key ?? "", en: row.donation_key ?? "" };
+    return {
+      date,
+      result: "purchase",
+      detail: name,
+      score: 0,
+      points: row.points,
+    };
+  }
+
   const detail: LocalizedText = row.won
     ? WON_LABEL
     : row.eliminated_at_question != null
@@ -870,8 +813,8 @@ export function apiHistoryRowToDisplay(row: {
     date,
     result: row.won ? "win" : "out",
     detail,
-    score: row.final_score,
-    points: row.points_earned,
+    score: row.final_score ?? 0,
+    points: row.points,
   };
 }
 

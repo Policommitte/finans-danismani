@@ -8,6 +8,8 @@ app/repositories/base.py::ContestRepository).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -118,11 +120,21 @@ class WalletSummary(BaseModel):
 
 
 class ContestHistoryRow(BaseModel):
-    contest_date: str
-    won: bool
-    final_score: int
-    eliminated_at_question: int | None
-    points_earned: int
+    """'Puan gecmisi' ekraninin TEK satir bicimi - katilim (kazanc) VE
+    magaza harcamasi (joker/bagis) satirlari AYNI listede, `kind` ile
+    ayirt edilerek doner (bkz. services/contest.py::get_history). `points`
+    HER ZAMAN imzalidir: katilimda +odul, harcamada -fiyat."""
+
+    occurred_at: str
+    kind: Literal["contest", "powerup_purchase", "donation_purchase"]
+    points: int
+    # yalnizca kind="contest":
+    won: bool | None = None
+    final_score: int | None = None
+    eliminated_at_question: int | None = None
+    # yalnizca kind="powerup_purchase" / "donation_purchase":
+    powerup_kind: str | None = None
+    donation_key: str | None = None
 
 
 class PowerupPurchaseRequest(BaseModel):

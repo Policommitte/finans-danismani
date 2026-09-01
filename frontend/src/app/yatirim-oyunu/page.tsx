@@ -14,14 +14,7 @@ import { WinnerScreen } from "../../components/oyun/WinnerScreen";
 import type { Powerups } from "../../hooks/useQuiz";
 import { useGameFlow, type GameScreen, type GameTab } from "../../hooks/useGameFlow";
 import { CampaignsTab } from "../../components/oyun/CampaignsTab";
-import {
-  CONFIG,
-  FAKE_HISTORY_POINTS,
-  HISTORY,
-  type GameResult,
-  type PowerupKind,
-  type DonationItem,
-} from "../../models/oyun";
+import { CONFIG, type GameResult, type PowerupKind, type DonationItem } from "../../models/oyun";
 import { WalletTab } from "../../components/oyun/WalletTab";
 import { useSoundEffects } from "../../hooks/useSoundEffects";
 import { IntroSidebar } from "../../components/oyun/IntroSidebar";
@@ -125,11 +118,12 @@ export default function YatirimOyunuPage() {
     fiftyFifty: wallet.powerups.fiftyFifty ?? 0,
   };
 
-  // "Puan geçmişi"nde görünen sahte geçmiş günlerin kazancı (FAKE_HISTORY_POINTS)
-  // GÖSTERİLEN bakiyeye eklenir ki liste ile bakiye tutsun; gerçek satın alma
-  // işlemleri hâlâ yalnızca backend'deki GERÇEK bakiyeyi kullanır (aşağıdaki
-  // buyPowerup/buyDonation'da olası bir ret durumunda kullanıcıya haber verilir).
-  const displayedBalance = wallet.pointsBalance + FAKE_HISTORY_POINTS;
+  // "Gözüken" ve "gerçek" bakiye artık AYNI sayı: backend, kullanıcıya ilk
+  // eriştiğinde "geçmiş günler" hikayesini gerçek katılım+ödül satırları
+  // olarak tohumlar (bkz. backend `_gecmis_gunleri_tohumla`) - eskiden
+  // yalnızca görüntü için ayrı bir sahte sabit vardı, artık gerçekten
+  // harcanabilir tek bir bakiye kaynağı var.
+  const displayedBalance = wallet.pointsBalance;
 
   // Sözleşmeyi zaten kabul etmişse (bugünden önce de olabilir) modalı bir
   // daha gösterme — gerçek durum yüklenince yerel bayrağı buna göre kurar.
@@ -162,8 +156,8 @@ export default function YatirimOyunuPage() {
       if (ok) {
         play("purchase");
       } else if (wallet.actionError) {
-        // Gösterilen bakiye sahte payla şişirilmiş olabilir; gerçek backend
-        // bakiyesi yetmediyse burada haber veriyoruz, sessizce başarısız olmasın.
+        // Iki sekme/istek yarisinca (race) bakiye burada guncel olmayabilir -
+        // backend reddederse kullaniciya sessizce degil, mesajla haber verilir.
         window.alert(wallet.actionError);
       }
     });
@@ -501,13 +495,7 @@ export default function YatirimOyunuPage() {
       {tab === "puanlar" && (
         <WalletTab
           pointsBalance={displayedBalance}
-          // Gerçek geçmiş (bugün oynadıkların, backend'den) en üstte; onun
-          // altında sahte "geçmiş günler" dolgusu (HISTORY, models/oyun.ts) -
-          // ikisi de zaten yeniden-eskiye sıralı, art arda eklemek yeterli.
-          // Bakiye artık bu listeyle TUTARLI görünsün diye FAKE_HISTORY_POINTS
-          // eklenmiş "displayedBalance" - gerçek satın almalar hâlâ yalnızca
-          // backend'deki gerçek bakiyeyi kullanır (bkz. buyPowerup/buyDonation).
-          history={[...wallet.history, ...HISTORY]}
+          history={wallet.history}
           onGoShop={() => goTab("kampanyalar")}
         />
       )}

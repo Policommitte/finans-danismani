@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -58,7 +59,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, onboarding_completed, role
+                   risk_tolerance, monthly_income, onboarding_completed, role,
+                   tckn_last4, birth_date, phone_number
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -68,22 +70,40 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
-                   onboarding_completed, role
+                   onboarding_completed, role, tckn_last4, birth_date, phone_number
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
         )
 
-    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
+        return await self._row(
+            "SELECT id, email FROM users WHERE tckn_hash = :tckn_hash",
+            {"tckn_hash": tckn_hash},
+        )
+
+    async def create(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password_hash: str,
+        tckn_hash: str,
+        tckn_last4: str,
+        birth_date,
+        phone_number: str,
+    ) -> dict:
         async with self._session_factory() as session:
             result = await session.execute(
                 text(
                     """
                     INSERT INTO users
-                        (first_name, last_name, email, password_hash, onboarding_completed)
-                    VALUES (:first_name, :last_name, :email, :password_hash, false)
+                        (first_name, last_name, email, password_hash, onboarding_completed,
+                         tckn_hash, tckn_last4, birth_date, phone_number)
+                    VALUES (:first_name, :last_name, :email, :password_hash, false,
+                            :tckn_hash, :tckn_last4, :birth_date, :phone_number)
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed
+                              onboarding_completed, tckn_last4, birth_date, phone_number
                     """
                 ),
                 {
@@ -91,6 +111,10 @@ class SqlUserRepository(_SqlRepository):
                     "last_name": last_name,
                     "email": email,
                     "password_hash": password_hash,
+                    "tckn_hash": tckn_hash,
+                    "tckn_last4": tckn_last4,
+                    "birth_date": birth_date,
+                    "phone_number": phone_number,
                 },
             )
             row = result.mappings().one()
@@ -106,7 +130,7 @@ class SqlUserRepository(_SqlRepository):
                     SET risk_tolerance = :risk_tolerance, onboarding_completed = true
                     WHERE id = :user_id
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed
+                              onboarding_completed, tckn_last4, birth_date, phone_number
                     """
                 ),
                 {"user_id": user_id, "risk_tolerance": risk_tolerance},
@@ -2563,6 +2587,20 @@ class SqlLeadRepository(_SqlRepository):
         )
 
 
+class SqlEconomicCalendarRepository(_SqlRepository):
+    async def list_events(self, start: date, end: date) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT event_date, event_time, country, event_name, importance, source,
+                   expected, actual, previous
+            FROM economic_events
+            WHERE event_date BETWEEN :start AND :end
+            ORDER BY event_date
+            """,
+            {"start": start, "end": end},
+        )
+
+
 def _json(value: Any) -> str:
     import json
 
@@ -2888,6 +2926,18 @@ class SqlContestRepository(_SqlRepository):
             )
             await session.commit()
 
+    async def list_powerup_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id, user_id, kind, price_points, purchased_at
+            FROM powerup_purchase
+            WHERE user_id = :user_id
+            ORDER BY purchased_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )
+
     async def get_user_badges(self, user_id: int) -> list[str]:
         rows = await self._rows(
             "SELECT badge_label FROM donation_purchase WHERE user_id = :user_id",
@@ -2915,3 +2965,15 @@ class SqlContestRepository(_SqlRepository):
                 },
             )
             await session.commit()
+
+    async def list_donation_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT id, user_id, donation_key, badge_label, price_points, purchased_at
+            FROM donation_purchase
+            WHERE user_id = :user_id
+            ORDER BY purchased_at DESC
+            LIMIT :limit
+            """,
+            {"user_id": user_id, "limit": limit},
+        )

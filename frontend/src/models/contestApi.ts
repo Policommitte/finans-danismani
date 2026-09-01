@@ -87,11 +87,14 @@ export type WalletSummary = {
 };
 
 export type ContestHistoryRowApi = {
-  contest_date: string;
-  won: boolean;
-  final_score: number;
+  occurred_at: string;
+  kind: "contest" | "powerup_purchase" | "donation_purchase";
+  points: number;
+  won: boolean | null;
+  final_score: number | null;
   eliminated_at_question: number | null;
-  points_earned: number;
+  powerup_kind: string | null;
+  donation_key: string | null;
 };
 
 export type LeaderboardEntryApi = {

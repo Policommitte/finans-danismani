@@ -255,17 +255,54 @@ async def get_wallet(user_id: int) -> WalletSummary:
 
 
 async def get_history(user_id: int, limit: int = 20) -> list[ContestHistoryRow]:
-    rows = await get_contest_repository().list_participations(user_id, limit=limit)
-    return [
-        ContestHistoryRow(
-            contest_date=str(r["contest_date"]),
-            won=r["won"],
-            final_score=r["final_score"],
-            eliminated_at_question=r["eliminated_at_question"],
-            points_earned=r["points_awarded"],
+    """'Puan gecmisi': katilimlar (kazanc) VE magaza harcamalari (joker/bagis)
+    TEK kronolojik akista birlesir - kullanici bir seyi satin aldiginda bunu
+    listede -fiyat olarak GORSUN diye (bkz. GOREV: gorunen bakiye = gercekten
+    harcanabilir bakiye). Her kaynaktan en fazla `limit` satir cekilip
+    `occurred_at`'e gore siralanir; bu, en yeni `limit` satirin - hangi
+    turden olurlarsa olsunlar - kaybolmamasini garantiler."""
+    repo = get_contest_repository()
+    participations = await repo.list_participations(user_id, limit=limit)
+    powerup_purchases = await repo.list_powerup_purchases(user_id, limit=limit)
+    donation_purchases = await repo.list_donation_purchases(user_id, limit=limit)
+
+    rows: list[ContestHistoryRow] = []
+    for r in participations:
+        rows.append(
+            ContestHistoryRow(
+                occurred_at=_iso(r["registered_at"]),
+                kind="contest",
+                points=r["points_awarded"],
+                won=r["won"],
+                final_score=r["final_score"],
+                eliminated_at_question=r["eliminated_at_question"],
+            )
         )
-        for r in rows
-    ]
+    for r in powerup_purchases:
+        rows.append(
+            ContestHistoryRow(
+                occurred_at=_iso(r["purchased_at"]),
+                kind="powerup_purchase",
+                points=-r["price_points"],
+                powerup_kind=r["kind"],
+            )
+        )
+    for r in donation_purchases:
+        rows.append(
+            ContestHistoryRow(
+                occurred_at=_iso(r["purchased_at"]),
+                kind="donation_purchase",
+                points=-r["price_points"],
+                donation_key=r["donation_key"],
+            )
+        )
+
+    rows.sort(key=lambda row: row.occurred_at, reverse=True)
+    return rows[:limit]
+
+
+def _iso(value: object) -> str:
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
 async def buy_powerup(user_id: int, kind: str) -> WalletSummary:

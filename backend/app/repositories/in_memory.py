@@ -544,20 +544,42 @@ def _holdings_valued(user_id: int, portfolio_id: int | None) -> list[dict]:
     return rows
 
 
+#: `password_hash`/`tckn_hash` HICBIR zaman disari donmez (get_by_email
+#: haric - o auth katmani icin password_hash'i taşımak ZORUNDA, ama
+#: tckn_hash orada da gerekmiyor).
+_GIZLI_ALANLAR = ("password_hash", "tckn_hash")
+
+
 class InMemoryUserRepository:
     async def get_by_email(self, email: str) -> dict | None:
         for user in _USERS:
             if user["email"].lower() == email.lower():
-                return dict(user)
+                return {k: v for k, v in user.items() if k != "tckn_hash"}
         return None
 
     async def get_by_id(self, user_id: int) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
-                return {k: v for k, v in user.items() if k != "password_hash"}
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
-    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
+        for user in _USERS:
+            if user.get("tckn_hash") == tckn_hash:
+                return {"id": user["id"], "email": user["email"]}
+        return None
+
+    async def create(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password_hash: str,
+        tckn_hash: str,
+        tckn_last4: str,
+        birth_date,
+        phone_number: str,
+    ) -> dict:
         new_id = max((user["id"] for user in _USERS), default=0) + 1
         user = {
             "id": new_id,
@@ -568,16 +590,20 @@ class InMemoryUserRepository:
             "risk_tolerance": None,
             "monthly_income": 0.0,
             "onboarding_completed": False,
+            "tckn_hash": tckn_hash,
+            "tckn_last4": tckn_last4,
+            "birth_date": birth_date,
+            "phone_number": phone_number,
         }
         _USERS.append(user)
-        return {k: v for k, v in user.items() if k != "password_hash"}
+        return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
 
     async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
                 user["risk_tolerance"] = risk_tolerance
                 user["onboarding_completed"] = True
-                return {k: v for k, v in user.items() if k != "password_hash"}
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
 
@@ -1881,6 +1907,100 @@ class InMemoryLeadRepository:
         return sonuc
 
 
+#: `db/migrations/018_economic_events.sql` + `019_economic_events_saat.sql`
+#: ile AYNI 7 satir - DB'siz modda da Turkiye'ye ozel ekonomik olaylar
+#: gorunsun diye (bkz. dosyanin ust yorumu). Saatler resmi/yerlesik
+#: aciklama saatleridir: TCMB PPK karari 14:00'te, TUIK enflasyon verisi
+#: 10:00'da aciklanir (Turkiye saati).
+_ECONOMIC_EVENTS: list[dict] = [
+    {
+        "event_date": date(2026, 9, 10),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 10, 22),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 12, 10),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 9, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 10, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 11, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 12, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+]
+
+
+class InMemoryEconomicCalendarRepository:
+    async def list_events(self, start: date, end: date) -> list[dict]:
+        return sorted(
+            (dict(e) for e in _ECONOMIC_EVENTS if start <= e["event_date"] <= end),
+            key=lambda e: e["event_date"],
+        )
+
+
 _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")
 
 
@@ -2163,6 +2283,66 @@ _USER_POWERUPS: list[dict] = []
 _POWERUP_PURCHASES: list[dict] = []
 _next_powerup_purchase_id = 1
 
+#: Bir kullaniciya "gecmis gunler" hikayesi bir kez tohumlandi mi (bkz.
+#: `_gecmis_gunleri_tohumla`). DEV/DEMO ONBELLEGI - gercek DB'de karsiligi YOK.
+_TOHUMLANAN_KULLANICILAR: set[int] = set()
+
+#: (kac gun once, kazandi mi, skor, elenilen soru, odul puani) - eskiden
+#: yalnizca frontend'de GORUNTU icin var olan sahte "Puan gecmisi" dolgusu
+#: (bkz. eski `frontend/src/models/oyun.ts::HISTORY`) artik BURADA, gercek
+#: katilim+odul satirlari olarak yaziliyor ki kullanici bu puanlari GERCEKTEN
+#: harcayabilsin (bkz. GOREV: magazadaki "gozuken" bakiye ile gercek bakiye
+#: ayni sey olmali). Rakamlar frontend'deki halinden BIREBIR tasindi.
+_GECMIS_GUNLER_SABLONU: list[tuple[int, bool, int, int | None, int]] = [
+    (1, False, 260, 4, 0),
+    (2, True, 905, None, 3150),
+    (3, False, 340, 2, 0),
+    (4, True, 810, None, 3480),
+    (5, True, 720, None, 2260),
+    (6, False, 180, 1, 0),
+]
+
+
+def _gecmis_gunleri_tohumla(user_id: int) -> None:
+    """DEV/DEMO: kullanicinin cuzdaninda ilk eristiginde (henuz hic gercek
+    katilimi yoksa) "gecmis gunler" hikayesini gercek `participation`/`payout`
+    satirlari olarak ekler - boylece demo bos bir cuzdanla degil, dolu ve
+    GERCEKTEN harcanabilir bir bakiyeyle basliyor. Yalnizca in-memory (dev)
+    modda calisir; gercek veritabaninda bu tohumlama YOKTUR - gercek
+    kullanicilar sifir bakiyeyle baslar."""
+    global _next_participation_id, _next_payout_id
+
+    if user_id in _TOHUMLANAN_KULLANICILAR:
+        return
+    _TOHUMLANAN_KULLANICILAR.add(user_id)
+    if any(p["user_id"] == user_id for p in _PARTICIPATIONS):
+        return  # zaten gercek gecmisi var - sahte gecmis ustune eklenmez
+
+    for gun_once, won, score, eliminated_q, payout_points in _GECMIS_GUNLER_SABLONU:
+        an = _now() - timedelta(days=gun_once)
+        katilim = {
+            "id": _next_participation_id,
+            "contest_id": 1,
+            "user_id": user_id,
+            "contest_date": an.date().isoformat(),
+            "registered_at": an,
+            "eliminated_at_question": eliminated_q,
+            "final_score": score,
+            "won": won,
+        }
+        _PARTICIPATIONS.append(katilim)
+        _next_participation_id += 1
+        if payout_points:
+            _PAYOUTS.append(
+                {
+                    "id": _next_payout_id,
+                    "participation_id": katilim["id"],
+                    "points_awarded": payout_points,
+                    "created_at": an,
+                }
+            )
+            _next_payout_id += 1
+
 
 class InMemoryContestRepository:
     """Sans Yatirimda oyunu - DB yokken devreye giren yedek.
@@ -2341,6 +2521,7 @@ class InMemoryContestRepository:
         return result
 
     async def list_participations(self, user_id: int, limit: int = 20) -> list[dict]:
+        _gecmis_gunleri_tohumla(user_id)
         payout_by_participation = {p["participation_id"]: p["points_awarded"] for p in _PAYOUTS}
         rows = [p for p in _PARTICIPATIONS if p["user_id"] == user_id]
         rows.sort(key=lambda p: p["registered_at"], reverse=True)
@@ -2352,6 +2533,7 @@ class InMemoryContestRepository:
         return result
 
     async def get_points_balance(self, user_id: int) -> int:
+        _gecmis_gunleri_tohumla(user_id)
         earned = sum(
             payout["points_awarded"]
             for payout in _PAYOUTS
@@ -2395,6 +2577,11 @@ class InMemoryContestRepository:
                 return
         _USER_POWERUPS.append({"user_id": user_id, "kind": kind, "quantity": 1})
 
+    async def list_powerup_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [r for r in _POWERUP_PURCHASES if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["purchased_at"], reverse=True)
+        return [dict(r) for r in rows[:limit]]
+
     async def get_user_badges(self, user_id: int) -> list[str]:
         return [row["badge_label"] for row in _DONATION_PURCHASES if row["user_id"] == user_id]
 
@@ -2418,3 +2605,8 @@ class InMemoryContestRepository:
             }
         )
         _next_donation_purchase_id += 1
+
+    async def list_donation_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [r for r in _DONATION_PURCHASES if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["purchased_at"], reverse=True)
+        return [dict(r) for r in rows[:limit]]

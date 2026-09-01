@@ -29,6 +29,7 @@ from app.repositories.base import (
     AuditRepository,
     ChatRepository,
     ContestRepository,
+    EconomicCalendarRepository,
     LeadRepository,
     MarketRepository,
     NotificationRepository,
@@ -42,6 +43,7 @@ from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
     InMemoryContestRepository,
+    InMemoryEconomicCalendarRepository,
     InMemoryLeadRepository,
     InMemoryMarketRepository,
     InMemoryNotificationRepository,
@@ -248,6 +250,15 @@ def get_contest_repository() -> ContestRepository:
     return InMemoryContestRepository()
 
 
+@lru_cache
+def get_economic_calendar_repository() -> EconomicCalendarRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlEconomicCalendarRepository
+
+        return SqlEconomicCalendarRepository(_session_factory())
+    return InMemoryEconomicCalendarRepository()
+
+
 def reset_repositories() -> None:
     """Onbellekleri temizler.
 
@@ -279,6 +290,7 @@ def _saglayici_onbelleklerini_temizle() -> None:
         get_notification_repository,
         get_recommendation_repository,
         get_contest_repository,
+        get_economic_calendar_repository,
     ):
         provider.cache_clear()
 

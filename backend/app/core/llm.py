@@ -154,6 +154,21 @@ class GeminiLLMClient:
         )
         return response.text or ""
 
+    async def generate_with_image(
+        self, prompt: str, image_bytes: bytes, mime_type: str, *, model: str | None = None
+    ) -> str:
+        """Goersel + metin girdiyle uretim - sohbet ek analizi icin
+        (`app/services/chat_attachments.py`). `NvidiaLLMClient`'ta BILEREK
+        YOK: NIM modellerinin coğu goersel desteklemez, cagiran taraf once
+        `saglayici_belirle()` ile Gemini oldugunu dogrular."""
+        from google.genai import types
+
+        response = await self._client.aio.models.generate_content(
+            model=model or self._default_model,
+            contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime_type), prompt],
+        )
+        return response.text or ""
+
 
 class NvidiaLLMClient:
     """NVIDIA NIM (build.nvidia.com) - OpenAI uyumlu uc.

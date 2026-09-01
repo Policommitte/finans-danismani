@@ -49,11 +49,14 @@ function WalletIcon() {
 export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
-  const participation = history.length;
-  const wins = history.filter((row) => row.result === "win").length;
+  // Satın alma satırları ("purchase") katılım/skor istatistiklerine dahil
+  // edilmez - bunlar yarışma değil, mağaza harcamasıdır.
+  const entries = history.filter((row) => row.result !== "purchase");
+  const participation = entries.length;
+  const wins = entries.filter((row) => row.result === "win").length;
   const successRate = participation > 0 ? Math.round((wins / participation) * 100) : 0;
-  const bestScore = participation > 0 ? Math.max(...history.map((row) => row.score)) : 0;
-  const monthlyGain = history.reduce((sum, row) => sum + row.points, 0);
+  const bestScore = participation > 0 ? Math.max(...entries.map((row) => row.score)) : 0;
+  const monthlyGain = entries.reduce((sum, row) => sum + row.points, 0);
   const lastActivity = history[0]?.date[language] ?? "—";
 
   const stats = [
@@ -171,16 +174,27 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="app-muted text-xs tabular-nums">
-                    {language === "tr" ? "Skor" : "Score"} {row.score}
-                  </p>
+                  {row.result !== "purchase" && (
+                    <p className="app-muted text-xs tabular-nums">
+                      {language === "tr" ? "Skor" : "Score"} {row.score}
+                    </p>
+                  )}
                   <p
                     className="text-sm font-bold tabular-nums"
                     style={{
-                      color: row.points > 0 ? "var(--color-success)" : "var(--color-muted)",
+                      color:
+                        row.points > 0
+                          ? "var(--color-success)"
+                          : row.points < 0
+                            ? "var(--color-danger)"
+                            : "var(--color-muted)",
                     }}
                   >
-                    {row.points > 0 ? `+${row.points.toLocaleString(locale)}` : "—"}
+                    {row.points > 0
+                      ? `+${row.points.toLocaleString(locale)}`
+                      : row.points < 0
+                        ? `-${Math.abs(row.points).toLocaleString(locale)}`
+                        : "—"}
                   </p>
                 </div>
               </div>

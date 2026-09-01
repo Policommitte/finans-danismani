@@ -215,7 +215,7 @@ export function QuizScreen(props: Props) {
         </div>
 
         <div className="mt-4">
-          <Mascot mood={q.mood} message={message} />
+          <Mascot mood={q.mood} message={message} showHand={q.mood === "happy"} />
         </div>
 
         <h3 className="app-heading mt-4 text-lg font-semibold leading-snug">{q.question.text}</h3>
