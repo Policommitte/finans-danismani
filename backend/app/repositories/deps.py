@@ -28,6 +28,7 @@ from app.config import settings
 from app.repositories.base import (
     AuditRepository,
     ChatRepository,
+    ContestRepository,
     EconomicCalendarRepository,
     LeadRepository,
     MarketRepository,
@@ -41,6 +42,7 @@ from app.repositories.base import (
 from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
+    InMemoryContestRepository,
     InMemoryEconomicCalendarRepository,
     InMemoryLeadRepository,
     InMemoryMarketRepository,
@@ -240,6 +242,15 @@ def get_recommendation_repository() -> RecommendationRepository:
 
 
 @lru_cache
+def get_contest_repository() -> ContestRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlContestRepository
+
+        return SqlContestRepository(_session_factory())
+    return InMemoryContestRepository()
+
+
+@lru_cache
 def get_economic_calendar_repository() -> EconomicCalendarRepository:
     if _veritabani_calisiyor():
         from app.repositories.sql import SqlEconomicCalendarRepository
@@ -278,6 +289,7 @@ def _saglayici_onbelleklerini_temizle() -> None:
         get_audit_repository,
         get_notification_repository,
         get_recommendation_repository,
+        get_contest_repository,
         get_economic_calendar_repository,
     ):
         provider.cache_clear()

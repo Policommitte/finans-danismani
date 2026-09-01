@@ -14,8 +14,9 @@ type Props = {
   onUsePowerup: (kind: keyof Powerups) => void;
 
   onWin: (result: GameResult) => void;
- onLose: (result: GameResult) => void;
- playSound?: (kind: SoundKind) => void;
+  onLose: (result: GameResult) => void;
+  onStartError: (message: string) => void;
+  playSound?: (kind: SoundKind) => void;
 };
 
 const LETTERS = ["A", "B", "C", "D"];
@@ -70,7 +71,22 @@ export function QuizScreen(props: Props) {
   const { language } = useLanguage();
   const q = useQuiz(props);
 
-  if (!q.question) return null;
+  if (!q.question) {
+    return (
+      <Card>
+        <div className="flex items-center justify-center gap-3 py-16">
+          <span
+            className="h-5 w-5 animate-spin rounded-full border-2 border-t-transparent"
+            style={{ borderColor: "var(--color-primary)", borderTopColor: "transparent" }}
+            aria-hidden="true"
+          />
+          <span className="app-muted text-sm">
+            {language === "tr" ? "Yarışma başlatılıyor…" : "Starting the contest…"}
+          </span>
+        </div>
+      </Card>
+    );
+  }
 
   const ratio = q.timeLeft / q.limit;
   const urgent = q.timeLeft <= 5;
@@ -209,7 +225,7 @@ export function QuizScreen(props: Props) {
             {q.question.options.map((opt, i) => {
               const isRemoved = q.removed.includes(i);
               const isPicked = q.selected === i;
-              const isCorrect = i === q.question!.correctIndex;
+              const isCorrect = i === q.revealedCorrectIndex;
               const showCorrect = revealed && isCorrect;
               const showWrong = revealed && isPicked && !isCorrect;
               const showFaded = revealed && !isCorrect && !isPicked;
@@ -310,7 +326,7 @@ export function QuizScreen(props: Props) {
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <button
               onClick={q.useDoublePoints}
-              disabled={props.powerups.timeShield <= 0 || q.shieldUsed}
+              disabled={props.powerups.doublePoints <= 0 || q.doublePointsUsed}
               className="flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-xs font-semibold transition disabled:opacity-40"
               style={{
                 borderColor: "#f5a524",
@@ -325,7 +341,7 @@ export function QuizScreen(props: Props) {
               >
                 2×
               </span>
-              {language === "tr" ? "Çift puan" : "Double points"} ({props.powerups.timeShield})
+              {language === "tr" ? "Çift puan" : "Double points"} ({props.powerups.doublePoints})
             </button>
 
             <button
@@ -360,6 +376,12 @@ export function QuizScreen(props: Props) {
               {language === "tr" ? "Cevabı onayla" : "Confirm answer"}
             </button>
           </div>
+        )}
+
+        {q.networkError && (
+          <p className="mt-3 text-xs font-semibold" style={{ color: "var(--color-danger)" }}>
+            {q.networkError}
+          </p>
         )}
       </Card>
     </div>

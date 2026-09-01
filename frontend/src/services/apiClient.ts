@@ -73,5 +73,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw new Error(message);
   }
 
+  // 204 No Content (ör. POST /api/contest/agreement, /reset) hicbir govde
+  // getirmez - `response.json()` bunda "Unexpected end of JSON input" ile
+  // patlardi. Bos govdeyi `undefined` (T=void icin gecerli) olarak donuyoruz.
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }

@@ -35,7 +35,7 @@ export type Campaign = {
 
 export type HistoryRow = {
   date: LocalizedText;
-  result: "win" | "out";
+  result: "win" | "out" | "purchase";
   detail: LocalizedText;
   score: number;
   points: number;
@@ -44,7 +44,7 @@ export type HistoryRow = {
 // ── Ayarlar ────────────────────────────────────────────────
 export const CONFIG = {
   questionCount: 5,
-  questionSeconds: 15,
+  questionSeconds: 10,
   cheatSheetSeconds: 180, // 3 dk
   // Kazanan sayısı artık HER ZAMAN 100-500 arasında (bkz. pickTargetWinners).
   // Düz 1.000.000 seçildi: en kötü senaryoda (500 kazanan) payout hâlâ 2.000
@@ -130,7 +130,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır.",
       en: "With compound interest, the rate doesn't change — what changes is the amount that earns interest. As gains are added to the principal, the base grows, and the gap widens quickly over time.",
@@ -150,7 +150,7 @@ export const QUESTIONS: Question[] = [
       { tr: "Enflasyon reel getiriyi etkilemez", en: "Inflation does not affect real return" },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür.",
       en: "When the nominal return stays below inflation, purchasing power falls even though the amount of money increases. Real performance is measured by subtracting inflation from the return.",
@@ -182,7 +182,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk yeterince dağılmaz.",
       en: "For diversification to work, assets shouldn't move together. Since the same sector is exposed to the same shocks, risk isn't spread enough even if the number of holdings increases.",
@@ -214,7 +214,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca gösterilmemektedir.",
       en: "High returns generally come with high uncertainty. If risk-free and high returns are promised together, the risk hasn't disappeared — it's simply not being shown.",
@@ -246,7 +246,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında beklemeden ve değer kaybetmeden çekilebilmesi gerekir.",
       en: "The purpose of an emergency fund is accessibility, not return. It should be withdrawable instantly and without losing value when needed.",
@@ -275,7 +275,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür.",
       en: "The minimum payment keeps the card from defaulting, but it doesn't clear the debt. Contractual interest accrues on the remaining amount; if repeated every month, the debt grows compound.",
@@ -295,7 +295,7 @@ export const QUESTIONS: Question[] = [
       { tr: "Vergi ve sigorta ödemelerini", en: "Tax and insurance payments" },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Kuralda gelirin yarısı zorunlu ihtiyaçlara, yüzde 30'u isteklere, yüzde 20'si birikime ve borç kapatmaya ayrılır. Birikimi önce ayırmak, kalanla yaşamayı kolaylaştırır.",
       en: "Under the rule, half of income goes to essential needs, 30% to wants, and 20% to savings and debt repayment. Setting savings aside first makes it easier to live on the rest.",
@@ -315,7 +315,7 @@ export const QUESTIONS: Question[] = [
       { tr: "Otomatik ödeme talimatı vermek", en: "Setting up automatic payment instructions" },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını olumsuz etkiler.",
       en: "Payment history is the most heavily weighted factor in a credit score. Late payments get recorded and negatively affect both approval and the interest rate on future credit applications.",
@@ -344,7 +344,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran değil, elinize geçecek net tutar dikkate alınmalıdır.",
       en: "Statutory withholding tax is deducted from deposit interest. When comparing products, you should look at the net amount you'll actually receive, not the gross rate.",
@@ -370,7 +370,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir yaklaşımdır.",
       en: "As the investment horizon shortens, there's less time to recover from losses. Gradually lowering the portfolio's risk level as you approach your goal is a common approach.",
@@ -479,52 +479,6 @@ export const CAMPAIGNS: Campaign[] = [
     likes: 942,
     joined: 8452,
     left: { tr: "17 gün kaldı", en: "17 days left" },
-  },
-];
-
-// ── Puan geçmişi ───────────────────────────────────────────
-export const HISTORY: HistoryRow[] = [
-  {
-    date: { tr: "18 Ağustos", en: "August 18" },
-    result: "out",
-    detail: { tr: "Elendi · Soru 4", en: "Eliminated · Question 4" },
-    score: 260,
-    points: 0,
-  },
-  {
-    date: { tr: "17 Ağustos", en: "August 17" },
-    result: "win",
-    detail: { tr: "Kazandı", en: "Won" },
-    score: 905,
-    points: 125,
-  },
-  {
-    date: { tr: "16 Ağustos", en: "August 16" },
-    result: "out",
-    detail: { tr: "Elendi · Soru 2", en: "Eliminated · Question 2" },
-    score: 340,
-    points: 0,
-  },
-  {
-    date: { tr: "15 Ağustos", en: "August 15" },
-    result: "win",
-    detail: { tr: "Kazandı", en: "Won" },
-    score: 810,
-    points: 82,
-  },
-  {
-    date: { tr: "14 Ağustos", en: "August 14" },
-    result: "win",
-    detail: { tr: "Kazandı", en: "Won" },
-    score: 720,
-    points: 105,
-  },
-  {
-    date: { tr: "13 Ağustos", en: "August 13" },
-    result: "out",
-    detail: { tr: "Elendi · Soru 1", en: "Eliminated · Question 1" },
-    score: 180,
-    points: 0,
   },
 ];
 
@@ -710,7 +664,7 @@ export function nextContestDate(from: Date = new Date()): Date {
 }
 
 // powerup bagis
-export type PowerupKind = "timeShield" | "fiftyFifty";
+export type PowerupKind = "doublePoints" | "fiftyFifty";
 
 export type PowerupShopItem = {
   kind: PowerupKind;
@@ -724,15 +678,17 @@ export type PowerupShopItem = {
 
 export const POWERUP_SHOP: PowerupShopItem[] = [
   {
-    kind: "timeShield",
-    label: { tr: "Zaman kalkanı", en: "Time shield" },
+    kind: "doublePoints",
+    label: { tr: "Çift puan", en: "Double points" },
     price: 1000,
     description: {
-      tr: "Süreyi 15 saniyeden 25 saniyeye çıkarır, soru başına 1 kez kullanılabilir.",
-      en: "Extends the timer from 15 to 25 seconds, usable once per question.",
+      tr: "Bu soruyu doğru bilirsen kazandığın puanı ikiye katlar, soru başına 1 kez kullanılabilir.",
+      en: "Doubles the points you earn if you get this question right, usable once per question.",
     },
+    // Not: adanmis bir "cift puan" gorseli yok, mevcut ikon (saat) buradan
+    // kalma - Pexels sorgusu daha uygun bir canli fotograf bulmayi dener.
     image: "/oyun/jokerler/zaman-kalkani.jpg",
-    imageQuery: "clock time",
+    imageQuery: "bonus coins doubled prize",
   },
   {
     kind: "fiftyFifty",
@@ -792,28 +748,73 @@ const WON_LABEL: LocalizedText = { tr: "Kazandı", en: "Won" };
 const ELIMINATED_LABEL: LocalizedText = { tr: "Elendi", en: "Eliminated" };
 const QUESTION_LABEL: LocalizedText = { tr: "Soru", en: "Question" };
 
-export function buildHistoryRow(
-  result: { won: boolean; score: number; reached: number },
-  earnedPoints: number,
-  lang: Lang
-): HistoryRow {
-  const today = new Date();
+/**
+ * Backend'in `/api/contest/wallet/history` satırını (bkz.
+ * `models/contestApi.ts::ContestHistoryRowApi`) ekranda gösterilen
+ * `HistoryRow`'a çevirir. Parametre tipi BİLEREK inline (nominal import
+ * değil) — `contestApi.ts` zaten `LocalizedText`'i buradan alıyor, tersten
+ * bir import döngü yaratırdı; TypeScript'in yapısal tipleme özelliği
+ * `ContestHistoryRowApi`'yi buraya sorunsuz geçirmeyi sağlıyor.
+ *
+ * Satır üç türden biri olabilir (`kind`): yarışma katılımı, joker satın
+ * alma veya bağış — mağaza fiyat/etiket bilgisi burada `POWERUP_SHOP` /
+ * `DONATIONS`'tan okunur, backend yalnızca kind + miktarı taşır (bkz.
+ * services/contest.py::get_history docstring'i).
+ */
+export function apiHistoryRowToDisplay(row: {
+  occurred_at: string;
+  kind: "contest" | "powerup_purchase" | "donation_purchase";
+  points: number;
+  won: boolean | null;
+  final_score: number | null;
+  eliminated_at_question: number | null;
+  powerup_kind: string | null;
+  donation_key: string | null;
+}): HistoryRow {
+  const d = new Date(row.occurred_at);
   const date: LocalizedText = {
-    tr: today.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
-    en: today.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
+    tr: d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
+    en: d.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
   };
-  const detail: LocalizedText = result.won
+
+  if (row.kind === "powerup_purchase") {
+    const item = POWERUP_SHOP.find((p) => p.kind === row.powerup_kind);
+    const name = item?.label ?? { tr: row.powerup_kind ?? "", en: row.powerup_kind ?? "" };
+    return {
+      date,
+      result: "purchase",
+      detail: { tr: `${name.tr} satın alındı`, en: `${name.en} purchased` },
+      score: 0,
+      points: row.points,
+    };
+  }
+
+  if (row.kind === "donation_purchase") {
+    const item = DONATIONS.find((donation) => donation.id === row.donation_key);
+    const name = item?.title ?? { tr: row.donation_key ?? "", en: row.donation_key ?? "" };
+    return {
+      date,
+      result: "purchase",
+      detail: name,
+      score: 0,
+      points: row.points,
+    };
+  }
+
+  const detail: LocalizedText = row.won
     ? WON_LABEL
-    : {
-        tr: `${ELIMINATED_LABEL.tr} · ${QUESTION_LABEL.tr} ${result.reached}`,
-        en: `${ELIMINATED_LABEL.en} · ${QUESTION_LABEL.en} ${result.reached}`,
-      };
+    : row.eliminated_at_question != null
+      ? {
+          tr: `${ELIMINATED_LABEL.tr} · ${QUESTION_LABEL.tr} ${row.eliminated_at_question}`,
+          en: `${ELIMINATED_LABEL.en} · ${QUESTION_LABEL.en} ${row.eliminated_at_question}`,
+        }
+      : ELIMINATED_LABEL;
   return {
     date,
-    result: result.won ? "win" : "out",
+    result: row.won ? "win" : "out",
     detail,
-    score: result.score,
-    points: earnedPoints,
+    score: row.final_score ?? 0,
+    points: row.points,
   };
 }
 
@@ -825,12 +826,17 @@ export type LeaderboardEntry = {
   score: number;
 };
 
-/** Demo liderlik verisi üretir; backend gelince ???? */
+/** Demo liderlik verisi üretir (sahte, tamamen frontend simülasyonu).
+ * Taban puanlar BİLEREK gerçek bir oyuncunun ulaşabileceği tavan puanın
+ * (5 soru × soru başına maksimum 200 puan = 1000, bkz. `scoreFor`) belirgin
+ * şekilde üzerinde tutulur - listedeki en düşük sıradaki rakip bile en kötü
+ * jitter durumunda ~1250 puanın altına inmez. Amaç: demo/gerçek bir oyuncu
+ * ne kadar iyi oynarsa oynasın bu sahte sıralamaya asla giremesin. */
 export function buildLeaderboard(period: LeaderboardPeriod, lang: Lang): LeaderboardEntry[] {
   const seedByPeriod: Record<LeaderboardPeriod, number> = {
-    gunluk: 900,
-    haftalik: 4200,
-    tumzamanlar: 18500,
+    gunluk: 3400,
+    haftalik: 16000,
+    tumzamanlar: 70000,
   };
 
   const base = seedByPeriod[period];
