@@ -26,6 +26,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
   const isSupportPage = pathname === "/destek";
+  // Danisman ekrani cok sutunlu bir CRM tablosu tasiyor; 7xl kabinda
+  // surekli yatay kaydirma gerekiyordu. Genisletme YALNIZCA bu sayfaya
+  // ozeldir, diger sayfalarin olcusu degismez.
+  const isWidePage = pathname === "/danisman";
   const isPublic = isLanding || isLogin || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
@@ -135,7 +139,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
               isGame ? "pt-8" : "pt-20"
             }`}
           >
-            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+            <main
+              className={`mx-auto w-full flex-1 px-4 py-8 ${
+                isWidePage ? "max-w-[100rem]" : "max-w-7xl"
+              }`}
+            >
+              {children}
+            </main>
             <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
           {!isGame && (

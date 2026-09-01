@@ -35,6 +35,9 @@ _USERS: list[dict] = [
         "onboarding_completed": True,
         "marketing_consent": True,
         "likit_para": 200000.0,
+        "phone_number": "+905321112233",
+        "birth_date": "1985-04-12",
+        "tckn_last4": "4821",
         "role": "customer",
     },
     {
@@ -48,6 +51,9 @@ _USERS: list[dict] = [
         "onboarding_completed": True,
         "marketing_consent": True,
         "likit_para": 150000.0,
+        "phone_number": "+905339998877",
+        "birth_date": "1992-11-03",
+        "tckn_last4": "1750",
         "role": "customer",
     },
     {
@@ -60,6 +66,9 @@ _USERS: list[dict] = [
         "monthly_income": 0.0,
         "marketing_consent": False,
         "likit_para": 0.0,
+        "phone_number": None,
+        "birth_date": None,
+        "tckn_last4": None,
         "role": "advisor",
     },
     # Portfoyu YOK (`_PORTFOLIOS`'ta satiri yok) ve islemi YOK: yani
@@ -76,6 +85,9 @@ _USERS: list[dict] = [
         "monthly_income": 45000.0,
         "marketing_consent": True,
         "likit_para": 300000.0,
+        "phone_number": "+905324445566",
+        "birth_date": "1978-07-21",
+        "tckn_last4": "9034",
         "role": "customer",
     },
 ]
@@ -1826,6 +1838,9 @@ class InMemoryLeadRepository:
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"],
+                    "phone_number": user.get("phone_number"),
+                    "birth_date": user.get("birth_date"),
+                    "tckn_last4": user.get("tckn_last4"),
                 }
             )
         return sonuc
@@ -1866,6 +1881,9 @@ class InMemoryLeadRepository:
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"],
+                    "phone_number": user.get("phone_number"),
+                    "birth_date": user.get("birth_date"),
+                    "tckn_last4": user.get("tckn_last4"),
                     "decision": "AUTONOMOUS",
                     "exclusion_reason": None,
                     "score": karar.get("score", 0),
