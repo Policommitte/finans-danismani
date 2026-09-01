@@ -87,6 +87,8 @@ CREATE TABLE assets (
     symbol VARCHAR(20) UNIQUE NOT NULL,
     name VARCHAR(100) NOT NULL,
     currency VARCHAR(10) DEFAULT 'TRY',
+    sector VARCHAR(40),
+    region VARCHAR(16),
     current_price NUMERIC NOT NULL,
     prev_close NUMERIC,
     daily_change_pct NUMERIC DEFAULT 0.0,

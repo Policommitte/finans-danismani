@@ -1638,16 +1638,51 @@ class SqlRecommendationRepository(_SqlRepository):
         return await self._rows(
             """
             SELECT a.id AS asset_id, a.symbol, a.name, ac.code AS asset_class,
-                   a.currency,
+                   a.currency, a.sector, a.region,
                    CASE
                        WHEN fx.try_rate IS NULL THEN a.current_price
                        ELSE a.current_price * fx.try_rate
                    END AS current_price,
                    a.daily_change_pct, a.weekly_change_pct, a.yearly_change_pct,
-                   a.price_updated_at
+                   a.price_updated_at, vol.volatility_20d_pct,
+                   COALESCE(vol.volatility_observation_count, 0)
+                       AS volatility_observation_count,
+                   COALESCE(vol.daily_returns_252d, '{}'::jsonb) AS daily_returns_252d
             FROM assets a
             JOIN asset_categories ac ON ac.id = a.category_id
             LEFT JOIN v_fx_rates fx ON fx.currency = a.currency
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN count(return_pct) FILTER (WHERE recency <= 20) >= 20
+                            THEN stddev_samp(return_pct) FILTER (WHERE recency <= 20)
+                       END AS volatility_20d_pct,
+                       count(return_pct) FILTER (WHERE recency <= 20)
+                           AS volatility_observation_count,
+                       jsonb_object_agg(ts::text, return_pct ORDER BY ts)
+                           FILTER (WHERE return_pct IS NOT NULL) AS daily_returns_252d
+                FROM (
+                    SELECT ts, return_pct,
+                           row_number() OVER (ORDER BY ts DESC) AS recency
+                    FROM (
+                        SELECT ts,
+                               (price / lag(price) OVER (ORDER BY ts) - 1) * 100
+                                   AS return_pct
+                        FROM (
+                            SELECT day AS ts, price
+                            FROM (
+                                SELECT DISTINCT ON ((ts AT TIME ZONE 'Europe/Istanbul')::date)
+                                       (ts AT TIME ZONE 'Europe/Istanbul')::date AS day,
+                                       price
+                                FROM price_history
+                                WHERE asset_id = a.id
+                                ORDER BY (ts AT TIME ZONE 'Europe/Istanbul')::date DESC,
+                                         ts DESC
+                            ) daily_closes
+                            ORDER BY day DESC
+                            LIMIT 253
+                        ) daily_points
+                    ) returns
+                ) ranked_returns
+            ) vol ON true
             ORDER BY a.id
             """
         )
@@ -1762,6 +1797,69 @@ class SqlRecommendationRepository(_SqlRepository):
             {"portfolio_id": portfolio_id},
         )
         return {int(r["asset_id"]): float(r["quantity"]) for r in rows}
+
+    async def get_basket_state(self, user_id: int, goal: str) -> dict | None:
+        row = await self._row(
+            """
+            SELECT user_id, goal, memberships, breach_counts,
+                   membership_since, change_signals, profile_signature,
+                   evaluated_at, changed_at, created_at, updated_at
+            FROM idle_cash_basket_states
+            WHERE user_id = :user_id AND goal = :goal
+            """,
+            {"user_id": user_id, "goal": goal},
+        )
+        if row is None:
+            return None
+        return {
+            **row,
+            "memberships": list(row.get("memberships") or []),
+            "breach_counts": dict(row.get("breach_counts") or {}),
+            "membership_since": dict(row.get("membership_since") or {}),
+            "change_signals": dict(row.get("change_signals") or {}),
+        }
+
+    async def upsert_basket_state(self, user_id: int, goal: str, state: dict) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO idle_cash_basket_states (
+                            user_id, goal, memberships, breach_counts,
+                            membership_since, change_signals, profile_signature,
+                            evaluated_at, changed_at, updated_at
+                        ) VALUES (
+                            :user_id, :goal, CAST(:memberships AS JSONB),
+                            CAST(:breach_counts AS JSONB),
+                            CAST(:membership_since AS JSONB),
+                            CAST(:change_signals AS JSONB), :profile_signature,
+                            :evaluated_at, :changed_at, now()
+                        )
+                        ON CONFLICT (user_id, goal) DO UPDATE SET
+                            memberships = EXCLUDED.memberships,
+                            breach_counts = EXCLUDED.breach_counts,
+                            membership_since = EXCLUDED.membership_since,
+                            change_signals = EXCLUDED.change_signals,
+                            profile_signature = EXCLUDED.profile_signature,
+                            evaluated_at = EXCLUDED.evaluated_at,
+                            changed_at = EXCLUDED.changed_at,
+                            updated_at = now()
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "goal": goal,
+                        "memberships": _json(state["memberships"]),
+                        "breach_counts": _json(state.get("breach_counts") or {}),
+                        "membership_since": _json(state.get("membership_since") or {}),
+                        "change_signals": _json(state.get("change_signals") or {}),
+                        "profile_signature": state["profile_signature"],
+                        "evaluated_at": state["evaluated_at"],
+                        "changed_at": state["changed_at"],
+                    },
+                )
+        return await self.get_basket_state(user_id, goal) or {}
 
     async def daily_stats(self, user_id: int) -> dict:
         row = await self._row(

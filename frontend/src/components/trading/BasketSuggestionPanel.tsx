@@ -61,7 +61,7 @@ export function BasketSuggestionPanel({ onReady }: { onReady?: () => void }) {
   return (
     <section className="relative overflow-hidden rounded-2xl border app-card p-5">
       <div className={state.loading ? "pointer-events-none blur-sm" : ""}>
-        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+        <div className="mb-5">
           <div>
             <p className="text-sm font-semibold text-[var(--color-primary)]">
               Kişiselleştirilmiş yatırım sepeti
@@ -73,13 +73,6 @@ export function BasketSuggestionPanel({ onReady }: { onReady?: () => void }) {
               Uygulamadaki tüm varlıklar taranır; bakiyen risk profilin, portföyün ve hedefinle uyumlu olanlara dağıtılır.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void state.refetch()}
-            className="rounded-lg border px-4 py-2 text-sm font-semibold hover:bg-black/5"
-          >
-            Önerileri güncelle
-          </button>
         </div>
 
         <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Sepet hedefi">
@@ -100,10 +93,30 @@ export function BasketSuggestionPanel({ onReady }: { onReady?: () => void }) {
 
         <p className="mb-5 text-sm app-muted">
           {GOALS.find((item) => item.key === goal)?.description}
-          <span className="ml-2 font-semibold text-[var(--color-primary)]">
-            {state.data.universe_size} varlık analiz edildi · {state.data.eligible_asset_count} işlem yapılabilir aday
-          </span>
         </p>
+
+        {(state.data.stale_asset_count > 0 || state.data.insufficient_history_asset_count > 0) && (
+          <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Veri kalite kontrolü: {state.data.stale_asset_count} varlık güncel olmayan fiyat,
+            {" "}{state.data.insufficient_history_asset_count} varlık yetersiz oynaklık geçmişi nedeniyle işaretlendi.
+          </p>
+        )}
+
+        <div className="mb-5 grid gap-3 rounded-xl bg-[var(--color-soft)] p-4 text-sm md:grid-cols-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide app-muted">Değerlendirme düzeni</p>
+            <p className="mt-1 font-semibold app-heading">{state.data.evaluation_frequency}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide app-muted">Son değerlendirme</p>
+            <p className="mt-1 font-semibold app-heading">{dateTimeFormatter.format(new Date(state.data.evaluated_at))}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide app-muted">Son içerik değişimi</p>
+            <p className="mt-1 font-semibold app-heading">{dateTimeFormatter.format(new Date(state.data.last_changed_at))}</p>
+          </div>
+          <p className="md:col-span-3 app-muted">{state.data.stability_note}</p>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {state.data.options.map((option) => (
@@ -122,6 +135,9 @@ export function BasketSuggestionPanel({ onReady }: { onReady?: () => void }) {
         suggestion={selectedBasket?.suggestion ?? null}
         title={selectedBasket?.title}
         subtitle={selectedBasket?.summary}
+        strategyLabel={selectedBasket?.strategy_label}
+        metrics={selectedBasket?.metrics}
+        backtest={selectedBasket?.backtest}
         onClose={() => setSelectedBasket(null)}
       />
     </section>
@@ -134,7 +150,13 @@ const moneyFormatter = new Intl.NumberFormat("tr-TR", {
   maximumFractionDigits: 0,
 });
 
+const dateTimeFormatter = new Intl.DateTimeFormat("tr-TR", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 const riskLabels = { LOW: "Düşük", MEDIUM: "Orta", HIGH: "Yüksek" } as const;
+const basketRiskLabels = { LOW: "Düşük", MEDIUM: "Orta", HIGH: "Yüksek" } as const;
 
 function BasketCard({ option, onOpen }: { option: IdleCashBasketOption; onOpen: () => void }) {
   const suggestion = option.suggestion;
@@ -152,6 +174,9 @@ function BasketCard({ option, onOpen }: { option: IdleCashBasketOption; onOpen: 
             {riskLabels[suggestion.risk_profile]} risk profiline uygun
           </p>
           <h3 className="mt-1 text-lg font-bold app-heading">{option.title}</h3>
+          <span className="mt-2 inline-flex rounded-full bg-[var(--color-soft)] px-3 py-1 text-xs font-semibold app-heading">
+            {option.strategy_label}
+          </span>
         </div>
         <span className="text-xl app-muted transition group-hover:translate-x-1" aria-hidden="true">
           →
@@ -166,6 +191,44 @@ function BasketCard({ option, onOpen }: { option: IdleCashBasketOption; onOpen: 
             {item.symbol}
           </span>
         ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-lg bg-[var(--color-soft)] p-2">
+          <p className="app-muted">Sepet riski</p>
+          <p className="mt-1 font-semibold app-heading">{basketRiskLabels[option.metrics.risk_level]}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-soft)] p-2">
+          <p className="app-muted">20 günlük oynaklık</p>
+          <p className="mt-1 font-semibold app-heading">%{option.metrics.expected_volatility_20d_pct.toLocaleString("tr-TR")}</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-soft)] p-2">
+          <p className="app-muted">Çeşitlendirme</p>
+          <p className="mt-1 font-semibold app-heading">{option.metrics.diversification_score.toLocaleString("tr-TR")} / 100</p>
+        </div>
+        <div className="rounded-lg bg-[var(--color-soft)] p-2">
+          <p className="app-muted">Dağılım</p>
+          <p className="mt-1 font-semibold app-heading">{option.metrics.asset_class_count} sınıf · {option.metrics.sector_count} sektör</p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-lg border p-3 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="app-muted">Geçmiş simülasyon</span>
+          <span className="font-semibold app-heading">
+            {option.backtest.status === "INSUFFICIENT"
+              ? "Yetersiz veri"
+              : option.backtest.status === "LIMITED" ? "Sınırlı veri" : "Yeterli veri"}
+          </span>
+        </div>
+        {option.backtest.net_return_pct != null && (
+          <p className="mt-2 font-semibold app-heading">
+            Maliyet sonrası %{option.backtest.net_return_pct.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}
+            <span className="ml-2 font-normal app-muted">
+              · {option.backtest.observation_count} gün
+            </span>
+          </p>
+        )}
       </div>
 
       <div className="mt-auto flex items-end justify-between gap-3 border-t pt-4 text-sm">

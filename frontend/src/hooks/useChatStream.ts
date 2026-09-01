@@ -6,7 +6,6 @@ import type {
   AgentError,
   ChatAttachment,
   ChatMessage,
-  IdleCashSuggestion,
   Source,
 } from "../models/chat";
 import { streamChat } from "../services/chatService";
@@ -24,7 +23,6 @@ export function useChatStream() {
   const [status, setStatus] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [idleCashSuggestion, setIdleCashSuggestion] = useState<IdleCashSuggestion | null>(null);
 
   async function sendMessage(content: string, pendingAttachment?: PendingAttachment) {
     const trimmed = content.trim();
@@ -67,7 +65,6 @@ export function useChatStream() {
     ]);
     setIsStreaming(true);
     setError(null);
-    setIdleCashSuggestion(null);
     setStatus("Gonderiliyor");
 
     try {
@@ -101,10 +98,6 @@ export function useChatStream() {
                 : message,
             ),
           );
-        }
-
-        if (event.type === "idle_cash_suggestion") {
-          setIdleCashSuggestion(event.suggestion);
         }
 
         if (event.type === "error") {
@@ -142,8 +135,6 @@ export function useChatStream() {
     status,
     isStreaming,
     error,
-    idleCashSuggestion,
-    closeIdleCashSuggestion: () => setIdleCashSuggestion(null),
     sendMessage,
   };
 }

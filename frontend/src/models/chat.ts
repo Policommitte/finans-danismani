@@ -65,10 +65,17 @@ export type IdleCashSuggestionItem = {
   symbol: string;
   name: string;
   asset_class: string;
+  currency: string;
+  sector: string;
+  region: string;
   quantity: number;
   reference_price: number;
   estimated_amount: number;
   weight_pct: number;
+  goal_rank: number;
+  candidate_count: number;
+  suitability_level: "HIGH" | "MEDIUM" | "LOW";
+  score_components: Record<string, number>;
   rationale: string[];
 };
 
@@ -91,6 +98,37 @@ export type IdleCashBasketOption = {
   id: string;
   title: string;
   summary: string;
+  strategy_key: "CORE" | "DEFENSIVE" | "OPPORTUNITY";
+  strategy_label: string;
+  strategy_description: string;
+  metrics: {
+    expected_volatility_20d_pct: number;
+    average_correlation: number | null;
+    diversification_score: number;
+    risk_level: "LOW" | "MEDIUM" | "HIGH";
+    asset_class_count: number;
+    sector_count: number;
+    region_count: number;
+    largest_weight_pct: number;
+  };
+  backtest: {
+    status: "SUFFICIENT" | "LIMITED" | "INSUFFICIENT";
+    methodology_version: string;
+    observation_count: number;
+    start_date: string | null;
+    end_date: string | null;
+    gross_return_pct: number | null;
+    net_return_pct: number | null;
+    benchmark_return_pct: number | null;
+    excess_return_pct: number | null;
+    annualized_volatility_pct: number | null;
+    max_drawdown_pct: number | null;
+    risk_adjusted_return: number | null;
+    transaction_cost_impact_pct: number | null;
+    rebalance_count: number;
+    benchmark_label: string;
+    note: string;
+  };
   suggestion: IdleCashSuggestion;
 };
 
@@ -98,6 +136,14 @@ export type IdleCashBasketCatalog = {
   goal: IdleCashSuggestion["goal"];
   universe_size: number;
   eligible_asset_count: number;
+  stale_asset_count: number;
+  insufficient_history_asset_count: number;
+  evaluation_frequency: string;
+  evaluated_at: string;
+  last_changed_at: string;
+  next_evaluation_at: string;
+  membership_changed: boolean;
+  stability_note: string;
   options: IdleCashBasketOption[];
 };
 
@@ -106,7 +152,6 @@ export type ChatEvent =
   | { type: "status"; stage: string; message: string }
   | { type: "sources"; items: Source[] }
   | { type: "token"; content: string }
-  | { type: "idle_cash_suggestion"; suggestion: IdleCashSuggestion }
   | { type: "agent_error"; agent: string; error_type: AgentError["error_type"]; message?: string }
   | { type: "error"; code: string; message: string }
   | { type: "done"; message_id?: number; latency_ms: number; mentioned_assets?: string[] };

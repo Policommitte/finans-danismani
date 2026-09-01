@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from collections.abc import AsyncGenerator
 
 from app.core.errors import AppError, NotFoundError
@@ -28,7 +27,6 @@ from app.mcp.context import set_current_user_id, set_request_context
 from app.repositories.deps import get_chat_repository
 from app.schemas.chat import ChatAttachment
 from app.services import chat_attachments
-from app.services.idle_cash import idle_cash_request_mi, idle_cash_suggestion_getir
 
 logger = logging.getLogger(__name__)
 
@@ -99,16 +97,6 @@ async def stream_chat_response(
         content=message,
         request_id=request_id,
     )
-
-    if idle_cash_request_mi(message):
-        async for event in _idle_cash_response(
-            user_id=user_id,
-            message=message,
-            thread_id=thread_id,
-            request_id=request_id,
-        ):
-            yield event
-        return
 
     parcalar: list[str] = []
     kaynaklar: list[dict] = []
@@ -205,50 +193,6 @@ async def _stream_attachment_response(
     if mesaj is not None:
         done_event["message_id"] = mesaj["id"]
     yield done_event
-
-
-async def _idle_cash_response(
-    *, user_id: int, message: str, thread_id: int, request_id: str
-) -> AsyncGenerator[dict, None]:
-    """Kurallı öneriyi standart sohbet SSE akışına dönüştürür."""
-    baslangic = time.perf_counter()
-    yield {"type": "meta", "request_id": request_id, "conversation_id": thread_id}
-    yield {
-        "type": "status",
-        "stage": "idle_cash_analysis",
-        "message": "Bakiye ve risk tercihleriniz değerlendiriliyor",
-    }
-
-    try:
-        suggestion = await idle_cash_suggestion_getir(user_id, message)
-        cevap = (
-            "Risk profiliniz, hedefiniz, mevcut portföyünüz ve güncel fiyatlar "
-            "dikkate alınarak bir hisse sepeti hazırladım. Ayrıntıları açılan "
-            "öneri penceresinde inceleyebilirsiniz."
-            if suggestion.mode == "basket"
-            else
-            "Bakiyeniz birden fazla varlığa anlamlı biçimde bölünemediği için "
-            "tek hisselik bir alternatif hazırladım. Ayrıntıları açılan öneri "
-            "penceresinde inceleyebilirsiniz."
-        )
-        yield {"type": "token", "content": cevap}
-        yield {
-            "type": "idle_cash_suggestion",
-            "suggestion": suggestion.model_dump(mode="json"),
-        }
-    except AppError as exc:
-        cevap = f"Şu anda öneri oluşturamadım: {exc.message} Lütfen daha sonra tekrar deneyin."
-        yield {"type": "token", "content": cevap}
-    except Exception:  # noqa: BLE001 - SSE başladıktan sonra kontrollü yanıt gerekir
-        logger.exception("atıl bakiye önerisi oluşturulamadı", extra={"user_id": user_id})
-        cevap = "Bakiye veya piyasa verileri şu anda alınamadı. Lütfen daha sonra tekrar deneyin."
-        yield {"type": "token", "content": cevap}
-
-    kayit = await _asistan_mesajini_kaydet(thread_id, cevap, [], [], request_id)
-    done = {"type": "done", "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2)}
-    if kayit is not None:
-        done["message_id"] = kayit["id"]
-    yield done
 
 
 async def _asistan_mesajini_kaydet(

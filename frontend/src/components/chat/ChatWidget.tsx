@@ -7,7 +7,6 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useChatStream } from "../../hooks/useChatStream";
 import type { PendingAttachment } from "./AttachmentMenu";
-import { IdleCashSuggestionModal } from "./IdleCashSuggestionModal";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
@@ -307,10 +306,6 @@ export function ChatWidget({
 
   return (
     <>
-      <IdleCashSuggestionModal
-        suggestion={chat.idleCashSuggestion}
-        onClose={chat.closeIdleCashSuggestion}
-      />
       <div className="fixed bottom-5 right-5 z-40">
       {renderPanel && (
         <section
