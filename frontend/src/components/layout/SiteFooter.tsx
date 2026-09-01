@@ -9,16 +9,13 @@ type SiteFooterProps = {
   onStartTour?: () => void;
 };
 
-//: `href` SADECE dogrulanmis, gercek Intertech hesabi olan ikonlarda var.
-//: Facebook/X/YouTube icin resmi bir Intertech hesabi teyit edilemedi -
-//: uydurma/tahmini link eklenmez, bu yuzden `href` alanlari bos birakildi;
-//: ikonlar sadece gorsel olarak durur, tiklanamaz (asagida <span> olarak
-//: render edilir).
+//: `href` SADECE dogrulanmis, gercek Intertech hesabi olan ikonlarda var -
+//: hicbiri uydurma/tahmini degil.
 const socialLinks: { label: string; src: string; href?: string }[] = [
-  { label: "Facebook", src: "/social/facebook.png" },
+  { label: "Facebook", src: "/social/facebook.png", href: "https://www.facebook.com/intertechteyasam/" },
   { label: "Instagram", src: "/social/instagram.jpg", href: "https://www.instagram.com/intertechteyasam/" },
-  { label: "X", src: "/social/x.png" },
-  { label: "YouTube", src: "/social/youtube.png" },
+  { label: "X", src: "/social/x.png", href: "https://x.com/IntertechInc" },
+  { label: "YouTube", src: "/social/youtube.png", href: "https://www.youtube.com/@IntertechTraining" },
   { label: "LinkedIn", src: "/social/linkedin.png", href: "https://www.linkedin.com/company/intertechteyasam/" },
 ];
 
