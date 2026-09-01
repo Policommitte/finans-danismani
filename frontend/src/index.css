@@ -628,7 +628,10 @@ body {
   .app-news-card:hover {
     height: 100%;
     min-height: 0;
-    transform: scale(1.025) translateY(-3px);
+    /* Kart buyumesin/yerinden oynamasin - `.app-hover-card:hover`'in
+       border-color/background/box-shadow (cerceve aydinlatmasi) YINE
+       uygulanir, burada SADECE transform iptal edilir. */
+    transform: none;
     z-index: 30;
   }
 
