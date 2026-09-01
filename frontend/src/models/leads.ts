@@ -11,6 +11,10 @@ export type LeadQueueItem = {
   total_value_try: number;
   monthly_income: number;
   likit_para: number;
+  phone_number: string | null;
+  /** Yas EKRANDA bundan turetilir (bkz. `yasHesapla`), ayrica saklanmaz. */
+  birth_date: string | null;
+  tckn_last4: string | null;
   days_since_activity: number | null;
   mail_gonderildi: boolean;
   created_at: string;

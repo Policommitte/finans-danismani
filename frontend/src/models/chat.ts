@@ -81,7 +81,7 @@ export type IdleCashSuggestionItem = {
 
 export type IdleCashSuggestion = {
   mode: "basket" | "single";
-  balance_source: "idle_balance" | "paper_cash";
+  balance_source: "cash_account";
   available_balance: number;
   investable_amount: number;
   estimated_total: number;

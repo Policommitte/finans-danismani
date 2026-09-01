@@ -36,6 +36,9 @@ _USERS: list[dict] = [
         "onboarding_completed": True,
         "marketing_consent": True,
         "likit_para": 200000.0,
+        "phone_number": "+905321112233",
+        "birth_date": "1985-04-12",
+        "tckn_last4": "4821",
         "role": "customer",
     },
     {
@@ -49,6 +52,9 @@ _USERS: list[dict] = [
         "onboarding_completed": True,
         "marketing_consent": True,
         "likit_para": 150000.0,
+        "phone_number": "+905339998877",
+        "birth_date": "1992-11-03",
+        "tckn_last4": "1750",
         "role": "customer",
     },
     {
@@ -61,6 +67,9 @@ _USERS: list[dict] = [
         "monthly_income": 0.0,
         "marketing_consent": False,
         "likit_para": 0.0,
+        "phone_number": None,
+        "birth_date": None,
+        "tckn_last4": None,
         "role": "advisor",
     },
     # Portfoyu YOK (`_PORTFOLIOS`'ta satiri yok) ve islemi YOK: yani
@@ -77,6 +86,9 @@ _USERS: list[dict] = [
         "monthly_income": 45000.0,
         "marketing_consent": True,
         "likit_para": 300000.0,
+        "phone_number": "+905324445566",
+        "birth_date": "1978-07-21",
+        "tckn_last4": "9034",
         "role": "customer",
     },
 ]
@@ -1403,7 +1415,6 @@ class InMemoryRecommendationRepository:
         return {
             "user_id": user_id,
             "risk_tolerance": user.get("risk_tolerance"),
-            "idle_balance_try": user.get("likit_para", 0),
             "portfolio_id": portfolio["id"],
             "available_balance": hesap["available_balance"],
             "portfolio_value_try": deger,
@@ -1905,6 +1916,9 @@ class InMemoryLeadRepository:
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"],
+                    "phone_number": user.get("phone_number"),
+                    "birth_date": user.get("birth_date"),
+                    "tckn_last4": user.get("tckn_last4"),
                 }
             )
         return sonuc
@@ -1945,6 +1959,9 @@ class InMemoryLeadRepository:
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"],
+                    "phone_number": user.get("phone_number"),
+                    "birth_date": user.get("birth_date"),
+                    "tckn_last4": user.get("tckn_last4"),
                     "decision": "AUTONOMOUS",
                     "exclusion_reason": None,
                     "score": karar.get("score", 0),
@@ -2079,43 +2096,82 @@ _TOPICS: list[dict] = [
         "id": 1,
         "title_tr": "Bileşik faiz",
         "title_en": "Compound interest",
-        "body_tr": "Kazanılan faiz anaparaya eklenir ve yeniden faiz getirir. Erken başlamak süreyi en değerli girdi hâline getirir.",
-        "body_en": "Interest earned is added to the principal and starts earning interest itself. Starting early makes time your most valuable asset.",
+        "body_tr": (
+            "Kazanılan faiz anaparaya eklenir ve yeniden faiz getirir. Erken başlamak "
+            "süreyi en değerli girdi hâline getirir."
+        ),
+        "body_en": (
+            "Interest earned is added to the principal and starts earning interest "
+            "itself. Starting early makes time your most valuable asset."
+        ),
     },
     {
         "id": 2,
         "title_tr": "Enflasyon ve alım gücü",
         "title_en": "Inflation and purchasing power",
-        "body_tr": "Fiyatlar sürekli yükselir, aynı para zamanla daha az şey alır. Getiri enflasyonun altında kalırsa reel olarak kayıp vardır.",
-        "body_en": "Prices keep rising, so the same money buys less over time. If your return falls below inflation, you lose value in real terms.",
+        "body_tr": (
+            "Fiyatlar sürekli yükselir, aynı para zamanla daha az şey alır. Getiri "
+            "enflasyonun altında kalırsa reel olarak kayıp vardır."
+        ),
+        "body_en": (
+            "Prices keep rising, so the same money buys less over time. If your return "
+            "falls below inflation, you lose value in real terms."
+        ),
     },
     {
         "id": 3,
         "title_tr": "Çeşitlendirme",
         "title_en": "Diversification",
-        "body_tr": "Birikimi farklı varlıklara dağıtmak tek bir varlığın kötü gitmesinin etkisini azaltır. Aynı sektördeki varlıklar aynı şoklara birlikte maruz kalır.",
-        "body_en": "Spreading your savings across different assets reduces the impact of any single asset performing poorly. Assets in the same sector are exposed to the same shocks together.",
+        "body_tr": (
+            "Birikimi farklı varlıklara dağıtmak tek bir varlığın kötü gitmesinin "
+            "etkisini azaltır. Aynı sektördeki varlıklar aynı şoklara birlikte maruz "
+            "kalır."
+        ),
+        "body_en": (
+            "Spreading your savings across different assets reduces the impact of any "
+            "single asset performing poorly. Assets in the same sector are exposed to "
+            "the same shocks together."
+        ),
     },
     {
         "id": 4,
         "title_tr": "Risk ve getiri",
         "title_en": "Risk and return",
-        "body_tr": "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa risk muhtemelen gizlenmiştir.",
-        "body_en": "Higher returns generally come with higher uncertainty. If risk-free and high returns are promised together, the risk is probably being hidden.",
+        "body_tr": (
+            "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek "
+            "getiri bir arada vaat ediliyorsa risk muhtemelen gizlenmiştir."
+        ),
+        "body_en": (
+            "Higher returns generally come with higher uncertainty. If risk-free and "
+            "high returns are promised together, the risk is probably being hidden."
+        ),
     },
     {
         "id": 5,
         "title_tr": "Acil durum fonu",
         "title_en": "Emergency fund",
-        "body_tr": "Beklenmedik giderlerde borçlanmadan dayanmayı sağlayan rezervdir. İhtiyaç anında hızla ve değer kaybetmeden nakde çevrilebilmelidir.",
-        "body_en": "A reserve that lets you cover unexpected expenses without borrowing. It should be quickly convertible to cash without losing value when needed.",
+        "body_tr": (
+            "Beklenmedik giderlerde borçlanmadan dayanmayı sağlayan rezervdir. İhtiyaç "
+            "anında hızla ve değer kaybetmeden nakde çevrilebilmelidir."
+        ),
+        "body_en": (
+            "A reserve that lets you cover unexpected expenses without borrowing. It "
+            "should be quickly convertible to cash without losing value when needed."
+        ),
     },
     {
         "id": 6,
         "title_tr": "Borç ve kredi yönetimi",
         "title_en": "Debt and credit management",
-        "body_tr": "Asgari ödeme borcu bitirmez, kalan tutara faiz işlemeye devam eder. Ödeme geçmişi kredi notunu en çok etkileyen unsurdur.",
-        "body_en": "Paying the minimum doesn't clear the debt — interest keeps accruing on the remaining balance. Payment history is the factor that most affects your credit score.",
+        "body_tr": (
+            "Asgari ödeme borcu bitirmez, kalan tutara faiz işlemeye devam eder. Ödeme "
+            "geçmişi kredi notunu en çok etkileyen unsurdur."
+        ),
+        "body_en": (
+            "Paying the minimum doesn't clear the debt — interest keeps accruing on the "
+            "remaining balance. Payment history is the factor that most affects your "
+            "credit score."
+        ),
     },
 ]
 
@@ -2123,8 +2179,15 @@ _QUESTIONS: list[dict] = [
     {
         "id": 1,
         "topic_id": 1,
-        "text_tr": "Aynı faiz oranı ve aynı anapara ile 10 yıl yatırım yapan iki kişiden biri basit, diğeri bileşik faiz kullanıyor. Aradaki farkın temel nedeni nedir?",
-        "text_en": "Two people invest for 10 years with the same interest rate and the same principal — one uses simple interest, the other compound interest. What mainly causes the difference between them?",
+        "text_tr": (
+            "Aynı faiz oranı ve aynı anapara ile 10 yıl yatırım yapan iki kişiden biri "
+            "basit, diğeri bileşik faiz kullanıyor. Aradaki farkın temel nedeni nedir?"
+        ),
+        "text_en": (
+            "Two people invest for 10 years with the same interest rate and the same "
+            "principal — one uses simple interest, the other compound interest. What "
+            "mainly causes the difference between them?"
+        ),
         "options": [
             {
                 "tr": "Bileşik faizde oran her yıl otomatik olarak yükseltilir",
@@ -2144,16 +2207,29 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır.",
-        "education_note_en": "With compound interest, the rate doesn't change — what changes is the amount that earns interest. As gains are added to the principal, the base grows, and the gap widens quickly over time.",
+        "education_note_tr": (
+            "Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç "
+            "anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır."
+        ),
+        "education_note_en": (
+            "With compound interest, the rate doesn't change — what changes is the "
+            "amount that earns interest. As gains are added to the principal, the base "
+            "grows, and the gap widens quickly over time."
+        ),
         "difficulty": "orta",
         "timer_seconds": 10,
     },
     {
         "id": 2,
         "topic_id": 2,
-        "text_tr": "Yıllık getirisi %30 olan bir yatırım, enflasyonun %45 olduğu bir yılda ne anlama gelir?",
-        "text_en": "What does a 30% annual return mean for an investment in a year when inflation is 45%?",
+        "text_tr": (
+            "Yıllık getirisi %30 olan bir yatırım, enflasyonun %45 olduğu bir yılda ne "
+            "anlama gelir?"
+        ),
+        "text_en": (
+            "What does a 30% annual return mean for an investment in a year when "
+            "inflation is 45%?"
+        ),
         "options": [
             {"tr": "Reel olarak kazanç sağlanmıştır", "en": "A real gain was achieved"},
             {"tr": "Reel olarak kayıp yaşanmıştır", "en": "A real loss was incurred"},
@@ -2164,16 +2240,29 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür.",
-        "education_note_en": "When the nominal return stays below inflation, purchasing power falls even though the amount of money increases. Real performance is measured by subtracting inflation from the return.",
+        "education_note_tr": (
+            "Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile "
+            "alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür."
+        ),
+        "education_note_en": (
+            "When the nominal return stays below inflation, purchasing power falls even "
+            "though the amount of money increases. Real performance is measured by "
+            "subtracting inflation from the return."
+        ),
         "difficulty": "orta",
         "timer_seconds": 10,
     },
     {
         "id": 3,
         "topic_id": 3,
-        "text_tr": "Bir yatırımcı tüm birikimini aynı sektördeki beş farklı şirkete dağıtıyor. Bu neden tam bir çeşitlendirme sayılmaz?",
-        "text_en": "An investor spreads all their savings across five different companies in the same sector. Why doesn't this count as full diversification?",
+        "text_tr": (
+            "Bir yatırımcı tüm birikimini aynı sektördeki beş farklı şirkete dağıtıyor. "
+            "Bu neden tam bir çeşitlendirme sayılmaz?"
+        ),
+        "text_en": (
+            "An investor spreads all their savings across five different companies in "
+            "the same sector. Why doesn't this count as full diversification?"
+        ),
         "options": [
             {
                 "tr": "Beş varlık çeşitlendirme için yetersiz sayıdadır",
@@ -2193,16 +2282,30 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk yeterince dağılmaz.",
-        "education_note_en": "For diversification to work, assets shouldn't move together. Since the same sector is exposed to the same shocks, risk isn't spread enough even if the number of holdings increases.",
+        "education_note_tr": (
+            "Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi "
+            "gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk "
+            "yeterince dağılmaz."
+        ),
+        "education_note_en": (
+            "For diversification to work, assets shouldn't move together. Since the same "
+            "sector is exposed to the same shocks, risk isn't spread enough even if the "
+            "number of holdings increases."
+        ),
         "difficulty": "zor",
         "timer_seconds": 10,
     },
     {
         "id": 4,
         "topic_id": 4,
-        "text_tr": '"Garantili, risksiz, aylık %20 getiri" vaat eden bir yatırım teklifi için aşağıdakilerden hangisi doğrudur?',
-        "text_en": 'Which of the following is true for an investment offer promising "guaranteed, risk-free, 20% monthly return"?',
+        "text_tr": (
+            '"Garantili, risksiz, aylık %20 getiri" vaat eden bir yatırım teklifi için '
+            "aşağıdakilerden hangisi doğrudur?"
+        ),
+        "text_en": (
+            "Which of the following is true for an investment offer promising "
+            '"guaranteed, risk-free, 20% monthly return"?'
+        ),
         "options": [
             {
                 "tr": "Getirisi yüksek olduğu için öncelikli tercih edilmelidir",
@@ -2222,8 +2325,16 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca gösterilmemektedir.",
-        "education_note_en": "High returns generally come with high uncertainty. If risk-free and high returns are promised together, the risk hasn't disappeared — it's simply not being shown.",
+        "education_note_tr": (
+            "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek "
+            "getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca "
+            "gösterilmemektedir."
+        ),
+        "education_note_en": (
+            "High returns generally come with high uncertainty. If risk-free and high "
+            "returns are promised together, the risk hasn't disappeared — it's simply "
+            "not being shown."
+        ),
         "difficulty": "kolay",
         "timer_seconds": 10,
     },
@@ -2251,16 +2362,28 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında beklemeden ve değer kaybetmeden çekilebilmesi gerekir.",
-        "education_note_en": "The purpose of an emergency fund is accessibility, not return. It should be withdrawable instantly and without losing value when needed.",
+        "education_note_tr": (
+            "Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında "
+            "beklemeden ve değer kaybetmeden çekilebilmesi gerekir."
+        ),
+        "education_note_en": (
+            "The purpose of an emergency fund is accessibility, not return. It should be "
+            "withdrawable instantly and without losing value when needed."
+        ),
         "difficulty": "kolay",
         "timer_seconds": 10,
     },
     {
         "id": 6,
         "topic_id": 6,
-        "text_tr": "Kredi kartı ekstresinde yalnızca asgari tutarı ödeyen bir kullanıcı için aşağıdakilerden hangisi doğrudur?",
-        "text_en": "Which of the following is true for a user who only pays the minimum amount on their credit card statement?",
+        "text_tr": (
+            "Kredi kartı ekstresinde yalnızca asgari tutarı ödeyen bir kullanıcı için "
+            "aşağıdakilerden hangisi doğrudur?"
+        ),
+        "text_en": (
+            "Which of the following is true for a user who only pays the minimum amount "
+            "on their credit card statement?"
+        ),
         "options": [
             {
                 "tr": "Kalan borç faizsiz olarak bir sonraki aya devreder",
@@ -2280,8 +2403,15 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür.",
-        "education_note_en": "The minimum payment keeps the card from defaulting, but it doesn't clear the debt. Contractual interest accrues on the remaining amount; if repeated every month, the debt grows compound.",
+        "education_note_tr": (
+            "Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi "
+            "faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür."
+        ),
+        "education_note_en": (
+            "The minimum payment keeps the card from defaulting, but it doesn't clear "
+            "the debt. Contractual interest accrues on the remaining amount; if repeated "
+            "every month, the debt grows compound."
+        ),
         "difficulty": "kolay",
         "timer_seconds": 10,
     },
@@ -2297,16 +2427,28 @@ _QUESTIONS: list[dict] = [
             {"tr": "Vergi ve sigorta ödemelerini", "en": "Tax and insurance payments"},
         ],
         "correct_index": 1,
-        "education_note_tr": "Kuralda gelirin yarısı zorunlu ihtiyaçlara, yüzde 30'u isteklere, yüzde 20'si birikime ve borç kapatmaya ayrılır. Birikimi önce ayırmak, kalanla yaşamayı kolaylaştırır.",
-        "education_note_en": "Under the rule, half of income goes to essential needs, 30% to wants, and 20% to savings and debt repayment. Setting savings aside first makes it easier to live on the rest.",
+        "education_note_tr": (
+            "Kuralda gelirin yarısı zorunlu ihtiyaçlara, yüzde 30'u isteklere, yüzde "
+            "20'si birikime ve borç kapatmaya ayrılır. Birikimi önce ayırmak, kalanla "
+            "yaşamayı kolaylaştırır."
+        ),
+        "education_note_en": (
+            "Under the rule, half of income goes to essential needs, 30% to wants, and "
+            "20% to savings and debt repayment. Setting savings aside first makes it "
+            "easier to live on the rest."
+        ),
         "difficulty": "kolay",
         "timer_seconds": 10,
     },
     {
         "id": 8,
         "topic_id": 6,
-        "text_tr": "Bir kişinin kredi notunu en olumsuz etkileyen davranış aşağıdakilerden hangisidir?",
-        "text_en": "Which of the following behaviors most negatively affects a person's credit score?",
+        "text_tr": (
+            "Bir kişinin kredi notunu en olumsuz etkileyen davranış aşağıdakilerden " "hangisidir?"
+        ),
+        "text_en": (
+            "Which of the following behaviors most negatively affects a person's credit " "score?"
+        ),
         "options": [
             {"tr": "Kredi kartını hiç kullanmamak", "en": "Never using a credit card"},
             {"tr": "Ödemeleri düzenli olarak geciktirmek", "en": "Regularly making late payments"},
@@ -2317,16 +2459,29 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını olumsuz etkiler.",
-        "education_note_en": "Payment history is the most heavily weighted factor in a credit score. Late payments get recorded and negatively affect both approval and the interest rate on future credit applications.",
+        "education_note_tr": (
+            "Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler "
+            "kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını "
+            "olumsuz etkiler."
+        ),
+        "education_note_en": (
+            "Payment history is the most heavily weighted factor in a credit score. Late "
+            "payments get recorded and negatively affect both approval and the interest "
+            "rate on future credit applications."
+        ),
         "difficulty": "orta",
         "timer_seconds": 10,
     },
     {
         "id": 9,
         "topic_id": None,
-        "text_tr": 'Vadeli mevduatta "brüt faiz" ile "net faiz" arasındaki fark neyden kaynaklanır?',
-        "text_en": 'In a term deposit, what causes the difference between "gross interest" and "net interest"?',
+        "text_tr": (
+            'Vadeli mevduatta "brüt faiz" ile "net faiz" arasındaki fark neyden ' "kaynaklanır?"
+        ),
+        "text_en": (
+            'In a term deposit, what causes the difference between "gross interest" '
+            'and "net interest"?'
+        ),
         "options": [
             {
                 "tr": "Bankanın uyguladığı hesap işletim ücretinden",
@@ -2343,16 +2498,29 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran değil, elinize geçecek net tutar dikkate alınmalıdır.",
-        "education_note_en": "Statutory withholding tax is deducted from deposit interest. When comparing products, you should look at the net amount you'll actually receive, not the gross rate.",
+        "education_note_tr": (
+            "Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran "
+            "değil, elinize geçecek net tutar dikkate alınmalıdır."
+        ),
+        "education_note_en": (
+            "Statutory withholding tax is deducted from deposit interest. When comparing "
+            "products, you should look at the net amount you'll actually receive, not "
+            "the gross rate."
+        ),
         "difficulty": "zor",
         "timer_seconds": 10,
     },
     {
         "id": 10,
         "topic_id": 4,
-        "text_tr": "Portföyünde ağırlıklı olarak hisse senedi bulunan bir yatırımcı, emekliliğine iki yıl kala ne yapmalıdır?",
-        "text_en": "What should an investor whose portfolio is mostly stocks do two years before retirement?",
+        "text_tr": (
+            "Portföyünde ağırlıklı olarak hisse senedi bulunan bir yatırımcı, "
+            "emekliliğine iki yıl kala ne yapmalıdır?"
+        ),
+        "text_en": (
+            "What should an investor whose portfolio is mostly stocks do two years "
+            "before retirement?"
+        ),
         "options": [
             {
                 "tr": "Riski artırıp getiriyi hızlandırmalıdır",
@@ -2372,8 +2540,16 @@ _QUESTIONS: list[dict] = [
             },
         ],
         "correct_index": 1,
-        "education_note_tr": "Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir yaklaşımdır.",
-        "education_note_en": "As the investment horizon shortens, there's less time to recover from losses. Gradually lowering the portfolio's risk level as you approach your goal is a common approach.",
+        "education_note_tr": (
+            "Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe "
+            "yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir "
+            "yaklaşımdır."
+        ),
+        "education_note_en": (
+            "As the investment horizon shortens, there's less time to recover from "
+            "losses. Gradually lowering the portfolio's risk level as you approach your "
+            "goal is a common approach."
+        ),
         "difficulty": "orta",
         "timer_seconds": 10,
     },

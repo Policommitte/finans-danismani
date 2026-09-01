@@ -9,7 +9,7 @@ function MenuIcon({ item }: { item: NavItem }) {
   return (
     <span
       aria-hidden="true"
-      className="block h-5 w-5 shrink-0 bg-current [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+      className="block h-8 w-8 shrink-0 bg-current [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
       style={{
         maskImage: `url('${item.icon}')`,
         WebkitMaskImage: `url('${item.icon}')`,
@@ -42,7 +42,9 @@ function NavList({ items }: { items: NavItem[] }) {
             {active ? (
               <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-[var(--color-primary)]" />
             ) : null}
-            <MenuIcon item={item} />
+            <span className="absolute left-2 top-1/2 -translate-y-1/2">
+              <MenuIcon item={item} />
+            </span>
             <span
               className={`pointer-events-none absolute left-1/2 -top-3 z-[70] w-[88px] -translate-x-1/2 whitespace-normal px-1 text-center text-[11px] font-bold leading-[1.05] transition-colors ${
                 active ? "text-white" : "text-white/70 group-hover:text-white"

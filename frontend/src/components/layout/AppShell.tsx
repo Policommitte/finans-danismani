@@ -27,6 +27,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
   const isSupportPage = pathname === "/destek";
+  // Danışman ekranındaki geniş CRM tablosu için yalnızca bu sayfanın
+  // içerik kabı genişletilir; diğer sayfaların ölçüsü değişmez.
+  const isWidePage = pathname === "/danisman";
   const isPublic =
     isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
   const showHomeNavigation = !auth.user && !auth.hasToken;
@@ -169,9 +172,19 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   : "relative w-full flex-1"
               }
             >
-              {isFocusedGame ? children : <div className="mx-auto w-full max-w-7xl px-4 py-8">{children}</div>}
+              {isFocusedGame ? (
+                children
+              ) : (
+                <div
+                  className={`mx-auto w-full px-4 py-8 ${
+                    isWidePage ? "max-w-[100rem]" : "max-w-7xl"
+                  }`}
+                >
+                  {children}
+                </div>
+              )}
             </main>
-            {!isFocusedGame && <SiteFooter onStartTour={() => setTourOpen(true)} />}
+            <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
           {!isGame && (
             <ChatWidget

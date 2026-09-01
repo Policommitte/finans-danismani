@@ -57,18 +57,15 @@ CREATE TABLE users (
     role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
     likit_para DOUBLE PRECISION,
     onboarding_completed BOOLEAN NOT NULL DEFAULT true,
-    -- TCKN dogrulama (bkz. migrations/017_users_tckn_verification.sql): tam
-    -- numara DEGIL, tek yonlu HMAC-SHA256 ozeti saklanir; ekranlarda yalnizca
-    -- son 4 hane gosterilir.
+    -- Kimlik alanları. TCKN DOĞRUDAN SAKLANMAZ: `tckn_hash` (SHA-256 hex)
+    -- doğrulama/tekillik için, `tckn_last4` arayüzde "•••• 1234" gösterimi
+    -- için tutulur; tam numara veritabanında hiçbir yerde bulunmaz.
     tckn_hash VARCHAR(64),
     tckn_last4 CHAR(4),
     birth_date DATE,
     phone_number VARCHAR(20),
     created_at TIMESTAMPTZ DEFAULT now()
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS users_tckn_hash_uidx
-    ON users (tckn_hash) WHERE tckn_hash IS NOT NULL;
 
 
 -- =====================================================================
@@ -643,6 +640,9 @@ CREATE TABLE powerup_purchase (
 -- =====================================================================
 
 CREATE UNIQUE INDEX users_email_lower_uidx ON users (lower(email));
+-- Kısmi: TCKN girilmiş kullanıcılar arasında tekillik sağlar, girilmemiş
+-- (NULL) satırlar kısıtlamaya takılmaz.
+CREATE UNIQUE INDEX users_tckn_hash_uidx ON users (tckn_hash) WHERE tckn_hash IS NOT NULL;
 CREATE INDEX assets_name_trgm_idx      ON assets USING gin (name gin_trgm_ops);
 CREATE INDEX price_history_asset_ts_idx ON price_history (asset_id, ts DESC);
 CREATE INDEX live_prices_asset_created_idx ON live_prices (asset_id, created_at DESC);
@@ -777,11 +777,12 @@ CREATE OR REPLACE FUNCTION rag.hybrid_search(
     p_tip       VARCHAR DEFAULT NULL,
     p_date_from DATE DEFAULT NULL,
     p_date_to   DATE DEFAULT NULL,
-    p_k_rrf     INT DEFAULT 60
+    p_k_rrf     INT DEFAULT 60,
+    p_min_cos   DOUBLE PRECISION DEFAULT NULL
 )
 RETURNS TABLE (chunk_id INT, document_id INT, content TEXT,
                baslik TEXT, sirket VARCHAR, tarih DATE, tip VARCHAR,
-               score DOUBLE PRECISION)
+               score DOUBLE PRECISION, cos_sim DOUBLE PRECISION)
 LANGUAGE sql STABLE AS $$
 -- plainto_tsquery terimleri AND'ler: dogal dildeki bir soruda tum kelimelerin
 -- ayni chunk'ta gecmesi neredeyse imkansiz oldugu icin BM25 ayagi sessizce bos
@@ -827,14 +828,47 @@ fused AS (
     SELECT COALESCE(d.id, l.id) id,
            COALESCE(1.0/(p_k_rrf+d.rnk),0) + COALESCE(1.0/(p_k_rrf+l.rnk),0) rrf
     FROM dense d FULL OUTER JOIN lexical l ON l.id = d.id
+),
+-- `<=>` pgvector'un COSINE MESAFESIDIR (1 - benzerlik); benzerliğe çevirmek için
+-- 1'den çıkarılır. Ayrı bir CTE'de hesaplanır çünkü `dense` CTE'si yalnızca rank
+-- üretir, mesafe değerini dışarı taşımaz - ve ifade WHERE ile SELECT'te
+-- tekrarlanmasın.
+scored AS (
+    SELECT c.id, c.document_id, c.content,
+           doc.baslik, doc.sirket, doc.tarih, doc.tip,
+           f.rrf,
+           (1 - (c.embedding <=> p_embedding))::DOUBLE PRECISION AS cos_sim
+    FROM fused f
+    JOIN rag.chunks c      ON c.id  = f.id
+    JOIN rag.documents doc ON doc.id = c.document_id
 )
-SELECT c.id, c.document_id, c.content, doc.baslik, doc.sirket, doc.tarih, doc.tip, f.rrf
-FROM fused f
-JOIN rag.chunks c      ON c.id  = f.id
-JOIN rag.documents doc ON doc.id = c.document_id
-ORDER BY f.rrf DESC LIMIT p_top_k;
+-- ⚠️ NaN AYRICA ELENIR. pgvector sıfır normlu vektörde NaN döner ve Postgres
+-- NaN'i TÜM sayılardan BÜYÜK sayar (`'NaN'::float8 >= 0.95` -> true). Salt `>=`
+-- yazılsaydı doğrulanamayan satırlar eşikten SESSİZCE geçerdi. `<> 'NaN'`
+-- çalışır çünkü Postgres'te `NaN = NaN` doğrudur.
+--
+-- Kolonlar `s.` ile NİTELENİR: RETURNS TABLE adları (`content`, `cos_sim`...)
+-- fonksiyon gövdesinde çıktı parametresi olarak görünür ve çıplak kolon adı
+-- "column reference is ambiguous" hatası verirdi.
+SELECT s.id, s.document_id, s.content, s.baslik, s.sirket, s.tarih, s.tip,
+       s.rrf, s.cos_sim
+FROM scored s
+WHERE p_min_cos IS NULL
+   OR (s.cos_sim IS NOT NULL
+       AND s.cos_sim <> 'NaN'::DOUBLE PRECISION
+       AND s.cos_sim >= p_min_cos)
+ORDER BY s.rrf DESC LIMIT p_top_k;
 $$;
--- score = RRF skorudur, kosinüs benzerliği DEĞİL.
+-- score = RRF skorudur, kosinüs benzerliği DEĞİL. RRF rank tabanlı olduğu için
+-- MUTLAK kalite bilgisi taşımaz (1. sıra her zaman 1/(p_k_rrf+1)'dir, sonuç
+-- alakasız olsa bile); alaka eşiği koymak isteyen `cos_sim` kolonunu ya da
+-- `p_min_cos` parametresini kullanmalıdır.
+-- cos_sim = gerçek kosinüs benzerliği. Embedding'i NULL olan chunk'ta NULL olur.
+-- p_min_cos: ASGARI benzerlik eşiği. Verilirse eşiğin altındaki satırlar LIMIT
+-- UYGULANMADAN ÖNCE elenir (böylece elenenlerin yeri aday havuzunun
+-- derinliğinden dolar). NULL ise hiçbir filtre uygulanmaz. Eşik bilinçli olarak
+-- `dense` CTE'sine DEĞİL nihai SELECT'e konur: `fused` bir FULL OUTER JOIN'dir
+-- ve yalnızca BM25 ile eşleşen satırlar dense ayağa hiç uğramadan listeye girer.
 -- p_sirket / p_tip / p_date_from / p_date_to: sorgu bazlı filtrelerdir (şirket,
 -- doküman türü, tarih aralığı). p_k_rrf bir filtre DEĞİLDİR - RRF füzyon
 -- formülünün (1/(p_k_rrf+rank)) sabitidir; dense ve lexical sıralamalarının
@@ -914,6 +948,22 @@ INSERT INTO users (first_name, last_name, email, password_hash, risk_tolerance, 
 ('Deniz','Danışman','danisman@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW',NULL,0.0, 0, 'advisor', now() - INTERVAL '410 days');
 
 UPDATE users SET marketing_consent = FALSE WHERE role = 'advisor';
+
+-- Kimlik alanları demo verisi. `setseed` ile DETERMİNİSTİK: aynı şema her
+-- kurulumda aynı değerleri üretir, böylece CI ve geliştirici makineleri
+-- birbirinden ayrışmaz. Üretilen numaralar gerçek TCKN doğrulama
+-- algoritmasına KASITLI olarak uymaz ve zaten yalnızca hash'i saklanır -
+-- hiçbir gerçek kişiye karşılık gelmez.
+SELECT setseed(0.42);
+UPDATE users SET
+    birth_date   = DATE '1970-01-01'
+                   + (random() * (DATE '2005-12-31' - DATE '1970-01-01'))::int,
+    tckn_last4   = lpad((random() * 9999)::int::text, 4, '0'),
+    tckn_hash    = encode(
+                       sha256(((random() * 8999999999 + 10000000000)::bigint::text)::bytea),
+                       'hex'
+                   ),
+    phone_number = '+905' || lpad((random() * 999999999)::bigint::text, 9, '0');
 
 INSERT INTO portfolios (user_id, name, is_default) VALUES
 (1, 'Agresif BIST & Kripto',      TRUE),

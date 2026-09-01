@@ -26,7 +26,7 @@ class IdleCashSuggestionItem(BaseModel):
 
 class IdleCashSuggestion(BaseModel):
     mode: Literal["basket", "single"]
-    balance_source: Literal["idle_balance", "paper_cash"]
+    balance_source: Literal["cash_account"]
     available_balance: float = Field(gt=0)
     investable_amount: float = Field(gt=0)
     estimated_total: float = Field(gt=0)

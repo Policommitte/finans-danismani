@@ -194,3 +194,78 @@ async def test_tarih_araligi_hybrid_search_a_da_gecer(rag_repo_factory):
     sonuclar = await repo.hybrid_search("THYAO", top_k=5, date_from="2026-08-01")
 
     assert all(s["doc_id"] != "DOC-001" for s in sonuclar)
+
+
+# --- Alaka esigi (settings.rag_min_similarity) ----------------------------
+
+
+async def test_cos_sim_kolonu_disari_verilir(rag_repo_factory, monkeypatch):
+    """`cos_sim` DONMELI - eskiden mesafe `dense` CTE'sinden disari cikmiyordu.
+
+    Bu testin varlik sebebi: alaka esigi kurulabilmesi icin skorun RRF DISINDA
+    bir sayiya dayanmasi sart. `score` rank tabanlidir ve mutlak kalite bilgisi
+    tasimaz (bkz. db/migrations/017_hybrid_search_min_cosine.sql).
+    """
+    from app.config import settings
+    from app.repositories import deps
+
+    monkeypatch.setattr(settings, "rag_min_similarity", 0.0)  # filtre kapali
+    vektor = await _chunk_embedding(deps, "DOC-005")
+    repo = rag_repo_factory(embedder=_SahteEmbedder(vector=vektor))
+
+    sonuclar = await repo.hybrid_search("piyasa", top_k=5)
+
+    assert sonuclar
+    assert "cos_sim" in sonuclar[0]
+    # Dokumanin KENDI vektoruyle arandi; kendisi listedeyse benzerligi ~1.0.
+    kendisi = [s for s in sonuclar if s["doc_id"] == "DOC-005"]
+    assert kendisi, "dokuman kendi embedding'iyle aramada bulunmali"
+    assert kendisi[0]["cos_sim"] > 0.99
+
+
+async def test_esik_bm25_ile_gelen_alakasiz_satirlari_eler(rag_repo_factory, monkeypatch):
+    """⚠️ ASIL REGRESYON TESTI: esik dense ayaga DEGIL NIHAI sonuca uygulanmali.
+
+    Kurgu: sorgu VEKTORU DOC-005'in kendi embedding'i (yalnizca o ~1.0 benzerlik
+    alir), sorgu METNI ise genis bir kelime - BM25 baska dokumanlari da havuza
+    sokar. Esik 0.99'a cekilince geriye SADECE DOC-005 kalmali.
+
+    NEDEN AYIRT EDICI: `fused` bir FULL OUTER JOIN'dir. Esik yalnizca `dense`
+    CTE'sine konsaydi lexical ayaktan gelen o dokumanlar filtreye HIC ugramaz ve
+    ciktida kalirdi - bu assert kirilirdi. Kullanicinin bildirdigi hata birebir
+    buydu: "sektor" kelimesi BM25'te eslesip alakasiz haberleri kaynak yapiyordu.
+    """
+    from app.config import settings
+    from app.repositories import deps
+
+    vektor = await _chunk_embedding(deps, "DOC-005")
+    repo = rag_repo_factory(embedder=_SahteEmbedder(vector=vektor))
+
+    monkeypatch.setattr(settings, "rag_min_similarity", 0.0)
+    esiksiz = await repo.hybrid_search("piyasa", top_k=10)
+    baska_dokumanlar = {s["doc_id"] for s in esiksiz} - {"DOC-005"}
+    assert baska_dokumanlar, "test varsayimi: BM25 baska dokumanlari da getirmeliydi"
+
+    monkeypatch.setattr(settings, "rag_min_similarity", 0.99)
+    esikli = await repo.hybrid_search("piyasa", top_k=10)
+
+    assert esikli, "esik dokumanin KENDI vektorunu de elememeli"
+    assert {s["doc_id"] for s in esikli} == {"DOC-005"}
+    assert all(s["cos_sim"] >= 0.99 for s in esikli)
+
+
+async def test_esik_kapaliyken_davranis_degismez(rag_repo_factory, monkeypatch):
+    """`rag_min_similarity=0` -> SQL'e NULL gider, hicbir satir elenmez."""
+    from app.config import settings
+    from app.repositories import deps
+
+    monkeypatch.setattr(settings, "rag_min_similarity", 0.0)
+    vektor = await _chunk_embedding(deps, "DOC-005")
+    repo = rag_repo_factory(embedder=_SahteEmbedder(vector=vektor))
+
+    sonuclar = await repo.hybrid_search("zzqx wobble flurb nonsense", top_k=3)
+
+    # `test_dense_ayak_gercekten_calisir` ile ayni senaryo: sozel ortusme yok,
+    # sonuc yalnizca dense ayaktan geliyor. Esik kapaliyken korunmali.
+    assert sonuclar
+    assert sonuclar[0]["doc_id"] == "DOC-005"

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from math import ceil
 
 import pytest
 
@@ -17,8 +18,7 @@ from app.services.idle_cash import (
 def _context(balance: float = 10_000, risk: str = "MEDIUM") -> dict:
     return {
         "risk_tolerance": risk,
-        "idle_balance_try": balance,
-        "available_balance": 2_000,
+        "available_balance": balance,
         "portfolio_id": 1,
         "allowed_asset_classes": ["STOCK"],
     }
@@ -57,10 +57,21 @@ def test_normal_balance_creates_basket():
     )
 
     assert result.mode == "basket"
+    assert result.balance_source == "cash_account"
     assert len(result.items) == 4
     assert result.available_balance == 10_000
     assert result.estimated_total <= result.investable_amount
     assert result.unallocated_balance == pytest.approx(10_000 - result.estimated_total)
+
+
+def test_cash_account_balance_is_the_only_idle_cash_source():
+    context = _context(2_000)
+    context["idle_balance_try"] = 50_000
+
+    result = suggestion_build(context, _assets([100, 140, 180]), {}, "LONG_TERM")
+
+    assert result.available_balance == 2_000
+    assert result.investable_amount == 1_800
 
 
 def test_small_balance_falls_back_to_single_stock():
@@ -254,12 +265,118 @@ def test_low_volatility_requires_twenty_daily_returns():
     for asset in assets:
         asset["price_updated_at"] = now
     assets[0]["volatility_observation_count"] = 19
+    assets[1]["volatility_20d_pct"] = 0.5
 
     catalog = basket_catalog_build(_context(), assets, {}, "LOW_VOLATILITY", now=now)
 
     assert catalog.insufficient_history_asset_count == 1
     assert catalog.eligible_asset_count == 1
     assert catalog.options[0].suggestion.items[0].asset_id == assets[1]["asset_id"]
+
+
+def test_momentum_catalog_only_uses_positive_weekly_trends():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assets = _assets([100] * 12)
+    for index, asset in enumerate(assets):
+        asset["price_updated_at"] = now
+        asset["weekly_change_pct"] = 1.0 + index if index < 8 else -10.0
+        asset["yearly_change_pct"] = 20.0 if index < 8 else 150.0
+
+    catalog = basket_catalog_build(_context(), assets, {}, "MOMENTUM", now=now)
+    by_id = {asset["asset_id"]: asset for asset in assets}
+
+    assert catalog.options
+    assert all(
+        by_id[item.asset_id]["weekly_change_pct"] > 0
+        for option in catalog.options
+        for item in option.suggestion.items
+    )
+
+
+def test_growth_catalog_keeps_equity_like_assets_in_the_majority():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assets = _mixed_assets()
+    for asset in assets:
+        asset["price_updated_at"] = now
+    context = _context(100_000, "HIGH")
+    context["allowed_asset_classes"] = []
+
+    catalog = basket_catalog_build(context, assets, {}, "GROWTH", now=now)
+
+    assert catalog.options
+    for option in catalog.options:
+        classes = [item.asset_class for item in option.suggestion.items]
+        equity_like = sum(
+            asset_class in {"STOCK", "USA_STOCK", "EU_STOCK", "ETF"} for asset_class in classes
+        )
+        assert equity_like >= ceil(len(classes) * 0.50)
+
+
+def test_low_volatility_catalog_rejects_high_volatility_candidates_and_options():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assets = _assets([100] * 12)
+    for index, asset in enumerate(assets):
+        asset["price_updated_at"] = now
+        asset["volatility_20d_pct"] = 0.1 * (index + 1) if index < 8 else 3.0 + index
+
+    catalog = basket_catalog_build(_context(100_000, "HIGH"), assets, {}, "LOW_VOLATILITY", now=now)
+    by_id = {asset["asset_id"]: asset for asset in assets}
+
+    assert catalog.options
+    assert all(option.metrics.risk_level == "LOW" for option in catalog.options)
+    assert all(
+        by_id[item.asset_id]["volatility_20d_pct"] < 3.0
+        for option in catalog.options
+        for item in option.suggestion.items
+    )
+
+
+def test_low_volatility_catalog_filters_historical_risk_outliers():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assets = _assets([100] * 18)
+    for index, asset in enumerate(assets):
+        asset["price_updated_at"] = now
+        asset["volatility_20d_pct"] = 0.5
+        if index < 6:
+            asset["yearly_change_pct"] = 10.0
+            asset["daily_returns_252d"] = _daily_returns(120, lambda _day: 0.1)
+        elif index < 12:
+            asset["yearly_change_pct"] = 40.0
+            asset["daily_returns_252d"] = _daily_returns(
+                120, lambda day: 0.6 if day % 2 == 0 else -0.4
+            )
+        else:
+            asset["yearly_change_pct"] = 150.0
+            asset["daily_returns_252d"] = _daily_returns(
+                120, lambda day: 4.0 if day % 2 == 0 else -3.0
+            )
+
+    catalog = basket_catalog_build(_context(100_000, "HIGH"), assets, {}, "LOW_VOLATILITY", now=now)
+    annualized = [
+        option.backtest.annualized_volatility_pct
+        for option in catalog.options
+        if option.backtest.annualized_volatility_pct is not None
+    ]
+
+    assert annualized
+    assert max(annualized) <= max(min(annualized) * 1.5, min(annualized) + 5.0)
+
+
+def test_goal_quality_wins_over_forcing_an_inappropriate_option():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assets = _mixed_assets()
+    for asset in assets:
+        asset["price_updated_at"] = now
+        if asset["asset_class"] in {"STOCK", "USA_STOCK", "ETF"}:
+            asset["yearly_change_pct"] = -50.0
+            asset["weekly_change_pct"] = -10.0
+        else:
+            asset["yearly_change_pct"] = 100.0
+    context = _context(100_000, "HIGH")
+    context["allowed_asset_classes"] = []
+
+    with pytest.raises(NotFoundError, match="hedefe uygun"):
+        basket_catalog_build(context, assets, {}, "GROWTH", now=now)
 
 
 def test_goal_relative_rank_replaces_public_raw_score():

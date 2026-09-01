@@ -215,6 +215,8 @@ async def finish_participation(
     user_id: int, participation_id: int, simulated_rivals_at_end: int
 ) -> FinishResult:
     repo = get_contest_repository()
+    # Yetki kontrolu YAN ETKILIDIR: sahibi degilse 403 firlatir. Donen deger
+    # kullanilmiyor ama CAGRI KALMALI - satiri silmek yetkilendirmeyi kaldirirdi.
     await _own_participation_or_403(user_id, participation_id)
 
     contest = await _active_contest_or_404()

@@ -101,7 +101,9 @@ def extract_pdf_text(data: bytes) -> str:
         sayfalar = [sayfa.extract_text() or "" for sayfa in reader.pages]
     except BusinessRuleError:
         raise
-    except Exception as exc:  # noqa: BLE001 - pypdf cesitli hatalar firlatabilir (PdfReadError dahil)
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 - pypdf cesitli hatalar firlatabilir (PdfReadError dahil)
         logger.warning("pdf metni cikarilamadi", extra={"hata": f"{type(exc).__name__}: {exc}"})
         raise BusinessRuleError(
             "PDF dosyasi okunamadi, dosyanin bozuk olmadigindan emin olun."

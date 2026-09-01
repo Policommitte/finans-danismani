@@ -175,6 +175,10 @@ _SEPET_STRATEJILERI = (
     },
 )
 _SEPET_BENZERLIK_SINIRI = 0.60
+_DUSUK_OYNAKLIK_ADAY_ORANI = 0.60
+_DUSUK_OYNAKLIK_GECMIS_CARPANI = 1.50
+_DUSUK_OYNAKLIK_GECMIS_TOLERANSI = 5.0
+_BUYUME_VARLIK_SINIFLARI = frozenset({"STOCK", "USA_STOCK", "EU_STOCK", "ETF"})
 
 _GERI_TEST_SURUMU = "basket-backtest-v1"
 _GERI_TEST_GUN_SINIRI = 252
@@ -703,6 +707,23 @@ def _hedef_varlik_adedi(profil: str, hedef: str) -> int:
     return {"LOW": 4, "MEDIUM": 5, "HIGH": 6}.get(profil, 5)
 
 
+def _yuzdelik(degerler: list[float], oran: float) -> float | None:
+    """Harici kutuphane gerektirmeyen yakin-sira yuzdeligi."""
+    sirali = sorted(degerler)
+    if not sirali:
+        return None
+    index = max(0, min(len(sirali) - 1, ceil(len(sirali) * oran) - 1))
+    return sirali[index]
+
+
+def _buyume_sinyali(asset: dict) -> bool:
+    """Kalici buyume veya belirgin bir toparlanma sinyali arar."""
+    yillik = _sayi(asset.get("yearly_change_pct"))
+    haftalik = _sayi(asset.get("weekly_change_pct"))
+    gunluk = _sayi(asset.get("daily_change_pct"))
+    return yillik > 0 or (haftalik >= 3.0 and gunluk >= -2.0)
+
+
 def _adaylari_filtrele(
     context: dict,
     assets: list[dict],
@@ -710,7 +731,7 @@ def _adaylari_filtrele(
     now: datetime,
 ) -> list[dict]:
     izinli = {str(c).upper() for c in context.get("allowed_asset_classes") or []}
-    return [
+    adaylar = [
         asset
         for asset in assets
         if str(asset.get("asset_class") or "").upper() in _YATIRIM_SINIFLARI
@@ -718,6 +739,76 @@ def _adaylari_filtrele(
         and _sayi(asset.get("current_price")) > 0
         and not _bayat_veri(asset, now)
         and (goal != "LOW_VOLATILITY" or not _yetersiz_oynaklik_gecmisi(asset))
+    ]
+    if goal == "GROWTH":
+        return [asset for asset in adaylar if _buyume_sinyali(asset)]
+    if goal == "MOMENTUM":
+        return [asset for asset in adaylar if _sayi(asset.get("weekly_change_pct")) > 0]
+    if goal == "LOW_VOLATILITY":
+        esik = _yuzdelik(
+            [
+                _sayi(asset.get("volatility_20d_pct"))
+                for asset in adaylar
+                if _sayi(asset.get("volatility_20d_pct")) > 0
+            ],
+            _DUSUK_OYNAKLIK_ADAY_ORANI,
+        )
+        if esik is not None:
+            return [
+                asset for asset in adaylar if 0 < _sayi(asset.get("volatility_20d_pct")) <= esik
+            ]
+    return adaylar
+
+
+def _hedefe_uygun_sepet(
+    goal: str,
+    suggestion: IdleCashSuggestion,
+    selected_assets: list[dict],
+    metrics: IdleCashBasketMetrics,
+) -> bool:
+    """Farkliligi korurken hedef anlaminin strateji varyantinda kaybolmasini onler."""
+    if not selected_assets:
+        return False
+
+    if goal == "MOMENTUM":
+        return all(_sayi(asset.get("weekly_change_pct")) > 0 for asset in selected_assets)
+
+    if goal == "GROWTH":
+        buyume_varliklari = sum(
+            str(asset.get("asset_class") or "").upper() in _BUYUME_VARLIK_SINIFLARI
+            for asset in selected_assets
+        )
+        return buyume_varliklari >= ceil(len(selected_assets) * 0.50) and all(
+            _buyume_sinyali(asset) for asset in selected_assets
+        )
+
+    if goal == "LOW_VOLATILITY":
+        return metrics.risk_level == "LOW"
+
+    return True
+
+
+def _dusuk_oynaklik_gecmis_filtresi(
+    secenekler: list[IdleCashBasketOption],
+) -> list[IdleCashBasketOption]:
+    """Guncel olarak sakin ama tarihsel olarak bariz riskli aykiri sepetleri eler."""
+    oynakliklar = [
+        option.backtest.annualized_volatility_pct
+        for option in secenekler
+        if option.backtest.annualized_volatility_pct is not None
+    ]
+    if len(oynakliklar) < 2:
+        return secenekler
+    taban = min(oynakliklar)
+    esik = max(
+        taban * _DUSUK_OYNAKLIK_GECMIS_CARPANI,
+        taban + _DUSUK_OYNAKLIK_GECMIS_TOLERANSI,
+    )
+    return [
+        option
+        for option in secenekler
+        if option.backtest.annualized_volatility_pct is None
+        or option.backtest.annualized_volatility_pct <= esik
     ]
 
 
@@ -781,10 +872,8 @@ def suggestion_build(
         profil = VARSAYILAN_PROFIL
     strategy = _SEPET_STRATEJILERI[strategy_index % len(_SEPET_STRATEJILERI)]
 
-    idle_balance = _sayi(context.get("idle_balance_try"))
-    paper_cash = _sayi(context.get("available_balance"))
-    bakiye = idle_balance if idle_balance > 0 else paper_cash
-    kaynak = "idle_balance" if idle_balance > 0 else "paper_cash"
+    bakiye = _sayi(context.get("available_balance"))
+    kaynak = "cash_account"
     if bakiye <= 0:
         raise BusinessRuleError("Öneri oluşturmak için kullanılabilir bakiye bulunmuyor.")
 
@@ -959,15 +1048,19 @@ def basket_catalog_build(
     benchmark_assets = _adaylari_filtrele(context, assets, goal, an)
 
     for strategy_index, strategy in enumerate(_SEPET_STRATEJILERI):
-        sabit_uyelik = (
+        kayitli_uyelik = (
             memberships[strategy_index]
             if memberships and strategy_index < len(memberships)
             else None
         )
+        sabit_uyelik = kayitli_uyelik or None
         offsets = [0] if sabit_uyelik is not None else list(range(max(len(assets), 1)))
         minimum_asset_count = min(3, len(_adaylari_filtrele(context, assets, goal, an)))
         chosen_suggestion: IdleCashSuggestion | None = None
         chosen_ids: set[int] = set()
+        chosen_assets: list[dict] = []
+        chosen_weights: list[float] = []
+        chosen_metrics: IdleCashBasketMetrics | None = None
         for offset in offsets:
             suggestion = suggestion_build(
                 context,
@@ -987,18 +1080,22 @@ def basket_catalog_build(
                 for previous in secilen_kumeler
             ):
                 continue
+            selected_assets = [
+                asset_map[item.asset_id] for item in suggestion.items if item.asset_id in asset_map
+            ]
+            weights = [item.weight_pct / 100 for item in suggestion.items]
+            metrics = _sepet_metrikleri(selected_assets, weights)
+            if not _hedefe_uygun_sepet(goal, suggestion, selected_assets, metrics):
+                continue
             chosen_suggestion = suggestion
             chosen_ids = ids
+            chosen_assets = selected_assets
+            chosen_weights = weights
+            chosen_metrics = metrics
             break
-        if chosen_suggestion is None:
+        if chosen_suggestion is None or chosen_metrics is None:
             continue
 
-        selected_assets = [
-            asset_map[item.asset_id]
-            for item in chosen_suggestion.items
-            if item.asset_id in asset_map
-        ]
-        weights = [item.weight_pct / 100 for item in chosen_suggestion.items]
         secenekler.append(
             IdleCashBasketOption(
                 id=f"{goal.lower()}-{strategy_index + 1}",
@@ -1007,10 +1104,10 @@ def basket_catalog_build(
                 strategy_key=strategy["key"],
                 strategy_label=str(strategy["label"]),
                 strategy_description=str(strategy["description"]),
-                metrics=_sepet_metrikleri(selected_assets, weights),
+                metrics=chosen_metrics,
                 backtest=_sepet_geri_testi(
-                    selected_assets,
-                    weights,
+                    chosen_assets,
+                    chosen_weights,
                     benchmark_assets,
                     assets,
                     goal,
@@ -1019,6 +1116,14 @@ def basket_catalog_build(
             )
         )
         secilen_kumeler.append(chosen_ids)
+
+    if goal == "LOW_VOLATILITY":
+        secenekler = _dusuk_oynaklik_gecmis_filtresi(secenekler)
+
+    if not secenekler:
+        raise NotFoundError(
+            "Secilen hedefe uygun ve yeterince farkli bir sepet alternatifi bulunamadi."
+        )
 
     politika = _YENIDEN_DENGELEME_POLITIKASI[goal]
     son_degerlendirme = evaluated_at or an
@@ -1044,7 +1149,13 @@ def basket_catalog_build(
 
 
 def _uyelikler(catalog: IdleCashBasketCatalog) -> list[list[int]]:
-    return [[item.asset_id for item in option.suggestion.items] for option in catalog.options]
+    """Eksik alternatiflerde strateji indekslerinin kaymasini onler."""
+    indeksler = {str(strategy["key"]): index for index, strategy in enumerate(_SEPET_STRATEJILERI)}
+    memberships: list[list[int]] = [[] for _ in _SEPET_STRATEJILERI]
+    for option in catalog.options:
+        index = indeksler[option.strategy_key]
+        memberships[index] = [item.asset_id for item in option.suggestion.items]
+    return memberships
 
 
 def _profil_imzasi(context: dict) -> str:
