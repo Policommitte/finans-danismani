@@ -2511,6 +2511,7 @@ class SqlLeadRepository(_SqlRepository):
         return await self._rows(
             """
             SELECT q.user_id, u.first_name, u.last_name, u.email,
+                   u.phone_number, u.birth_date, u.tckn_last4,
                    q.decision, q.exclusion_reason, q.score, q.score_components,
                    q.reasons, q.total_value_try, q.monthly_income, q.likit_para,
                    q.days_since_activity, q.created_at
@@ -2537,6 +2538,7 @@ class SqlLeadRepository(_SqlRepository):
             SELECT * FROM (
                 SELECT DISTINCT ON (c.user_id)
                        c.user_id, u.first_name, u.last_name, u.email,
+                       u.phone_number, u.birth_date, u.tckn_last4,
                        'AUTONOMOUS' AS decision,
                        CAST(NULL AS VARCHAR) AS exclusion_reason,
                        COALESCE(q.score, 0) AS score,

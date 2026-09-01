@@ -57,6 +57,13 @@ CREATE TABLE users (
     role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
     likit_para DOUBLE PRECISION,
     onboarding_completed BOOLEAN NOT NULL DEFAULT true,
+    -- Kimlik alanları. TCKN DOĞRUDAN SAKLANMAZ: `tckn_hash` (SHA-256 hex)
+    -- doğrulama/tekillik için, `tckn_last4` arayüzde "•••• 1234" gösterimi
+    -- için tutulur; tam numara veritabanında hiçbir yerde bulunmaz.
+    tckn_hash VARCHAR(64),
+    tckn_last4 CHAR(4),
+    birth_date DATE,
+    phone_number VARCHAR(20),
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -455,6 +462,9 @@ CREATE TABLE rag.ingestion_runs (
 -- =====================================================================
 
 CREATE UNIQUE INDEX users_email_lower_uidx ON users (lower(email));
+-- Kısmi: TCKN girilmiş kullanıcılar arasında tekillik sağlar, girilmemiş
+-- (NULL) satırlar kısıtlamaya takılmaz.
+CREATE UNIQUE INDEX users_tckn_hash_uidx ON users (tckn_hash) WHERE tckn_hash IS NOT NULL;
 CREATE INDEX assets_name_trgm_idx      ON assets USING gin (name gin_trgm_ops);
 CREATE INDEX price_history_asset_ts_idx ON price_history (asset_id, ts DESC);
 CREATE INDEX live_prices_asset_created_idx ON live_prices (asset_id, created_at DESC);
@@ -724,6 +734,22 @@ INSERT INTO users (first_name, last_name, email, password_hash, risk_tolerance, 
 ('Deniz','Danışman','danisman@example.com','$2b$10$IR711tECQxZE.JMPUjgWs.y9LzkCYTDDqbejiRAB7YkEYAvSdDIXW',NULL,0.0, 0, 'advisor', now() - INTERVAL '410 days');
 
 UPDATE users SET marketing_consent = FALSE WHERE role = 'advisor';
+
+-- Kimlik alanları demo verisi. `setseed` ile DETERMİNİSTİK: aynı şema her
+-- kurulumda aynı değerleri üretir, böylece CI ve geliştirici makineleri
+-- birbirinden ayrışmaz. Üretilen numaralar gerçek TCKN doğrulama
+-- algoritmasına KASITLI olarak uymaz ve zaten yalnızca hash'i saklanır -
+-- hiçbir gerçek kişiye karşılık gelmez.
+SELECT setseed(0.42);
+UPDATE users SET
+    birth_date   = DATE '1970-01-01'
+                   + (random() * (DATE '2005-12-31' - DATE '1970-01-01'))::int,
+    tckn_last4   = lpad((random() * 9999)::int::text, 4, '0'),
+    tckn_hash    = encode(
+                       sha256(((random() * 8999999999 + 10000000000)::bigint::text)::bytea),
+                       'hex'
+                   ),
+    phone_number = '+905' || lpad((random() * 999999999)::bigint::text, 9, '0');
 
 INSERT INTO portfolios (user_id, name, is_default) VALUES
 (1, 'Agresif BIST & Kripto',      TRUE),

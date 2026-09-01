@@ -147,6 +147,27 @@ async def test_gmail_yapilandirilmamissa_hic_temas_kaydi_acilmaz(
     assert _temaslar() == []
 
 
+async def test_kimlik_alanlari_kuyruk_satirina_tasinir(
+    bellek_ici, otonom_kullanici, mail_sonucu, monkeypatch
+):
+    # Telefon/dogum tarihi/TCKN son 4, danisman ekranindaki tabloda
+    # gosterilir; repository katmani bunlari `users` kaydindan satira
+    # tasimazsa ekran bos sutunlar gosterir.
+    kullanici = _kullanici(101, 300_000.0)
+    kullanici.update(
+        {"phone_number": "+905321112233", "birth_date": "1985-04-12", "tckn_last4": "4821"}
+    )
+    monkeypatch.setattr(in_memory, "_USERS", [kullanici])
+
+    await service.tarama_calistir(trigger="test", force=True)
+    liste = await service.otonom_kuyruk_getir()
+
+    satir = liste["items"][0]
+    assert satir["phone_number"] == "+905321112233"
+    assert satir["birth_date"] == "1985-04-12"
+    assert satir["tckn_last4"] == "4821"
+
+
 # --- BSD kuyrugu ------------------------------------------------------------
 
 
