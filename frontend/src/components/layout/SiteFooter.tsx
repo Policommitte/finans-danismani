@@ -9,12 +9,12 @@ type SiteFooterProps = {
   onStartTour?: () => void;
 };
 
+//: Sadece dogrulanmis, gercek Intertech hesaplari - baska platform icin
+//: (Facebook/X/YouTube) resmi bir Intertech hesabi teyit edilemedi, o
+//: yuzden burada YOK; uydurma/tahmini link eklenmez.
 const socialLinks = [
-  { label: "Facebook", src: "/social/facebook.png" },
-  { label: "Instagram", src: "/social/instagram.jpg" },
-  { label: "X", src: "/social/x.png" },
-  { label: "YouTube", src: "/social/youtube.png" },
-  { label: "LinkedIn", src: "/social/linkedin.png" },
+  { label: "Instagram", src: "/social/instagram.jpg", href: "https://www.instagram.com/intertechteyasam/" },
+  { label: "LinkedIn", src: "/social/linkedin.png", href: "https://www.linkedin.com/company/intertechteyasam/" },
 ];
 
 const footerCopy = {
@@ -26,9 +26,6 @@ const footerCopy = {
     ],
     help: "Yardım",
     navLabel: "Alt menü",
-    disclaimerLead: "Polifin, geliştirme aşamasındaki bir",
-    disclaimerStrong: "kişisel finans asistanı prototipidir",
-    disclaimerEnd: "Gösterilen veriler temsilidir; yatırım tavsiyesi niteliği taşımaz.",
   },
   en: {
     links: [
@@ -38,9 +35,6 @@ const footerCopy = {
     ],
     help: "Help",
     navLabel: "Footer navigation",
-    disclaimerLead: "Polifin is a",
-    disclaimerStrong: "personal finance assistant prototype",
-    disclaimerEnd: "The data shown is representative and does not constitute investment advice.",
   },
 };
 
@@ -106,14 +100,16 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
 
             <div className="flex items-center gap-4">
               {socialLinks.map((link) => (
-                <button
+                <a
                   key={link.label}
-                  type="button"
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   aria-label={link.label}
                   className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-transparent shadow-sm transition hover:-translate-y-0.5 hover:brightness-110"
                 >
                   <img src={link.src} alt="" className="h-8 w-8 rounded-full object-cover" />
-                </button>
+                </a>
               ))}
             </div>
           </div>
@@ -143,11 +139,7 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
             )}
           </nav>
 
-          <p className="max-w-2xl text-left text-sm leading-6 lg:text-right">
-            {text.disclaimerLead}{" "}
-            <span className="font-black text-[var(--color-market-text)]">{text.disclaimerStrong}</span>.{" "}
-            {text.disclaimerEnd} © 2026 Polifin.
-          </p>
+          <p className="text-left text-sm leading-6 lg:text-right">© 2026 Polifin.</p>
         </div>
       </footer>
     </div>
