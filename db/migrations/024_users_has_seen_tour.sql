@@ -1,5 +1,5 @@
 -- =====================================================================
--- 020 - users: has_seen_tour kolonu
+-- 024 - users: has_seen_tour kolonu
 -- =====================================================================
 --
 -- NEDEN GEREKLI
@@ -11,7 +11,7 @@
 --   (004_users_onboarding.sql) ile AYNI desen, farkli anlam.
 --
 -- CALISTIRMA
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/020_users_has_seen_tour.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/024_users_has_seen_tour.sql
 --
 -- GUVENLIK
 --   Idempotenttir: kolon zaten varsa hicbir sey yapmaz. DEFAULT true secildi

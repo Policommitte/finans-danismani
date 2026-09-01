@@ -57,6 +57,11 @@ CREATE TABLE users (
     role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
     likit_para DOUBLE PRECISION,
     onboarding_completed BOOLEAN NOT NULL DEFAULT true,
+    -- Ürün turu (ProductTour) kullanıcıya SADECE BİR KEZ gösterilir; bayrak
+    -- kalıcı olmak zorunda (bkz. db/migrations/024_users_has_seen_tour.sql).
+    -- DEFAULT true: mevcut kullanıcılar tura zorlanmaz, yeni kayıtlar
+    -- backend'in `create()` metodunda açıkça false ile eklenir.
+    has_seen_tour BOOLEAN NOT NULL DEFAULT true,
     -- Kimlik alanları. TCKN DOĞRUDAN SAKLANMAZ: `tckn_hash` (SHA-256 hex)
     -- doğrulama/tekillik için, `tckn_last4` arayüzde "•••• 1234" gösterimi
     -- için tutulur; tam numara veritabanında hiçbir yerde bulunmaz.
