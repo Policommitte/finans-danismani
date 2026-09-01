@@ -2738,14 +2738,71 @@ class SqlContestRepository(_SqlRepository):
     """
 
     async def get_active_contest(self) -> dict | None:
-        return await self._row(
-            """
-            SELECT id, contest_date, starts_at, capacity_total,
-                   prize_pool_points, question_count, created_at
-            FROM contest
-            WHERE contest_date = CURRENT_DATE
-            """
-        )
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO contest (contest_date, starts_at)
+                        VALUES (
+                            CURRENT_DATE,
+                            (CURRENT_DATE::timestamp + TIME '20:00')
+                                AT TIME ZONE 'Europe/Istanbul'
+                        )
+                        ON CONFLICT (contest_date) DO NOTHING
+                        """
+                    )
+                )
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT id, contest_date, starts_at, capacity_total,
+                               prize_pool_points, question_count, created_at
+                        FROM contest
+                        WHERE contest_date = CURRENT_DATE
+                        FOR UPDATE
+                        """
+                    )
+                )
+                contest = result.mappings().one()
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO contest_topic (contest_id, topic_id, sort_order)
+                        SELECT :contest_id, t.id,
+                               row_number() OVER (ORDER BY t.id)::smallint
+                        FROM topic t
+                        ON CONFLICT (contest_id, topic_id) DO NOTHING
+                        """
+                    ),
+                    {"contest_id": contest["id"]},
+                )
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO contest_question (
+                            contest_id, question_id, sort_order
+                        )
+                        SELECT :contest_id, selected.id,
+                               row_number() OVER (ORDER BY selected.selection_order)::smallint
+                        FROM (
+                            SELECT q.id,
+                                   (q.id + EXTRACT(DOY FROM CURRENT_DATE)::integer)
+                                       % GREATEST((SELECT count(*) FROM question), 1)
+                                       AS selection_order
+                            FROM question q
+                            ORDER BY selection_order, q.id
+                            LIMIT :question_count
+                        ) selected
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {
+                        "contest_id": contest["id"],
+                        "question_count": contest["question_count"],
+                    },
+                )
+                return dict(contest)
 
     async def get_contest_topics(self, contest_id: int) -> list[dict]:
         return await self._rows(
@@ -2843,7 +2900,10 @@ class SqlContestRepository(_SqlRepository):
         async with self._session_factory() as session:
             await session.execute(
                 text(
-                    "DELETE FROM participation WHERE user_id = :user_id AND contest_date = CURRENT_DATE"
+                    """
+                    DELETE FROM participation
+                    WHERE user_id = :user_id AND contest_date = CURRENT_DATE
+                    """
                 ),
                 {"user_id": user_id},
             )

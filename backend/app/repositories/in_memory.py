@@ -1,3 +1,4 @@
+# ruff: noqa: E501 -- Sabit TR/EN oyun metinleri okunabilirlik icin bolunmez.
 """Bellek ici veri - DATABASE_URL tanimli degilken kullanilir.
 
 Bu veri kumesi `db/v5_schema_and_data.sql` icindeki dummy data'nin bir
@@ -2125,10 +2126,22 @@ _QUESTIONS: list[dict] = [
         "text_tr": "Aynı faiz oranı ve aynı anapara ile 10 yıl yatırım yapan iki kişiden biri basit, diğeri bileşik faiz kullanıyor. Aradaki farkın temel nedeni nedir?",
         "text_en": "Two people invest for 10 years with the same interest rate and the same principal — one uses simple interest, the other compound interest. What mainly causes the difference between them?",
         "options": [
-            {"tr": "Bileşik faizde oran her yıl otomatik olarak yükseltilir", "en": "With compound interest, the rate automatically increases every year"},
-            {"tr": "Bileşik faizde kazanılan faiz de faiz getirmeye başlar", "en": "With compound interest, the interest earned starts earning interest too"},
-            {"tr": "Basit faizde vergi kesintisi daha yüksektir", "en": "With simple interest, the tax deduction is higher"},
-            {"tr": "Basit faizde anapara her yıl azaltılır", "en": "With simple interest, the principal is reduced every year"},
+            {
+                "tr": "Bileşik faizde oran her yıl otomatik olarak yükseltilir",
+                "en": "With compound interest, the rate automatically increases every year",
+            },
+            {
+                "tr": "Bileşik faizde kazanılan faiz de faiz getirmeye başlar",
+                "en": "With compound interest, the interest earned starts earning interest too",
+            },
+            {
+                "tr": "Basit faizde vergi kesintisi daha yüksektir",
+                "en": "With simple interest, the tax deduction is higher",
+            },
+            {
+                "tr": "Basit faizde anapara her yıl azaltılır",
+                "en": "With simple interest, the principal is reduced every year",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır.",
@@ -2145,7 +2158,10 @@ _QUESTIONS: list[dict] = [
             {"tr": "Reel olarak kazanç sağlanmıştır", "en": "A real gain was achieved"},
             {"tr": "Reel olarak kayıp yaşanmıştır", "en": "A real loss was incurred"},
             {"tr": "Reel getiri tam olarak sıfırdır", "en": "The real return is exactly zero"},
-            {"tr": "Enflasyon reel getiriyi etkilemez", "en": "Inflation does not affect real return"},
+            {
+                "tr": "Enflasyon reel getiriyi etkilemez",
+                "en": "Inflation does not affect real return",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür.",
@@ -2159,10 +2175,22 @@ _QUESTIONS: list[dict] = [
         "text_tr": "Bir yatırımcı tüm birikimini aynı sektördeki beş farklı şirkete dağıtıyor. Bu neden tam bir çeşitlendirme sayılmaz?",
         "text_en": "An investor spreads all their savings across five different companies in the same sector. Why doesn't this count as full diversification?",
         "options": [
-            {"tr": "Beş varlık çeşitlendirme için yetersiz sayıdadır", "en": "Five assets are not enough for diversification"},
-            {"tr": "Aynı sektördeki varlıklar benzer risklerden birlikte etkilenir", "en": "Assets in the same sector are affected together by similar risks"},
-            {"tr": "Çeşitlendirme yalnızca farklı ülkelerde yapılabilir", "en": "Diversification can only be done across different countries"},
-            {"tr": "Hisse senetleri çeşitlendirmeye uygun değildir", "en": "Stocks are not suitable for diversification"},
+            {
+                "tr": "Beş varlık çeşitlendirme için yetersiz sayıdadır",
+                "en": "Five assets are not enough for diversification",
+            },
+            {
+                "tr": "Aynı sektördeki varlıklar benzer risklerden birlikte etkilenir",
+                "en": "Assets in the same sector are affected together by similar risks",
+            },
+            {
+                "tr": "Çeşitlendirme yalnızca farklı ülkelerde yapılabilir",
+                "en": "Diversification can only be done across different countries",
+            },
+            {
+                "tr": "Hisse senetleri çeşitlendirmeye uygun değildir",
+                "en": "Stocks are not suitable for diversification",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk yeterince dağılmaz.",
@@ -2176,10 +2204,22 @@ _QUESTIONS: list[dict] = [
         "text_tr": '"Garantili, risksiz, aylık %20 getiri" vaat eden bir yatırım teklifi için aşağıdakilerden hangisi doğrudur?',
         "text_en": 'Which of the following is true for an investment offer promising "guaranteed, risk-free, 20% monthly return"?',
         "options": [
-            {"tr": "Getirisi yüksek olduğu için öncelikli tercih edilmelidir", "en": "It should be preferred first because its return is high"},
-            {"tr": "Risk ve getiri ilişkisine aykırıdır, riski gizlenmiş olabilir", "en": "It contradicts the risk-return relationship; the risk may be hidden"},
-            {"tr": "Kısa vadede risksiz, uzun vadede risklidir", "en": "It's risk-free in the short term but risky in the long term"},
-            {"tr": "Faiz oranı sabitse risk otomatik olarak ortadan kalkar", "en": "If the interest rate is fixed, the risk automatically disappears"},
+            {
+                "tr": "Getirisi yüksek olduğu için öncelikli tercih edilmelidir",
+                "en": "It should be preferred first because its return is high",
+            },
+            {
+                "tr": "Risk ve getiri ilişkisine aykırıdır, riski gizlenmiş olabilir",
+                "en": "It contradicts the risk-return relationship; the risk may be hidden",
+            },
+            {
+                "tr": "Kısa vadede risksiz, uzun vadede risklidir",
+                "en": "It's risk-free in the short term but risky in the long term",
+            },
+            {
+                "tr": "Faiz oranı sabitse risk otomatik olarak ortadan kalkar",
+                "en": "If the interest rate is fixed, the risk automatically disappears",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca gösterilmemektedir.",
@@ -2193,10 +2233,22 @@ _QUESTIONS: list[dict] = [
         "text_tr": "Acil durum fonu için aşağıdaki saklama biçimlerinden hangisi en uygundur?",
         "text_en": "Which of the following storage methods is most suitable for an emergency fund?",
         "options": [
-            {"tr": "Beş yıl vadeli, erken çıkışta ceza uygulanan bir üründe", "en": "A 5-year term product with an early-withdrawal penalty"},
-            {"tr": "Kısa sürede nakde çevrilebilen likit bir araçta", "en": "A liquid instrument that can be converted to cash quickly"},
-            {"tr": "Uzun vadede en çok kazandıran yüksek riskli varlıkta", "en": "A high-risk asset with the best long-term returns"},
-            {"tr": "Satışı haftalar sürebilen fiziksel bir varlıkta", "en": "A physical asset that can take weeks to sell"},
+            {
+                "tr": "Beş yıl vadeli, erken çıkışta ceza uygulanan bir üründe",
+                "en": "A 5-year term product with an early-withdrawal penalty",
+            },
+            {
+                "tr": "Kısa sürede nakde çevrilebilen likit bir araçta",
+                "en": "A liquid instrument that can be converted to cash quickly",
+            },
+            {
+                "tr": "Uzun vadede en çok kazandıran yüksek riskli varlıkta",
+                "en": "A high-risk asset with the best long-term returns",
+            },
+            {
+                "tr": "Satışı haftalar sürebilen fiziksel bir varlıkta",
+                "en": "A physical asset that can take weeks to sell",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında beklemeden ve değer kaybetmeden çekilebilmesi gerekir.",
@@ -2210,10 +2262,22 @@ _QUESTIONS: list[dict] = [
         "text_tr": "Kredi kartı ekstresinde yalnızca asgari tutarı ödeyen bir kullanıcı için aşağıdakilerden hangisi doğrudur?",
         "text_en": "Which of the following is true for a user who only pays the minimum amount on their credit card statement?",
         "options": [
-            {"tr": "Kalan borç faizsiz olarak bir sonraki aya devreder", "en": "The remaining debt carries over to next month interest-free"},
-            {"tr": "Ödenmeyen tutara faiz işler ve borç büyümeye devam eder", "en": "Interest accrues on the unpaid amount and the debt keeps growing"},
-            {"tr": "Kart limiti otomatik olarak yükseltilir", "en": "The card limit is automatically increased"},
-            {"tr": "O ay yapılan tüm harcamalar iptal edilir", "en": "All purchases made that month are cancelled"},
+            {
+                "tr": "Kalan borç faizsiz olarak bir sonraki aya devreder",
+                "en": "The remaining debt carries over to next month interest-free",
+            },
+            {
+                "tr": "Ödenmeyen tutara faiz işler ve borç büyümeye devam eder",
+                "en": "Interest accrues on the unpaid amount and the debt keeps growing",
+            },
+            {
+                "tr": "Kart limiti otomatik olarak yükseltilir",
+                "en": "The card limit is automatically increased",
+            },
+            {
+                "tr": "O ay yapılan tüm harcamalar iptal edilir",
+                "en": "All purchases made that month are cancelled",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür.",
@@ -2247,7 +2311,10 @@ _QUESTIONS: list[dict] = [
             {"tr": "Kredi kartını hiç kullanmamak", "en": "Never using a credit card"},
             {"tr": "Ödemeleri düzenli olarak geciktirmek", "en": "Regularly making late payments"},
             {"tr": "Birden fazla bankada hesabı olmak", "en": "Having accounts at multiple banks"},
-            {"tr": "Otomatik ödeme talimatı vermek", "en": "Setting up automatic payment instructions"},
+            {
+                "tr": "Otomatik ödeme talimatı vermek",
+                "en": "Setting up automatic payment instructions",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını olumsuz etkiler.",
@@ -2261,10 +2328,19 @@ _QUESTIONS: list[dict] = [
         "text_tr": 'Vadeli mevduatta "brüt faiz" ile "net faiz" arasındaki fark neyden kaynaklanır?',
         "text_en": 'In a term deposit, what causes the difference between "gross interest" and "net interest"?',
         "options": [
-            {"tr": "Bankanın uyguladığı hesap işletim ücretinden", "en": "The account maintenance fee charged by the bank"},
-            {"tr": "Faiz gelirinden yapılan stopaj kesintisinden", "en": "The withholding tax deducted from interest income"},
+            {
+                "tr": "Bankanın uyguladığı hesap işletim ücretinden",
+                "en": "The account maintenance fee charged by the bank",
+            },
+            {
+                "tr": "Faiz gelirinden yapılan stopaj kesintisinden",
+                "en": "The withholding tax deducted from interest income",
+            },
             {"tr": "Enflasyon oranındaki değişimden", "en": "Changes in the inflation rate"},
-            {"tr": "Vade sonunda uygulanan kur farkından", "en": "The exchange-rate difference applied at maturity"},
+            {
+                "tr": "Vade sonunda uygulanan kur farkından",
+                "en": "The exchange-rate difference applied at maturity",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran değil, elinize geçecek net tutar dikkate alınmalıdır.",
@@ -2278,10 +2354,22 @@ _QUESTIONS: list[dict] = [
         "text_tr": "Portföyünde ağırlıklı olarak hisse senedi bulunan bir yatırımcı, emekliliğine iki yıl kala ne yapmalıdır?",
         "text_en": "What should an investor whose portfolio is mostly stocks do two years before retirement?",
         "options": [
-            {"tr": "Riski artırıp getiriyi hızlandırmalıdır", "en": "Increase risk to accelerate returns"},
-            {"tr": "Dalgalanmayı azaltmak için düşük riskli araçların payını artırmalıdır", "en": "Increase the share of low-risk instruments to reduce volatility"},
-            {"tr": "Tüm birikimi tek bir hisseye toplamalıdır", "en": "Put all savings into a single stock"},
-            {"tr": "Portföyü olduğu gibi bırakmalıdır, vade önemsizdir", "en": "Leave the portfolio as is; the time horizon doesn't matter"},
+            {
+                "tr": "Riski artırıp getiriyi hızlandırmalıdır",
+                "en": "Increase risk to accelerate returns",
+            },
+            {
+                "tr": "Dalgalanmayı azaltmak için düşük riskli araçların payını artırmalıdır",
+                "en": "Increase the share of low-risk instruments to reduce volatility",
+            },
+            {
+                "tr": "Tüm birikimi tek bir hisseye toplamalıdır",
+                "en": "Put all savings into a single stock",
+            },
+            {
+                "tr": "Portföyü olduğu gibi bırakmalıdır, vade önemsizdir",
+                "en": "Leave the portfolio as is; the time horizon doesn't matter",
+            },
         ],
         "correct_index": 1,
         "education_note_tr": "Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir yaklaşımdır.",
@@ -2480,7 +2568,9 @@ class InMemoryContestRepository:
     async def reset_todays_participation(self, user_id: int) -> None:
         bugun = _bugun()
         remove_ids = {
-            p["id"] for p in _PARTICIPATIONS if p["user_id"] == user_id and p["contest_date"] == bugun
+            p["id"]
+            for p in _PARTICIPATIONS
+            if p["user_id"] == user_id and p["contest_date"] == bugun
         }
         if not remove_ids:
             return
@@ -2527,7 +2617,9 @@ class InMemoryContestRepository:
     ) -> dict:
         for p in _PARTICIPATIONS:
             if p["id"] == participation_id:
-                p.update(won=won, final_score=final_score, eliminated_at_question=eliminated_at_question)
+                p.update(
+                    won=won, final_score=final_score, eliminated_at_question=eliminated_at_question
+                )
                 return dict(p)
         raise NotFoundError("Katilim bulunamadi.")
 
@@ -2551,11 +2643,7 @@ class InMemoryContestRepository:
             cutoff = _now() - timedelta(days=1)
         elif period == "haftalik":
             cutoff = _now() - timedelta(days=7)
-        rows = [
-            p
-            for p in _PARTICIPATIONS
-            if cutoff is None or p["registered_at"] >= cutoff
-        ]
+        rows = [p for p in _PARTICIPATIONS if cutoff is None or p["registered_at"] >= cutoff]
         rows = sorted(rows, key=lambda p: p["final_score"], reverse=True)
         by_user = {u["id"]: u for u in _USERS}
         result = []
@@ -2593,15 +2681,13 @@ class InMemoryContestRepository:
             if p["id"] == payout["participation_id"] and p["user_id"] == user_id
         )
         spent = sum(row["price_points"] for row in _POWERUP_PURCHASES if row["user_id"] == user_id)
-        spent += sum(row["price_points"] for row in _DONATION_PURCHASES if row["user_id"] == user_id)
+        spent += sum(
+            row["price_points"] for row in _DONATION_PURCHASES if row["user_id"] == user_id
+        )
         return earned - spent
 
     async def get_user_powerups(self, user_id: int) -> dict[str, int]:
-        return {
-            row["kind"]: row["quantity"]
-            for row in _USER_POWERUPS
-            if row["user_id"] == user_id
-        }
+        return {row["kind"]: row["quantity"] for row in _USER_POWERUPS if row["user_id"] == user_id}
 
     async def consume_powerup(self, user_id: int, kind: str) -> bool:
         for row in _USER_POWERUPS:
