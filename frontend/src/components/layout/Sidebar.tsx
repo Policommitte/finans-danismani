@@ -83,7 +83,7 @@ export function Sidebar() {
           tum genisliklerde ayni sekilde gorunuyordu), MobileSidebar bu yuzden
           kasitli olarak kullanilmadi (paylasilan hover/acik state'i mobil
           panelin masaustu hover'da da acilmasina yol aciyordu). */}
-      <DesktopSidebar className="fixed bottom-0 left-0 top-0 z-50 flex h-screen flex-col overflow-visible border-r app-border bg-[var(--color-market-bar)] pb-6 pt-24 shadow-2xl">
+      <DesktopSidebar className="fixed bottom-0 left-0 top-0 z-50 flex h-screen flex-col overflow-visible border-r border-white/10 bg-[var(--color-market-bar)] pb-6 pt-24 shadow-2xl">
         <div className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden">
           <NavLinks items={items} pathname={pathname} />
         </div>
