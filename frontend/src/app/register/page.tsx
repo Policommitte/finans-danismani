@@ -149,10 +149,7 @@ function RegisterPageContent() {
         <span className="sr-only">POLIFIN</span>
 
         <div className="w-full rounded-2xl bg-[var(--color-surface-elevated)] p-7 shadow-2xl">
-          <h1 className="text-xl font-bold text-[var(--color-heading)]">Kayıt Ol</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Kimlik bilginiz NVI ile doğrulandıktan sonra hesabınız açılır
-          </p>
+          <h1 className="text-center text-xl font-bold text-[var(--color-heading)]">Kayıt Ol</h1>
 
           <div className="mt-6">
             <IdCardScanner onExtracted={handleIdCardExtracted} />
