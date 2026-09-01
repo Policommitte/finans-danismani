@@ -27,16 +27,9 @@ export const mainNavItems: NavItem[] = [
     tourId: "nav-bulten",
   },
   {
-    key: "recommendations",
-    href: "/oneriler",
-    label: { tr: "Otonom Eylemler", en: "Autonomous Actions" },
-    icon: "/analiz.svg",
-    tourId: "nav-oneriler",
-  },
-  {
     key: "market",
     href: "/market",
-    label: { tr: "Piyasalar", en: "Markets" },
+    label: { tr: "İşlemler", en: "Trading" },
     icon: "/piyasa.svg",
     tourId: "nav-market",
   },

@@ -27,11 +27,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
   const isSupportPage = pathname === "/destek";
-  // Danisman ekrani cok sutunlu bir CRM tablosu tasiyor; 7xl kabinda
-  // surekli yatay kaydirma gerekiyordu. Genisletme YALNIZCA bu sayfaya
-  // ozeldir, diger sayfalarin olcusu degismez.
+  // Danışman ekranındaki geniş CRM tablosu için yalnızca bu sayfanın
+  // içerik kabı genişletilir; diğer sayfaların ölçüsü değişmez.
   const isWidePage = pathname === "/danisman";
-  const isPublic = isLanding || isLogin || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
+  const isPublic =
+    isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
+  const showHomeNavigation = !auth.user && !auth.hasToken;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
@@ -112,13 +113,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
       requestPageTransition("/dashboard", true);
     }
   }, [onboardingActive, isLanding]);
-    useEffect(() => {
-    if (onboardingActive && isLanding) {
-      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
-      // olmasi icin kullaniciyi dashboard'a tasiriz.
-      requestPageTransition("/dashboard", true);
-    }
-  }, [onboardingActive, isLanding]);
 
   useEffect(() => {
     function handleGameFocus(e: Event) {
@@ -163,7 +157,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         </>
       ) : (
         <>
-          {!isFocusedGame && <Sidebar />}
+          {!isFocusedGame && <Sidebar showHome={showHomeNavigation} />}
           <div
             className={
               isFocusedGame
@@ -172,11 +166,23 @@ function AppShellContent({ children }: { children: ReactNode }) {
             }
           >
             <main
-              className={`mx-auto w-full flex-1 px-4 py-8 ${
-                isWidePage ? "max-w-[100rem]" : "max-w-7xl"
-              }`}
+              className={
+                isFocusedGame
+                  ? "mx-auto w-full max-w-5xl flex-1 px-4 py-4"
+                  : "relative w-full flex-1"
+              }
             >
-              {children}
+              {isFocusedGame ? (
+                children
+              ) : (
+                <div
+                  className={`mx-auto w-full px-4 py-8 ${
+                    isWidePage ? "max-w-[100rem]" : "max-w-7xl"
+                  }`}
+                >
+                  {children}
+                </div>
+              )}
             </main>
             <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
@@ -205,6 +211,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         open={tourOpen}
         onClose={() => setTourOpen(false)}
         storageKey={`polifin-product-tour-v1:${auth.user?.id ?? "guest"}`}
+        showHomeStep={showHomeNavigation}
       />
       {logoutNoticeName !== null ? (
         <div

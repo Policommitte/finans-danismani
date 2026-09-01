@@ -4,6 +4,7 @@ import type {
   RecommendationListResponse,
   RejectionReason,
 } from "../models/recommendation";
+import type { IdleCashBasketCatalog, IdleCashSuggestion } from "../models/chat";
 import { apiRequest } from "./apiClient";
 
 export function getRecommendations(status?: string): Promise<RecommendationListResponse> {
@@ -43,5 +44,23 @@ export function updateAutonomousSettings(
   return apiRequest<AutonomousSettings>("/api/oneriler/ayarlar", {
     method: "PUT",
     body: JSON.stringify(settings),
+  });
+}
+
+export function getIdleCashSuggestion(
+  goal: IdleCashSuggestion["goal"],
+): Promise<IdleCashSuggestion> {
+  return apiRequest<IdleCashSuggestion>("/api/oneriler/sepet", {
+    method: "POST",
+    body: JSON.stringify({ goal }),
+  });
+}
+
+export function getIdleCashBasketCatalog(
+  goal: IdleCashSuggestion["goal"],
+): Promise<IdleCashBasketCatalog> {
+  return apiRequest<IdleCashBasketCatalog>("/api/oneriler/sepetler", {
+    method: "POST",
+    body: JSON.stringify({ goal }),
   });
 }
