@@ -39,6 +39,7 @@ def _user_response(user: dict) -> UserResponse:
         risk_tolerance=user.get("risk_tolerance"),
         monthly_income=float(user["monthly_income"]) if user.get("monthly_income") else None,
         onboarding_completed=user.get("onboarding_completed", True),
+        has_seen_tour=user.get("has_seen_tour", True),
         role=user.get("role", "customer"),
         tckn_last4=user.get("tckn_last4"),
         birth_date=user.get("birth_date"),
@@ -72,8 +73,9 @@ async def register(payload: RegisterRequest) -> TokenResponse:
     Kayittan once NVI'nin ucretsiz kimlik dogrulama servisiyle TC Kimlik No
     + Ad + Soyad + Dogum Yili nufus kayitlariyla karsilastirilir - eslesmezse
     kayit TAMAMLANMAZ (bkz. app/services/nvi.py). `onboarding_completed=false`
-    ile baslar - AppShell bir sonraki yuklemede zorunlu onboarding akisini
-    (anket -> sepet -> tur) acar.
+    ve `has_seen_tour=false` ile baslar - AppShell bir sonraki yuklemede
+    zorunlu onboarding akisini (anket -> sepet) acar, onboarding bitince de
+    urun turunu (ProductTour) otomatik baslatir.
     """
     repo = get_user_repository()
     if await repo.get_by_email(payload.email) is not None:
@@ -135,4 +137,17 @@ async def complete_onboarding(
     islemde true yapar - boylece akis bir daha hic gosterilmez.
     """
     updated = await get_user_repository().complete_onboarding(user["id"], payload.risk_tolerance)
+    return _user_response(updated)
+
+
+@router.post("/tour-seen", response_model=UserResponse)
+async def tour_seen(user: CurrentUser) -> UserResponse:
+    """Urun turu (ProductTour) kapandiginda cagrilir - bitirilsin ya da
+    gecilsin (ya da Escape ile kapatilsin) fark etmez, hepsi ayni `onClose`
+    olayina cikar (bkz. frontend AppShell.tsx).
+
+    `has_seen_tour`'u kalici olarak true yapar; bu sayede tur bir sonraki
+    girişte bir daha otomatik acilmaz (bkz. UserResponse.has_seen_tour).
+    """
+    updated = await get_user_repository().mark_tour_seen(user["id"])
     return _user_response(updated)

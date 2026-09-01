@@ -72,6 +72,13 @@ class UserRepository(Protocol):
         """`risk_tolerance` yazar ve `onboarding_completed`'i tek islemde true yapar."""
         ...
 
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        """`has_seen_tour`'u true yapar - urun turu (ProductTour) bir daha
+        otomatik acilmaz. Tur ilk kez KAPANDIGINDA (bitirilsin ya da
+        gecilsin, fark etmez) cagrilir - bkz. app/api/routes/auth.py
+        `/tour-seen`."""
+        ...
+
 
 class PortfolioRepository(Protocol):
     async def get_default_portfolio_id(self, user_id: int) -> int | None: ...

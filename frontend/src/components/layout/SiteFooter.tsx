@@ -1,13 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { useAuth } from "../../hooks/useAuth";
 
 type SiteFooterProps = {
   className?: string;
-  onStartTour?: () => void;
 };
 
 //: `href` SADECE dogrulanmis, gercek Intertech hesabi olan ikonlarda var -
@@ -27,7 +24,6 @@ const footerCopy = {
       { label: "Gizlilik Politikası", href: "/gizlilik-politikasi" },
       { label: "Sıkça Sorulan Sorular", href: "/destek#sss" },
     ],
-    help: "Yardım",
     navLabel: "Alt menü",
   },
   en: {
@@ -36,7 +32,6 @@ const footerCopy = {
       { label: "Privacy Policy", href: "/gizlilik-politikasi" },
       { label: "Frequently Asked Questions", href: "/destek#sss" },
     ],
-    help: "Help",
     navLabel: "Footer navigation",
   },
 };
@@ -70,21 +65,9 @@ function PinIcon() {
   );
 }
 
-export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
+export function SiteFooter({ className = "" }: SiteFooterProps) {
   const { language } = useLanguage();
-  const auth = useAuth();
   const text = footerCopy[language];
-  //: `onStartTour` sunucuda da fonksiyon olarak gecer (props aninda ayni),
-  //: ama turu "mount olmus" DOM'a (Sidebar/nav data-tour hedefleri) baglayan
-  //: ProductTour sadece client'ta anlamli - bu yuzden ilk render'i (server VE
-  //: client'in ilk boyasi) her zaman ayni "/destek" Link'ine sabitleriz, buton
-  //: SADECE mount sonrasi devreye girer. Boylece hydration'da yapisal fark
-  //: (server'da Link, client'ta button) hic olusmaz.
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <div className={className}>
@@ -140,25 +123,6 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
                 {link.label}
               </Link>
             ))}
-            {/* Yardim, house tour'u tetikler - oturum/sayfa icerigine bagli
-                oldugu icin giris yapmamis kullanicida DOM'dan tamamen
-                cikarilir (sadece CSS'le gizlenmez). Sidebar.tsx'teki
-                auth.user'a gore menu ogesi filtreleme deseniyle ayni. */}
-            {auth.user ? (
-              mounted && onStartTour ? (
-                <button
-                  type="button"
-                  onClick={onStartTour}
-                  className="w-fit text-left transition hover:text-[var(--color-market-text)]"
-                >
-                  {text.help}
-                </button>
-              ) : (
-                <Link href="/destek" className="w-fit text-left transition hover:text-[var(--color-market-text)]">
-                  {text.help}
-                </Link>
-              )
-            ) : null}
           </nav>
 
           <p className="text-left text-sm leading-6 lg:text-right">© 2026 Polifin.</p>

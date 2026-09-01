@@ -6,6 +6,9 @@ export type User = {
   risk_tolerance: string | null;
   monthly_income: number | null;
   onboarding_completed: boolean;
+  /** False ise AppShell urun turunu (ProductTour) otomatik acar - yalnizca
+   * onboarding tamamlandiktan sonra, ilk kayitta bir kez. */
+  has_seen_tour: boolean;
   role: string;
   /** TC Kimlik No'nun son 4 hanesi - tam numara hicbir yanitta donmez. */
   tckn_last4: string | null;

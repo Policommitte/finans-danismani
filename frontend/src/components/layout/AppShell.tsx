@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
+import { markTourSeen } from "../../services/authService";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
 import { OnboardingFlow } from "../onboarding/OnboardingFlow";
@@ -37,12 +38,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
   // kayıt/bekleme/çalışma notu ekranlarında görünür kalır.
   const isFocusedGame = isGame && isGameFocused;
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
-  //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
-  //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
-  //: Bayragi dogrudan kosul yapsaydik, refresh() aninda OnboardingFlow
-  //: unmount olur ve tur hic gorunmezdi. Bu yuzden akis SADECE kendi
-  //: `onDone` cagrisiyla kapanir. `ProductTour` (asagida) BUNDAN AYRI, tekrar
-  //: baslatilabilir bir urun turu - ilk-giris zorunlu akisiyla cakismaz.
+  //: kasitli olarak AYRI tutulur: `onDone` cagrilana kadar akis acik kalir,
+  //: boylece `auth.refresh()` sirasindaki ara render'larda erken kapanmaz.
+  //: `ProductTour` (asagida) BUNDAN AYRI: onboarding bitince (`onDone`)
+  //: `has_seen_tour === false` oldugu surece kendi basina otomatik acilir -
+  //: ikisi ayni anda gorunmez (bkz. asagidaki tur-tetikleme efekti).
   const [onboardingActive, setOnboardingActive] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [logoutNoticeName, setLogoutNoticeName] = useState<string | null>(null);
@@ -111,6 +111,36 @@ function AppShellContent({ children }: { children: ReactNode }) {
     }
   }, [onboardingActive, isLanding]);
 
+  //: Urun turu (ProductTour) artik footer'daki manuel bir butonla degil,
+  //: kullanici ilk kez kayit olup onboarding'i (anket -> sepet) bitirdikten
+  //: HEMEN sonra OTOMATIK acilir. `onboardingActive` (yerel state) YERINE
+  //: BILINCLI OLARAK `auth.user.onboarding_completed` (sunucudan gelen
+  //: durum) kullanilir: yeni kayitta ikisi de (`onboarding_completed` VE
+  //: `has_seen_tour`) AYNI ilk render'da false gelir - `onboardingActive`
+  //: kendi setEffect'inde henuz true'ya CEVRILMEMISKEN bu efekt de ayni
+  //: (eski) `false` degerini gorur ve tur, anket bitmeden hemen acilirdi
+  //: (canli Playwright testiyle yakalanan gercek bir yaris durumu).
+  //: `onboarding_completed` ise SADECE "Devam Et" + `auth.refresh()`
+  //: sonrasi, gercekten AYRI bir render turunda true olur - bu yuzden
+  //: guvenli sira garantisi verir.
+  useEffect(() => {
+    if (auth.user && auth.user.onboarding_completed === true && auth.user.has_seen_tour === false) {
+      setTourOpen(true);
+    }
+  }, [auth.user]);
+
+  function handleTourClose() {
+    setTourOpen(false);
+    if (auth.user && auth.user.has_seen_tour === false) {
+      markTourSeen()
+        .then(() => auth.refresh())
+        .catch(() => {
+          // Kaydedilemezse tur bir sonraki girişte tekrar acilir - kotu
+          // ama akis kesilmeyen bir geri dusus (network hatasi vs.).
+        });
+    }
+  }
+
   //: Portfoyu olan (onboarding tamamlanmis) giris yapmis bir kullanici
   //: anasayfada ("/") HIC gorunmemeli - dogrudan dashboard'a gitmeli (bug
   //: raporu: "ana sayfa flash edip sonra yonlendiriliyor"). `auth.loading`
@@ -165,7 +195,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         shouldSkipLandingContent ? null : (
           <>
             {children}
-            <SiteFooter className="ml-24 w-[calc(100%-6rem)]" onStartTour={() => setTourOpen(true)} />
+            <SiteFooter className="ml-24 w-[calc(100%-6rem)]" />
           </>
         )
       ) : (
@@ -187,7 +217,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
             >
               {children}
             </main>
-            {!isFocusedGame && <SiteFooter onStartTour={() => setTourOpen(true)} />}
+            {!isFocusedGame && <SiteFooter />}
           </div>
           {!isGame && (
             <ChatWidget
@@ -212,7 +242,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
       <ProductTour
         open={tourOpen}
-        onClose={() => setTourOpen(false)}
+        onClose={handleTourClose}
         storageKey={`polifin-product-tour-v1:${auth.user?.id ?? "guest"}`}
       />
       {logoutNoticeName !== null ? (

@@ -590,6 +590,7 @@ class InMemoryUserRepository:
             "risk_tolerance": None,
             "monthly_income": 0.0,
             "onboarding_completed": False,
+            "has_seen_tour": False,
             "tckn_hash": tckn_hash,
             "tckn_last4": tckn_last4,
             "birth_date": birth_date,
@@ -603,6 +604,13 @@ class InMemoryUserRepository:
             if user["id"] == user_id:
                 user["risk_tolerance"] = risk_tolerance
                 user["onboarding_completed"] = True
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
+        return None
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        for user in _USERS:
+            if user["id"] == user_id:
+                user["has_seen_tour"] = True
                 return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 

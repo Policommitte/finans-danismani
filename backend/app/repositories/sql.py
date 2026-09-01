@@ -59,8 +59,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, onboarding_completed, role,
-                   tckn_last4, birth_date, phone_number
+                   risk_tolerance, monthly_income, onboarding_completed, has_seen_tour,
+                   role, tckn_last4, birth_date, phone_number
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -70,7 +70,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
-                   onboarding_completed, role, tckn_last4, birth_date, phone_number
+                   onboarding_completed, has_seen_tour, role, tckn_last4, birth_date,
+                   phone_number
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
@@ -99,11 +100,12 @@ class SqlUserRepository(_SqlRepository):
                     """
                     INSERT INTO users
                         (first_name, last_name, email, password_hash, onboarding_completed,
-                         tckn_hash, tckn_last4, birth_date, phone_number)
+                         has_seen_tour, tckn_hash, tckn_last4, birth_date, phone_number)
                     VALUES (:first_name, :last_name, :email, :password_hash, false,
-                            :tckn_hash, :tckn_last4, :birth_date, :phone_number)
+                            false, :tckn_hash, :tckn_last4, :birth_date, :phone_number)
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed, tckn_last4, birth_date, phone_number
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
                     """
                 ),
                 {
@@ -130,10 +132,30 @@ class SqlUserRepository(_SqlRepository):
                     SET risk_tolerance = :risk_tolerance, onboarding_completed = true
                     WHERE id = :user_id
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed, tckn_last4, birth_date, phone_number
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
                     """
                 ),
                 {"user_id": user_id, "risk_tolerance": risk_tolerance},
+            )
+            row = result.mappings().first()
+            await session.commit()
+            return dict(row) if row else None
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET has_seen_tour = true
+                    WHERE id = :user_id
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
+                    """
+                ),
+                {"user_id": user_id},
             )
             row = result.mappings().first()
             await session.commit()
