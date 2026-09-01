@@ -29,6 +29,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
   const isAbout = pathname === "/hakkimizda";
   const isSupportPage = pathname === "/destek";
+  // Danisman ekrani cok sutunlu bir CRM tablosu tasiyor; 7xl kabinda
+  // surekli yatay kaydirma gerekiyordu. Genisletme YALNIZCA bu sayfaya
+  // ozeldir, diger sayfalarin olcusu degismez.
+  const isWidePage = pathname === "/danisman";
   const isPublic =
     isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isAbout || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
@@ -215,11 +219,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
             }
           >
             <main
-              className={
-                isFocusedGame
-                  ? "mx-auto w-full max-w-5xl flex-1 px-4 py-4"
-                  : "mx-auto w-full max-w-7xl flex-1 px-4 py-8"
-              }
+              className={`mx-auto w-full flex-1 px-4 py-8 ${
+                isWidePage ? "max-w-[100rem]" : "max-w-7xl"
+              }`}
             >
               {children}
             </main>

@@ -350,6 +350,11 @@ class RagRepository(Protocol):
         `chunk_id`, `doc_id`, `baslik`, `sirket`, `symbol`, `tarih`, `tip`,
         `content`, `score` - `mcp/server.py::_chunk_payload` ikisini de
         ayirt etmeden isler.
+
+        Bu yol ayrica `cos_sim` (gercek kosinus benzerligi) dondurebilir;
+        `score` RRF oldugu ve rank tabanli calistigi icin alaka esigi
+        `cos_sim` uzerinden kurulur (bkz. `settings.rag_min_similarity`).
+        BM25'e dusuldugunde alan bulunmaz - ZORUNLU DEGILDIR.
         """
         ...
 
@@ -509,6 +514,169 @@ class LeadRepository(Protocol):
         Kullanici basina EN SON mail kaydi doner; siralama gonderim
         tarihine gore (en yeni ustte).
         """
+        ...
+
+
+class ContestRepository(Protocol):
+    """Sans Yatirimda oyunu veri erisimi.
+
+    Tablolar: `topic`, `question`, `contest`, `contest_topic`,
+    `contest_question`, `contest_agreement`, `participation`, `answer`,
+    `payout`, `donation_purchase`, `user_powerup`, `powerup_purchase`.
+
+    BILINCLI OLARAK YOK: rakip oyuncu simulasyonu (isim/skor/yuzde) icin
+    hicbir metot. "Kac kisi yariste" / "%X dogru bildi" gibi gorunumler
+    frontend'de KALMAYA DEVAM EDER - gercek rakip verisi degil, gorsel
+    canlandirma. Bu katman yalnizca kullanicinin KENDI kaydini tasir.
+    """
+
+    # --- soru havuzu / oturum tanimi ---
+    async def get_active_contest(self) -> dict | None:
+        """Bu aksam (veya su an) acik olan `contest` satiri - yoksa None."""
+        ...
+
+    async def get_contest_topics(self, contest_id: int) -> list[dict]:
+        """`contest_topic` uzerinden bu oturuma bagli calisma notu konulari."""
+        ...
+
+    async def get_contest_questions(self, contest_id: int) -> list[dict]:
+        """`contest_question` sirasina gore bu oturumun SABIT soru listesi.
+
+        Onemli: bu liste TUM katilimcilar icin AYNIDIR - eskiden frontend
+        her oyuncu icin ayri rastgele 5 soru cekiyordu (bkz. `prepareQuestions`
+        client tarafinda), bu artik gecerli degil; siralama backend'den gelir.
+        """
+        ...
+
+    # --- kural onayi ---
+    async def has_agreement(self, user_id: int) -> bool: ...
+
+    async def create_agreement(self, user_id: int) -> None: ...
+
+    # --- katilim ---
+    async def count_participants(self, contest_id: int) -> int:
+        """`participation` satir sayisi - GERCEK katilimci sayisi.
+
+        Frontend'deki "297 kisi yariste" gorseli bununla KARISTIRILMAMALI:
+        o sayi kucuk gercek kullanici tabaninda gerceci durmaz diye bilerek
+        simule ediliyor. Bu metot yalnizca gercek sayiyi doner; simulasyonla
+        harmanlamak (ya da harmanlamamak) servis katmaninin karari.
+        """
+        ...
+
+    async def register_participation(self, contest_id: int, user_id: int) -> dict:
+        """Yeni `participation` satiri acar (skor=0, won=false ile baslar)."""
+        ...
+
+    async def get_participation(self, participation_id: int) -> dict | None:
+        """ID ile tek katilim. Servis katmani bunu YETKI kontrolu icin kullanir
+        (`participation.user_id` istek sahibiyle ayni mi) - baska hicbir amacla
+        cagrilmamali."""
+        ...
+
+    async def reset_todays_participation(self, user_id: int) -> None:
+        """DEMO/GELISTIRME icin: kullanicinin BUGUNKU katilimini (+ cevaplari
+        + odulu, cascade ile) siler - gunluk hak yeniden kullanilabilir olur.
+        Servis katmani bunu `settings.app_env == "production"` iken REDDEDER;
+        bu metot kendisi bir kontrol yapmaz, cagrildiginda kosulsuz siler."""
+        ...
+
+    async def submit_answer(
+        self,
+        participation_id: int,
+        contest_question_id: int,
+        selected_index: int | None,
+        is_correct: bool,
+        points_earned: int,
+        elapsed_seconds: float,
+    ) -> dict:
+        """`answer` satiri yazar. `selected_index=None` -> sure doldu (timeout).
+
+        `is_correct` / `points_earned` BURADA HESAPLANMAZ - dogru cevap ve
+        puanlama formulu is kuralidir, servis katmaninin isi (bkz. LeadRepository
+        docstring'indeki ayni ilke). Bu metot yalnizca SONUCU kaydeder.
+        """
+        ...
+
+    async def list_answers(self, participation_id: int) -> list[dict]:
+        """Bir katilimin TUM cevaplarini soru sirasina (`sort_order`) gore doner.
+
+        Servis, yarismayi bitirirken (final_score, eliminated_at_question)
+        istemciye GUVENMEK yerine buradan toplar - `submit_answer` her
+        cagrida dogru sonucu zaten SUNUCU tarafinda hesaplayip yazdigi icin
+        bu liste tek dogru kaynaktir.
+        """
+        ...
+
+    async def finalize_participation(
+        self,
+        participation_id: int,
+        won: bool,
+        final_score: int,
+        eliminated_at_question: int | None,
+    ) -> dict:
+        """`participation` satirini kapatir (skor, kazandi/kaybetti, elenilen soru)."""
+        ...
+
+    # --- odul ---
+    async def create_payout(self, participation_id: int, payout_points: int) -> None:
+        """`payout` satiri yazar - havuz payi, yarisma BITINCE BIR KEZ."""
+        ...
+
+    async def get_leaderboard(self, period: str) -> list[dict]:
+        """Gercek katilimcilarin skorlarindan siralama (`period`: gunluk/haftalik/tumzamanlar)."""
+        ...
+
+    async def list_participations(self, user_id: int, limit: int = 20) -> list[dict]:
+        """Kullanicinin gecmis katilimlari, EN YENI ustte.
+
+        Her satirda o katilimin payout'u DAHIL (yoksa 0) - "Puan gecmisi"
+        ekraninin TEK veri kaynagi; skor ile kazanilan puan ayri ayri
+        hesaplanmaz, ikisi de burada BIRLIKTE doner.
+        """
+        ...
+
+    # --- cuzdan (ayri tablo yok - turetilir) ---
+    async def get_points_balance(self, user_id: int) -> int:
+        """`payout` toplami eksi `powerup_purchase` + `donation_purchase` toplami."""
+        ...
+
+    # --- jokerler ---
+    async def get_user_powerups(self, user_id: int) -> dict[str, int]:
+        """`user_powerup` - joker basina mevcut adet, ör. `{"doublePoints": 1, "fiftyFifty": 0}`."""
+        ...
+
+    async def consume_powerup(self, user_id: int, kind: str) -> bool:
+        """Elindeki adedi 1 azaltir (>0 ise). Adet zaten 0/yoksa False doner -
+        yarisma icinde bir joker KULLANILDIGINDA cagrilir (satin alma DEGIL,
+        o `record_powerup_purchase`'in isi). Boylece sayfa yenilense bile
+        kullanilan joker geri gelmez."""
+        ...
+
+    async def record_powerup_purchase(self, user_id: int, kind: str, price_points: int) -> None:
+        """`powerup_purchase` satiri yazar VE `user_powerup` adedini artirir (TEK islemde)."""
+        ...
+
+    async def list_powerup_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        """`powerup_purchase` satirlari, EN YENI ustte - 'Puan gecmisi' ekraninda
+        harcama satiri olarak katilim/odul satirlariyla BIRLESTIRILIR (bkz.
+        services/contest.py::get_history)."""
+        ...
+
+    # --- bagis / rozet ---
+    async def get_user_badges(self, user_id: int) -> list[str]:
+        """`donation_purchase` uzerinden kazanilan rozet etiketleri."""
+        ...
+
+    async def record_donation_purchase(
+        self, user_id: int, donation_key: str, badge_label: str, price_points: int
+    ) -> None:
+        """`donation_purchase` satiri yazar - rozet KALICIDIR, geri alinmaz."""
+        ...
+
+    async def list_donation_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        """`donation_purchase` satirlari, EN YENI ustte - `list_powerup_purchases`
+        ile ayni amaç, 'Puan gecmisi' harcama satirlari icin."""
         ...
 
 

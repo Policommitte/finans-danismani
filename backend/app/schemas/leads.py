@@ -3,7 +3,7 @@
 Tum parasal alanlar TRY'ye normalize edilmistir ve `_try` ile biter.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,11 @@ class LeadQueueItem(BaseModel):
     total_value_try: float
     monthly_income: float
     likit_para: float
+    phone_number: str | None = None
+    birth_date: date | None = Field(
+        default=None, description="Yas EKRANDA bundan turetilir, ayrica saklanmaz"
+    )
+    tckn_last4: str | None = Field(default=None, description="Arayuzde '•••• 1234' gosterimi")
     days_since_activity: int | None = None
     mail_gonderildi: bool = Field(
         default=False,

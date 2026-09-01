@@ -58,6 +58,13 @@ import time
 from typing import Any
 
 from app.agents.base import BaseAgent
+from app.config import settings
+
+# Ortak modulde durur cunku `scripts/temizle_dokuman_basliklari.py` de ayni
+# fonksiyonu kullaniyor; bir bakim script'i bu modulu (ve langgraph yiginini)
+# yuklemek zorunda kalmamali. Eski ad korunuyor - modul ici kullanim ve
+# `tests/test_sembol_cozumleme.py` bu isimle ithal ediyor.
+from app.core.metin import icerikten_baslik as _icerikten_baslik
 from app.mcp.client import MCPClientError, MCPToolExecutionError
 from app.mcp.server import MARKET_SERVER_NAME, RAG_SERVER_NAME
 from app.orchestration.models import AgentError, AgentState, Source
@@ -405,6 +412,49 @@ def _takma_addan_coz(tokenler: list[str], katalog_sembolleri: set[str]) -> tuple
     return None
 
 
+def _alaka_skorlarini_logla(
+    query: str, chunks: list[dict[str, Any]], filters: dict[str, Any] | None = None
+) -> None:
+    """Donen chunk'larin GERCEK kosinus benzerliklerini tek satirda loglar.
+
+    NEDEN VAR: `settings.rag_min_similarity` esigi indeksin kendi benzerlik
+    dagilimina gore kalibre edilmek zorunda ve o dagilim disaridan GORUNMUYOR -
+    `cos_sim` ne arayuze cikiyor ne de bir yere yaziliyordu. Esik yanlis
+    ayarlandiginda tek belirti "haber bulunamadi" oluyor, sebebi ise
+    "indekste icerik yok" mu "esik cok yuksek" mi ayirt edilemiyordu.
+
+    KALIBRASYON ICIN: `RAG_MIN_SIMILARITY=0` ile filtreyi kapatin, sorguyu bir
+    kez calistirin ve bu satira bakin - butun adaylarin gercek skorlari gorunur.
+    Esigi alakali/alakasiz kumelerin ARASINA koyup ayari geri acin.
+
+    Esik ACIKKEN bu satir yalnizca ESIGI GECENLERI gosterir: filtreleme SQL
+    tarafinda, `LIMIT`ten once yapiliyor (bkz. `rag.hybrid_search`), yani
+    elenenler Python'a hic ulasmiyor.
+
+    `cos_sim` BM25'e dusuldugunde `None`'dir (karsilastirilacak vektor yok);
+    o durumda skor yerine "-" yazilir.
+    """
+    if not logger.isEnabledFor(logging.INFO):
+        return
+
+    def _bicimle(chunk: dict[str, Any]) -> str:
+        cos = chunk.get("cos_sim")
+        skor = f"{cos:.3f}" if isinstance(cos, (int, float)) else "-"
+        return f"{skor} {(chunk.get('baslik') or chunk.get('source') or '?')[:40]}"
+
+    # `filters` DE loglanir: sessiz bir `symbol`/tarih filtresi aramayi
+    # daraltip "hicbir sey bulunamadi" gibi gosterebilir - o durumda sorun
+    # esikte degil, router'in cikardigi filtrededir.
+    logger.info(
+        "rag alaka skorlari | esik=%s top_k=%s | filtre=%s | sorgu=%r | %s",
+        settings.rag_min_similarity or "kapali",
+        settings.rag_top_k,
+        filters or "-",
+        query[:60],
+        " · ".join(_bicimle(c) for c in chunks) or "(sonuc yok)",
+    )
+
+
 def _dokuman_bazinda_tekille(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Ayni dokumandan gelen chunk'lari TEK kaynaga indirir.
 
@@ -430,33 +480,6 @@ def _dokuman_bazinda_tekille(chunks: list[dict[str, Any]]) -> list[dict[str, Any
         if mevcut is None or (chunk.get("score") or 0) > (mevcut.get("score") or 0):
             gorulen[anahtar] = chunk
     return list(gorulen.values())
-
-
-def _icerikten_baslik(icerik: str, en_fazla: int = 80) -> str:
-    """Metnin ilk cumlesinden okunabilir bir baslik uretir.
-
-    NEDEN GEREKLI: `rag.documents.baslik` dokumanlarin %35'inde BOS
-    (82/234 - olculdu). Baslik bos olunca kaynak satiri yalnizca tarih ve
-    site adiyla kaliyordu: "(2026-08-13) · BigPara Borsa". Ayni siteden ayni
-    gunlerde gelen iki FARKLI haber kullaniciya BIREBIR AYNI gorunuyordu.
-
-    Kalici cozum baslik alanini ingestion tarafinda doldurmaktir; bu
-    fonksiyon eldeki veriyle simdi okunabilir bir ayrim saglar.
-    """
-    metin = " ".join((icerik or "").split())
-    if not metin:
-        return ""
-
-    # Ilk cumle sinirinda kes; yoksa kelime sinirinda kirp.
-    for isaret in (". ", "! ", "? "):
-        konum = metin.find(isaret)
-        if 0 < konum <= en_fazla:
-            return metin[: konum + 1].strip()
-
-    if len(metin) <= en_fazla:
-        return metin
-    kirpik = metin[:en_fazla].rsplit(" ", 1)[0]
-    return f"{kirpik}…"
 
 
 def _ekli_eslesme(token: str, kok: str) -> bool:
@@ -1003,11 +1026,12 @@ class MarketResearchAgent(BaseAgent):
             tool="rag_search",
             arguments={
                 "query": query,
-                "top_k": task.get("top_k") or DEFAULT_TOP_K,
+                "top_k": task.get("top_k") or settings.rag_top_k or DEFAULT_TOP_K,
                 "filters": filters,
             },
         )
         chunks: list[dict[str, Any]] = sonuc.get("chunks", [])
+        _alaka_skorlarini_logla(query, chunks, filters)
 
         if not chunks:
             # Kaynak yoksa LLM'e HIC gidilmez: modelin bosluktan icerik
