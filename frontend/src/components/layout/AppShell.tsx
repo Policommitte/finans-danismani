@@ -200,12 +200,18 @@ function AppShellContent({ children }: { children: ReactNode }) {
         )
       ) : (
         <>
-          {!isFocusedGame && <Sidebar />}
+          {/* Sidebar SADECE giris yapmis kullanicida gorunur - misafirin
+              zaten anasayfaya donmesi disinda sol menude gidecegi bir yer
+              yok. Sartlar saglanmiyorsa DOM'dan TAMAMEN cikarilir (Sidebar
+              icindeki "home" ogesi filtrelemesiyle AYNI auth.user deseni). */}
+          {!isFocusedGame && auth.user && <Sidebar />}
           <div
             className={
               isFocusedGame
                 ? "flex min-h-screen w-full flex-col pt-4"
-                : `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+                : auth.user
+                  ? `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+                  : `flex min-h-screen w-full flex-col ${isGame ? "pt-8" : "pt-20"}`
             }
           >
             <main
