@@ -89,7 +89,14 @@ export const DesktopSidebar = ({
   return (
     <motion.div
       className={cn(
-        "h-full px-4 py-4 hidden md:flex md:flex-col bg-neutral-100 dark:bg-neutral-800 w-24 flex-shrink-0",
+        // Arkaplan rengi burada KASITLI OLARAK yok - proje `dark:` Tailwind
+        // varyantini (isletim sistemi tercihine gore tetiklenir) DEGIL,
+        // kendi `data-theme` attribute sistemini kullaniyor. `dark:bg-*`
+        // burada tanimli olsaydi, kullanicinin isletim sistemi karanlik
+        // modda oldugunda tuketicinin (layout/Sidebar.tsx) verdigi arkaplan
+        // rengini EZERDI - canli olarak tam bu sekilde yakalandi. Arkaplan
+        // rengi HER ZAMAN tuketicinin className'inden gelir.
+        "h-full px-4 py-4 hidden md:flex md:flex-col w-24 flex-shrink-0",
         className
       )}
       animate={{
