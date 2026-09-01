@@ -26,9 +26,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
   // şerit dikkat dağıtır, sohbet ise soruların cevabına erişim yolu olur.
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
+  const isAbout = pathname === "/hakkimizda";
   const isSupportPage = pathname === "/destek";
   const isPublic =
-    isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
+    isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isAbout || isSupportPage;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
