@@ -2723,7 +2723,10 @@ class SqlContestRepository(_SqlRepository):
         async with self._session_factory() as session:
             await session.execute(
                 text(
-                    "DELETE FROM participation WHERE user_id = :user_id AND contest_date = CURRENT_DATE"
+                    (
+                        "DELETE FROM participation WHERE user_id = :user_id AND "
+                        "contest_date = CURRENT_DATE"
+                    )
                 ),
                 {"user_id": user_id},
             )

@@ -82,8 +82,7 @@ async def get_contest_state(user_id: int) -> ContestState:
 
     bugun = str(contest["contest_date"])
     already = any(
-        str(p["contest_date"]) == bugun
-        for p in await repo.list_participations(user_id, limit=5)
+        str(p["contest_date"]) == bugun for p in await repo.list_participations(user_id, limit=5)
     )
 
     return ContestState(
@@ -162,14 +161,24 @@ async def _question_in_contest_or_404(contest_id: int, contest_question_id: int)
     return question
 
 
-async def submit_answer(user_id: int, participation_id: int, payload: AnswerRequest) -> AnswerResult:
+async def submit_answer(
+    user_id: int, participation_id: int, payload: AnswerRequest
+) -> AnswerResult:
     repo = get_contest_repository()
     participation = await _own_participation_or_403(user_id, participation_id)
-    question = await _question_in_contest_or_404(participation["contest_id"], payload.contest_question_id)
+    question = await _question_in_contest_or_404(
+        participation["contest_id"], payload.contest_question_id
+    )
 
-    is_correct = payload.selected_index is not None and payload.selected_index == question["correct_index"]
-    base_points = _score_for(payload.elapsed_seconds, question["timer_seconds"]) if is_correct else 0
-    points_earned = base_points * 2 if (is_correct and payload.double_points_active) else base_points
+    is_correct = (
+        payload.selected_index is not None and payload.selected_index == question["correct_index"]
+    )
+    base_points = (
+        _score_for(payload.elapsed_seconds, question["timer_seconds"]) if is_correct else 0
+    )
+    points_earned = (
+        base_points * 2 if (is_correct and payload.double_points_active) else base_points
+    )
 
     await repo.submit_answer(
         participation_id=participation_id,
@@ -188,7 +197,9 @@ async def submit_answer(user_id: int, participation_id: int, payload: AnswerRequ
     )
 
 
-async def fifty_fifty(user_id: int, participation_id: int, contest_question_id: int) -> FiftyFiftyResult:
+async def fifty_fifty(
+    user_id: int, participation_id: int, contest_question_id: int
+) -> FiftyFiftyResult:
     """İki YANLIŞ şıkkın index'lerini doner - dogru şık ASLA elenmez, ama
     HANGİSİNİN doğru olduğu da söylenmez (kalan 2 şık arasında belirsizlik
     korunur, `submit_answer` cevaplanana kadar)."""
@@ -204,7 +215,9 @@ async def finish_participation(
     user_id: int, participation_id: int, simulated_rivals_at_end: int
 ) -> FinishResult:
     repo = get_contest_repository()
-    participation = await _own_participation_or_403(user_id, participation_id)
+    # Yetki kontrolu YAN ETKILIDIR: sahibi degilse 403 firlatir. Donen deger
+    # kullanilmiyor ama CAGRI KALMALI - satiri silmek yetkilendirmeyi kaldirirdi.
+    await _own_participation_or_403(user_id, participation_id)
 
     contest = await _active_contest_or_404()
     total_questions = contest["question_count"]
