@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { useAuth } from "../../hooks/useAuth";
 
 type SiteFooterProps = {
   className?: string;
@@ -71,6 +72,7 @@ function PinIcon() {
 
 export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
   const { language } = useLanguage();
+  const auth = useAuth();
   const text = footerCopy[language];
   //: `onStartTour` sunucuda da fonksiyon olarak gecer (props aninda ayni),
   //: ama turu "mount olmus" DOM'a (Sidebar/nav data-tour hedefleri) baglayan
@@ -138,19 +140,25 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
                 {link.label}
               </Link>
             ))}
-            {mounted && onStartTour ? (
-              <button
-                type="button"
-                onClick={onStartTour}
-                className="w-fit text-left transition hover:text-[var(--color-market-text)]"
-              >
-                {text.help}
-              </button>
-            ) : (
-              <Link href="/destek" className="w-fit text-left transition hover:text-[var(--color-market-text)]">
-                {text.help}
-              </Link>
-            )}
+            {/* Yardim, house tour'u tetikler - oturum/sayfa icerigine bagli
+                oldugu icin giris yapmamis kullanicida DOM'dan tamamen
+                cikarilir (sadece CSS'le gizlenmez). Sidebar.tsx'teki
+                auth.user'a gore menu ogesi filtreleme deseniyle ayni. */}
+            {auth.user ? (
+              mounted && onStartTour ? (
+                <button
+                  type="button"
+                  onClick={onStartTour}
+                  className="w-fit text-left transition hover:text-[var(--color-market-text)]"
+                >
+                  {text.help}
+                </button>
+              ) : (
+                <Link href="/destek" className="w-fit text-left transition hover:text-[var(--color-market-text)]">
+                  {text.help}
+                </Link>
+              )
+            ) : null}
           </nav>
 
           <p className="text-left text-sm leading-6 lg:text-right">© 2026 Polifin.</p>
