@@ -180,7 +180,7 @@ export function WalletTab({ pointsBalance, history, onGoShop }: Props) {
                       color: row.points > 0 ? "var(--color-success)" : "var(--color-muted)",
                     }}
                   >
-                    {row.points > 0 ? `+${row.points}` : "—"}
+                    {row.points > 0 ? `+${row.points.toLocaleString(locale)}` : "—"}
                   </p>
                 </div>
               </div>

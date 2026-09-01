@@ -451,6 +451,149 @@ CREATE TABLE rag.ingestion_runs (
 
 
 -- =====================================================================
+-- 7B · OYUN — ŞANS YATIRIMDA
+--      Rakip oyuncu SİMÜLASYONU (isim/skor/yüzde) için hiçbir tablo YOK -
+--      "kaç kişi yarışta" / "%X doğru bildi" gibi görünümler frontend'de
+--      kalmaya devam eder (gerçek rakip verisi değil, görsel canlandırma).
+--      Bu bölüm yalnızca kullanıcının KENDİ katılımını, cevaplarını ve
+--      cüzdanını tutar. Metin alanları TR/EN ikilisi olarak tutulur ki dil
+--      değiştirici (EN/TR) soru içeriğinde de çalışsın.
+-- =====================================================================
+
+-- Çalışma notu konuları (6 sabit konu)
+CREATE TABLE topic (
+    id SERIAL PRIMARY KEY,
+    title_tr VARCHAR(100) NOT NULL,
+    title_en VARCHAR(100) NOT NULL,
+    body_tr TEXT NOT NULL,
+    body_en TEXT NOT NULL
+);
+
+-- Soru havuzu. `options` dizisinin her elemanı {"tr":..., "en":...} biçiminde.
+CREATE TABLE question (
+    id SERIAL PRIMARY KEY,
+    topic_id INTEGER REFERENCES topic(id),
+    text_tr TEXT NOT NULL,
+    text_en TEXT NOT NULL,
+    options JSONB NOT NULL,
+    correct_index SMALLINT NOT NULL
+        CHECK (correct_index BETWEEN 0 AND 3),
+    education_note_tr TEXT NOT NULL,
+    education_note_en TEXT NOT NULL,
+    difficulty VARCHAR(10) NOT NULL DEFAULT 'orta',
+    timer_seconds SMALLINT NOT NULL DEFAULT 10
+);
+
+-- Her akşamki yarışma oturumu.
+-- prize_pool_points / question_count varsayılanları frontend'in kalibre
+-- edildiği değerlerle AYNI (bkz. frontend/src/models/oyun.ts CONFIG):
+-- 1.000.000 puanlık havuz, 5 soru - kazanan başına payout 1500-2000
+-- aralığında kalsın diye seçilmişti, bu iki sayı BİRLİKTE değişmeli.
+CREATE TABLE contest (
+    id SERIAL PRIMARY KEY,
+    contest_date DATE NOT NULL UNIQUE,
+    starts_at TIMESTAMPTZ NOT NULL,
+    capacity_total INTEGER NOT NULL DEFAULT 1000,
+    prize_pool_points INTEGER NOT NULL DEFAULT 1000000,
+    question_count SMALLINT NOT NULL DEFAULT 5,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- O günkü yarışmaya seçilen konular
+CREATE TABLE contest_topic (
+    id SERIAL PRIMARY KEY,
+    contest_id INTEGER NOT NULL REFERENCES contest(id) ON DELETE CASCADE,
+    topic_id INTEGER NOT NULL REFERENCES topic(id),
+    sort_order SMALLINT NOT NULL,
+    UNIQUE (contest_id, topic_id)
+);
+
+-- O günkü yarışmaya seçilen sorular, SIRALI - tüm katılımcılar için AYNI
+-- sırayla sunulur (eskiden her oyuncu kendi tarayıcısında rastgele 5 soru
+-- çekiyordu; artık yarışma gerçekten eşzamanlı).
+CREATE TABLE contest_question (
+    id SERIAL PRIMARY KEY,
+    contest_id INTEGER NOT NULL REFERENCES contest(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES question(id),
+    sort_order SMALLINT NOT NULL,
+    UNIQUE (contest_id, question_id),
+    UNIQUE (contest_id, sort_order)
+);
+
+-- Sözleşme onayı - kullanıcı başına bir kez
+CREATE TABLE contest_agreement (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id)
+);
+
+-- Kullanıcının bir yarışmaya katılımı - günde/oturumda en fazla bir kez
+CREATE TABLE participation (
+    id SERIAL PRIMARY KEY,
+    contest_id INTEGER NOT NULL REFERENCES contest(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    contest_date DATE NOT NULL,
+    registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    eliminated_at_question SMALLINT,
+    final_score INTEGER NOT NULL DEFAULT 0,
+    won BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (contest_id, user_id),
+    UNIQUE (user_id, contest_date)
+);
+
+-- Katılımcının her soruya verdiği cevap
+CREATE TABLE answer (
+    id SERIAL PRIMARY KEY,
+    participation_id INTEGER NOT NULL REFERENCES participation(id) ON DELETE CASCADE,
+    contest_question_id INTEGER NOT NULL REFERENCES contest_question(id),
+    selected_index SMALLINT,
+    is_correct BOOLEAN NOT NULL,
+    points_earned INTEGER NOT NULL DEFAULT 0,
+    answered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (participation_id, contest_question_id)
+);
+
+-- Kazanan başına ödül dağıtımı - yarışma BİTİNCE BİR KEZ yazılır
+CREATE TABLE payout (
+    id SERIAL PRIMARY KEY,
+    participation_id INTEGER NOT NULL REFERENCES participation(id) ON DELETE CASCADE,
+    points_awarded INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (participation_id)
+);
+
+-- Bağış geçmişi ve kalıcı rozetler
+CREATE TABLE donation_purchase (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    donation_key VARCHAR(30) NOT NULL,
+    badge_label VARCHAR(50) NOT NULL,
+    price_points INTEGER NOT NULL,
+    purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, donation_key)
+);
+
+-- Kullanıcının elindeki joker envanteri (mevcut adet)
+CREATE TABLE user_powerup (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind VARCHAR(20) NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (user_id, kind)
+);
+
+-- Joker satın alma geçmişi
+CREATE TABLE powerup_purchase (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind VARCHAR(20) NOT NULL,
+    price_points INTEGER NOT NULL,
+    purchased_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- =====================================================================
 -- 8 · INDEXLER
 -- =====================================================================
 
@@ -483,6 +626,8 @@ CREATE INDEX lead_contacts_user_idx          ON lead_contacts (user_id, created_
 CREATE INDEX documents_asset_idx       ON rag.documents (asset_id);
 CREATE INDEX chunks_tsv_idx            ON rag.chunks USING gin (content_tsv);
 CREATE INDEX chunks_hnsw_idx           ON rag.chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX participation_user_idx    ON participation (user_id, registered_at DESC);
+CREATE INDEX powerup_purchase_user_idx ON powerup_purchase (user_id, purchased_at DESC);
 
 
 -- =====================================================================
@@ -778,6 +923,36 @@ INSERT INTO chat_messages (session_id, sender_role, message_content) VALUES
 (1,'assistant','Mehmet Bey, portföyünüzdeki SASA pozisyonu yaklaşık %13 ekside. Agresif risk profilinize uygun olarak piyasa dönüşünü bekleyebilir veya BTC pozisyonunuzdan elde ettiğiniz kârla maliyet düşürmeyi değerlendirebilirsiniz. Bu bir yatırım tavsiyesi değildir.'),
 (2,'user','Ethereum maliyetim çok yüksek kaldı (4000$). Solana ise kârda. Nasıl dengeleyebilirim?'),
 (2,'assistant','Can Bey, Solana pozisyonunuzdaki kârı realize edip bir kısmını Ethereum tarafına kaydırmak, yüksek risk profiliniz için değerlendirilebilecek bir yeniden dengeleme yaklaşımıdır. Bu bir yatırım tavsiyesi değildir.');
+
+-- Şans Yatırımda: konu + soru havuzu (frontend/src/models/oyun.ts
+-- CHEAT_SHEET / QUESTIONS ile BİREBİR AYNI metinler - iki taraf da aynı
+-- içeriği göstersin diye). `contest` / `contest_topic` / `contest_question`
+-- (o akşamki SEÇİLİ oturum) BİLEREK burada seed'lenmiyor - "bugünün
+-- yarışması" durumu statik veri değil, servis katmanının çalışma zamanında
+-- (get_active_contest içinde, gerekirse oluşturarak) karar vereceği bir
+-- şeydir; sabit bir tarihe INSERT etmek yarın stale kalırdı.
+
+-- Konular (calisma notu)
+INSERT INTO topic (id, title_tr, title_en, body_tr, body_en) VALUES
+    (1, 'Bileşik faiz', 'Compound interest', 'Kazanılan faiz anaparaya eklenir ve yeniden faiz getirir. Erken başlamak süreyi en değerli girdi hâline getirir.', 'Interest earned is added to the principal and starts earning interest itself. Starting early makes time your most valuable asset.'),
+    (2, 'Enflasyon ve alım gücü', 'Inflation and purchasing power', 'Fiyatlar sürekli yükselir, aynı para zamanla daha az şey alır. Getiri enflasyonun altında kalırsa reel olarak kayıp vardır.', 'Prices keep rising, so the same money buys less over time. If your return falls below inflation, you lose value in real terms.'),
+    (3, 'Çeşitlendirme', 'Diversification', 'Birikimi farklı varlıklara dağıtmak tek bir varlığın kötü gitmesinin etkisini azaltır. Aynı sektördeki varlıklar aynı şoklara birlikte maruz kalır.', 'Spreading your savings across different assets reduces the impact of any single asset performing poorly. Assets in the same sector are exposed to the same shocks together.'),
+    (4, 'Risk ve getiri', 'Risk and return', 'Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa risk muhtemelen gizlenmiştir.', 'Higher returns generally come with higher uncertainty. If risk-free and high returns are promised together, the risk is probably being hidden.'),
+    (5, 'Acil durum fonu', 'Emergency fund', 'Beklenmedik giderlerde borçlanmadan dayanmayı sağlayan rezervdir. İhtiyaç anında hızla ve değer kaybetmeden nakde çevrilebilmelidir.', 'A reserve that lets you cover unexpected expenses without borrowing. It should be quickly convertible to cash without losing value when needed.'),
+    (6, 'Borç ve kredi yönetimi', 'Debt and credit management', 'Asgari ödeme borcu bitirmez, kalan tutara faiz işlemeye devam eder. Ödeme geçmişi kredi notunu en çok etkileyen unsurdur.', 'Paying the minimum doesn''t clear the debt — interest keeps accruing on the remaining balance. Payment history is the factor that most affects your credit score.');
+
+-- Soru havuzu
+INSERT INTO question (id, topic_id, text_tr, text_en, options, correct_index, education_note_tr, education_note_en, difficulty, timer_seconds) VALUES
+    (1, 1, 'Aynı faiz oranı ve aynı anapara ile 10 yıl yatırım yapan iki kişiden biri basit, diğeri bileşik faiz kullanıyor. Aradaki farkın temel nedeni nedir?', 'Two people invest for 10 years with the same interest rate and the same principal — one uses simple interest, the other compound interest. What mainly causes the difference between them?', '[{"tr": "Bileşik faizde oran her yıl otomatik olarak yükseltilir", "en": "With compound interest, the rate automatically increases every year"}, {"tr": "Bileşik faizde kazanılan faiz de faiz getirmeye başlar", "en": "With compound interest, the interest earned starts earning interest too"}, {"tr": "Basit faizde vergi kesintisi daha yüksektir", "en": "With simple interest, the tax deduction is higher"}, {"tr": "Basit faizde anapara her yıl azaltılır", "en": "With simple interest, the principal is reduced every year"}]'::jsonb, 1, 'Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır.', 'With compound interest, the rate doesn''t change — what changes is the amount that earns interest. As gains are added to the principal, the base grows, and the gap widens quickly over time.', 'orta', 10),
+    (2, 2, 'Yıllık getirisi %30 olan bir yatırım, enflasyonun %45 olduğu bir yılda ne anlama gelir?', 'What does a 30% annual return mean for an investment in a year when inflation is 45%?', '[{"tr": "Reel olarak kazanç sağlanmıştır", "en": "A real gain was achieved"}, {"tr": "Reel olarak kayıp yaşanmıştır", "en": "A real loss was incurred"}, {"tr": "Reel getiri tam olarak sıfırdır", "en": "The real return is exactly zero"}, {"tr": "Enflasyon reel getiriyi etkilemez", "en": "Inflation does not affect real return"}]'::jsonb, 1, 'Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür.', 'When the nominal return stays below inflation, purchasing power falls even though the amount of money increases. Real performance is measured by subtracting inflation from the return.', 'orta', 10),
+    (3, 3, 'Bir yatırımcı tüm birikimini aynı sektördeki beş farklı şirkete dağıtıyor. Bu neden tam bir çeşitlendirme sayılmaz?', 'An investor spreads all their savings across five different companies in the same sector. Why doesn''t this count as full diversification?', '[{"tr": "Beş varlık çeşitlendirme için yetersiz sayıdadır", "en": "Five assets are not enough for diversification"}, {"tr": "Aynı sektördeki varlıklar benzer risklerden birlikte etkilenir", "en": "Assets in the same sector are affected together by similar risks"}, {"tr": "Çeşitlendirme yalnızca farklı ülkelerde yapılabilir", "en": "Diversification can only be done across different countries"}, {"tr": "Hisse senetleri çeşitlendirmeye uygun değildir", "en": "Stocks are not suitable for diversification"}]'::jsonb, 1, 'Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk yeterince dağılmaz.', 'For diversification to work, assets shouldn''t move together. Since the same sector is exposed to the same shocks, risk isn''t spread enough even if the number of holdings increases.', 'zor', 10),
+    (4, 4, '"Garantili, risksiz, aylık %20 getiri" vaat eden bir yatırım teklifi için aşağıdakilerden hangisi doğrudur?', 'Which of the following is true for an investment offer promising "guaranteed, risk-free, 20% monthly return"?', '[{"tr": "Getirisi yüksek olduğu için öncelikli tercih edilmelidir", "en": "It should be preferred first because its return is high"}, {"tr": "Risk ve getiri ilişkisine aykırıdır, riski gizlenmiş olabilir", "en": "It contradicts the risk-return relationship; the risk may be hidden"}, {"tr": "Kısa vadede risksiz, uzun vadede risklidir", "en": "It''s risk-free in the short term but risky in the long term"}, {"tr": "Faiz oranı sabitse risk otomatik olarak ortadan kalkar", "en": "If the interest rate is fixed, the risk automatically disappears"}]'::jsonb, 1, 'Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca gösterilmemektedir.', 'High returns generally come with high uncertainty. If risk-free and high returns are promised together, the risk hasn''t disappeared — it''s simply not being shown.', 'kolay', 10),
+    (5, 5, 'Acil durum fonu için aşağıdaki saklama biçimlerinden hangisi en uygundur?', 'Which of the following storage methods is most suitable for an emergency fund?', '[{"tr": "Beş yıl vadeli, erken çıkışta ceza uygulanan bir üründe", "en": "A 5-year term product with an early-withdrawal penalty"}, {"tr": "Kısa sürede nakde çevrilebilen likit bir araçta", "en": "A liquid instrument that can be converted to cash quickly"}, {"tr": "Uzun vadede en çok kazandıran yüksek riskli varlıkta", "en": "A high-risk asset with the best long-term returns"}, {"tr": "Satışı haftalar sürebilen fiziksel bir varlıkta", "en": "A physical asset that can take weeks to sell"}]'::jsonb, 1, 'Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında beklemeden ve değer kaybetmeden çekilebilmesi gerekir.', 'The purpose of an emergency fund is accessibility, not return. It should be withdrawable instantly and without losing value when needed.', 'kolay', 10),
+    (6, 6, 'Kredi kartı ekstresinde yalnızca asgari tutarı ödeyen bir kullanıcı için aşağıdakilerden hangisi doğrudur?', 'Which of the following is true for a user who only pays the minimum amount on their credit card statement?', '[{"tr": "Kalan borç faizsiz olarak bir sonraki aya devreder", "en": "The remaining debt carries over to next month interest-free"}, {"tr": "Ödenmeyen tutara faiz işler ve borç büyümeye devam eder", "en": "Interest accrues on the unpaid amount and the debt keeps growing"}, {"tr": "Kart limiti otomatik olarak yükseltilir", "en": "The card limit is automatically increased"}, {"tr": "O ay yapılan tüm harcamalar iptal edilir", "en": "All purchases made that month are cancelled"}]'::jsonb, 1, 'Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür.', 'The minimum payment keeps the card from defaulting, but it doesn''t clear the debt. Contractual interest accrues on the remaining amount; if repeated every month, the debt grows compound.', 'kolay', 10),
+    (7, NULL, '50/30/20 bütçe kuralında yüzde 20''lik dilim neyi ifade eder?', 'In the 50/30/20 budget rule, what does the 20% portion represent?', '[{"tr": "Zorunlu giderleri", "en": "Essential expenses"}, {"tr": "Birikim ve borç kapatmayı", "en": "Savings and debt repayment"}, {"tr": "Kişisel harcamaları", "en": "Personal spending"}, {"tr": "Vergi ve sigorta ödemelerini", "en": "Tax and insurance payments"}]'::jsonb, 1, 'Kuralda gelirin yarısı zorunlu ihtiyaçlara, yüzde 30''u isteklere, yüzde 20''si birikime ve borç kapatmaya ayrılır. Birikimi önce ayırmak, kalanla yaşamayı kolaylaştırır.', 'Under the rule, half of income goes to essential needs, 30% to wants, and 20% to savings and debt repayment. Setting savings aside first makes it easier to live on the rest.', 'kolay', 10),
+    (8, 6, 'Bir kişinin kredi notunu en olumsuz etkileyen davranış aşağıdakilerden hangisidir?', 'Which of the following behaviors most negatively affects a person''s credit score?', '[{"tr": "Kredi kartını hiç kullanmamak", "en": "Never using a credit card"}, {"tr": "Ödemeleri düzenli olarak geciktirmek", "en": "Regularly making late payments"}, {"tr": "Birden fazla bankada hesabı olmak", "en": "Having accounts at multiple banks"}, {"tr": "Otomatik ödeme talimatı vermek", "en": "Setting up automatic payment instructions"}]'::jsonb, 1, 'Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını olumsuz etkiler.', 'Payment history is the most heavily weighted factor in a credit score. Late payments get recorded and negatively affect both approval and the interest rate on future credit applications.', 'orta', 10),
+    (9, NULL, 'Vadeli mevduatta "brüt faiz" ile "net faiz" arasındaki fark neyden kaynaklanır?', 'In a term deposit, what causes the difference between "gross interest" and "net interest"?', '[{"tr": "Bankanın uyguladığı hesap işletim ücretinden", "en": "The account maintenance fee charged by the bank"}, {"tr": "Faiz gelirinden yapılan stopaj kesintisinden", "en": "The withholding tax deducted from interest income"}, {"tr": "Enflasyon oranındaki değişimden", "en": "Changes in the inflation rate"}, {"tr": "Vade sonunda uygulanan kur farkından", "en": "The exchange-rate difference applied at maturity"}]'::jsonb, 1, 'Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran değil, elinize geçecek net tutar dikkate alınmalıdır.', 'Statutory withholding tax is deducted from deposit interest. When comparing products, you should look at the net amount you''ll actually receive, not the gross rate.', 'zor', 10),
+    (10, 4, 'Portföyünde ağırlıklı olarak hisse senedi bulunan bir yatırımcı, emekliliğine iki yıl kala ne yapmalıdır?', 'What should an investor whose portfolio is mostly stocks do two years before retirement?', '[{"tr": "Riski artırıp getiriyi hızlandırmalıdır", "en": "Increase risk to accelerate returns"}, {"tr": "Dalgalanmayı azaltmak için düşük riskli araçların payını artırmalıdır", "en": "Increase the share of low-risk instruments to reduce volatility"}, {"tr": "Tüm birikimi tek bir hisseye toplamalıdır", "en": "Put all savings into a single stock"}, {"tr": "Portföyü olduğu gibi bırakmalıdır, vade önemsizdir", "en": "Leave the portfolio as is; the time horizon doesn''t matter"}]'::jsonb, 1, 'Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir yaklaşımdır.', 'As the investment horizon shortens, there''s less time to recover from losses. Gradually lowering the portfolio''s risk level as you approach your goal is a common approach.', 'orta', 10);
 
 
 -- =====================================================================

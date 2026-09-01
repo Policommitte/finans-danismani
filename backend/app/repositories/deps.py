@@ -28,6 +28,7 @@ from app.config import settings
 from app.repositories.base import (
     AuditRepository,
     ChatRepository,
+    ContestRepository,
     LeadRepository,
     MarketRepository,
     NotificationRepository,
@@ -40,6 +41,7 @@ from app.repositories.base import (
 from app.repositories.in_memory import (
     InMemoryAuditRepository,
     InMemoryChatRepository,
+    InMemoryContestRepository,
     InMemoryLeadRepository,
     InMemoryMarketRepository,
     InMemoryNotificationRepository,
@@ -237,6 +239,15 @@ def get_recommendation_repository() -> RecommendationRepository:
     return InMemoryRecommendationRepository()
 
 
+@lru_cache
+def get_contest_repository() -> ContestRepository:
+    if _veritabani_calisiyor():
+        from app.repositories.sql import SqlContestRepository
+
+        return SqlContestRepository(_session_factory())
+    return InMemoryContestRepository()
+
+
 def reset_repositories() -> None:
     """Onbellekleri temizler.
 
@@ -267,6 +278,7 @@ def _saglayici_onbelleklerini_temizle() -> None:
         get_audit_repository,
         get_notification_repository,
         get_recommendation_repository,
+        get_contest_repository,
     ):
         provider.cache_clear()
 

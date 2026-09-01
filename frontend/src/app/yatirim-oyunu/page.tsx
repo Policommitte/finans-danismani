@@ -16,18 +16,20 @@ import { useGameFlow, type GameScreen, type GameTab } from "../../hooks/useGameF
 import { CampaignsTab } from "../../components/oyun/CampaignsTab";
 import {
   CONFIG,
+  FAKE_HISTORY_POINTS,
   HISTORY,
-  buildHistoryRow,
   type GameResult,
   type PowerupKind,
   type DonationItem,
-  type HistoryRow,
 } from "../../models/oyun";
 import { WalletTab } from "../../components/oyun/WalletTab";
 import { useSoundEffects } from "../../hooks/useSoundEffects";
 import { IntroSidebar } from "../../components/oyun/IntroSidebar";
 import { LeaderboardPanel } from "../../components/oyun/LeaderboardPanel";
 import { setGameFocus } from "../../components/layout/gameFocusEvents";
+import { useContestState } from "../../hooks/useContestState";
+import { useContestWallet } from "../../hooks/useContestWallet";
+import { acceptContestAgreement, consumePowerupApi, resetContestToday } from "../../services/contestService";
 
 const TABS: { id: GameTab; label: { tr: string; en: string } }[] = [
   { id: "oyun", label: { tr: "Oyun", en: "Game" } },
@@ -61,6 +63,11 @@ const PAGE_TEXT = {
   }),
   devPanelTitle: { tr: "Ekran testi (sadece geliştirme ortamı)", en: "Screen test (development only)" },
   reset: { tr: "Sıfırla", en: "Reset" },
+  resetToday: { tr: "Bugünkü katılımı sıfırla", en: "Reset today's entry" },
+  resetTodayFailed: {
+    tr: "Sıfırlanamadı (bu işlem sadece geliştirme ortamında çalışır).",
+    en: "Couldn't reset (this only works in the development environment).",
+  },
   muteOn: { tr: "Sesi kapat", en: "Mute sound" },
   muteOff: { tr: "Sesi aç", en: "Unmute sound" },
   leaveContest: { tr: "Yarışmadan ayrıl", en: "Leave contest" },
@@ -103,17 +110,34 @@ export default function YatirimOyunuPage() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
 
-  const [powerups, setPowerups] = useState<Powerups>({
-    timeShield: 1,
-    fiftyFifty: 1,
-  });
-
   const [registeredCount, setRegisteredCount] = useState(920);
   const [lastResult, setLastResult] = useState<GameResult | null>(null);
 
-  const [pointsBalance, setPointsBalance] = useState(4200);
-  const [ownedBadges, setOwnedBadges] = useState<string[]>([]);
-  const [history, setHistory] = useState<HistoryRow[]>(HISTORY);
+  // Bugünkü yarışma durumu (sözleşme onayı, bugün katıldı mı) — GERÇEK
+  // kaynak backend'dir. Cüzdan/mağaza da aynı şekilde gerçek: bakiye, joker
+  // envanteri, rozetler ve puan geçmişi TEK kaynaktan (bkz.
+  // useContestWallet) gelir; yalnızca "kaç kişi yarışta" gibi rakip
+  // simülasyonu (registeredCount) frontend'de sahte kalmaya devam eder.
+  const contestState = useContestState();
+  const wallet = useContestWallet();
+  const powerups: Powerups = {
+    doublePoints: wallet.powerups.doublePoints ?? 0,
+    fiftyFifty: wallet.powerups.fiftyFifty ?? 0,
+  };
+
+  // "Puan geçmişi"nde görünen sahte geçmiş günlerin kazancı (FAKE_HISTORY_POINTS)
+  // GÖSTERİLEN bakiyeye eklenir ki liste ile bakiye tutsun; gerçek satın alma
+  // işlemleri hâlâ yalnızca backend'deki GERÇEK bakiyeyi kullanır (aşağıdaki
+  // buyPowerup/buyDonation'da olası bir ret durumunda kullanıcıya haber verilir).
+  const displayedBalance = wallet.pointsBalance + FAKE_HISTORY_POINTS;
+
+  // Sözleşmeyi zaten kabul etmişse (bugünden önce de olabilir) modalı bir
+  // daha gösterme — gerçek durum yüklenince yerel bayrağı buna göre kurar.
+  useEffect(() => {
+    if (contestState.data?.has_agreement) {
+      setAgreementSigned(true);
+    }
+  }, [contestState.data?.has_agreement]);
 
   // Yarışma sırasında (isFocused) üst başlık/sekmeler/dev paneli tamamen gizlenir.
   const inContest = isFocused && screen === "quiz";
@@ -125,21 +149,35 @@ export default function YatirimOyunuPage() {
   }, [screen]);
 
   function spendPowerup(kind: keyof Powerups) {
-    setPowerups((p) => ({ ...p, [kind]: Math.max(0, p[kind] - 1) }));
+    // İyimser: joker anında tükenmiş görünsün diye lokal state yok artık,
+    // bir sonraki useContestWallet fetch'i gerçek adedi getirecek. Asıl
+    // düşüş backend'de (envanteri gerçekten azaltır) — sayfa yenilense
+    // kullanılan joker geri gelmesin diye.
+    void consumePowerupApi(kind).then(() => wallet.refresh());
   }
 
   function buyPowerup(kind: PowerupKind, price: number) {
-    if (pointsBalance < price) return;
-    setPointsBalance((b) => b - price);
-    setPowerups((p) => ({ ...p, [kind]: p[kind] + 1 }));
-    play("purchase");
+    if (displayedBalance < price) return;
+    void wallet.buyPowerup(kind).then((ok) => {
+      if (ok) {
+        play("purchase");
+      } else if (wallet.actionError) {
+        // Gösterilen bakiye sahte payla şişirilmiş olabilir; gerçek backend
+        // bakiyesi yetmediyse burada haber veriyoruz, sessizce başarısız olmasın.
+        window.alert(wallet.actionError);
+      }
+    });
   }
 
   function buyDonation(item: DonationItem) {
-    if (pointsBalance < item.cost || ownedBadges.includes(item.badge.tr)) return;
-    setPointsBalance((b) => b - item.cost);
-    setOwnedBadges((b) => [...b, item.badge.tr]);
-    play("purchase");
+    if (displayedBalance < item.cost || wallet.badges.includes(item.badge.tr)) return;
+    void wallet.buyDonation(item.id).then((ok) => {
+      if (ok) {
+        play("purchase");
+      } else if (wallet.actionError) {
+        window.alert(wallet.actionError);
+      }
+    });
   }
 
   function handleRegister() {
@@ -158,12 +196,30 @@ export default function YatirimOyunuPage() {
     setRegistered(true);
     play("register");
     goScreen("waiting");
+    // İyimser: engellenmesi gereken tek yer start_participation (gerçek
+    // katılım hakkını tüketen çağrı) — orası zaten sözleşmeyi sunucuda
+    // kontrol eder, burada başarısız olsa da akış tıkanmaz.
+    void acceptContestAgreement().catch(() => {});
   }
 
   function handleLeaveContest() {
     const ok = window.confirm(PAGE_TEXT.leaveConfirm[language]);
     if (!ok) return;
     goScreen("register");
+  }
+
+  // DEMO/GELİŞTİRME: backend'deki günlük katılım hakkını siler ki aynı
+  // hesapla arka arkaya sunum yapılabilsin. Backend üretimde bunu reddeder.
+  async function handleResetToday() {
+    try {
+      await resetContestToday();
+      setRegistered(false);
+      setLastResult(null);
+      await Promise.all([contestState.refresh(), wallet.refresh()]);
+      goScreen("register");
+    } catch (exc) {
+      window.alert(exc instanceof Error ? exc.message : PAGE_TEXT.resetTodayFailed[language]);
+    }
   }
 
   return (
@@ -268,7 +324,22 @@ export default function YatirimOyunuPage() {
             )}
 
             <div className="min-w-0">
-              {screen === "register" ? (
+              {screen === "register" && contestState.data?.already_participated_today ? (
+                <Card>
+                  <div className="space-y-2 py-10 text-center">
+                    <p className="app-heading text-lg font-semibold">
+                      {language === "tr"
+                        ? "Bugünkü katılım hakkını kullandın"
+                        : "You've already used today's entry"}
+                    </p>
+                    <p className="app-muted text-sm">
+                      {language === "tr"
+                        ? "Yarın akşam tekrar yarışabilirsin."
+                        : "You can compete again tomorrow evening."}
+                    </p>
+                  </div>
+                </Card>
+              ) : screen === "register" ? (
                 <RegisterScreen
                   registered={registered}
                   taken={registeredCount}
@@ -286,17 +357,22 @@ export default function YatirimOyunuPage() {
                   powerups={powerups}
                   onUsePowerup={spendPowerup}
                   playSound={play}
+                  onStartError={(message) => {
+                    window.alert(message);
+                    goScreen("register");
+                  }}
                   onWin={(result) => {
                     setLastResult(result);
-                    const earned = result.payout;
-                    setPointsBalance((b) => b + earned);
-                    setHistory((h) => [buildHistoryRow(result, earned, language), ...h]);
+                    // Skor/ödül zaten backend'de kaydedildi (finishParticipation
+                    // içinde) - burada yalnızca cüzdanı tazeliyoruz, ikinci bir
+                    // yerel hesap YOK.
+                    void wallet.refresh();
                     play("win");
                     goScreen("victory");
                   }}
                   onLose={(result) => {
                     setLastResult(result);
-                    setHistory((h) => [buildHistoryRow(result, 0, language), ...h]);
+                    void wallet.refresh();
                     goScreen("eliminated");
                   }}
                 />
@@ -384,19 +460,27 @@ export default function YatirimOyunuPage() {
                 ))}
                 <button
                   onClick={() => {
-                    setAgreementSigned(false);
                     setRegistered(false);
-                    setPowerups({ timeShield: 1, fiftyFifty: 1 });
                     setLastResult(null);
-                    setPointsBalance(4200);
-                    setOwnedBadges([]);
-                    setHistory(HISTORY);
+                    void wallet.refresh();
                     goScreen("register");
                   }}
                   className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
                   style={{ borderColor: "var(--color-primary)", color: "var(--color-primary)" }}
                 >
                   {PAGE_TEXT.reset[language]}
+                </button>
+                <button
+                  onClick={() => void handleResetToday()}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+                  style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+                  title={
+                    language === "tr"
+                      ? "Backend'deki günlük katılım hakkını siler (sunum için)"
+                      : "Deletes today's real backend entry (for demos)"
+                  }
+                >
+                  {PAGE_TEXT.resetToday[language]}
                 </button>
               </div>
             </Card>
@@ -406,9 +490,9 @@ export default function YatirimOyunuPage() {
 
       {tab === "kampanyalar" && (
         <CampaignsTab
-          pointsBalance={pointsBalance}
+          pointsBalance={displayedBalance}
           powerups={powerups}
-          ownedBadges={ownedBadges}
+          ownedBadges={wallet.badges}
           onBuyPowerup={buyPowerup}
           onBuyDonation={buyDonation}
         />
@@ -416,8 +500,14 @@ export default function YatirimOyunuPage() {
 
       {tab === "puanlar" && (
         <WalletTab
-          pointsBalance={pointsBalance}
-          history={history}
+          pointsBalance={displayedBalance}
+          // Gerçek geçmiş (bugün oynadıkların, backend'den) en üstte; onun
+          // altında sahte "geçmiş günler" dolgusu (HISTORY, models/oyun.ts) -
+          // ikisi de zaten yeniden-eskiye sıralı, art arda eklemek yeterli.
+          // Bakiye artık bu listeyle TUTARLI görünsün diye FAKE_HISTORY_POINTS
+          // eklenmiş "displayedBalance" - gerçek satın almalar hâlâ yalnızca
+          // backend'deki gerçek bakiyeyi kullanır (bkz. buyPowerup/buyDonation).
+          history={[...wallet.history, ...HISTORY]}
           onGoShop={() => goTab("kampanyalar")}
         />
       )}

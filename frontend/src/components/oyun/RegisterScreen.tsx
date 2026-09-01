@@ -58,8 +58,8 @@ const FAQ = [
   {
     q: { tr: "Jokerleri nasıl kazanırım?", en: "How do I get power-ups?" },
     a: {
-      tr: "Zaman kalkanı ve çifte şans jokerlerini Mağaza sekmesinden bonus puanla satın alabilirsin.",
-      en: "You can buy the time shield and double chance power-ups with bonus points from the Shop tab.",
+      tr: "Çift puan ve çifte şans jokerlerini Mağaza sekmesinden bonus puanla satın alabilirsin.",
+      en: "You can buy the double points and double chance power-ups with bonus points from the Shop tab.",
     },
   },
   {

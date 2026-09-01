@@ -44,7 +44,7 @@ export type HistoryRow = {
 // ── Ayarlar ────────────────────────────────────────────────
 export const CONFIG = {
   questionCount: 5,
-  questionSeconds: 15,
+  questionSeconds: 10,
   cheatSheetSeconds: 180, // 3 dk
   // Kazanan sayısı artık HER ZAMAN 100-500 arasında (bkz. pickTargetWinners).
   // Düz 1.000.000 seçildi: en kötü senaryoda (500 kazanan) payout hâlâ 2.000
@@ -130,7 +130,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır.",
       en: "With compound interest, the rate doesn't change — what changes is the amount that earns interest. As gains are added to the principal, the base grows, and the gap widens quickly over time.",
@@ -150,7 +150,7 @@ export const QUESTIONS: Question[] = [
       { tr: "Enflasyon reel getiriyi etkilemez", en: "Inflation does not affect real return" },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür.",
       en: "When the nominal return stays below inflation, purchasing power falls even though the amount of money increases. Real performance is measured by subtracting inflation from the return.",
@@ -182,7 +182,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk yeterince dağılmaz.",
       en: "For diversification to work, assets shouldn't move together. Since the same sector is exposed to the same shocks, risk isn't spread enough even if the number of holdings increases.",
@@ -214,7 +214,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca gösterilmemektedir.",
       en: "High returns generally come with high uncertainty. If risk-free and high returns are promised together, the risk hasn't disappeared — it's simply not being shown.",
@@ -246,7 +246,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında beklemeden ve değer kaybetmeden çekilebilmesi gerekir.",
       en: "The purpose of an emergency fund is accessibility, not return. It should be withdrawable instantly and without losing value when needed.",
@@ -275,7 +275,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür.",
       en: "The minimum payment keeps the card from defaulting, but it doesn't clear the debt. Contractual interest accrues on the remaining amount; if repeated every month, the debt grows compound.",
@@ -295,7 +295,7 @@ export const QUESTIONS: Question[] = [
       { tr: "Vergi ve sigorta ödemelerini", en: "Tax and insurance payments" },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Kuralda gelirin yarısı zorunlu ihtiyaçlara, yüzde 30'u isteklere, yüzde 20'si birikime ve borç kapatmaya ayrılır. Birikimi önce ayırmak, kalanla yaşamayı kolaylaştırır.",
       en: "Under the rule, half of income goes to essential needs, 30% to wants, and 20% to savings and debt repayment. Setting savings aside first makes it easier to live on the rest.",
@@ -315,7 +315,7 @@ export const QUESTIONS: Question[] = [
       { tr: "Otomatik ödeme talimatı vermek", en: "Setting up automatic payment instructions" },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını olumsuz etkiler.",
       en: "Payment history is the most heavily weighted factor in a credit score. Late payments get recorded and negatively affect both approval and the interest rate on future credit applications.",
@@ -344,7 +344,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran değil, elinize geçecek net tutar dikkate alınmalıdır.",
       en: "Statutory withholding tax is deducted from deposit interest. When comparing products, you should look at the net amount you'll actually receive, not the gross rate.",
@@ -370,7 +370,7 @@ export const QUESTIONS: Question[] = [
       },
     ],
     correctIndex: 1,
-    timerSeconds: 15,
+    timerSeconds: 10,
     educationNote: {
       tr: "Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir yaklaşımdır.",
       en: "As the investment horizon shortens, there's less time to recover from losses. Gradually lowering the portfolio's risk level as you approach your goal is a common approach.",
@@ -483,50 +483,69 @@ export const CAMPAIGNS: Campaign[] = [
 ];
 
 // ── Puan geçmişi ───────────────────────────────────────────
+/** N gün önceki tarihi `buildHistoryRow` ile AYNI biçimde döner - sabit bir
+ * tarih yazılırsa demo verisi birkaç gün içinde bayatlar, bu yüzden hep
+ * "bugüne göre" hesaplanır. */
+function daysAgo(n: number): LocalizedText {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return {
+    tr: d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
+    en: d.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
+  };
+}
+
 export const HISTORY: HistoryRow[] = [
   {
-    date: { tr: "18 Ağustos", en: "August 18" },
+    date: daysAgo(1),
     result: "out",
     detail: { tr: "Elendi · Soru 4", en: "Eliminated · Question 4" },
     score: 260,
     points: 0,
   },
   {
-    date: { tr: "17 Ağustos", en: "August 17" },
+    date: daysAgo(2),
     result: "win",
     detail: { tr: "Kazandı", en: "Won" },
     score: 905,
-    points: 125,
+    points: 3150,
   },
   {
-    date: { tr: "16 Ağustos", en: "August 16" },
+    date: daysAgo(3),
     result: "out",
     detail: { tr: "Elendi · Soru 2", en: "Eliminated · Question 2" },
     score: 340,
     points: 0,
   },
   {
-    date: { tr: "15 Ağustos", en: "August 15" },
+    date: daysAgo(4),
     result: "win",
     detail: { tr: "Kazandı", en: "Won" },
     score: 810,
-    points: 82,
+    points: 3480,
   },
   {
-    date: { tr: "14 Ağustos", en: "August 14" },
+    date: daysAgo(5),
     result: "win",
     detail: { tr: "Kazandı", en: "Won" },
     score: 720,
-    points: 105,
+    points: 2260,
   },
   {
-    date: { tr: "13 Ağustos", en: "August 13" },
+    date: daysAgo(6),
     result: "out",
     detail: { tr: "Elendi · Soru 1", en: "Eliminated · Question 1" },
     score: 180,
     points: 0,
   },
 ];
+
+/** HISTORY'deki (sahte, `daysAgo` ile üretilen) satırların puan toplamı.
+ * Cüzdan bakiyesi görüntülenirken gerçek bakiyeye eklenir - yoksa "Puan
+ * geçmişi"nde görünen kazançlarla "Kullanılabilir bakiye" tutmaz. Gerçek
+ * backend işlemleri (satın alma vb.) HÂLÂ yalnızca gerçek bakiyeyle
+ * çalışır - bu sabit yalnızca GÖRÜNTÜLEME için. */
+export const FAKE_HISTORY_POINTS = HISTORY.reduce((sum, row) => sum + row.points, 0);
 
 // ── Yardımcılar ────────────────────────────────────────────
 
@@ -710,7 +729,7 @@ export function nextContestDate(from: Date = new Date()): Date {
 }
 
 // powerup bagis
-export type PowerupKind = "timeShield" | "fiftyFifty";
+export type PowerupKind = "doublePoints" | "fiftyFifty";
 
 export type PowerupShopItem = {
   kind: PowerupKind;
@@ -724,15 +743,17 @@ export type PowerupShopItem = {
 
 export const POWERUP_SHOP: PowerupShopItem[] = [
   {
-    kind: "timeShield",
-    label: { tr: "Zaman kalkanı", en: "Time shield" },
+    kind: "doublePoints",
+    label: { tr: "Çift puan", en: "Double points" },
     price: 1000,
     description: {
-      tr: "Süreyi 15 saniyeden 25 saniyeye çıkarır, soru başına 1 kez kullanılabilir.",
-      en: "Extends the timer from 15 to 25 seconds, usable once per question.",
+      tr: "Bu soruyu doğru bilirsen kazandığın puanı ikiye katlar, soru başına 1 kez kullanılabilir.",
+      en: "Doubles the points you earn if you get this question right, usable once per question.",
     },
+    // Not: adanmis bir "cift puan" gorseli yok, mevcut ikon (saat) buradan
+    // kalma - Pexels sorgusu daha uygun bir canli fotograf bulmayi dener.
     image: "/oyun/jokerler/zaman-kalkani.jpg",
-    imageQuery: "clock time",
+    imageQuery: "bonus coins doubled prize",
   },
   {
     kind: "fiftyFifty",
@@ -817,6 +838,43 @@ export function buildHistoryRow(
   };
 }
 
+/**
+ * Backend'in `/api/contest/wallet/history` satırını (bkz.
+ * `models/contestApi.ts::ContestHistoryRowApi`) ekranda gösterilen
+ * `HistoryRow`'a çevirir. Parametre tipi BİLEREK inline (nominal import
+ * değil) — `contestApi.ts` zaten `LocalizedText`'i buradan alıyor, tersten
+ * bir import döngü yaratırdı; TypeScript'in yapısal tipleme özelliği
+ * `ContestHistoryRowApi`'yi buraya sorunsuz geçirmeyi sağlıyor.
+ */
+export function apiHistoryRowToDisplay(row: {
+  contest_date: string;
+  won: boolean;
+  final_score: number;
+  eliminated_at_question: number | null;
+  points_earned: number;
+}): HistoryRow {
+  const d = new Date(`${row.contest_date}T00:00:00`);
+  const date: LocalizedText = {
+    tr: d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" }),
+    en: d.toLocaleDateString("en-US", { day: "numeric", month: "long" }),
+  };
+  const detail: LocalizedText = row.won
+    ? WON_LABEL
+    : row.eliminated_at_question != null
+      ? {
+          tr: `${ELIMINATED_LABEL.tr} · ${QUESTION_LABEL.tr} ${row.eliminated_at_question}`,
+          en: `${ELIMINATED_LABEL.en} · ${QUESTION_LABEL.en} ${row.eliminated_at_question}`,
+        }
+      : ELIMINATED_LABEL;
+  return {
+    date,
+    result: row.won ? "win" : "out",
+    detail,
+    score: row.final_score,
+    points: row.points_earned,
+  };
+}
+
 export type LeaderboardPeriod = "gunluk" | "haftalik" | "tumzamanlar";
 
 export type LeaderboardEntry = {
@@ -825,12 +883,17 @@ export type LeaderboardEntry = {
   score: number;
 };
 
-/** Demo liderlik verisi üretir; backend gelince ???? */
+/** Demo liderlik verisi üretir (sahte, tamamen frontend simülasyonu).
+ * Taban puanlar BİLEREK gerçek bir oyuncunun ulaşabileceği tavan puanın
+ * (5 soru × soru başına maksimum 200 puan = 1000, bkz. `scoreFor`) belirgin
+ * şekilde üzerinde tutulur - listedeki en düşük sıradaki rakip bile en kötü
+ * jitter durumunda ~1250 puanın altına inmez. Amaç: demo/gerçek bir oyuncu
+ * ne kadar iyi oynarsa oynasın bu sahte sıralamaya asla giremesin. */
 export function buildLeaderboard(period: LeaderboardPeriod, lang: Lang): LeaderboardEntry[] {
   const seedByPeriod: Record<LeaderboardPeriod, number> = {
-    gunluk: 900,
-    haftalik: 4200,
-    tumzamanlar: 18500,
+    gunluk: 3400,
+    haftalik: 16000,
+    tumzamanlar: 70000,
   };
 
   const base = seedByPeriod[period];
