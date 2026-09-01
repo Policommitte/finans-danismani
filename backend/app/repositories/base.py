@@ -319,6 +319,11 @@ class RagRepository(Protocol):
         `chunk_id`, `doc_id`, `baslik`, `sirket`, `symbol`, `tarih`, `tip`,
         `content`, `score` - `mcp/server.py::_chunk_payload` ikisini de
         ayirt etmeden isler.
+
+        Bu yol ayrica `cos_sim` (gercek kosinus benzerligi) dondurebilir;
+        `score` RRF oldugu ve rank tabanli calistigi icin alaka esigi
+        `cos_sim` uzerinden kurulur (bkz. `settings.rag_min_similarity`).
+        BM25'e dusuldugunde alan bulunmaz - ZORUNLU DEGILDIR.
         """
         ...
 

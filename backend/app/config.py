@@ -72,6 +72,47 @@ class Settings(BaseSettings):
     #: sessizce BM25'e (`SqlRagRepository.search`) duser - istek asla coker.
     rag_query_embedding_timeout_seconds: float = 3.0
 
+    #: Bir chunk'in kaynak olarak GOSTERILEBILMESI icin gereken asgari kosinus
+    #: benzerligi. `0` = filtre kapali (eski davranis).
+    #:
+    #: NEDEN GEREKLI: `rag.hybrid_search`'un dondurdugu `score` RRF'tir ve RANK
+    #: tabanlidir - 1. sira her zaman 1/(60+1) eder, sonuc alakasiz olsa bile.
+    #: Yani skor uzerinden "bu yeterince alakali mi?" sorusu YANITLANAMAZ. Esik
+    #: bu yuzden ayri bir kolona (`cos_sim`) dayanir.
+    #:
+    #: NE COZER: BM25 ayagi `plainto_tsquery`yi OR'ladigi icin tek bir genel
+    #: kelime ("sektor") alakasiz haberleri listeye sokuyordu - "bankacilik
+    #: sektorundeki haberleri ozetle" sorgusu insaat/istihdam haberlerini kaynak
+    #: gosteriyordu. Esik bunlari LLM'e gitmeden ve kullaniciya kaynak olarak
+    #: gorunmeden eler.
+    #:
+    #: ⚠️ EMBEDDER YOKSA ETKISIZDIR. EMBEDDING_API_KEY/EMBEDDING_MODEL tanimli
+    #: degilse arama saf BM25'e duser (`SqlRagRepository.search`), orada
+    #: karsilastirilacak vektor yoktur ve esik UYGULANMAZ.
+    #:
+    #: ⚠️ DEGER KALIBRASYON ISTER. 0.40 seed veri uzerinde OLCULEREK secildi
+    #: (havacilik sorgusu, DOC-002 vektoru referans alinarak):
+    #:
+    #:     DOC-002 havacilik haberi ......... 1.0000   <- konu
+    #:     DOC-001 THYAO bilancosu .......... 0.4449   <- ILGILI (havayolu)
+    #:     DOC-004 petrokimya raporu ........ 0.4420   <- sinirda (yakit)
+    #:     DOC-006 bitcoin .................. 0.3414   <- alakasiz
+    #:     DOC-003 SASA polyester ........... 0.3387   <- alakasiz
+    #:     DOC-007 nvidia ................... 0.3083   <- alakasiz
+    #:     DOC-005 gram altin ............... 0.2686   <- alakasiz
+    #:
+    #: 0.45 denendi ve ELENDI: THYAO'yu (0.4449) kesiyordu - havacilik sorusunda
+    #: havayolu bilancosunu atmak acik bir yanlis negatif. 0.40 alakasiz kumeyi
+    #: (<=0.3414) tamamen keser, ilgili olanlari birakir.
+    #:
+    #: ⚠️ BU OLCUM DOKUMAN-DOKUMAN benzerligidir. Gercek sorgular Cohere'e
+    #: `input_type="search_query"` ile gider ve dokuman vektorleriyle ASIMETRIK
+    #: eslesir - query->dokuman benzerlikleri tipik olarak DAHA DUSUKTUR. Canli
+    #: veride bir kez dogrulayin: esik yuksek kalirsa "haber bulunamadi"
+    #: yanitlari artar. Olcum sorgusu icin bkz.
+    #: `db/migrations/017_hybrid_search_min_cosine.sql`.
+    rag_min_similarity: float = 0.40
+
     # --- LLM ------------------------------------------------------------
     # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
     # degilse ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) -

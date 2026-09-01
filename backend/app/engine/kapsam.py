@@ -141,6 +141,11 @@ _FINANS_KOKLERI: tuple[str, ...] = (
     r"kripto",
     r"bitcoin",
     r"ethereum",
+    r"sektor",
+    r"havacilik",
+    r"bnkacılık",
+    r"savunma",
+    r"otomotiv",
     # Enstruman / kur
     r"doviz",
     r"dolar",

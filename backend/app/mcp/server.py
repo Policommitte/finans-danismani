@@ -504,6 +504,10 @@ def _chunk_payload(row: dict) -> dict[str, Any]:
         "tip": row.get("tip"),
         "content": row.get("content"),
         "score": _f(row.get("score")),
+        # `score` RRF'tir (rank tabanli) - alaka esigi koymaya ELVERISLI DEGIL.
+        # `cos_sim` gercek kosinus benzerligidir; BM25 yolunda (embedder yoksa)
+        # hesaplanamaz ve `None` kalir.
+        "cos_sim": _f(row.get("cos_sim")),
         # --- eski adlar (MarketResearchAgent) ---
         "title": baslik,
         "text": row.get("content"),
