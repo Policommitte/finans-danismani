@@ -54,7 +54,7 @@ export const CONFIG = {
   capacityTotal: 1000,
   answerRevealMs: 5000, // cevaptan sonra bekleme
   // TEST: doğru şık her soruda B konumuna sabitlenir. Sunumdan önce false.
-  forceAnswerB: false,
+  forceAnswerB: true,
 } as const;
 
 // ── Çalışma notu ───────────────────────────────────────────
