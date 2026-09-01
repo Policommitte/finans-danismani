@@ -662,8 +662,8 @@ class InMemoryPortfolioRepository:
 
         by_class: dict[str, float] = {}
         for row in rows:
-            by_class[row["asset_class"]] = (
-                by_class.get(row["asset_class"], 0.0) + (row["market_value_try"])
+            by_class[row["asset_class"]] = by_class.get(row["asset_class"], 0.0) + (
+                row["market_value_try"]
             )
 
         return sorted(
@@ -1337,9 +1337,7 @@ class InMemoryRecommendationRepository:
                 or (
                     "TR"
                     if a["asset_class"] == "STOCK"
-                    else "US"
-                    if a["asset_class"] in {"USA_STOCK", "ETF"}
-                    else "GLOBAL"
+                    else "US" if a["asset_class"] in {"USA_STOCK", "ETF"} else "GLOBAL"
                 ),
                 "current_price": float(a["current_price"]) * _fx_rate(a["currency"]),
                 "daily_change_pct": a.get("daily_change_pct"),

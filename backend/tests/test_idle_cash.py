@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from math import ceil
+from random import Random
 
 import pytest
 
@@ -332,24 +333,31 @@ def test_low_volatility_catalog_rejects_high_volatility_candidates_and_options()
 
 
 def test_low_volatility_catalog_filters_historical_risk_outliers():
+    # Tum varliklar BUGUN sakin gorunuyor (volatility_20d_pct = 0.5), yani
+    # _hedefe_uygun_sepet hepsini LOW riskli sayiyor. Ayrisma yalnizca
+    # daily_returns_252d gecmisinde: sakin / orta / gecmisi riskli kademe.
+    #
+    # Getiri serileri varliga ozel tohumla uretiliyor: ayni kademedeki iki
+    # varlik AYNI seriyi paylasirsa korelasyon 1.0 cikar, _aday_eklenebilir
+    # kademe basina tek varlik alir ve hicbir sepet minimum 3 varliga
+    # ulasamaz. Yillik getiriler siralamayi belirledigi icin ucuncu sepet
+    # gecmisi riskli kademeye kayar; filtrenin elemesi gereken aykiri sepet
+    # odur.
     now = datetime(2026, 9, 1, tzinfo=timezone.utc)
     assets = _assets([100] * 18)
     for index, asset in enumerate(assets):
         asset["price_updated_at"] = now
         asset["volatility_20d_pct"] = 0.5
-        if index < 6:
-            asset["yearly_change_pct"] = 10.0
-            asset["daily_returns_252d"] = _daily_returns(120, lambda _day: 0.1)
-        elif index < 12:
-            asset["yearly_change_pct"] = 40.0
-            asset["daily_returns_252d"] = _daily_returns(
-                120, lambda day: 0.6 if day % 2 == 0 else -0.4
-            )
-        else:
+        if index < 4:
             asset["yearly_change_pct"] = 150.0
-            asset["daily_returns_252d"] = _daily_returns(
-                120, lambda day: 4.0 if day % 2 == 0 else -3.0
-            )
+            genlik = 0.15
+        elif index < 8:
+            asset["yearly_change_pct"] = 100.0
+            genlik = 1.0
+        else:
+            asset["yearly_change_pct"] = 40.0
+            genlik = 6.0
+        asset["daily_returns_252d"] = _kademe_getirileri(index, genlik)
 
     catalog = basket_catalog_build(_context(100_000, "HIGH"), assets, {}, "LOW_VOLATILITY", now=now)
     annualized = [
@@ -359,6 +367,9 @@ def test_low_volatility_catalog_filters_historical_risk_outliers():
     ]
 
     assert annualized
+    # Filtre gercekten calisiyor olmali: uc strateji de sepet uretiyor, aykiri
+    # olan eleniyor. Bu satir olmadan asagidaki bant kontrolu bosa duser.
+    assert len(catalog.options) == 2
     assert max(annualized) <= max(min(annualized) * 1.5, min(annualized) + 5.0)
 
 
@@ -438,6 +449,17 @@ def _daily_returns(count: int, value_factory) -> dict[str, float]:
         (start + timedelta(days=index)).date().isoformat(): float(value_factory(index))
         for index in range(count)
     }
+
+
+def _kademe_getirileri(varlik_indeksi: int, genlik: float) -> dict[str, float]:
+    """Varliga ozel, tekrarlanabilir gunluk getiri serisi.
+
+    Tohum varlik indeksinden turedigi icin ayni kademedeki varliklar
+    birbiriyle korele degil; `genlik` ise kademenin gecmis oynakligini
+    belirler.
+    """
+    uretici = Random(1000 + varlik_indeksi)
+    return _daily_returns(120, lambda _day: uretici.uniform(-genlik, genlik))
 
 
 def test_backtest_includes_cost_benchmark_and_risk_metrics():

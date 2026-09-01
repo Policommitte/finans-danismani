@@ -278,9 +278,7 @@ def _puan_bilesenleri(asset: dict, profil: str, hedef: str, elde_var: bool) -> d
     sonuc["risk_profili"] = (
         -oynaklik * 0.45
         if profil == "LOW"
-        else haftalik * 0.10 + gunluk * 0.05
-        if profil == "HIGH"
-        else 0.0
+        else haftalik * 0.10 + gunluk * 0.05 if profil == "HIGH" else 0.0
     )
     sonuc["profil_sinif_uyumu"] = float(_PROFIL_SINIF_PUANI.get(profil, {}).get(sinif, 0))
     sonuc["hedef_sinif_uyumu"] = float(_HEDEF_SINIF_PUANI.get(hedef, {}).get(sinif, 0))
@@ -989,11 +987,13 @@ def suggestion_build(
                 rationale=[
                     f"{profil} risk profili, {hedef_adi} hedefi ve "
                     f"{_SINIF_ADLARI.get(sinif, sinif)} özellikleriyle uyumlu puanlandı.",
-                    "Mevcut portföyünüzde bulunmadığı için çeşitlendirmeye katkı sağlayabilir."
-                    if not elde_var
-                    else (
-                        "Mevcut pozisyonunuz dikkate alınarak daha düşük öncelikle "
-                        "değerlendirildi."
+                    (
+                        "Mevcut portföyünüzde bulunmadığı için çeşitlendirmeye katkı sağlayabilir."
+                        if not elde_var
+                        else (
+                            "Mevcut pozisyonunuz dikkate alınarak daha düşük öncelikle "
+                            "değerlendirildi."
+                        )
                     ),
                 ],
             )
