@@ -455,6 +455,68 @@ def _alaka_skorlarini_logla(
     )
 
 
+#: Skorlarin BM25 olceginde oldugunu varsaymak icin gereken asgari tepe deger.
+#: RRF (hibrit arama) skorlari ~0.016 mertebesindedir; `rag_min_score` BM25'e
+#: gore secildigi icin oraya uygulanirsa TUM kaynaklari eler. Bu sinirin
+#: altinda eleme yapilmaz - yanlis esik, esiksizlikten daha kotudur.
+_OLCEK_ALT_SINIRI = 0.05
+
+
+def _alakasiz_kaynaklari_ele(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hicbiri yeterince alakali degilse TAMAMINI eler.
+
+    Eleme SETIN TAMAMINA uygulanir, tek tek chunk'lara degil: bir konu
+    gercekten eslesiyorse listenin kuyrugundaki dusuk skorlu parcalar da
+    konuya aittir ("altin" sorgusunda 1.90'in ardindan gelen 0.70'ler gercek
+    altin haberleridir). Elenmesi gereken sey tek tek satirlar degil, HICBIR
+    SEYIN eslesmedigi durumdur.
+
+    Bos liste donunce cagiran taraf zaten LLM'e HIC gitmez ve
+    `NO_RETRIEVAL_MESSAGE` doner - yani halusinasyon onlemi hazir duruyor.
+    """
+    esik = settings.rag_min_score
+    if esik <= 0 or not chunks:
+        return chunks
+
+    # ⚠️ ESIK YALNIZCA SQL YOLUNDA GECERLIDIR.
+    #
+    # Deger canli Postgres'in `ts_rank_cd` skorlarina gore olculdu (0.2-1.9
+    # araligi). Bellek ici depo ise TAMAMEN BASKA bir sey uretiyor:
+    # `hits / len(terms)`, yani "sorgu terimlerinin yuzde kaci eslesti" -
+    # 0-1 arasi bir ORAN (bkz. `in_memory.SqlRagRepository yerine gecen
+    # InMemoryRagRepository.search`). O olcekte 0.75 "terimlerin dortte
+    # ucu gecmeli" demek olur ve normal sorgular elenir; olculdu, mevcut
+    # dokuz test bu yuzden kirmiziya dondu.
+    #
+    # `database_enabled` tam olarak "SQL deposu mu devrede" sorusunu
+    # yanitliyor (bkz. `repositories.deps.get_rag_repository`), bu yuzden
+    # ayrim buna dayaniyor - skor degerine bakarak iki olcegi ayirmak
+    # mumkun degil, araliklar ortusuyor.
+    if not settings.database_enabled:
+        return chunks
+
+    skorlar = [c["score"] for c in chunks if isinstance(c.get("score"), (int, float))]
+    if not skorlar:
+        # Skor gelmiyorsa eleme yapilamaz - koru.
+        return chunks
+
+    tepe = max(skorlar)
+    if tepe < _OLCEK_ALT_SINIRI:
+        logger.warning(
+            "RAG skorlari beklenen olcekte degil; alaka elemesi atlandi",
+            extra={"tepe_skor": tepe, "esik": esik},
+        )
+        return chunks
+
+    if tepe < esik:
+        logger.info(
+            "RAG sonuclari alaka esiginin altinda; kaynak kullanilmayacak",
+            extra={"tepe_skor": tepe, "esik": esik, "aday": len(chunks)},
+        )
+        return []
+    return chunks
+
+
 def _dokuman_bazinda_tekille(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Ayni dokumandan gelen chunk'lari TEK kaynaga indirir.
 
@@ -1032,6 +1094,9 @@ class MarketResearchAgent(BaseAgent):
         )
         chunks: list[dict[str, Any]] = sonuc.get("chunks", [])
         _alaka_skorlarini_logla(query, chunks, filters)
+        # ALAKA ESIGI: cop baglam yalnizca kaynak listesini degil ajanin
+        # PROMPT'unu da kirletir. Elemeyi burada yapmak ikisini birden cozer.
+        chunks = _alakasiz_kaynaklari_ele(chunks)
 
         if not chunks:
             # Kaynak yoksa LLM'e HIC gidilmez: modelin bosluktan icerik

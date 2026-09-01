@@ -571,8 +571,25 @@ async def test_selamlama_ile_baslayan_finans_sorusu_ajanlara_gider():
     assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 1
 
 
-async def test_dolgu_kufru_gercek_soruyu_iptal_etmez():
-    """Sinirli ama gercek soru soran kullaniciya yanit verilmeli."""
+async def test_dolgu_kufru_ajanlari_calistirmaz():
+    """URUN KARARI DEGISTI (1 Eylul 2026) - bkz. `test_kapsam.py`.
+
+    Eskiden dolgu kufru gercek soruyu iptal ETMIYORDU ve bu test
+    `AGENT_PORTFOLIO in requested_agents` diyordu. Yeni kararda kufur iceren
+    mesaj kisa yanitla kapaniyor: HICBIR ajan calismamali.
+    """
+    orchestrator = _orchestrator()
+
+    state = await _calistir(orchestrator, "amk portföyüm neden düştü")
+
+    assert state["requested_agents"] == []
+
+
+async def test_ayar_kapaliyken_dolgu_kufru_soruyu_iptal_etmez(monkeypatch):
+    """Eski davranis `PROFANITY_CANCELS_FINANCE=false` ile geri gelir."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "profanity_cancels_finance", False)
     orchestrator = _orchestrator()
 
     state = await _calistir(orchestrator, "amk portföyüm neden düştü")
