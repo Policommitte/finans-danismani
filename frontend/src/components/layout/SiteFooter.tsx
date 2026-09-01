@@ -9,11 +9,16 @@ type SiteFooterProps = {
   onStartTour?: () => void;
 };
 
-//: Sadece dogrulanmis, gercek Intertech hesaplari - baska platform icin
-//: (Facebook/X/YouTube) resmi bir Intertech hesabi teyit edilemedi, o
-//: yuzden burada YOK; uydurma/tahmini link eklenmez.
-const socialLinks = [
+//: `href` SADECE dogrulanmis, gercek Intertech hesabi olan ikonlarda var.
+//: Facebook/X/YouTube icin resmi bir Intertech hesabi teyit edilemedi -
+//: uydurma/tahmini link eklenmez, bu yuzden `href` alanlari bos birakildi;
+//: ikonlar sadece gorsel olarak durur, tiklanamaz (asagida <span> olarak
+//: render edilir).
+const socialLinks: { label: string; src: string; href?: string }[] = [
+  { label: "Facebook", src: "/social/facebook.png" },
   { label: "Instagram", src: "/social/instagram.jpg", href: "https://www.instagram.com/intertechteyasam/" },
+  { label: "X", src: "/social/x.png" },
+  { label: "YouTube", src: "/social/youtube.png" },
   { label: "LinkedIn", src: "/social/linkedin.png", href: "https://www.linkedin.com/company/intertechteyasam/" },
 ];
 
@@ -99,18 +104,30 @@ export function SiteFooter({ className = "", onStartTour }: SiteFooterProps) {
             </div>
 
             <div className="flex items-center gap-4">
-              {socialLinks.map((link) => (
-                <a
-                  key={link.label}
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={link.label}
-                  className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-transparent shadow-sm transition hover:-translate-y-0.5 hover:brightness-110"
-                >
-                  <img src={link.src} alt="" className="h-8 w-8 rounded-full object-cover" />
-                </a>
-              ))}
+              {socialLinks.map((link) =>
+                link.href ? (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={link.label}
+                    className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-transparent shadow-sm transition hover:-translate-y-0.5 hover:brightness-110"
+                  >
+                    <img src={link.src} alt="" className="h-8 w-8 rounded-full object-cover" />
+                  </a>
+                ) : (
+                  // Henuz dogrulanmis hesabi olmayan platform - sadece gorsel,
+                  // tiklanamaz (bkz. socialLinks tanimindaki not).
+                  <span
+                    key={link.label}
+                    aria-hidden="true"
+                    className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-transparent opacity-50 shadow-sm"
+                  >
+                    <img src={link.src} alt="" className="h-8 w-8 rounded-full object-cover" />
+                  </span>
+                ),
+              )}
             </div>
           </div>
 
