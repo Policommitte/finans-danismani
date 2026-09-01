@@ -195,7 +195,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         shouldSkipLandingContent ? null : (
           <>
             {children}
-            <SiteFooter className="ml-24 w-[calc(100%-6rem)]" />
+            <SiteFooter className={auth.user ? "ml-24 w-[calc(100%-6rem)]" : "w-full"} />
           </>
         )
       ) : (

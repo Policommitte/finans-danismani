@@ -1359,14 +1359,19 @@ export default function HomePage() {
   return (
     <main className="min-h-screen overflow-x-hidden app-bg transition-colors">
       <div className={activePreview ? "pointer-events-none blur-sm transition" : "transition"}>
-        <LandingSideMenu
-          language={language}
-          authRequiredPath={authRequiredPath}
-          onNavigate={handleProtectedNavigate}
-          onAuthPopoverClose={() => setAuthRequiredPath(null)}
-        />
+        {/* Sol menu SADECE giris yapmis kullanicida gorunur - AppShell'deki
+            Sidebar.tsx ile AYNI auth.user deseni (DOM'dan tamamen cikarilir,
+            sadece CSS ile gizlenmez). */}
+        {auth.user && (
+          <LandingSideMenu
+            language={language}
+            authRequiredPath={authRequiredPath}
+            onNavigate={handleProtectedNavigate}
+            onAuthPopoverClose={() => setAuthRequiredPath(null)}
+          />
+        )}
 
-        <div className="ml-24 w-[calc(100%-6rem)] pt-20">
+        <div className={auth.user ? "ml-24 w-[calc(100%-6rem)] pt-20" : "w-full pt-20"}>
           <HeroSlider language={language} />
 
           <QuickAccessCards
