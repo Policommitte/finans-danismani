@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { useAuth } from "../../hooks/useAuth";
 import { mainNavItems, utilityNavItems, type NavItem } from "./navItems";
 
 function MenuIcon({ item }: { item: NavItem }) {
@@ -58,13 +59,20 @@ function NavList({ items }: { items: NavItem[] }) {
 }
 
 export function Sidebar() {
+  const auth = useAuth();
+  //: Giris yapmis kullanicinin zaten "Genel Bakis" (dashboard) ekrani var -
+  //: herkese acik pazarlama amacli anasayfaya ("/") gitmesine gerek yok,
+  //: kafa karistirir. page.tsx'teki LandingSideMenu de AYNI listeyi ("home"
+  //: haric) kullanir - bkz. navItems.ts docstring'i.
+  const items = auth.user ? mainNavItems.filter((item) => item.key !== "home") : mainNavItems;
+
   return (
     <aside className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl">
       {/* Logo artik MarketTicker'daki ust seritte gosteriliyor - burada tekrar
           etmemesi icin sadece bosluk birakilir (bkz. MarketTicker.tsx Link). */}
       <div aria-hidden="true" className="h-20 shrink-0" />
       <div className="mt-8">
-        <NavList items={mainNavItems} />
+        <NavList items={items} />
       </div>
       <div className="mt-auto pt-6">
         <NavList items={utilityNavItems} />
