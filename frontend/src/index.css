@@ -265,6 +265,20 @@ body {
   transition-delay: 0ms;
 }
 
+/* Karolar `left:0` sabit kenardan buyuyup kuculuyor - bu, "revealing"
+   (acilma) sirasinda karonun SOLDAN degil SAGDAN daralmasi anlamina gelir:
+   width 100%'ten 0'a inerken sol kenar HEP kapali kalir, sadece sag ucu
+   geri ceker. Sonuc: ekranin SOL kenarinda, gecis tamamlanana kadar duran
+   koyu bir serit - ozellikle anasayfadaki hero'nun sol sutunundaki metnin
+   uzerine biniyordu. Duzeltme: revealing sirasinda ankoru saga (`right:0`)
+   cevirmek - width 100%'ken gorsel olarak HICBIR SEY degismez (ayni kutu),
+   ama kuculurken artik SOLDAN aciliyor, SAGA dogru kayboluyor - dogal bir
+   "perde acilma" yonu ve sol kenarda kalici artik kalmiyor. */
+.page-transition[data-phase="revealing"] .page-transition__tile {
+  left: auto;
+  right: 0;
+}
+
 .page-transition__brand {
   position: absolute;
   left: 50%;
