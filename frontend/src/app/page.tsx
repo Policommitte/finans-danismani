@@ -332,11 +332,13 @@ function AuthRequiredPopover({
 
 function LandingSideMenu({
   language,
+  showHome,
   authRequiredPath,
   onNavigate,
   onAuthPopoverClose,
 }: {
   language: Language;
+  showHome: boolean;
   authRequiredPath: string | null;
   onNavigate: (href: string) => void;
   onAuthPopoverClose: () => void;
@@ -367,9 +369,9 @@ function LandingSideMenu({
   const homeButtonClass =
     "group relative flex h-16 w-full items-center justify-center overflow-visible rounded-md border border-white/20 bg-white/10 px-0 text-white transition";
   const tooltipClass =
-    "pointer-events-none absolute left-1/2 -top-3 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[11px] font-bold leading-none text-white/70 transition-colors group-hover:text-white";
+    "pointer-events-none absolute left-1/2 -top-3 z-[70] w-[88px] -translate-x-1/2 whitespace-normal px-1 text-center text-[11px] font-bold leading-[1.05] text-white/70 transition-colors group-hover:text-white";
   const activeTooltipClass =
-    "pointer-events-none absolute left-1/2 -top-3 z-[70] -translate-x-1/2 whitespace-nowrap px-1 text-[11px] font-bold leading-none text-white";
+    "pointer-events-none absolute left-1/2 -top-3 z-[70] w-[88px] -translate-x-1/2 whitespace-normal px-1 text-center text-[11px] font-bold leading-[1.05] text-white";
 
   return (
     <aside
@@ -388,17 +390,19 @@ function LandingSideMenu({
       <div aria-hidden="true" className="h-20 shrink-0" />
 
       <nav className="mt-8 space-y-4">
-        <Link
-          href="/"
-          data-tour="nav-home"
-          onClick={onAuthPopoverClose}
-          aria-current="page"
-          className={homeButtonClass}
-        >
-          <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-[var(--color-primary)]" />
-          <MenuIcon src="/ana-sayfa.svg" className="h-5 w-5" />
-          <span className={activeTooltipClass}>{copy[language].home}</span>
-        </Link>
+        {showHome ? (
+          <Link
+            href="/"
+            data-tour="nav-home"
+            onClick={onAuthPopoverClose}
+            aria-current="page"
+            className={homeButtonClass}
+          >
+            <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-[var(--color-primary)]" />
+            <MenuIcon src="/ana-sayfa.svg" className="h-5 w-5" />
+            <span className={activeTooltipClass}>{copy[language].home}</span>
+          </Link>
+        ) : null}
         {publicMenuTargets.map((target) => (
           <div key={target.key} className="group relative">
             {authRequiredPath === target.href ? (
@@ -1365,6 +1369,11 @@ export default function HomePage() {
         {auth.user && (
           <LandingSideMenu
             language={language}
+            // Bu menu SADECE giris yapmis kullanicida render edilir (asagida) -
+            // "Ana Sayfa" giris yapmis kullaniciya site genelinde HICBIR yerde
+            // gosterilmez (bkz. Sidebar.tsx'teki ayni kural), o yuzden burada
+            // da false.
+            showHome={false}
             authRequiredPath={authRequiredPath}
             onNavigate={handleProtectedNavigate}
             onAuthPopoverClose={() => setAuthRequiredPath(null)}

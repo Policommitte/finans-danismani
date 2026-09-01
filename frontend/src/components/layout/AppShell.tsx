@@ -35,6 +35,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isWidePage = pathname === "/danisman";
   const isPublic =
     isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isAbout || isSupportPage;
+  // ProductTour'un "Ana Sayfa" adimi (AUTHENTICATED_STEPS filtresi) icin -
+  // tur SADECE giris yapmis kullanicida otomatik acildigindan bu pratikte
+  // hep false'a cikar, ama bilesen genel kalsin diye buradan hesaplanir.
+  const showHomeNavigation = !auth.user && !auth.hasToken;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
@@ -206,8 +210,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <>
           {/* Sidebar SADECE giris yapmis kullanicida gorunur - misafirin
               zaten anasayfaya donmesi disinda sol menude gidecegi bir yer
-              yok. Sartlar saglanmiyorsa DOM'dan TAMAMEN cikarilir (Sidebar
-              icindeki "home" ogesi filtrelemesiyle AYNI auth.user deseni). */}
+              yok. Sartlar saglanmiyorsa DOM'dan TAMAMEN cikarilir (yeni
+              Aceternity tabanli Sidebar.tsx auth.user'i kendi icinde
+              okur, prop almaz). */}
           {!isFocusedGame && auth.user && <Sidebar />}
           <div
             className={
@@ -219,11 +224,23 @@ function AppShellContent({ children }: { children: ReactNode }) {
             }
           >
             <main
-              className={`mx-auto w-full flex-1 px-4 py-8 ${
-                isWidePage ? "max-w-[100rem]" : "max-w-7xl"
-              }`}
+              className={
+                isFocusedGame
+                  ? "mx-auto w-full max-w-5xl flex-1 px-4 py-4"
+                  : "relative w-full flex-1"
+              }
             >
-              {children}
+              {isFocusedGame ? (
+                children
+              ) : (
+                <div
+                  className={`mx-auto w-full px-4 py-8 ${
+                    isWidePage ? "max-w-[100rem]" : "max-w-7xl"
+                  }`}
+                >
+                  {children}
+                </div>
+              )}
             </main>
             {!isFocusedGame && <SiteFooter />}
           </div>
@@ -252,6 +269,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         open={tourOpen}
         onClose={handleTourClose}
         storageKey={`polifin-product-tour-v1:${auth.user?.id ?? "guest"}`}
+        showHomeStep={showHomeNavigation}
       />
       {logoutNoticeName !== null ? (
         <div

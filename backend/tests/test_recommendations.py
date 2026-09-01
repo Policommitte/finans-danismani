@@ -72,6 +72,7 @@ def test_endeks_ve_bayat_fiyat_elenir():
     sinyaller = sinyal_uret(
         [
             _varlik(asset_id=1, asset_class="INDEX", daily_change_pct=-9.0),
+            _varlik(asset_id=4, asset_class="BOND", symbol="US10Y", daily_change_pct=-9.0),
             _varlik(
                 asset_id=2,
                 symbol="BIMAS",
@@ -84,7 +85,7 @@ def test_endeks_ve_bayat_fiyat_elenir():
         threshold=0.55,
         ttl_minutes=240,
     )
-    # Endeks islem disi, BIMAS'in fiyati bayat -> yalnizca SASA kalir.
+    # Endeks ve tahvil-getiri gostergesi islem disi, BIMAS'in fiyati bayat.
     assert [s["symbol"] for s in sinyaller] == ["SASA"]
 
 

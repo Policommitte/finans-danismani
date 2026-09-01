@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import type { PendingAttachment } from "../components/chat/AttachmentMenu";
-import type { AgentError, ChatAttachment, ChatMessage, Source } from "../models/chat";
+import type {
+  AgentError,
+  ChatAttachment,
+  ChatMessage,
+  Source,
+} from "../models/chat";
 import { streamChat } from "../services/chatService";
 
 //: Ek varsa ama mesaj kutusu bosbiraktilarsa, dosya turune gore makul bir
@@ -125,5 +130,11 @@ export function useChatStream() {
     }
   }
 
-  return { messages, status, isStreaming, error, sendMessage };
+  return {
+    messages,
+    status,
+    isStreaming,
+    error,
+    sendMessage,
+  };
 }

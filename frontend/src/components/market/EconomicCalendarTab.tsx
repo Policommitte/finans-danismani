@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { ErrorState } from "../feedback/ErrorState";
 import { LoadingState } from "../feedback/LoadingState";
 import { useAsyncData } from "../../hooks/useAsyncData";
@@ -62,8 +63,15 @@ function EventRow({ event }: { event: EconomicEvent }) {
   );
 }
 
-export function EconomicCalendarTab() {
+export function EconomicCalendarTab({ onReady }: { onReady?: () => void }) {
   const { data, loading, error, refetch } = useAsyncData(getEconomicCalendar, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    const frame = window.requestAnimationFrame(() => onReady?.());
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, onReady]);
 
   if (loading && !data) {
     return <LoadingState label="Ekonomik takvim yükleniyor" />;
