@@ -67,9 +67,6 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS users_tckn_hash_uidx
-    ON users (tckn_hash) WHERE tckn_hash IS NOT NULL;
-
 
 -- =====================================================================
 -- 2 · VARLIK & PİYASA
