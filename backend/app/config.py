@@ -90,28 +90,51 @@ class Settings(BaseSettings):
     #: degilse arama saf BM25'e duser (`SqlRagRepository.search`), orada
     #: karsilastirilacak vektor yoktur ve esik UYGULANMAZ.
     #:
-    #: ⚠️ DEGER KALIBRASYON ISTER. 0.40 seed veri uzerinde OLCULEREK secildi
-    #: (havacilik sorgusu, DOC-002 vektoru referans alinarak):
+    #: ⚠️ DEGER KALIBRASYON ISTER. 0.30, CANLI indekste olculerek secildi
+    #: (234 dokuman / 917 chunk; sorgu: "havacilik sektoruyle ilgili haberleri
+    #: getir"; 20 aday). Gercek sorgu->dokuman dagilimi:
     #:
-    #:     DOC-002 havacilik haberi ......... 1.0000   <- konu
-    #:     DOC-001 THYAO bilancosu .......... 0.4449   <- ILGILI (havayolu)
-    #:     DOC-004 petrokimya raporu ........ 0.4420   <- sinirda (yakit)
-    #:     DOC-006 bitcoin .................. 0.3414   <- alakasiz
-    #:     DOC-003 SASA polyester ........... 0.3387   <- alakasiz
-    #:     DOC-007 nvidia ................... 0.3083   <- alakasiz
-    #:     DOC-005 gram altin ............... 0.2686   <- alakasiz
+    #:     Baykar ihracat (havacilik) ....... 0.370   <- ILGILI
+    #:     Vergi haberi / havacilik chunk'i . 0.360   <- ILGILI (bkz. asagisi)
+    #:     Turk savunma sanayisi ............ 0.328   <- ILGILI
+    #:     "5 yildir zirve degismedi" ....... 0.314   <- sinirda
+    #:     Bulgaristan maaslar .............. 0.282   <- alakasiz
+    #:     Ucretli calisan sayisi ........... 0.272   <- alakasiz
+    #:     Havalimani kapasitesi ............ 0.271   <- ILGILI ama DUSUK
+    #:     Insaat sektoru ................... 0.261   <- alakasiz
     #:
-    #: 0.45 denendi ve ELENDI: THYAO'yu (0.4449) kesiyordu - havacilik sorusunda
-    #: havayolu bilancosunu atmak acik bir yanlis negatif. 0.40 alakasiz kumeyi
-    #: (<=0.3414) tamamen keser, ilgili olanlari birakir.
+    #: ⚠️ TEMIZ BIR AYRIM YOK. Dagilim 0.249-0.370'e sikismis ve kumeler
+    #: ORTUSUYOR: dogrudan havalimani haberi (0.271) alakasiz bir maas
+    #: haberinin (0.282) ALTINDA kaliyor. 0.30 acikca alakasiz olanlari keser
+    #: ama havalimani haberini de kaybeder - bu bir DENGE, cozum degil. Kalici
+    #: iyilesme esikten degil, retrieval kalitesinden gelir.
     #:
-    #: ⚠️ BU OLCUM DOKUMAN-DOKUMAN benzerligidir. Gercek sorgular Cohere'e
+    #: ⚠️ BASLIK CHUNK'I TEMSIL ETMEZ. Yukaridaki "vergi haberi" aslinda
+    #: alakalidir: eslesen chunk "Savunma ve havacilik sektorunde son 5 yilin
+    #: ihracat lideri olan Baykar..." metnini tasiyor. Eslesme CHUNK bazinda
+    #: olurken kaynak kartinda DOKUMAN basligi gosteriliyor; bu yuzden dogru
+    #: sonuclar alakasiz gorunebiliyor (bkz. `_to_source`).
+    #:
+    #: ⚠️ ONCEKI DEGER 0.40 YANLISTI. Seed verideki DOKUMAN-DOKUMAN benzerligiyle
+    #: secilmisti (orada tepe 1.0 idi). Gercek sorgular Cohere'e
     #: `input_type="search_query"` ile gider ve dokuman vektorleriyle ASIMETRIK
-    #: eslesir - query->dokuman benzerlikleri tipik olarak DAHA DUSUKTUR. Canli
-    #: veride bir kez dogrulayin: esik yuksek kalirsa "haber bulunamadi"
-    #: yanitlari artar. Olcum sorgusu icin bkz.
-    #: `db/migrations/017_hybrid_search_min_cosine.sql`.
-    rag_min_similarity: float = 0.40
+    #: eslesir; skorlar sistematik olarak cok daha dusuktur. 0.40 canlida
+    #: HICBIR sonucun gecmemesine yol acti ("haber bulunamadi").
+    #:
+    #: YENIDEN OLCMEK ICIN: `RAG_MIN_SIMILARITY=0` yapip sorguyu calistirin ve
+    #: `market_research._alaka_skorlarini_logla` satirina bakin - butun adaylar
+    #: gercek skorlariyla gorunur. `RAG_TOP_K` ile aday havuzunu genisletin.
+    rag_min_similarity: float = 0.30
+
+    #: `rag_search`'un dondurecegi chunk sayisi. AYNI ANDA IKI ISI birden yapar
+    #: (bkz. `rag.hybrid_search`): aday havuzu `top_k * 4` genisliginde acilir,
+    #: nihai `LIMIT` ise `top_k`'dir. Yani buyutmek hem daha genis arama hem
+    #: daha cok kaynak demektir.
+    #:
+    #: TESHIS ICIN GECICI OLARAK BUYUTUN: `_alaka_skorlarini_logla` yalnizca
+    #: nihai satirlari gorebilir; bir dokumanin havuza girip girmedigini
+    #: anlamak icin `RAG_TOP_K=20` yapip logdaki `cos_sim` dagilimina bakin.
+    rag_top_k: int = 5
 
     # --- LLM ------------------------------------------------------------
     # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
