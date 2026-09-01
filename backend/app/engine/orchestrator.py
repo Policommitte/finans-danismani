@@ -62,6 +62,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.base import BaseAgent
 from app.agents.security_agent import PII_FLAG
 from app.config import settings
+from app.core.llm import _gecici_hata_mi
 from app.engine.kapsam import (
     KAPSAM_BELIRSIZ,
     KISA_YANIT_KAPSAMLARI,
@@ -344,6 +345,13 @@ def _normalize(text: str) -> str:
     ceviri once yapilir.
     """
     return text.translate(_TR_TRANSLATION).lower()
+
+
+#: Sentez akisi ILK TOKEN'DAN ONCE gecici hatayla duserse kac kez daha
+#: denenecegi. Dusuk tutuldu: sentezin dis zaman asimi 45 sn ve basarisizlik
+#: zaten deterministik ozete duserek guvenli sonlanir.
+_SENTEZ_YENIDEN_DENEME = 1
+_SENTEZ_BEKLEME_SANIYE = 1.5
 
 
 class Orchestrator:
@@ -854,6 +862,9 @@ class Orchestrator:
         # edilse bile uretilen metin kaybolmaz (bkz. `synthesize`).
         parts: list[str] = parcalar if parcalar is not None else []
 
+        # Tek elemanli liste: asagidaki `except` blogu icinden yazilabilsin.
+        _yeniden_deneme_hakki = [_SENTEZ_YENIDEN_DENEME]
+
         akis = self.synthesizer_llm.astream(messages, config=config)
         while True:
             try:
@@ -865,6 +876,28 @@ class Orchestrator:
                 )
             except StopAsyncIteration:
                 break
+            except Exception as hata:  # noqa: BLE001 - saglayici istisnasi
+                # GECICI SUNUCU HATASI, HENUZ TOKEN YAYINLANMADIYSA.
+                #
+                # Tek seferlik yola (`core.llm`) yeniden deneme eklendi ama
+                # sentez o yolu kullanmiyor; canlida `503 Service temporarily
+                # overloaded` sentezi dusurmeye devam etti.
+                #
+                # ⚠️ SART `not parts`: token yayinlandiktan SONRA yeniden
+                # denemek kullaniciya yarim yanitin ustune ikinci bir yanit
+                # yazardi. Akis daha baslamadiysa hicbir sey gorunmemistir,
+                # yeniden denemek GORUNMEZ olur.
+                if parts or _yeniden_deneme_hakki[0] <= 0 or not _gecici_hata_mi(hata):
+                    raise
+                _yeniden_deneme_hakki[0] -= 1
+                logger.warning(
+                    "sentez akisi gecici hatayla dustu; yeniden deneniyor",
+                    extra={"kalan": _yeniden_deneme_hakki[0], "hata": str(hata)[:200]},
+                )
+                await akis.aclose()
+                await asyncio.sleep(_SENTEZ_BEKLEME_SANIYE)
+                akis = self.synthesizer_llm.astream(messages, config=config)
+                continue
             except asyncio.TimeoutError as exc:
                 # `aclose` cagrilmazsa altta acik kalan HTTP baglantisi
                 # tick tick birikir (ajan tarafinda ayni ders alinmisti).
