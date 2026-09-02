@@ -225,7 +225,7 @@ export function MarketTicker({
         isAuthenticated ? "left-24" : "left-0"
       }`}
     >
-      <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
+      <Link href="/" className="absolute left-0 top-1/2 hidden -translate-y-1/2 2xl:flex">
         <span
           aria-hidden="true"
           className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
@@ -233,7 +233,7 @@ export function MarketTicker({
         <span className="sr-only">Polifin</span>
       </Link>
 
-      <div className="flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 2xl:pl-60 2xl:pr-14">
+      <div className="flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 2xl:pl-52 2xl:pr-8">
         <div className="hidden shrink-0 items-center gap-2 text-sm font-semibold text-[var(--color-market-muted)] md:flex">
           <span className="h-2 w-2 rotate-45 bg-[var(--color-accent)]" />
           {language === "tr" ? "PİYASA VERİLERİ" : "MARKET DATA"}
