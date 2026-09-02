@@ -71,6 +71,14 @@ class Source(BaseModel):
     tarih: str | None = None
     tip: str | None = None  # haber | bilanco | analist_raporu | duyuru
     score: float | None = None
+    #: Dokumanin YAYINDAKI adresi (`rag.documents.kaynak_url`).
+    #:
+    #: Kaynak kartinda yalnizca baslik/kaynak/tarih gosterilir - haberin tam
+    #: metnini sohbete basmak kullaniciyi bogar. Devamini okumak isteyen
+    #: karta tiklayip haberin kendi sitesine gider; bu alan o baglantidir.
+    #: Eski dokumanlarda ve canli veri yolundan gelen chunk'larda bos olabilir,
+    #: bu yuzden opsiyoneldir - arayuz bos gelirse karti duz metin olarak cizer.
+    kaynak_url: str | None = None
 
 
 class AgentError(BaseModel):
@@ -188,10 +196,34 @@ class AgentState(BaseModel):
     # Yalnizca router yazdigi icin paralel yazma catismasi olusmaz.
     agent_tasks: dict[str, dict] = Field(default_factory=dict)
 
+    #: Bu turda sohbete EKLENEN dosya: {"dosya_adi": str, "icerik": bytes}.
+    #:
+    #: Belge ajaninin tetikleyicisi BUDUR - anahtar kelime degil. Kullanici
+    #: dosyayi "buna bakar misin?" diye yollayabilir; o cumlede hicbir finans
+    #: sinyali yoktur ve kelime tabanli router ajani hic calistirmazdi
+    #: (bkz. `Orchestrator.route_node`).
+    #:
+    #: ⚠️ Checkpointer'a yazilir: dosya baytlari her turda tasinmasin diye
+    #: `stream_request` bu alani tur basinda acikca `None`'a cekmelidir.
+    belge: dict | None = None
+
     # --- Ajan ciktilari (her ajan KENDI alanina yazar, catisma yok) ---
     portfolio_data: dict | None = None
     market_data: dict | None = None
     risk_data: dict | None = None
+    #: Belge ajaninin METIN ciktisi - sentezleyiciye ve deterministik yanita
+    #: giden kisim. Yalnizca ozet/baslik/bulgu gibi okunabilir alanlar.
+    document_data: dict | None = None
+
+    #: Uretilen PDF raporu: {"pdf_bytes": bytes, "dosya_adi": str}.
+    #:
+    #: ⚠️ `document_data`'DAN AYRI TUTULUR VE BILEREK BOYLE.
+    #: `_ajan_metni()` bir ajan sozlugunde `summary_text` bulamazsa
+    #: `str(veri)` yapar; PDF baytlari ayni sozlukte olsaydi ikili icerik
+    #: kullaniciya gonderilen METNE ve LLM prompt'una ham repr olarak
+    #: dokulurdu. Bu alani sentez yollarindan hicbiri OKUMAZ - yalnizca
+    #: `stream_request` teslim icin alir.
+    document_report: dict | None = None
 
     # --- Paralel yazilan alanlar: reducer ZORUNLU ---
     sources: Annotated[list[Source], add_or_reset] = Field(default_factory=list)

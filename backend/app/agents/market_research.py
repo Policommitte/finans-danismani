@@ -1099,6 +1099,10 @@ class MarketResearchAgent(BaseAgent):
             # olarak etiketlenirdi.
             tip=chunk.get("tip") or _TOPIC_TO_TIP.get(metadata.get("topic"), "haber"),
             score=chunk.get("score"),
+            # Haberin yayindaki adresi - kaynak kartini tiklanabilir yapar.
+            # Canli veri yolundan (MCP Server 3) gelen chunk'larda bu alan
+            # yoktur; `None` kalir ve arayuz karti duz metin olarak cizer.
+            kaynak_url=chunk.get("kaynak_url"),
         )
 
     # ------------------------------------------------------------------

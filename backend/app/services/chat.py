@@ -17,14 +17,20 @@ id olmayan bir mesajla kalirdi.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from collections.abc import AsyncGenerator
 
-from app.core.errors import NotFoundError
+from app.config import settings
+from app.core.errors import BusinessRuleError, NotFoundError
+from app.documents.parser import BelgeAyristirmaHatasi, belge_turu
 from app.engine.factory import get_orchestrator
 from app.mcp.context import set_current_user_id, set_request_context
 from app.repositories.deps import get_chat_repository
+from app.schemas.chat import ChatAttachment
+from app.services import report_cache
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +57,47 @@ async def sohbet_bul_veya_ac(user_id: int, conversation_id: int | None, ilk_mesa
     return await repository.create_session(user_id, baslik)
 
 
+def decode_attachment(attachment: ChatAttachment) -> bytes:
+    """Ek'in base64 govdesini cozer; boyut/format sinirlarini dogrular.
+
+    Akis BASLAMADAN ONCE cagrilmasi ZORUNLUDUR (routes/chat.py): boylece
+    bozuk/asiri buyuk/desteklenmeyen bir dosya 422 JSON hatasi olarak doner,
+    yarim bir SSE akisi degil.
+
+    NOT: format kontrolu `app.documents.parser.belge_turu()` uzerinden
+    yapilir - yani PDF/Excel/gorsel destegi TEK bir yerde (parser modulu)
+    tanimlidir; burada ayri bir MIME beyaz listesi TUTULMAZ, ikisi
+    birbirinden sapabilirdi.
+    """
+    try:
+        veri = base64.b64decode(attachment.data_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise BusinessRuleError("Ek dosya okunamadi, lutfen tekrar deneyin.") from exc
+
+    if len(veri) == 0:
+        raise BusinessRuleError("Ek dosya bos gorunuyor.")
+
+    azami_bayt = settings.document_max_upload_mb * 1024 * 1024
+    if len(veri) > azami_bayt:
+        raise BusinessRuleError(
+            f"Dosya {settings.document_max_upload_mb}MB sinirini asiyor, "
+            "lutfen daha kucuk bir dosya deneyin."
+        )
+
+    try:
+        belge_turu(attachment.filename)
+    except BelgeAyristirmaHatasi as exc:
+        raise BusinessRuleError(str(exc)) from exc
+
+    return veri
+
+
 async def stream_chat_response(
     user_id: int,
     message: str,
     session: dict,
     request_id: str,
+    attachment: ChatAttachment | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Sohbet olaylarini uretir (SSE'ye cevrilmek uzere).
 
@@ -67,6 +109,12 @@ async def stream_chat_response(
     `NotFoundError` gövde uretilirken firlar; o noktada HTTP durum kodu 200
     olarak gonderilmis olur ve global hata isleyicisi devreye giremez -
     istemci "404" yerine yarim bir akis gorur.
+
+    `attachment` VARSA orkestratore `belge=` olarak GECER - bypass YAPILMAZ.
+    Boylece `route_node` (`app/engine/orchestrator.py`) ekli dosyayi gorup
+    `document_analysis` ajanini kosulsuz calistirir; ayni ajan katmani,
+    ayni guvenlik kapisi, ayni sentez akisi - iki farkli "sohbet motoru"
+    olusmaz.
     """
     repository = get_chat_repository()
     thread_id = int(session["id"])
@@ -77,12 +125,23 @@ async def stream_chat_response(
     set_current_user_id(user_id)
     set_request_context(request_id=request_id, session_id=thread_id)
 
+    kayit_icerigi = f"[Ek: {attachment.filename}]\n{message}" if attachment else message
     await repository.add_message(
         session_id=thread_id,
         sender_role="user",
-        content=message,
+        content=kayit_icerigi,
         request_id=request_id,
     )
+
+    belge_govdesi = None
+    if attachment is not None:
+        # Boyut/format DOGRULAMASI routes/chat.py'de akis baslamadan once
+        # zaten yapildi; burada YALNIZCA cozme tekrarlanir (govde bu katmana
+        # kadar tasinmaz, request/response sinirini asmamak icin).
+        belge_govdesi = {
+            "dosya_adi": attachment.filename,
+            "icerik": decode_attachment(attachment),
+        }
 
     parcalar: list[str] = []
     kaynaklar: list[dict] = []
@@ -93,6 +152,7 @@ async def stream_chat_response(
         user_id=user_id,
         thread_id=thread_id,
         request_id=request_id,
+        belge=belge_govdesi,
     ):
         tur = event.get("type")
 
@@ -103,11 +163,29 @@ async def stream_chat_response(
         elif tur == "agent_error":
             ajan_hatalari.append({"agent": event.get("agent"), "type": event.get("error_type")})
         elif tur == "done":
+            # `_dahili_pdf_bytes`: SSE'ye ASLA gitmemeli (bkz. orchestrator.py
+            # yorumu) - onbellege yazilir yazilmaz olaydan POPLANIR.
+            pdf_baytlari = event.pop("_dahili_pdf_bytes", None)
+
             mesaj = await _asistan_mesajini_kaydet(
                 thread_id, "".join(parcalar), kaynaklar, ajan_hatalari, request_id
             )
             if mesaj is not None:
                 event = {**event, "message_id": mesaj["id"]}
+                if pdf_baytlari:
+                    # Anahtar message_id: indirme ucu (`GET
+                    # /api/chat/reports/{message_id}`) ayni id'yi kullanir.
+                    report_cache.kaydet(
+                        str(mesaj["id"]),
+                        pdf_baytlari,
+                        (event.get("rapor") or {}).get("dosya_adi", "rapor.pdf"),
+                    )
+            elif "rapor" in event:
+                # Mesaj kaydedilemediyse (bkz. _asistan_mesajini_kaydet)
+                # indirme anahtari (message_id) HIC olusmayacak - metadata'yi
+                # de gonderme, aksi halde frontend kirik bir indirme
+                # baglantisi cizer.
+                event.pop("rapor", None)
 
         yield event
 

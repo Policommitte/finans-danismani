@@ -20,6 +20,7 @@ import logging
 from functools import lru_cache
 
 from app.agents.base import BaseAgent
+from app.agents.document_analysis import DocumentAnalysisAgent
 from app.agents.market_research import MarketResearchAgent
 from app.agents.portfolio import PortfolioAgent
 from app.agents.risk_strategy import RiskStrategyAgent
@@ -27,6 +28,7 @@ from app.agents.security_agent import SecurityAgent
 from app.config import settings
 from app.core.llm import get_llm_client, get_streaming_llm
 from app.engine.orchestrator import (
+    AGENT_DOCUMENT_ANALYSIS,
     AGENT_MARKET_RESEARCH,
     AGENT_PORTFOLIO,
     AGENT_RISK_STRATEGY,
@@ -119,6 +121,23 @@ def build_agents(mcp_client: MCPClient) -> dict[str, BaseAgent]:
             llm=build_agent_llm("risk"),
             timeout_seconds=settings.agent_timeout_seconds,
             llm_timeout_seconds=settings.agent_llm_budget_seconds,
+        ),
+        AGENT_DOCUMENT_ANALYSIS: DocumentAnalysisAgent(
+            mcp_client=mcp_client,
+            llm=build_agent_llm("document"),
+            # UZUN sinir: ayristirma + LLM + grafik + PDF derleme tek ajanda
+            # olur; ortak `agent_timeout_seconds` (~27sn) buna yetmez.
+            timeout_seconds=settings.document_timeout_seconds,
+            # Ic sinir da buyutulur: 200 sayfalik bir belgenin ozetini
+            # uretmek ortak LLM butcesinden uzun surer. Dis sinirin altinda
+            # kalmasi `BaseAgent.__init__` icinde garanti edilir.
+            llm_timeout_seconds=max(
+                settings.agent_llm_budget_seconds,
+                settings.document_timeout_seconds - 30,
+            ),
+            # Gorsel modeli AYRI: ana model salt metin oldugu icin gorseli
+            # okuyamaz (bkz. app/documents/vision.py).
+            vision_llm=build_agent_llm("document_vision"),
         ),
     }
 

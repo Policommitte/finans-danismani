@@ -871,6 +871,34 @@ async def test_sentez_baglamı_ajan_verisini_icerir():
     assert "Portfoyum nasil?" in baglam
 
 
+async def test_sentez_baglami_belge_analizini_icerir():
+    """REGRESYON KORUMASI.
+
+    `_build_context` eskiden `portfolio_data`/`market_data`/`risk_data`
+    icin AYRI, SABIT bir tuple tutuyordu; `document_analysis` ajani
+    eklendiginde bu tuple GUNCELLENMEDI. Sonuc: kullanici PDF/Excel/gorsel
+    yukleyip analiz istediginde sentezleyici LLM'e belge verisi HIC
+    gitmiyordu - nihai yanit (ve `chat_messages`'a KALICI olarak yazilan
+    metin) belgeyle ILGISIZ cikiyordu. `_AJAN_VERISI` sozlugunden okuyarak
+    duzeltildi; bu test o sozluge yeni bir ajan eklenip BURADA
+    unutulmasini yakalar.
+    """
+    orchestrator = _orchestrator()
+    state = AgentState(
+        user_query="Bu belgeyi özetler misin?",
+        user_id=1,
+        thread_id=1,
+        document_data={
+            "summary_text": "faaliyet_raporu.pdf adlı PDF belgesi incelendi. " "Net kâr %18 arttı."
+        },
+    )
+
+    baglam = orchestrator._build_context(state)
+
+    assert "Net kâr %18 arttı" in baglam
+    assert "Belge analizi" in baglam
+
+
 # ---------------------------------------------------------------------------
 # Cok turlu baglam (FR-CHAT-03)
 # ---------------------------------------------------------------------------

@@ -504,6 +504,9 @@ def _chunk_payload(row: dict) -> dict[str, Any]:
         "tip": row.get("tip"),
         "content": row.get("content"),
         "score": _f(row.get("score")),
+        # Haberin yayindaki adresi. Kaynak kartini tiklanabilir yapan tek alan
+        # budur; tasinmazsa arayuz kullaniciyi haberin sitesine goturemez.
+        "kaynak_url": row.get("kaynak_url"),
         # --- eski adlar (MarketResearchAgent) ---
         "title": baslik,
         "text": row.get("content"),

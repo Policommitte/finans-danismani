@@ -8,8 +8,10 @@ SSE NEDEN POST?
     (mimari v4 bolum 4.6).
 """
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.auth.deps import CurrentUser
 from app.core.errors import NotFoundError
@@ -22,6 +24,7 @@ from app.schemas.chat import (
     MessagesResponse,
 )
 from app.services import chat as service
+from app.services import report_cache
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -93,11 +96,18 @@ async def chat_stream(request: Request, user: CurrentUser, payload: ChatRequest)
     # Gövde uretilirken firlasaydi durum kodu coktan 200 gonderilmis olurdu.
     session = await service.sohbet_bul_veya_ac(user["id"], payload.conversation_id, payload.message)
 
+    # Ek boyut/format dogrulamasi da AYNI SEBEPLE akis baslamadan once
+    # yapilir (422/JSON donmesi icin) - gercek cozme, akis icinde tekrarlanir
+    # (govde bu istek nesnesinden servis katmanina tasinmiyor).
+    if payload.attachment is not None:
+        service.decode_attachment(payload.attachment)
+
     olaylar = service.stream_chat_response(
         user_id=user["id"],
         message=payload.message,
         session=session,
         request_id=request_id,
+        attachment=payload.attachment,
     )
 
     async def govde():
@@ -113,4 +123,60 @@ async def chat_stream(request: Request, user: CurrentUser, payload: ChatRequest)
             "X-Accel-Buffering": "no",
             "X-Request-ID": request_id,
         },
+    )
+
+
+def _content_disposition(dosya_adi: str) -> str:
+    """RFC 6266 uyumlu `Content-Disposition` baslik degeri uretir.
+
+    ⚠️ CANLIDA YAKALANAN GERCEK COKME: HTTP basliklari Latin-1 (ISO-8859-1)
+    ile kodlanir - Starlette `Response.init_headers` her deger icin
+    `.encode("latin-1")` cagirir. Duz `filename="{dosya_adi}"` yazmak,
+    dosya adinda Latin-1 disi bir karakter varsa (orn. noktasiz Turkce
+    'ı' - U+0131, Latin-1 araligi 0-255'in DISINDA) `UnicodeEncodeError`
+    firlatir. Bu istisna Response NESNESI OLUSTURULURKEN, yani ilk bayt
+    istemciye gitmeden once patlar - ASGI baglantisi yarida kesilir ve
+    tarayici bunu HTTP hatasi olarak degil, ham bir ag hatasi ("Failed to
+    fetch") olarak gorur. Canlida "alışsatış.pdf", "Dijital Hesap
+    Cüzdanı.pdf" gibi dosya adlariyla BIREBIR yasandi.
+
+    Cozum iki parcali baslik: eski istemciler icin ASCII-guvenli bir
+    `filename=` yedegi, modern tum tarayicilarin kullandigi `filename*=`
+    icin RFC 5987 yuzde-kodlamali GERCEK (Unicode) ad.
+    """
+    ascii_yedek = dosya_adi.encode("ascii", errors="ignore").decode("ascii").strip()
+    ascii_yedek = ascii_yedek.replace('"', "") or "rapor.pdf"
+    yuzde_kodlu = quote(dosya_adi, safe="")
+    return f"attachment; filename=\"{ascii_yedek}\"; filename*=UTF-8''{yuzde_kodlu}"
+
+
+@router.get("/chat/reports/{message_id}")
+async def chat_report(user: CurrentUser, message_id: int) -> Response:
+    """Belge analiz ajaninin urettigi PDF raporunu indirir.
+
+    Rapor SSE govdesinden GECMEZ (ikili icerik) - ajan calisirken bellek ici
+    onbellege yazilir (`app/services/report_cache.py`), bu uc oradan okur.
+
+    SAHIPLIK KONTROLU ZORUNLU: `message_id` sirali bir tam sayidir; kontrol
+    olmasaydi kullanicilar birbirinin raporunu tahmin edip indirebilirdi.
+    Baska kullanicinin mesaji icin de, hic kaydedilmemis/suresi dolmus rapor
+    icin de AYNI 404 doner - "bu id var ama senin degil" ayrimini SIZDIRMAZ.
+
+    ⚠️ ONBELLEK KALICI DEGIL (tek surec, bellek ici, sunucu yeniden
+    baslayinca ya da AZAMI_OMUR_SANIYE dolunca kaybolur) - kalici depolama
+    (Supabase Storage) henuz kurulmadi.
+    """
+    sahip_id = await get_chat_repository().message_owner_id(message_id)
+    if sahip_id is None or sahip_id != user["id"]:
+        raise NotFoundError("Rapor bulunamadi.")
+
+    kayit = report_cache.al(str(message_id))
+    if kayit is None:
+        raise NotFoundError("Rapor bulunamadi ya da suresi dolmus.")
+
+    pdf_baytlari, dosya_adi = kayit
+    return Response(
+        content=pdf_baytlari,
+        media_type="application/pdf",
+        headers={"Content-Disposition": _content_disposition(dosya_adi)},
     )

@@ -64,6 +64,27 @@ cohere==7.0.8
 PyJWT==2.10.1
 bcrypt==4.2.1
 
+# --- Belge/gorsel analizi ve PDF rapor uretimi (app/documents/) -----------
+# Yuklenen PDF'ten metin VE TABLO cikarimi. PyMuPDF (fitz) daha hizli ama
+# lisansi AGPL; pdfplumber saf Python + MIT ve tablo cikariminda daha iyi.
+pdfplumber==0.11.10
+
+# Excel (.xlsx/.xlsm) okuma. `data_only=True` ile formul yerine HESAPLANMIS
+# deger okunur - kullanici raporda "=B2*1.2" gormemeli.
+openpyxl==3.1.5
+
+# PDF rapor derleme.
+# ⚠️ WeasyPrint DEGIL: o GTK/Pango/Cairo SISTEM kutuphaneleri ister ve
+# Windows'ta import bile edilemiyor ("cannot load library
+# 'libgobject-2.0-0'"). ReportLab saf Python'dur, ek sistem bagimliligi yok.
+reportlab==5.0.1
+
+# Rapor grafikleri (app/documents/charts.py).
+# AYRICA TURKCE FONT KAYNAGI: matplotlib DejaVu ailesini kendi icinde tasir;
+# `app/documents/fonts.py` bu TTF'leri hem matplotlib'e hem ReportLab'e
+# kaydeder. Kaldirilirsa PDF'te Turkce harfler tofu kutusuna doner.
+matplotlib==3.11.1
+
 httpx==0.28.1
 ruff==0.8.4
 black==24.10.0

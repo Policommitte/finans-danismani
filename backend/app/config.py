@@ -107,6 +107,43 @@ class Settings(BaseSettings):
     risk_model: str = ""
     synthesizer_model: str = ""  # en guclu model burada
     security_model: str = ""  # en kucuk/hizli model burada
+    #: Yuklenen PDF/Excel'in METIN analizi. Bos birakilirsa `default_model`
+    #: kullanilir - yani belge ajani da diger ajanlarla AYNI beyne baglanir.
+    document_model: str = ""
+
+    # --- Belge/gorsel analizi (rapor ajani) -------------------------------
+    #: GORSEL okuma modeli. AYRI OLMAK ZORUNDA: `nemotron-3-super-120b-a12b`
+    #: SALT METINDIR (NVIDIA model karti: "Input Type(s): Text"), gorsel girdi
+    #: kabul etmez. Bos birakilirsa gorsel yolu KAPALI kalir ve kullaniciya
+    #: "gorsel analizi yapilandirilmamis" denir - sessizce bos rapor uretilmez.
+    #: Onerilen: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning (NIM, native
+    #: text+image, NVIDIA ilk-taraf). `moonshotai/kimi-k3` ONCE denendi ama
+    #: GERCEK cagriyla olculdu: soguk baslangicta ~5-6 dakika suruyordu ve
+    #: ikinci denemede timeout'a dusuyordu - urun icin kabul edilemez.
+    document_vision_model: str = ""
+
+    #: LLM'e gonderilecek belge metninin ust siniri (karakter). 300 sayfalik
+    #: bir faaliyet raporunun tamami baglam penceresini asar ve istek 400
+    #: doner; bu sinir asilirsa metin bastan kirpilir (bkz.
+    #: `AyristirilmisBelge.ozet_girdi`).
+    document_max_input_chars: int = 24000
+
+    #: Yuklenebilecek azami dosya boyutu (MB). Ayristirma BELLEKTE yapilir;
+    #: sinirsiz birakmak tek bir istekle sunucuyu sisirebilir.
+    document_max_upload_mb: int = 15
+
+    #: Belge analizi ajaninin ust siniri (saniye). Diger ajanlardan UZUN:
+    #: ayristirma + coklu LLM cagrisi + grafik + PDF derleme tek bir ajan
+    #: icinde olur, `agent_timeout_seconds` (varsayilan ~27sn) yetmez.
+    #:
+    #: ⚠️ 180 OLCULEREK SECILDI. Ilk denemede `moonshotai/kimi-k3` secilmisti
+    #: ve GERCEK cagriyla soguk baslangicta ~5-6 dakika surdugu, ikinci
+    #: denemede timeout'a dustugu olculunce `nvidia/nemotron-3-nano-omni-
+    #: 30b-a3b-reasoning`'e gecildi (31 Agustos 2026): iki gercek cagride
+    #: 57.6sn'de basarili, 5.1sn'de temiz bir kapasite hatasiyla (503)
+    #: basarisiz oldu. 180sn bu basarili sureyi + olasi bir yeniden denemeyi
+    #: rahatca kapsar. PDF/Excel yolu bundan cok daha hizli biter.
+    document_timeout_seconds: int = 180
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # Yalnizca Yahoo Finance'ten GERCEK fiyat kullanilir. Yahoo'ya
@@ -352,7 +389,14 @@ class Settings(BaseSettings):
             "risk": self.risk_model,
             "synthesizer": self.synthesizer_model,
             "security": self.security_model,
+            "document": self.document_model,
         }
+        # "document_vision" DEFAULT_MODEL'E DUSMEZ: varsayilan model salt
+        # metindir, ona gorsel gondermek 400/sessiz sacmalama uretir. Model
+        # acikca tanimlanmadiysa gorsel yolu kapali kalmalidir.
+        if agent == "document_vision":
+            return self.document_vision_model.strip()
+
         return overrides.get(agent) or self.default_model
 
 
