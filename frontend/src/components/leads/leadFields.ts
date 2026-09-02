@@ -6,21 +6,67 @@ import type { LeadQueueItem } from "../../models/leads";
  * gondermez; hepsi mevcut alanlardan hesaplanir.
  */
 
-export type LeadDurum = "bsd" | "mail_gonderildi" | "mail_bekliyor" | "dislandi";
+export type LeadDurum =
+  // Danismanin ELLE isaretledigi gorusme sonuclari
+  | "kabul"
+  | "istemiyor"
+  | "ulasilamadi"
+  // Tarama motorunun urettigi durumlar
+  | "bsd"
+  | "mail_gonderildi"
+  | "mail_bekliyor"
+  | "dislandi";
 
 export const DURUM_ETIKETLERI: Record<LeadDurum, string> = {
+  kabul: "Kabul etti",
+  istemiyor: "İstemiyor",
+  ulasilamadi: "Ulaşılamadı",
   bsd: "Aranacak",
   mail_gonderildi: "Mail gönderildi",
   mail_bekliyor: "Mail bekliyor",
   dislandi: "Dışlandı",
 };
 
+/** Rozet rengi: aksiyon bekleyenler dikkat cekici, kapananlar sonuca gore. */
+export const DURUM_SINIFLARI: Record<LeadDurum, string> = {
+  kabul: "app-success-box border",
+  istemiyor: "app-danger-box border",
+  // Aranacak ile AYNI ton, cunku ikisi de "hala aranmali" demek.
+  ulasilamadi: "app-warning-box border",
+  bsd: "app-warning-box border",
+  mail_bekliyor: "app-warning-box border",
+  mail_gonderildi: "app-primary-soft",
+  dislandi: "app-card-muted app-muted",
+};
+
 /**
- * Once `decision`'a bakilir: `mail_gonderildi` alani YALNIZCA otonom uctan
- * gelen satirlarda doldurulur, BSD ve dislanan satirlarda sema varsayilani
- * olan `false` gelir (bkz. `services/leads.py::_kuyruk_getir`).
+ * Gorusme sonucu YALNIZCA bu durumlarda isaretlenebilir; digerlerinde
+ * rozet duz bir etiket olarak kalir (menu oku gosterilmez).
+ *
+ * Disarida kalanlar mail kuyrugundaki ve dislanan kisilerdir - danisman
+ * onlari telefonla aramaz, dolayisiyla isaretleyecek bir gorusme sonucu
+ * da olusmaz.
+ */
+export const SONUC_ISARETLENEBILIR: ReadonlySet<LeadDurum> = new Set<LeadDurum>([
+  "bsd",
+  "ulasilamadi",
+  "kabul",
+  "istemiyor",
+]);
+
+/**
+ * Sira onemli:
+ *
+ * 1. Danismanin elle isaretledigi sonuc HER SEYIN onunde gelir - o kisi
+ *    icin motorun karari artik gecmis bilgidir.
+ * 2. Sonra `decision`: `mail_gonderildi` alani YALNIZCA otonom uctan gelen
+ *    satirlarda doldurulur, BSD ve dislanan satirlarda sema varsayilani
+ *    olan `false` gelir (bkz. `services/leads.py::_kuyruk_getir`).
  */
 export function durumBelirle(item: LeadQueueItem): LeadDurum {
+  if (item.call_outcome === "KABUL") return "kabul";
+  if (item.call_outcome === "ISTEMIYOR") return "istemiyor";
+  if (item.call_outcome === "ULASILAMADI") return "ulasilamadi";
   if (item.decision === "BSD") return "bsd";
   if (item.decision === "EXCLUDED") return "dislandi";
   return item.mail_gonderildi ? "mail_gonderildi" : "mail_bekliyor";
@@ -40,6 +86,7 @@ export const DISLAMA_NEDENLERI: Record<string, string> = {
   above_upper_limit: "Zaten üst segment (kampanya dışı)",
   recently_active: "Yakın zamanda aktif",
   cooldown_active: "Yakın zamanda mail gönderildi",
+  advisor_closed: "Danışman kapattı",
 };
 
 export function dislamaNedeni(item: LeadQueueItem): string | null {

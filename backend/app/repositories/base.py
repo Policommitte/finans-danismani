@@ -479,3 +479,26 @@ class LeadRepository(Protocol):
         tarihine gore (en yeni ustte).
         """
         ...
+
+    async def record_call_outcome(
+        self, user_id: int, advisor_id: int | None, outcome: str, note: str | None
+    ) -> None:
+        """`lead_call_outcomes`'a tek satir yazar - EKLEME-ONLY.
+
+        Guncelleme YOK: her gorusme yeni bir satirdir, okurken en son satir
+        gecerlidir. Boylece "iki kez ulasilamadi, ucuncude kabul etti"
+        gecmisi ve isaretlemeyi kimin yaptigi kayitli kalir.
+
+        `outcome`: KABUL | ISTEMIYOR | ULASILAMADI | ACIK. Sonuncusu
+        "sonucu temizle" demektir - satir silinmeden isaretleme geri alinir.
+        """
+        ...
+
+    async def latest_call_outcomes(self) -> dict[int, dict]:
+        """Kullanici basina EN SON gorusme sonucu.
+
+        Donen sozluk: `{user_id: {"outcome": str, "created_at": datetime}}`.
+        Son satiri `ACIK` olanlar sozlukte YOKTUR - hic isaretlenmemis
+        sayilirlar, boylece cagiran tarafta ayrica kontrol gerekmez.
+        """
+        ...

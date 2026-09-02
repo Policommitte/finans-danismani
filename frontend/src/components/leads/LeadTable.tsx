@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { LeadQueueItem } from "../../models/leads";
+import type { CallOutcomeInput, LeadQueueItem } from "../../models/leads";
 import Badge from "../ui/Badge";
 import Card from "../ui/Card";
+import { CallOutcomeMenu } from "./CallOutcomeMenu";
 import { ScoreReasonsPopover } from "./ScoreReasonsPopover";
 import {
   DURUM_ETIKETLERI,
+  DURUM_SINIFLARI,
+  SONUC_ISARETLENEBILIR,
   PANEL_YUKSEKLIGI,
   telefonFormat,
   dislamaNedeni,
@@ -26,48 +29,44 @@ import {
 const KART_SINIFI = `flex h-[34rem] ${PANEL_YUKSEKLIGI} flex-col overflow-hidden !px-0 !pt-0 !pb-1`;
 const KAYDIRMA_SINIFI = "flex-1 overflow-auto";
 
-type SiraAlani = "ad" | "durum" | "yas" | "gelir" | "bakiye" | "skor";
+//: Siralanabilen sutunlar, danismanin kuyrugu onceliklendirirken baktigi
+//: olculer: atil bakiye, sisteme eklenme tarihi ve skor. Ad/durum/dogum
+//: tarihi/gelir tanitici bilgidir, basliklarinda ok gosterilmez.
+type SiraAlani = "bakiye" | "eklenme" | "skor";
 type SiraYonu = "asc" | "desc";
 
 const SUTUNLAR: Array<{ alan: SiraAlani | null; baslik: string; sagaYasli?: boolean }> = [
-  { alan: "ad", baslik: "Lead adı" },
-  { alan: "durum", baslik: "Durum" },
+  { alan: null, baslik: "Lead adı" },
+  { alan: null, baslik: "Durum" },
   { alan: null, baslik: "Telefon" },
   { alan: null, baslik: "E-posta" },
-  { alan: "yas", baslik: "Doğum tarihi" },
-  { alan: "gelir", baslik: "Gelir", sagaYasli: true },
+  { alan: null, baslik: "Doğum tarihi" },
+  { alan: null, baslik: "Gelir", sagaYasli: true },
   { alan: "bakiye", baslik: "Atıl bakiye", sagaYasli: true },
   { alan: null, baslik: "TCKN" },
+  { alan: "eklenme", baslik: "Eklenme tarihi" },
   { alan: "skor", baslik: "Skor", sagaYasli: true },
 ];
 
-/** Durum rozetinin rengi: aksiyon bekleyenler dikkat cekici, digerleri sakin. */
-const DURUM_SINIFLARI: Record<string, string> = {
-  bsd: "app-warning-box border",
-  mail_bekliyor: "app-warning-box border",
-  mail_gonderildi: "app-primary-soft",
-  dislandi: "app-card-muted app-muted",
-};
-
-function siralamaDegeri(item: LeadQueueItem, alan: SiraAlani): number | string {
-  switch (alan) {
-    case "ad":
-      return `${item.first_name} ${item.last_name}`.toLocaleLowerCase("tr");
-    case "durum":
-      return DURUM_ETIKETLERI[durumBelirle(item)];
-    case "yas":
-      // Dogum tarihi bilinmeyenler her zaman sona dussun.
-      return yasHesapla(item.birth_date) ?? -1;
-    case "gelir":
-      return item.monthly_income;
-    case "bakiye":
-      return item.likit_para;
-    case "skor":
-      return item.score;
-  }
+function siralamaDegeri(item: LeadQueueItem, alan: SiraAlani): number {
+  if (alan === "bakiye") return item.likit_para;
+  if (alan === "skor") return item.score;
+  // Tarihi bilinmeyenler her zaman sona dussun (hangi yonde siralanirsa
+  // siralansin degil - `desc`'te en kucuk, `asc`'te en buyuk olmalari
+  // gerekirdi; basitlik icin 0 kabul edip en eski gibi davraniyoruz).
+  return item.registered_at ? Date.parse(item.registered_at) : 0;
 }
 
-export function LeadTable({ items }: { items: LeadQueueItem[] }) {
+export function LeadTable({
+  items,
+  onSonucSec,
+  kaydedilenId,
+}: {
+  items: LeadQueueItem[];
+  onSonucSec: (userId: number, outcome: CallOutcomeInput) => void;
+  /** Su an kaydedilmekte olan satir; menu o sure boyunca kilitlenir. */
+  kaydedilenId: number | null;
+}) {
   const [sira, setSira] = useState<{ alan: SiraAlani; yon: SiraYonu }>({
     alan: "skor",
     yon: "desc",
@@ -76,12 +75,7 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
   const sirali = useMemo(() => {
     const kopya = [...items];
     kopya.sort((a, b) => {
-      const av = siralamaDegeri(a, sira.alan);
-      const bv = siralamaDegeri(b, sira.alan);
-      const fark =
-        typeof av === "string" && typeof bv === "string"
-          ? av.localeCompare(bv, "tr")
-          : Number(av) - Number(bv);
+      const fark = siralamaDegeri(a, sira.alan) - siralamaDegeri(b, sira.alan);
       return sira.yon === "asc" ? fark : -fark;
     });
     return kopya;
@@ -91,9 +85,9 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
     setSira((mevcut) =>
       mevcut.alan === alan
         ? { alan, yon: mevcut.yon === "asc" ? "desc" : "asc" }
-        : // Yeni sutuna gecince sayisal alanlar buyukten kucuge daha
-          // anlamli; metin alani alfabetik baslasin.
-          { alan, yon: alan === "ad" ? "asc" : "desc" },
+        : // Iki sutun da sayisal; yeni sutuna gecince buyukten kucuge
+          // baslamak daha anlamli.
+          { alan, yon: "desc" },
     );
   }
 
@@ -150,7 +144,16 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
                   </td>
 
                   <td className="px-3 py-3">
-                    <Badge className={DURUM_SINIFLARI[durum]}>{DURUM_ETIKETLERI[durum]}</Badge>
+                    {SONUC_ISARETLENEBILIR.has(durum) ? (
+                      <CallOutcomeMenu
+                        durum={durum}
+                        mevcutSonuc={item.call_outcome}
+                        kaydediliyor={kaydedilenId === item.user_id}
+                        onSec={(outcome) => onSonucSec(item.user_id, outcome)}
+                      />
+                    ) : (
+                      <Badge className={DURUM_SINIFLARI[durum]}>{DURUM_ETIKETLERI[durum]}</Badge>
+                    )}
                     {neden && <p className="mt-1 text-xs app-muted">{neden}</p>}
                   </td>
 
@@ -183,6 +186,12 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
 
                   <td className="whitespace-nowrap px-3 py-3 app-muted">
                     {item.tckn_last4 ? `•••• ${item.tckn_last4}` : "—"}
+                  </td>
+
+                  <td className="whitespace-nowrap px-3 py-3 app-heading">
+                    {item.registered_at
+                      ? tarihFormat.format(new Date(item.registered_at))
+                      : <span className="app-muted">—</span>}
                   </td>
 
                   <td className="px-3 py-3">

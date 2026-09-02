@@ -4,16 +4,14 @@ import type { LeadDurum } from "./leadFields";
 import { DURUM_ETIKETLERI, PANEL_YUKSEKLIGI } from "./leadFields";
 
 export type BakiyeAraligi = "120-500" | "500-1000" | "diger";
-export type YasAraligi = "25-45" | "disi" | "bilinmiyor";
 
 export type LeadFiltre = {
   arama: string;
   durumlar: LeadDurum[];
   bakiye: BakiyeAraligi[];
-  yas: YasAraligi[];
 };
 
-export const BOS_FILTRE: LeadFiltre = { arama: "", durumlar: [], bakiye: [], yas: [] };
+export const BOS_FILTRE: LeadFiltre = { arama: "", durumlar: [], bakiye: [] };
 
 const BAKIYE_ETIKETLERI: Record<BakiyeAraligi, string> = {
   "120-500": "120K - 500K ₺",
@@ -21,11 +19,6 @@ const BAKIYE_ETIKETLERI: Record<BakiyeAraligi, string> = {
   diger: "Aralık dışı",
 };
 
-const YAS_ETIKETLERI: Record<YasAraligi, string> = {
-  "25-45": "25 - 45 yaş",
-  disi: "Aralık dışı",
-  bilinmiyor: "Bilinmiyor",
-};
 
 /** Bir listedeki degeri ekler ya da cikarir (cok secimli filtre davranisi). */
 function degistir<T>(liste: T[], deger: T): T[] {
@@ -89,8 +82,7 @@ export function LeadFilters({
   const aktifVar =
     filtre.arama.trim() !== "" ||
     filtre.durumlar.length > 0 ||
-    filtre.bakiye.length > 0 ||
-    filtre.yas.length > 0;
+    filtre.bakiye.length > 0
 
   return (
     <aside
@@ -122,7 +114,19 @@ export function LeadFilters({
 
       <FiltreGrubu
         baslik="Durum"
-        secenekler={["bsd", "mail_gonderildi", "mail_bekliyor", "dislandi"] as const}
+        // Sira aksiyon onceligine gore: once hala aranmasi gerekenler,
+        // sonra kapanmis dosyalar, en sonda motorun kendi durumlari.
+        secenekler={
+          [
+            "bsd",
+            "ulasilamadi",
+            "kabul",
+            "istemiyor",
+            "mail_gonderildi",
+            "mail_bekliyor",
+            "dislandi",
+          ] as const
+        }
         etiketler={DURUM_ETIKETLERI}
         secili={filtre.durumlar}
         sayaclar={durumSayaclari}
@@ -135,14 +139,6 @@ export function LeadFilters({
         etiketler={BAKIYE_ETIKETLERI}
         secili={filtre.bakiye}
         onDegis={(d) => onDegis({ ...filtre, bakiye: degistir(filtre.bakiye, d) })}
-      />
-
-      <FiltreGrubu
-        baslik="Yaş"
-        secenekler={["25-45", "disi", "bilinmiyor"] as const}
-        etiketler={YAS_ETIKETLERI}
-        secili={filtre.yas}
-        onDegis={(d) => onDegis({ ...filtre, yas: degistir(filtre.yas, d) })}
       />
     </aside>
   );

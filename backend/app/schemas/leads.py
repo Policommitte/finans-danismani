@@ -4,6 +4,7 @@ Tum parasal alanlar TRY'ye normalize edilmistir ve `_try` ile biter.
 """
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,7 +31,22 @@ class LeadQueueItem(BaseModel):
         default=None, description="Yas EKRANDA bundan turetilir, ayrica saklanmaz"
     )
     tckn_last4: str | None = Field(default=None, description="Arayuzde '•••• 1234' gosterimi")
+    registered_at: datetime | None = Field(
+        default=None,
+        description="Musterinin sisteme eklendigi an (`users.created_at`). "
+        "Satirin `created_at` alaniyla KARISTIRILMAMALI: o, kaydin hangi "
+        "taramada/temasta uretildigini soyler ve her taramada degisir.",
+    )
     days_since_activity: int | None = None
+    call_outcome: str | None = Field(
+        default=None,
+        description="Danismanin son isaretledigi gorusme sonucu: "
+        "KABUL | ISTEMIYOR | ULASILAMADI. Hic isaretlenmediyse (ya da "
+        "'ACIK' ile temizlendiyse) None.",
+    )
+    call_outcome_at: datetime | None = Field(
+        default=None, description="Yukaridaki sonucun isaretlendigi an"
+    )
     mail_gonderildi: bool = Field(
         default=False,
         description="Otonom kuyrukta anlamli: mail fiilen gonderildi mi, yoksa "
@@ -63,3 +79,14 @@ class LeadQueueResponse(BaseModel):
 
 class LeadScanRequest(BaseModel):
     force: bool = Field(default=False, description="Asgari aralik kontrolunu atla")
+
+
+class LeadOutcomeRequest(BaseModel):
+    """Danismanin telefon gorusmesinden sonra elle isaretledigi sonuc.
+
+    `ACIK` bir sonuc DEGIL, "sonucu temizle" demektir: yanlis isaretlemeyi
+    satir silmeden geri alir (`lead_call_outcomes` ekleme-only'dir).
+    """
+
+    outcome: Literal["KABUL", "ISTEMIYOR", "ULASILAMADI", "ACIK"]
+    note: str | None = Field(default=None, max_length=500, description="Serbest not")

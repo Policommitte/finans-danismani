@@ -2507,20 +2507,42 @@ class SqlLeadRepository(_SqlRepository):
             )
             await session.commit()
 
+    #: Kullanici basina EN SON gorusme sonucu. `ACIK` ("sonucu temizle")
+    #: NULL'a cevrilir, boylece cagiran taraf "isaretlenmemis" ile
+    #: "temizlenmis" arasinda ayrim yapmak zorunda kalmaz.
+    _SON_GORUSME_CTE = """
+        SON_GORUSME AS (
+            SELECT DISTINCT ON (user_id)
+                   user_id,
+                   NULLIF(outcome, 'ACIK') AS outcome,
+                   created_at
+            FROM lead_call_outcomes
+            ORDER BY user_id, created_at DESC, id DESC
+        )
+    """
+
     async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
         return await self._rows(
-            """
+            f"""
+            WITH {self._SON_GORUSME_CTE}
             SELECT q.user_id, u.first_name, u.last_name, u.email,
                    u.phone_number, u.birth_date, u.tckn_last4,
+                   u.created_at AS registered_at,
                    q.decision, q.exclusion_reason, q.score, q.score_components,
                    q.reasons, q.total_value_try, q.monthly_income, q.likit_para,
-                   q.days_since_activity, q.created_at
+                   q.days_since_activity, q.created_at,
+                   g.outcome    AS call_outcome,
+                   g.created_at AS call_outcome_at
             FROM lead_queue_entries q
             JOIN users u ON u.id = q.user_id
+            LEFT JOIN SON_GORUSME g ON g.user_id = q.user_id
             WHERE q.decision = :decision
+              -- `error IS NULL`: yarim kalmis bir tarama (islem sirasinda
+              -- yeniden baslatma/iptal) ekrani BOSALTMAMALI - son SAGLAM
+              -- taramanin sonucu gorunmeye devam eder.
               AND q.scan_id = (
                     SELECT id FROM lead_scans
-                    WHERE finished_at IS NOT NULL
+                    WHERE finished_at IS NOT NULL AND error IS NULL
                     ORDER BY started_at DESC LIMIT 1
                   )
             ORDER BY q.score DESC
@@ -2534,25 +2556,30 @@ class SqlLeadRepository(_SqlRepository):
         # gelir (LEFT JOIN): temas kaydi kalicidir, o taramanin satiri
         # silinmis olsa bile satir dusmez.
         return await self._rows(
-            """
+            f"""
+            WITH {self._SON_GORUSME_CTE}
             SELECT * FROM (
                 SELECT DISTINCT ON (c.user_id)
                        c.user_id, u.first_name, u.last_name, u.email,
                        u.phone_number, u.birth_date, u.tckn_last4,
+                       u.created_at AS registered_at,
                        'AUTONOMOUS' AS decision,
                        CAST(NULL AS VARCHAR) AS exclusion_reason,
                        COALESCE(q.score, 0) AS score,
-                       COALESCE(q.score_components, '{}'::jsonb) AS score_components,
+                       COALESCE(q.score_components, '{{}}'::jsonb) AS score_components,
                        COALESCE(q.reasons, '[]'::jsonb) AS reasons,
                        COALESCE(q.total_value_try, 0) AS total_value_try,
                        COALESCE(q.monthly_income, 0) AS monthly_income,
                        COALESCE(q.likit_para, 0) AS likit_para,
                        q.days_since_activity,
-                       c.created_at
+                       c.created_at,
+                       g.outcome    AS call_outcome,
+                       g.created_at AS call_outcome_at
                 FROM lead_contacts c
                 JOIN users u ON u.id = c.user_id
                 LEFT JOIN lead_queue_entries q
                        ON q.scan_id = c.scan_id AND q.user_id = c.user_id
+                LEFT JOIN SON_GORUSME g ON g.user_id = c.user_id
                 WHERE c.channel = 'EMAIL'
                   AND c.status = 'SENT'
                   AND c.created_at >= now() - make_interval(days => CAST(:days AS INT))
@@ -2563,6 +2590,35 @@ class SqlLeadRepository(_SqlRepository):
             """,
             {"days": days, "limit": limit},
         )
+
+    async def record_call_outcome(
+        self, user_id: int, advisor_id: int | None, outcome: str, note: str | None
+    ) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO lead_call_outcomes (user_id, advisor_id, outcome, note)
+                    VALUES (:user_id, :advisor_id, :outcome, :note)
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "advisor_id": advisor_id,
+                    "outcome": outcome,
+                    "note": note,
+                },
+            )
+            await session.commit()
+
+    async def latest_call_outcomes(self) -> dict[int, dict]:
+        rows = await self._rows(
+            f"WITH {self._SON_GORUSME_CTE} SELECT * FROM SON_GORUSME WHERE outcome IS NOT NULL"
+        )
+        return {
+            row["user_id"]: {"outcome": row["outcome"], "created_at": row["created_at"]}
+            for row in rows
+        }
 
 
 def _json(value: Any) -> str:

@@ -4,9 +4,9 @@ import { useMemo, useState } from "react";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { LeadFilters, BOS_FILTRE } from "../../components/leads/LeadFilters";
-import type { BakiyeAraligi, LeadFiltre, YasAraligi } from "../../components/leads/LeadFilters";
+import type { BakiyeAraligi, LeadFiltre } from "../../components/leads/LeadFilters";
 import { LeadTable } from "../../components/leads/LeadTable";
-import { durumBelirle, yasHesapla } from "../../components/leads/leadFields";
+import { durumBelirle } from "../../components/leads/leadFields";
 import { useLeads } from "../../hooks/useLeads";
 import type { LeadQueueItem } from "../../models/leads";
 
@@ -15,12 +15,6 @@ function bakiyeAraligi(likitPara: number): BakiyeAraligi {
   if (likitPara >= 120_000 && likitPara < 500_000) return "120-500";
   if (likitPara >= 500_000 && likitPara < 1_000_000) return "500-1000";
   return "diger";
-}
-
-function yasAraligi(item: LeadQueueItem): YasAraligi {
-  const yas = yasHesapla(item.birth_date);
-  if (yas === null) return "bilinmiyor";
-  return yas >= 25 && yas <= 45 ? "25-45" : "disi";
 }
 
 export default function DanismanPage() {
@@ -65,9 +59,6 @@ export default function DanismanPage() {
       if (filtre.bakiye.length > 0 && !filtre.bakiye.includes(bakiyeAraligi(item.likit_para))) {
         return false;
       }
-      if (filtre.yas.length > 0 && !filtre.yas.includes(yasAraligi(item))) {
-        return false;
-      }
       return true;
     });
   }, [tumLeadler, filtre]);
@@ -96,7 +87,11 @@ export default function DanismanPage() {
           yalnizca ince bir nefes payi kalir. */}
       <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
         <LeadFilters filtre={filtre} onDegis={setFiltre} durumSayaclari={durumSayaclari} />
-        <LeadTable items={filtreli} />
+        <LeadTable
+          items={filtreli}
+          onSonucSec={leads.sonucKaydet}
+          kaydedilenId={leads.kaydedilenId}
+        />
       </div>
     </div>
   );

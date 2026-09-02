@@ -435,6 +435,9 @@ _RAG_CHUNKS: list[dict] = [
 _LEAD_SCANS: list[dict] = []
 _LEAD_QUEUE_ENTRIES: list[dict] = []
 _LEAD_CONTACTS: list[dict] = []
+#: Danismanin elle isaretledigi gorusme sonuclari - EKLEME-ONLY, SQL
+#: tarafindaki `lead_call_outcomes` ile ayni davranis: en son satir gecerli.
+_LEAD_CALL_OUTCOMES: list[dict] = []
 _next_scan_id = 1
 _next_contact_id = 1
 
@@ -443,6 +446,7 @@ def _lead_signals() -> list[dict]:
     """`v_lead_user_signals` karsiligi - SQL tarafiyla AYNI mantik,
     yalnizca `lead_rules.py`'nin gercekten okudugu alanlarla sinirli."""
     rows: list[dict] = []
+    son_gorusmeler = _son_gorusmeler()
     for user in _USERS:
         if user.get("role", "customer") != "customer":
             continue
@@ -462,9 +466,23 @@ def _lead_signals() -> list[dict]:
                 "total_value_try": total_value,
                 "holding_count": len(holdings),
                 "days_since_activity": min(gun_farklari) if gun_farklari else None,
+                "advisor_outcome": (son_gorusmeler.get(user["id"]) or {}).get("outcome"),
             }
         )
     return rows
+
+
+def _son_gorusmeler() -> dict[int, dict]:
+    """Kullanici basina EN SON gorusme sonucu - SQL'deki `SON_GORUSME`
+    CTE'sinin karsiligi. `ACIK` ("sonucu temizle") sozluge HIC girmez,
+    boylece cagiran taraf "isaretlenmemis" ile "temizlenmis" arasinda
+    ayrim yapmak zorunda kalmaz."""
+    son: dict[int, dict] = {}
+    for kayit in _LEAD_CALL_OUTCOMES:
+        mevcut = son.get(kayit["user_id"])
+        if mevcut is None or kayit["created_at"] >= mevcut["created_at"]:
+            son[kayit["user_id"]] = kayit
+    return {user_id: kayit for user_id, kayit in son.items() if kayit["outcome"] != "ACIK"}
 
 
 def _now() -> datetime:
@@ -1817,9 +1835,12 @@ class InMemoryLeadRepository:
                 return
 
     async def list_queue(self, decision: str, limit: int = 100) -> list[dict]:
-        son = await self.latest_scan()
-        if son is None:
+        # SQL tarafiyla ayni: yarim kalmis (hatali) tarama ekrani
+        # BOSALTMAMALI, son SAGLAM tarama gorunmeye devam eder.
+        saglam = [s for s in _LEAD_SCANS if s["finished_at"] is not None and s["error"] is None]
+        if not saglam:
             return []
+        son = max(saglam, key=lambda s: s["started_at"])
         rows = [
             e
             for e in _LEAD_QUEUE_ENTRIES
@@ -1827,11 +1848,13 @@ class InMemoryLeadRepository:
         ]
         rows.sort(key=lambda e: e.get("score", 0), reverse=True)
 
+        son_gorusmeler = _son_gorusmeler()
         sonuc = []
         for row in rows[:limit]:
             user = next((u for u in _USERS if u["id"] == row["user_id"]), None)
             if user is None:
                 continue
+            gorusme = son_gorusmeler.get(row["user_id"]) or {}
             sonuc.append(
                 {
                     **row,
@@ -1841,6 +1864,9 @@ class InMemoryLeadRepository:
                     "phone_number": user.get("phone_number"),
                     "birth_date": user.get("birth_date"),
                     "tckn_last4": user.get("tckn_last4"),
+                    "registered_at": user.get("created_at"),
+                    "call_outcome": gorusme.get("outcome"),
+                    "call_outcome_at": gorusme.get("created_at"),
                 }
             )
         return sonuc
@@ -1860,6 +1886,7 @@ class InMemoryLeadRepository:
             if mevcut is None or contact["created_at"] > mevcut["created_at"]:
                 son_temaslar[contact["user_id"]] = contact
 
+        son_gorusmeler = _son_gorusmeler()
         sonuc = []
         for contact in sorted(son_temaslar.values(), key=lambda c: c["created_at"], reverse=True)[
             :limit
@@ -1867,6 +1894,7 @@ class InMemoryLeadRepository:
             user = next((u for u in _USERS if u["id"] == contact["user_id"]), None)
             if user is None:
                 continue
+            gorusme = son_gorusmeler.get(contact["user_id"]) or {}
             karar = next(
                 (
                     e
@@ -1884,6 +1912,7 @@ class InMemoryLeadRepository:
                     "phone_number": user.get("phone_number"),
                     "birth_date": user.get("birth_date"),
                     "tckn_last4": user.get("tckn_last4"),
+                    "registered_at": user.get("created_at"),
                     "decision": "AUTONOMOUS",
                     "exclusion_reason": None,
                     "score": karar.get("score", 0),
@@ -1894,9 +1923,30 @@ class InMemoryLeadRepository:
                     "likit_para": karar.get("likit_para", 0),
                     "days_since_activity": karar.get("days_since_activity"),
                     "created_at": contact["created_at"],
+                    "call_outcome": gorusme.get("outcome"),
+                    "call_outcome_at": gorusme.get("created_at"),
                 }
             )
         return sonuc
+
+    async def record_call_outcome(
+        self, user_id: int, advisor_id: int | None, outcome: str, note: str | None
+    ) -> None:
+        _LEAD_CALL_OUTCOMES.append(
+            {
+                "user_id": user_id,
+                "advisor_id": advisor_id,
+                "outcome": outcome,
+                "note": note,
+                "created_at": _now(),
+            }
+        )
+
+    async def latest_call_outcomes(self) -> dict[int, dict]:
+        return {
+            user_id: {"outcome": kayit["outcome"], "created_at": kayit["created_at"]}
+            for user_id, kayit in _son_gorusmeler().items()
+        }
 
 
 _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")

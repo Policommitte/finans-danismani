@@ -164,7 +164,15 @@ async def tarama_calistir(trigger: str = "manual", force: bool = False) -> dict:
                     "days_since_activity": signal.get("days_since_activity"),
                 },
             )
-    except Exception as exc:  # noqa: BLE001 - hata kaydedilir, sonra YENIDEN FIRLATILIR
+    # `Exception` DEGIL `BaseException`: `asyncio.CancelledError` Python
+    # 3.8'den beri BaseException'dan turer. Acilis taramasi ~10 saniye surer
+    # ve `uvicorn --reload` bu sirada yeniden baslarsa gorevi IPTAL eder;
+    # `except Exception` bunu yakalamadigi icin `hata` None kalir, ama
+    # `finally` yine de taramayi "bitmis ve hatasiz" olarak kapatirdi.
+    # Sonuc: yarim kalmis bir tarama (orn. 13 kisiden 4'u) veritabaninda
+    # basarili gorunur ve danisman ekrani onu "en son tarama" diye gosterip
+    # aniden bosalirdi.
+    except BaseException as exc:  # noqa: BLE001 - hata kaydedilir, sonra YENIDEN FIRLATILIR
         hata = f"{type(exc).__name__}: {exc}"
         raise
     finally:
@@ -214,6 +222,21 @@ async def otonom_kuyruk_getir(limit: int = 100) -> dict:
 
 async def dislananlar_getir(limit: int = 100) -> dict:
     return await _kuyruk_getir("EXCLUDED", limit)
+
+
+async def gorusme_sonucu_kaydet(
+    user_id: int, advisor_id: int | None, outcome: str, note: str | None = None
+) -> None:
+    """Danismanin telefon gorusmesi sonucunu kaydeder.
+
+    Tarama motoruna DOLAYLI olarak baglidir: `KABUL`/`ISTEMIYOR`
+    isaretlenenler bir sonraki taramada `advisor_closed` ile dislanir
+    (bkz. `lead_rules.uygunluk_degerlendir`). Burada tarama tetiklenmez -
+    ekran zaten `call_outcome` alanini dogrudan gosterir, kullaniciyi
+    beklemeye sokmanin anlami yok.
+    """
+    repository = get_lead_repository()
+    await repository.record_call_outcome(user_id, advisor_id, outcome, note)
 
 
 async def son_tarama_getir() -> dict | None:
