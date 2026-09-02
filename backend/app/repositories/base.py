@@ -96,7 +96,7 @@ class PortfolioRepository(Protocol):
         ...
 
     async def write_value_snapshots(self) -> int:
-        """Tum portfoylerin o anki toplam degerini 5 dakikalik kovaya yazar."""
+        """Her basarili fiyat turunda tum portfoylerin toplam degerini yazar."""
         ...
 
     async def get_value_snapshots(

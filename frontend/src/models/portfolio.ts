@@ -77,5 +77,4 @@ export type PortfolioValueSnapshotPoint = {
 export type PortfolioSnapshotPerformanceResponse = {
   points: PortfolioValueSnapshotPoint[];
   hours: number;
-  interval_minutes: number;
 };

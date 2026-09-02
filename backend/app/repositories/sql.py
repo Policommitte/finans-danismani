@@ -352,12 +352,11 @@ class SqlPortfolioRepository(_SqlRepository):
         )
 
     async def write_value_snapshots(self) -> int:
-        """Her portfoy icin tek, standart 5 dakikalik anlik goruntu yazar.
+        """Her basarili fiyat turunda portfoylerin anlik toplamlarini yazar.
 
-        Ayni kovada scheduler birden fazla kez calisirsa satir cogaltmak yerine
-        en son dogrulanmis degeri gunceller. Nakit, rezerve bakiye dahil edilerek
-        snapshot anindaki toplamdan hesaplanir; frontend sonradan bugunun
-        nakdini eski noktalara eklemez.
+        Zaman kovasi kullanilmaz: iki basarili fiyat turu birbirinin uzerine
+        yazmaz. Nakit, rezerve bakiye dahil edilerek snapshot anindaki
+        toplamdan hesaplanir.
         """
         async with self._session_factory() as session:
             result = await session.execute(
@@ -386,22 +385,14 @@ class SqlPortfolioRepository(_SqlRepository):
                             cash_value_try, total_value_try, source
                         )
                         SELECT h.portfolio_id,
-                               date_bin(
-                                   INTERVAL '5 minutes', now(),
-                                   TIMESTAMPTZ '1970-01-01 00:00:00+00'
-                               ),
+                               now(),
                                h.holdings_value_try,
                                c.cash_value_try,
                                h.holdings_value_try + c.cash_value_try,
                                'scheduler'
                         FROM holdings h
                         JOIN cash c ON c.portfolio_id = h.portfolio_id
-                        ON CONFLICT (portfolio_id, ts) DO UPDATE SET
-                            holdings_value_try = EXCLUDED.holdings_value_try,
-                            cash_value_try = EXCLUDED.cash_value_try,
-                            total_value_try = EXCLUDED.total_value_try,
-                            source = EXCLUDED.source,
-                            updated_at = now()
+                        ON CONFLICT (portfolio_id, ts) DO NOTHING
                         RETURNING 1
                     )
                     SELECT COUNT(*) AS written_count FROM written

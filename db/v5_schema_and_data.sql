@@ -197,8 +197,8 @@ CREATE TABLE cash_accounts (
     UNIQUE (portfolio_id, currency)
 );
 
--- Portfoy grafiginin tek gercek kaynagi. Her satir, o 5 dakikalik kovada
--- varlik ve nakit degerlerinin birlikte alinmis anlik goruntusudur.
+-- Portfoy grafiginin tek gercek kaynagi. Her satir, basarili bir fiyat
+-- turundan sonra varlik ve nakit degerlerinin birlikte alinmis goruntusudur.
 CREATE TABLE portfolio_value_snapshots (
     portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
     ts TIMESTAMPTZ NOT NULL,

@@ -19,7 +19,7 @@ export function usePortfolioPerformance(hours = 24) {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void performance.refresh();
-    }, 60_000);
+    }, 15_000);
 
     return () => window.clearInterval(timer);
   }, [performance.refresh]);

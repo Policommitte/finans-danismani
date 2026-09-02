@@ -106,4 +106,3 @@ class PortfolioValueSnapshotPoint(BaseModel):
 class PortfolioSnapshotPerformanceResponse(BaseModel):
     points: list[PortfolioValueSnapshotPoint]
     hours: int
-    interval_minutes: int = 5

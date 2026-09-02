@@ -71,15 +71,6 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
 
     yazilan = await repository.apply_price_updates(updates, write_live=write_live, source=kaynak)
 
-    # Ek Yahoo istegi atmadan, ayni fiyat cevabindaki gercek OHLCV mumlarini
-    # ayri tabloda sakla. Fake/test provider'larinda `son_mumlar` bulunmaz.
-    mumlar = getattr(provider, "son_mumlar", [])
-    if mumlar:
-        try:
-            await repository.upsert_candles(mumlar, source="yahoo")
-        except Exception:  # noqa: BLE001 - mum yazimi fiyat akisini durdurmamali
-            logger.exception("OHLCV mumlari yazilamadi")
-
     # Paper emirleri eski/cache fiyatiyla degil, yalnizca bu tick'te dis
     # kaynaktan dogrulanmis fiyat gelen varliklarla gerceklestiririz.
     try:
@@ -92,15 +83,28 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
         logger.exception("paper emirleri islenemedi")
 
     # Emirlerin gerceklesmesi pozisyon ve nakdi degistirebilir. Bu nedenle
-    # snapshot fiyat yazimindan ve emir islemeden SONRA alinir. Snapshot
-    # altyapisi hata verse bile piyasa verisi akisi bundan etkilenmez.
-    try:
-        snapshot_count = await get_portfolio_repository().write_value_snapshots()
-        logger.debug("portfoy snapshot'i yazildi", extra={"portfolios": snapshot_count})
-    except asyncio.CancelledError:
-        raise
-    except Exception:  # noqa: BLE001 - snapshot fiyat akisini durdurmamali
-        logger.exception("portfoy snapshot'i yazilamadi")
+    # snapshot fiyat yazimindan ve emir islemeden SONRA alinir. Ancak hicbir
+    # Yahoo fiyati yazilamayan bir tur, eski fiyatlarla yeni bir grafik noktasi
+    # uretmemelidir. Boylece grafigin en sag noktasi daima son BASARILI fiyat
+    # turunun portfoy degeridir.
+    if yazilan > 0:
+        try:
+            snapshot_count = await get_portfolio_repository().write_value_snapshots()
+            logger.debug("portfoy snapshot'i yazildi", extra={"portfolios": snapshot_count})
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - snapshot fiyat akisini durdurmamali
+            logger.exception("portfoy snapshot'i yazilamadi")
+
+    # Mum arsivleme, ozellikle uygulamanin ilk Yahoo paketinde uzun surebilir.
+    # Portfoy snapshot'ini bunun arkasinda bekletmeyiz; aksi halde dashboard
+    # yeni fiyati gosterirken grafik bir onceki noktada kalabilir.
+    mumlar = getattr(provider, "son_mumlar", [])
+    if mumlar:
+        try:
+            await repository.upsert_candles(mumlar, source="yahoo")
+        except Exception:  # noqa: BLE001 - mum yazimi fiyat akisini durdurmamali
+            logger.exception("OHLCV mumlari yazilamadi")
 
     # Otonom oneri turu: sinyal uretimi ve TTL kapanisi. Fiyat yazildiktan
     # SONRA calisir - sinyaller bu tick'te dogrulanmis fiyatlari gorsun.

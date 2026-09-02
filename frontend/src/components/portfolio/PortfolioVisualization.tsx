@@ -59,33 +59,31 @@ function formatTime(value: string, language: "tr" | "en"): string {
 export function buildCompletedHalfHourlyCandles(
   points: PortfolioValueSnapshotPoint[],
 ): CandlePoint[] {
-  const fiveMinutes = 5 * 60 * 1_000;
   const halfHour = 30 * 60 * 1_000;
-  const buckets = new Map<number, Map<number, number>>();
+  const buckets = new Map<number, Array<{ timestamp: number; value: number }>>();
 
   points.forEach((point) => {
     const timestamp = new Date(point.ts).getTime();
-    if (!Number.isFinite(timestamp) || timestamp % fiveMinutes !== 0) {
+    if (!Number.isFinite(timestamp)) {
       return;
     }
 
     const bucketTimestamp = Math.floor(timestamp / halfHour) * halfHour;
-    const bucket = buckets.get(bucketTimestamp) ?? new Map<number, number>();
-    bucket.set(timestamp, point.total_value_try);
+    const bucket = buckets.get(bucketTimestamp) ?? [];
+    bucket.push({ timestamp, value: point.total_value_try });
     buckets.set(bucketTimestamp, bucket);
   });
 
   return [...buckets.entries()]
     .sort(([left], [right]) => left - right)
     .flatMap(([bucketTimestamp, values]) => {
-      const expectedValues = Array.from({ length: 6 }, (_, index) =>
-        values.get(bucketTimestamp + index * fiveMinutes),
-      );
-      if (expectedValues.some((value) => value == null)) {
+      if (bucketTimestamp + halfHour > Date.now() || values.length === 0) {
         return [];
       }
 
-      const completedValues = expectedValues as number[];
+      const completedValues = values
+        .sort((left, right) => left.timestamp - right.timestamp)
+        .map((item) => item.value);
       const open = completedValues[0];
       const close = completedValues.at(-1) ?? open;
       const high = Math.max(...completedValues);
@@ -105,6 +103,21 @@ function paddedDomain(minimum: number, maximum: number): [number, number] {
   const spread = maximum - minimum;
   const padding = Math.max(spread * 0.12, Math.abs(maximum) * 0.0005, 1);
   return [minimum - padding, maximum + padding];
+}
+
+export function buildChronologicalPortfolioPoints(
+  points: PortfolioValueSnapshotPoint[],
+  conversionDivisor: number,
+): PortfolioValueSnapshotPoint[] {
+  return [...points]
+    .filter((point) => !Number.isNaN(new Date(point.ts).getTime()))
+    .sort((left, right) => new Date(left.ts).getTime() - new Date(right.ts).getTime())
+    .map((point) => ({
+      ...point,
+      holdings_value_try: point.holdings_value_try / conversionDivisor,
+      cash_value_try: point.cash_value_try / conversionDivisor,
+      total_value_try: point.total_value_try / conversionDivisor,
+    }));
 }
 
 function CandlestickShape({ x = 0, y = 0, width = 0, height = 0, payload }: CandlestickShapeProps) {
@@ -330,14 +343,7 @@ export function PortfolioVisualization({
       : compactCurrency.format(value);
   const quantityFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 4 });
   const chartPoints = useMemo(
-    () => performancePoints
-      .filter((point) => !Number.isNaN(new Date(point.ts).getTime()))
-      .map((point) => ({
-        ...point,
-        holdings_value_try: point.holdings_value_try / conversionDivisor,
-        cash_value_try: point.cash_value_try / conversionDivisor,
-        total_value_try: point.total_value_try / conversionDivisor,
-      })),
+    () => buildChronologicalPortfolioPoints(performancePoints, conversionDivisor),
     [conversionDivisor, performancePoints],
   );
   const totalValueTry = holdings.reduce((sum, item) => sum + item.market_value_try, 0) + cashTotalTry;
@@ -581,8 +587,8 @@ export function PortfolioVisualization({
         ) : mode === "candlestick" && candlePoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center px-6 text-center text-sm app-muted">
             {language === "tr"
-              ? "Tamamlanmış bir 30 dakikalık mum için henüz altı adet 5 dakikalık değer oluşmadı."
-              : "Six 5-minute values have not yet formed a completed 30-minute candle."}
+              ? "Henüz tamamlanmış bir 30 dakikalık portföy aralığı oluşmadı."
+              : "A completed 30-minute portfolio interval is not available yet."}
           </div>
         ) : mode === "candlestick" ? (
           <>
