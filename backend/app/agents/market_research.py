@@ -1444,11 +1444,16 @@ class MarketResearchAgent(BaseAgent):
         # "aselsan" -> savunma haberi 3. siradan 1. siraya, 0.345 -> 0.426.
         sembol = task.get("symbol")
         if task.get("symbol_alandan"):
+            # Ozne de bos birakilir - arama metnindekiyle ayni gerekce: sorulan
+            # sirket katalogdakinden baskasi olabilir. Model ozneyi sorudan cikarir.
+            ozne = None
             arama = _arama_metni(query)
         else:
+            varlik_adi = await self._varlik_adi(sembol)
+            ozne = _ozne_etiketi(varlik_adi, sembol)
             arama = _arama_metni(
                 query,
-                await self._varlik_adi(sembol),
+                varlik_adi,
                 _ALAN_SOZLUGU.get(str(sembol or "").upper()),
             )
 
@@ -1483,11 +1488,11 @@ class MarketResearchAgent(BaseAgent):
         ]
         guven = round(sum(c.get("score", 0.0) for c in chunks) / len(chunks), 3)
 
-        ozet, hata = await self._summarize(query, chunks)
+        ozet, hata = await self._summarize(query, chunks, ozne)
         return ozet, kaynaklar, ham_kaynaklar, guven, hata
 
     async def _summarize(
-        self, query: str, chunks: list[dict[str, Any]]
+        self, query: str, chunks: list[dict[str, Any]], ozne: str | None = None
     ) -> tuple[str, AgentError | None]:
         """Chunk'lari kaynaga dayali tek bir ozete cevirir.
 
@@ -1500,7 +1505,7 @@ class MarketResearchAgent(BaseAgent):
             return self._fallback_summary(chunks), None
 
         try:
-            return await self.generate(_build_rag_prompt(query, chunks)), None
+            return await self.generate(_build_rag_prompt(query, chunks, ozne)), None
         except Exception as exc:  # noqa: BLE001 - LLM cokse de RAG verisi korunmali
             logger.exception("piyasa ozeti uretilemedi", extra={"agent": self.name})
             return self._fallback_summary(chunks), AgentError(
@@ -1799,18 +1804,72 @@ class MarketResearchAgent(BaseAgent):
         return tools
 
 
-def _build_rag_prompt(query: str, chunks: list[dict[str, Any]]) -> str:
+def _ozne_etiketi(varlik_adi: str | None, sembol: str | None) -> str | None:
+    """Ozet prompt'una konacak ozne etiketi: "Turk Hava Yollari (THYAO)".
+
+    Ikisi de yoksa `None` doner; `_build_rag_prompt` o zaman modelden ozneyi
+    sorunun kendisinden cikarmasini ister.
+    """
+    ad = (varlik_adi or "").strip()
+    kod = (sembol or "").strip().upper()
+    if ad and kod and _normalize(kod) not in _normalize(ad):
+        return f"{ad} ({kod})"
+    return ad or kod or None
+
+
+def _build_rag_prompt(query: str, chunks: list[dict[str, Any]], ozne: str | None = None) -> str:
     """Kaynaga dayali (grounded) ozet prompt'u.
 
-    Modelden ACIKCA yalnizca verilen kaynaklara dayanmasi istenir; boylece
-    yanit izlenebilir kalir ve kaynakta olmayan bilgi uretilmesi engellenir.
+    Modelden yalnizca verilen kaynaklara dayanmasi istenir; boylece yanit
+    izlenebilir kalir ve kaynakta olmayan bilgi uretilmesi engellenir.
+
+    Kaynaklar ayrica DOGRUDAN / BAGLAM diye ayirttirilir. `_arama_metni` alan
+    kelimelerini bilerek gomdugu icin havuzda sektor haberleri de vardir ve
+    model ikisini tek paragrafta birlestiriyordu (2 Eylul 2026: "THYAO
+    haberleri" sorusuna havalimani rekoru ozeti). Ayrim KURAL ile yapilamaz -
+    haberde sirket adi hic gecmeyebilir - bu yuzden karar metni zaten okuyan
+    MODELE birakilir. Ek LLM cagrisi yok, ayni tek ozet cagrisi.
+
+    Olcut haberin KONUSU degil, metninde ozne hakkinda BILGI olup olmadigidir:
+    vergi rekortmenleri listesindeki "Garanti BBVA 3. sirada" satiri, haberin
+    konusu baska olsa da dogrudan bilgidir ve kaybolmamali.
+
+    Sentez katmani da ayrimi korumak zorunda (bkz. `SYNTHESIZER_SYSTEM_PROMPT`
+    10. madde); biri degisirse digeri gozden gecirilmeli.
     """
-    lines = [
-        f"Kullanici sorusu: {query}",
+    lines = [f"Kullanıcı sorusu: {query}"]
+    lines.append(
+        f"Sorunun öznesi: {ozne}"
+        if ozne
+        else "Sorunun öznesini kullanıcının sorusundan kendin çıkar."
+    )
+    lines += [
         "",
-        "Asagidaki kaynaklara dayanarak Turkce, kisa ve net bir yanit yaz. "
+        "Aşağıdaki kaynaklara dayanarak Türkçe, kısa ve net bir yanıt yaz. "
         "Sadece bu kaynaklarda yer alan bilgileri kullan, kaynaklarda olmayan "
-        "hicbir bilgi uydurma.",
+        "hiçbir bilgi uydurma.",
+        "",
+        "Yazmadan önce her kaynağı kendi içinde ikiye ayır. Ölçüt haberin "
+        "BAŞLIĞI ya da ana konusu değil, METNİNDE özne hakkında bilgi olup "
+        "olmadığıdır:",
+        "- DOĞRUDAN: metin özne hakkında somut bir bilgi veriyor. Haberin ana "
+        "konusu başka bir şey olsa bile buraya girer: bir listede geçen rakam, "
+        "tek cümlelik bir açıklama da bilgidir.",
+        "- BAĞLAM: metinde özne hakkında bilgi yok, ama haber öznenin "
+        "sektörünü ya da pazarını ilgilendiriyor.",
+        "Öznenin sektöründen olmak tek başına DOĞRUDAN yapmaz; adının geçmesi "
+        "de yetmez - o geçişte özne hakkında bir BİLGİ olmalı.",
+        "",
+        "Yanıtı bu ayrımı KORUYARAK yaz:",
+        "1. Önce özne hakkındaki bilgileri özetle; her birinin hangi haberin "
+        "içinden geldiğini belirt.",
+        "2. Bağlam haberlerini ayrı bir bölümde, aynı sektörden gelişmeler "
+        "olduklarını ve özneyi doğrudan konu almadıklarını belirterek ÖZETLE.",
+        "3. Boş grup için başlık açma; dolu grubu her zaman özetle.",
+        "4. Doğrudan haber YOKSA bunu ilk cümlede söyle ve ARDINDAN bağlam "
+        "haberlerini özetlemeye devam et; yalnızca yokluğunu bildirip durma, "
+        "elindeki hiçbir kaynağı özetlemeden bırakma.",
+        "5. Bağlam haberlerini özne hakkındaymış gibi anlatma.",
         "",
     ]
     for i, chunk in enumerate(chunks, start=1):
@@ -1819,5 +1878,5 @@ def _build_rag_prompt(query: str, chunks: list[dict[str, Any]]) -> str:
         lines.append(f"[{i}] Kaynak: {kaynak} ({tarih})")
         lines.append(chunk.get("text", ""))
         lines.append("")
-    lines.append("Yanit:")
+    lines.append("Yanıt:")
     return "\n".join(lines)

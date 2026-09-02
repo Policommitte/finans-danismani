@@ -302,7 +302,7 @@ KISMI_YANIT_ASGARI_KARAKTER = 120
 #: Yarim kalan sentezin sonuna eklenen aciklama.
 KISMI_YANIT_NOTU = "(Yanıtın devamı teknik bir nedenle üretilemedi.)"
 
-#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 13. madde ile AYNI metin.
+#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 14. madde ile AYNI metin.
 YATIRIM_TAVSIYESI_IBARESI = "Bu bilgiler yatırım tavsiyesi değildir."
 
 #: Cikti guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
@@ -373,11 +373,15 @@ DÜRÜSTLÜK
 8. Veri az ya da yetersizse bunu tek cümleyle açıkça söyle; uzmanın "yeterli
    değildir" uyarısını YUTMA.
 9. Bir uzmandan veri gelmediyse dürüstçe belirt.
-10. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
+10. Bir uzman bilgiyi "doğrudan X hakkında" ve "aynı sektörden bağlam" diye
+    AYIRMIŞSA bu ayrımı KORU: bağlam bilgisini X hakkındaymış gibi yazma,
+    kısaltmak için iki grubu birleştirme. Doğrudan bilgi yoksa bunu ilk
+    cümlede söyle ama bağlam bilgisini ATMA - özetlemeye devam et.
+11. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
     bile maskele.
-11. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
-12. Sade dil kullan; gereksiz teknik jargondan kaçın.
-13. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
+12. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
+13. Sade dil kullan; gereksiz teknik jargondan kaçın.
+14. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
     ekle."""
 
 
@@ -1031,7 +1035,7 @@ class Orchestrator:
             kismi = kismi[: son_sinir + 1].rstrip()
 
         satirlar = [kismi, "", KISMI_YANIT_NOTU]
-        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 13. madde);
+        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 14. madde);
         # sentez yarim kaldigi icin model onu yazmaya firsat bulamamis olabilir.
         if YATIRIM_TAVSIYESI_IBARESI not in kismi:
             satirlar.append(YATIRIM_TAVSIYESI_IBARESI)

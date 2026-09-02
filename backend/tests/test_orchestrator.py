@@ -1111,6 +1111,19 @@ def test_sentez_promptu_kisalik_ve_soru_odagi_ister():
     assert "YENİ SAYI ÜRETME" in prompt
 
 
+def test_sentez_promptu_dogrudan_baglam_ayrimini_korumayi_ister():
+    """2. madde ("hepsini sirayla anlatma") piyasa ajaninin dogrudan/baglam
+    ayrimini eritiyordu; birlestirme acikca yasaklanir.
+    """
+    prompt = orchestrator_modulu.SYNTHESIZER_SYSTEM_PROMPT
+
+    assert "aynı sektörden bağlam" in prompt
+    # Prompt sarmalandigi icin tam cumle eslesmez.
+    assert "kısaltmak için iki grubu" in prompt
+    # Dogrudan bilgi yoksa baglam da atiliyordu (GARAN).
+    assert "bağlam bilgisini ATMA" in prompt
+
+
 async def test_yedek_yanit_bolumleri_router_sirasina_gore_dizer():
     """Sabit sira, tek hisse sorusunda bile yaniti portfoy dokumuyle
     baslatiyordu - sorunun cevabi en alta dusuyordu."""
