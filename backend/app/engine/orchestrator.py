@@ -60,6 +60,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
+from app.agents.portfolio import gunun_hareketlileri
 from app.agents.security_agent import PII_FLAG
 from app.config import settings
 from app.core.llm import _gecici_hata_mi
@@ -363,6 +364,9 @@ Türkçe yanıta dönüştür.
 
 KISA TUT
 4. En fazla 150 kelime. Cevap net olduğunda 2-3 cümlede bitir.
+   İSTİSNA: Kullanıcı açıkça birden fazla konuyu kapsayan bir özet istediyse
+   (örn. günlük portföy brifingi) istediği bölümlerin HEPSİNİ yaz ve
+   belirttiği kelime sınırına kadar çık.
 5. Madde listesi yalnızca gerçekten liste olan şeyler için (örn. birkaç yıllık
    getiri). Üç maddeyi geçme.
 6. Aynı sayıyı iki kez yazma; tekrar eden cümle kurma.
@@ -418,6 +422,9 @@ def _normalize(text: str) -> str:
 #: (`synthesizer_stall_seconds`) ve beklemeler `synthesizer_timeout_seconds`
 #: butcesinden yenir. Hak daha da artirilirsa dis zaman asimi tetiklenir -
 #: sonuc yine deterministik ozet olur ama kullanici cok daha uzun bekler.
+#: `done` olayinda gonderilen en fazla varlik karti sayisi.
+KART_SEMBOL_SINIRI = 3
+
 _SENTEZ_YENIDEN_DENEME = 2
 
 #: Denemeler arasi bekleme - kademeli. Sabit bekleme yogunluk aninda ikinci
@@ -1394,6 +1401,10 @@ class Orchestrator:
         #: ilk token'dan once gitme zorunlulugu yok, cunku frontend karti
         #: cevap TAMAMLANDIKTAN sonra gosterir.
         bahsedilen_semboller: list[str] = []
+        #: Portfoy ajani calistiysa gunun en hareketli pozisyonlari - piyasa
+        #: ajaninin sembolu TEK bir varlik veriyor, portfoy sorularinda ise
+        #: cevap birden fazla pozisyondan bahsediyor.
+        hareketli_semboller: list[str] = []
         son_yanit: str | None = None
         #: Kullaniciya GERCEKTEN gonderilmis token'lar. Nihai metin bundan
         #: uzunsa aradaki fark sonda ek token olarak yollanir (bkz. asagisi).
@@ -1445,6 +1456,14 @@ class Orchestrator:
                         piyasa_verisi = update.get("market_data")
                         if isinstance(piyasa_verisi, dict) and piyasa_verisi.get("symbol"):
                             bahsedilen_semboller = [piyasa_verisi["symbol"]]
+
+                        portfoy_verisi = update.get("portfolio_data")
+                        if isinstance(portfoy_verisi, dict):
+                            hareketli_semboller = [
+                                h["symbol"]
+                                for h in gunun_hareketlileri(portfoy_verisi)
+                                if h.get("symbol")
+                            ]
 
                         # Kismi basarisizlik: tek ajan coktu, sohbet DEVAM
                         # ediyor. Frontend bunu uyari olarak gosterir, akisi
@@ -1511,7 +1530,11 @@ class Orchestrator:
         bitis_olayi: dict = {
             "type": "done",
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
-            "mentioned_assets": bahsedilen_semboller,
+            # Sorulan varlik once, ardindan gunun hareketlileri; tekrarlar
+            # elenir ve kart sayisi sinirlanir.
+            "mentioned_assets": list(
+                dict.fromkeys([*bahsedilen_semboller, *hareketli_semboller])
+            )[:KART_SEMBOL_SINIRI],
         }
         if uretilen_rapor:
             # `rapor`: yalnizca META veri (dosya adi/boyut) - SSE'ye JSON
