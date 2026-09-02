@@ -385,7 +385,7 @@ function LandingSideMenu({
           onAuthPopoverClose();
         }
       }}
-      className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
+      className="fixed bottom-0 left-0 top-0 z-50 flex w-[var(--sidebar-width)] flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
     >
       <div aria-hidden="true" className="h-20 shrink-0" />
 
@@ -1363,15 +1363,30 @@ export default function HomePage() {
   return (
     <main className="min-h-screen overflow-x-hidden app-bg transition-colors">
       <div className={activePreview ? "pointer-events-none blur-sm transition" : "transition"}>
-        <LandingSideMenu
-          language={language}
-          showHome={!auth.user && !auth.hasToken}
-          authRequiredPath={authRequiredPath}
-          onNavigate={handleProtectedNavigate}
-          onAuthPopoverClose={() => setAuthRequiredPath(null)}
-        />
+        {/* Sol menu SADECE giris yapmis kullanicida gorunur - AppShell'deki
+            Sidebar.tsx ile AYNI auth.user deseni (DOM'dan tamamen cikarilir,
+            sadece CSS ile gizlenmez). */}
+        {auth.user && (
+          <LandingSideMenu
+            language={language}
+            // Bu menu SADECE giris yapmis kullanicida render edilir (asagida) -
+            // "Ana Sayfa" giris yapmis kullaniciya site genelinde HICBIR yerde
+            // gosterilmez (bkz. Sidebar.tsx'teki ayni kural), o yuzden burada
+            // da false.
+            showHome={false}
+            authRequiredPath={authRequiredPath}
+            onNavigate={handleProtectedNavigate}
+            onAuthPopoverClose={() => setAuthRequiredPath(null)}
+          />
+        )}
 
-        <div className="ml-24 w-[calc(100%-6rem)] pt-20">
+        <div
+          className={
+            auth.user
+              ? "ml-[var(--sidebar-width)] w-[calc(100%-var(--sidebar-width))] pt-20"
+              : "w-full pt-20"
+          }
+        >
           <HeroSlider language={language} />
 
           <QuickAccessCards

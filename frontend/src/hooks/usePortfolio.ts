@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import { getPortfolioPerformance, getPortfolioTransactions } from "../services/portfolioService";
+import {
+  getPortfolioSnapshotPerformance,
+  getPortfolioTransactions,
+} from "../services/portfolioService";
 import { useAsyncData } from "./useAsyncData";
 
 export function usePortfolioTransactions(limit = 20) {
@@ -10,7 +13,7 @@ export function usePortfolioTransactions(limit = 20) {
 }
 
 export function usePortfolioPerformance(hours = 24) {
-  const loader = useCallback(() => getPortfolioPerformance(hours), [hours]);
+  const loader = useCallback(() => getPortfolioSnapshotPerformance(hours), [hours]);
   const performance = useAsyncData(loader, [loader], `portfolio:performance:${hours}`);
 
   useEffect(() => {

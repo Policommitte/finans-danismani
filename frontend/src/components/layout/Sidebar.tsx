@@ -1,80 +1,96 @@
 "use client";
 
-import Link from "next/link";
+import {
+  Home,
+  LayoutDashboard,
+  Newspaper,
+  Zap,
+  LineChart,
+  Trophy,
+  UserCircle,
+  LifeBuoy,
+  type LucideIcon,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { useAuth } from "../../hooks/useAuth";
+import { DesktopSidebar, Sidebar as SidebarPrimitive, SidebarLink } from "../ui/sidebar";
 import { mainNavItems, utilityNavItems, type NavItem } from "./navItems";
 
-function MenuIcon({ item }: { item: NavItem }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="block h-8 w-8 shrink-0 bg-current [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-      style={{
-        maskImage: `url('${item.icon}')`,
-        WebkitMaskImage: `url('${item.icon}')`,
-      }}
-    />
-  );
-}
+//: navItems.ts'teki eski mask-image SVG ikonlarinin lucide-react karsiliklari -
+//: Aceternity sidebar primitive'i (ui/sidebar.tsx) duz React ikon elemani
+//: bekliyor, mask-image tabanli yaklasimi kullanmiyor.
+const ICONS: Record<string, LucideIcon> = {
+  home: Home,
+  dashboard: LayoutDashboard,
+  newsletter: Newspaper,
+  recommendations: Zap,
+  market: LineChart,
+  game: Trophy,
+  profile: UserCircle,
+  support: LifeBuoy,
+};
 
-function NavList({ items }: { items: NavItem[] }) {
-  const pathname = usePathname();
+function NavLinks({ items, pathname }: { items: NavItem[]; pathname: string }) {
   const { language } = useLanguage();
 
   return (
-    <nav className="space-y-4">
+    <>
       {items.map((item) => {
         const active = pathname === item.href || (item.href === "/dashboard" && pathname === "/portfolio");
+        const Icon = ICONS[item.key] ?? Home;
 
         return (
-          <Link
+          <SidebarLink
             key={item.href}
-            href={item.href}
+            link={{
+              label: item.label[language],
+              href: item.href,
+              icon: (
+                <Icon
+                  className={`h-5 w-5 shrink-0 ${active ? "text-white" : "text-white/70"}`}
+                />
+              ),
+            }}
             data-tour={item.tourId}
             aria-current={active ? "page" : undefined}
-            className={`group relative flex h-16 w-full items-center justify-center overflow-visible rounded-md border px-0 transition ${
-              active
-                ? "border-white/20 bg-white/10 text-white"
-                : "border-white/10 bg-white/[0.06] text-white/70 hover:border-white/30 hover:bg-white/15 hover:text-white"
+            className={`rounded-md px-2 ${
+              active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
             }`}
-          >
-            {active ? (
-              <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-[var(--color-primary)]" />
-            ) : null}
-            <span className="absolute left-2 top-1/2 -translate-y-1/2">
-              <MenuIcon item={item} />
-            </span>
-            <span
-              className={`pointer-events-none absolute left-1/2 -top-3 z-[70] w-[88px] -translate-x-1/2 whitespace-normal px-1 text-center text-[11px] font-bold leading-[1.05] transition-colors ${
-                active ? "text-white" : "text-white/70 group-hover:text-white"
-              }`}
-            >
-              {item.label[language]}
-            </span>
-          </Link>
+          />
         );
       })}
-    </nav>
+    </>
   );
 }
 
-export function Sidebar({ showHome = true }: { showHome?: boolean }) {
-  const visibleMainNavItems = showHome
-    ? mainNavItems
-    : mainNavItems.filter((item) => item.key !== "home");
+export function Sidebar() {
+  const auth = useAuth();
+  const pathname = usePathname();
+  //: Giris yapmis kullanicinin zaten "Genel Bakis" (dashboard) ekrani var -
+  //: herkese acik pazarlama amacli anasayfaya ("/") gitmesine gerek yok,
+  //: kafa karistirir. page.tsx'teki LandingSideMenu de AYNI listeyi ("home"
+  //: haric) kullanir - bkz. navItems.ts docstring'i.
+  const items = auth.user ? mainNavItems.filter((item) => item.key !== "home") : mainNavItems;
 
   return (
-    <aside className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl">
-      {/* Logo artik MarketTicker'daki ust seritte gosteriliyor - burada tekrar
-          etmemesi icin sadece bosluk birakilir (bkz. MarketTicker.tsx Link). */}
-      <div aria-hidden="true" className="h-20 shrink-0" />
-      <div className="mt-8">
-        <NavList items={visibleMainNavItems} />
-      </div>
-      <div className="mt-auto pt-6">
-        <NavList items={utilityNavItems} />
-      </div>
-    </aside>
+    <SidebarPrimitive>
+      {/* Kapaliyken 96px, uzerine gelince 220px'e acilip icerigin USTUNE biner
+          (fixed + shadow) - sayfa icerigi kaymaz, mevcut layout/marjin sistemine
+          (AppShell, MarketTicker) dokunulmaz. `flex flex-col` (on-prefiksiz)
+          primitive'in kendi `hidden md:flex` tabanini gecersiz kilar - bu
+          site ayri bir mobil menu tasarimi kullanmiyor (eski Sidebar.tsx da
+          tum genisliklerde ayni sekilde gorunuyordu), MobileSidebar bu yuzden
+          kasitli olarak kullanilmadi (paylasilan hover/acik state'i mobil
+          panelin masaustu hover'da da acilmasina yol aciyordu). */}
+      <DesktopSidebar className="fixed bottom-0 left-0 top-0 z-50 flex h-screen flex-col overflow-visible border-r border-white/10 bg-[var(--color-market-bar)] pb-6 pt-24 shadow-2xl">
+        <div className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden">
+          <NavLinks items={items} pathname={pathname} />
+        </div>
+        <div className="mt-auto flex flex-col gap-1 border-t border-white/10 pt-4">
+          <NavLinks items={utilityNavItems} pathname={pathname} />
+        </div>
+      </DesktopSidebar>
+    </SidebarPrimitive>
   );
 }

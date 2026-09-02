@@ -22,12 +22,12 @@ const REVEAL_DELAY_MS = 40;
 // sonra sayfa yine acilir; serit kendi iskeletiyle sonradan dolar -
 // islevsel bir kayip yok, yalnizca kotu gunun tavani dusuyor.
 const TICKER_READY_TIMEOUT_MS = 2500;
-// Sayfa verisi (dashboard/market/bulten/oneriler) icin ayni turden bir tavan.
-// Eskiden YOKTU: backend yavaslarsa ya da bir istek asilirsa perde sonsuza
-// kadar kapali kaliyordu - kullanicinin "sonsuza kadar bekliyoruz" dedigi
-// durum tam olarak buydu. Tavan dolunca sayfa kendi yukleme metniyle acilir;
-// veri gelince yerine oturur. Ticker tavanindan uzun tutuldu cunku burada
-// bekledigimiz sey sayfanin asil icerigi, bos acilmak son care.
+// Yardimci sayfalardaki veri bekleyisinin tavani. Dashboard, market/islemler
+// ve bulten bu tavani BILINCLI olarak kullanmaz: bu sayfalarin ilk acilisinda
+// asil veri hazir olmadan perdeyi kaldirmak, kullaniciya once bos bir
+// "yukleniyor" karti sonra gercek sayfayi gosteriyordu. Bu uc sayfa kendi
+// READY event'ini gonderene kadar logo + spinner gorunur kalir. Oneriler
+// sayfasinda ise mevcut guvenlik tavani korunur.
 const PAGE_READY_TIMEOUT_MS = 4000;
 
 type TransitionPhase = "idle" | "covering" | "covered" | "revealing";
@@ -77,9 +77,9 @@ export function PageTransition({ children }: { children: ReactNode }) {
 
       return (
         (!pageHasTicker || tickerIsReady || tickerWaitExpired) &&
-        (!pageNeedsDashboard || dashboardIsReady || pageWaitExpired) &&
-        (!pageNeedsMarket || marketPageIsReady || pageWaitExpired) &&
-        (!pageNeedsBulletin || bulletinPageIsReady || pageWaitExpired) &&
+        (!pageNeedsDashboard || dashboardIsReady) &&
+        (!pageNeedsMarket || marketPageIsReady) &&
+        (!pageNeedsBulletin || bulletinPageIsReady) &&
         (!pageNeedsAutonomousActions || autonomousActionsIsReady || pageWaitExpired)
       );
     }

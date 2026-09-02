@@ -14,10 +14,19 @@ kurallari, hata zarflari) calismaya devam eder.
 testleri gercekten satir yazar.
 """
 
+import asyncio
 import os
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
+
+if sys.platform == "win32":
+    # psycopg'nin async surucusu Proactor event loop'u desteklemiyor
+    # (bkz. run.py'deki ayni duzeltme) - test surecinde de gerekli,
+    # aksi halde her `db` isaretli test baglanti kurarken InterfaceError
+    # firlatir.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from app.auth.security import create_access_token
 from app.config import settings

@@ -66,3 +66,16 @@ export type PortfolioPerformanceResponse = {
   points: PortfolioPerformancePoint[];
   hours: number;
 };
+
+export type PortfolioValueSnapshotPoint = {
+  ts: string;
+  holdings_value_try: number;
+  cash_value_try: number;
+  total_value_try: number;
+};
+
+export type PortfolioSnapshotPerformanceResponse = {
+  points: PortfolioValueSnapshotPoint[];
+  hours: number;
+  interval_minutes: number;
+};

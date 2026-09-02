@@ -23,6 +23,9 @@ const ASSET_CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   CRYPTO: { tr: "Kripto", en: "Crypto" },
   FOREX: { tr: "Döviz", en: "Forex" },
   GOLD: { tr: "Altın", en: "Gold" },
+  COMMODITY: { tr: "Emtia", en: "Commodity" },
+  BOND: { tr: "Tahvil", en: "Bond" },
+  ETF: { tr: "Fon (ETF)", en: "ETF" },
   INDEX: { tr: "Endeks", en: "Index" },
 };
 

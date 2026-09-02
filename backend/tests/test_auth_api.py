@@ -129,49 +129,22 @@ async def _kullaniciyi_sil(email: str) -> None:
         await session.commit()
 
 
-#: Resmi mod-10 saglamasini gecen, gercek bir kisiye ait OLMAYAN test
-#: TCKN'leri. Her test kendi numarasini kullanir - `tckn_hash` UNIQUE
-#: oldugu icin ayni numara iki farkli (temizlenmemis) kayitta CAKISABILIR.
-GECERLI_TCKN_1 = "76048764754"
-GECERLI_TCKN_2 = "39141777694"
-GECERLI_TCKN_3 = "11152449388"
-GECERLI_TCKN_4 = "49825979160"
-GECERLI_TCKN_5 = "44167211084"
-GECERLI_TCKN_6 = "55807302178"
-GECERLI_TCKN_7 = "27400297540"
-GECERLI_TCKN_8 = "62601815964"
-
-
-def _kayit_govdesi(email: str, tckn: str, **overrides) -> dict:
+def _kayit_govdesi(email: str, **overrides) -> dict:
     govde = {
         "email": email,
         "password": "Test1234!",
-        "first_name": "Test",
-        "last_name": "Kullanici",
-        "tckn": tckn,
-        "birth_date": "1990-01-01",
-        "phone_number": "05551234567",
+        "account_number": "123456789",
     }
     govde.update(overrides)
     return govde
 
 
-def _nvi_sonucu(deger):
-    """`verify_identity`'yi sabit bir sonuc donen sahte bir coroutine ile degistirir."""
-
-    async def _sahte(**kwargs):
-        return deger
-
-    return _sahte
-
-
-def test_register_kullanici_olusturur_ve_token_doner(client, monkeypatch):
+def test_register_kullanici_olusturur_ve_token_doner(client):
     import asyncio
 
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(True))
     eposta = "onboarding-test-register@example.com"
     try:
-        yanit = client.post("/api/auth/register", json=_kayit_govdesi(eposta, GECERLI_TCKN_1))
+        yanit = client.post("/api/auth/register", json=_kayit_govdesi(eposta))
 
         assert yanit.status_code == 201
         govde = yanit.json()
@@ -181,93 +154,32 @@ def test_register_kullanici_olusturur_ve_token_doner(client, monkeypatch):
         asyncio.run(_kullaniciyi_sil(eposta))
 
 
-def test_register_yinelenen_eposta_409_doner(client, monkeypatch):
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(True))
-    yanit = client.post("/api/auth/register", json=_kayit_govdesi(DEMO_EMAIL, GECERLI_TCKN_2))
+def test_register_yinelenen_eposta_409_doner(client):
+    yanit = client.post("/api/auth/register", json=_kayit_govdesi(DEMO_EMAIL))
 
     assert yanit.status_code == 409
     assert yanit.json()["error"]["code"] == "conflict"
 
 
-def test_register_gecersiz_tckn_saglama_422_doner(client, monkeypatch):
-    """Saglama (checksum) gecmeyen bir numara icin NVI'ye HIC istek atilmamali."""
-    cagrildi = False
-
-    async def _cagrilirsa_isaretle(**kwargs):
-        nonlocal cagrildi
-        cagrildi = True
-        return True
-
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _cagrilirsa_isaretle)
-
+def test_register_kisa_sifre_422_doner(client):
     yanit = client.post(
         "/api/auth/register",
-        json=_kayit_govdesi("gecersiz-tckn@example.com", "12345678900"),
+        json=_kayit_govdesi("kisa-sifre@example.com", password="kisa"),
     )
 
     assert yanit.status_code == 422
-    assert yanit.json()["error"]["code"] == "business_rule_error"
-    assert "geçersiz" in yanit.json()["error"]["message"]
-    assert cagrildi is False
+    assert yanit.json()["error"]["code"] == "validation_error"
 
 
-def test_register_nvi_dogrulamasi_basarisiz_422_doner(client, monkeypatch):
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(False))
-
-    yanit = client.post(
-        "/api/auth/register",
-        json=_kayit_govdesi("nvi-basarisiz@example.com", GECERLI_TCKN_5),
-    )
-
-    assert yanit.status_code == 422
-    assert yanit.json()["error"]["code"] == "business_rule_error"
-    assert "nüfus kayıtlarıyla eşleşmiyor" in yanit.json()["error"]["message"]
-
-
-def test_register_nvi_ulasilamiyor_503_doner(client, monkeypatch):
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(None))
-
-    yanit = client.post(
-        "/api/auth/register",
-        json=_kayit_govdesi("nvi-ulasilamiyor@example.com", GECERLI_TCKN_6),
-    )
-
-    assert yanit.status_code == 503
-    assert yanit.json()["error"]["code"] == "service_unavailable"
-    assert "ulaşılamıyor" in yanit.json()["error"]["message"]
-
-
-def test_register_nvi_dogrulamasi_basarili_kullanici_olusturur(client, monkeypatch):
+def test_register_hesap_numarasi_opsiyoneldir(client):
+    """`account_number` verilmeden de kayit basarili olmalidir."""
     import asyncio
 
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(True))
-    eposta = "nvi-basarili@example.com"
+    eposta = "hesap-numarasiz@example.com"
+    govde = _kayit_govdesi(eposta)
+    del govde["account_number"]
     try:
-        kayit = client.post("/api/auth/register", json=_kayit_govdesi(eposta, GECERLI_TCKN_7))
-        assert kayit.status_code == 201
-        token = kayit.json()["access_token"]
-
-        me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).json()
-        assert me["tckn_last4"] == GECERLI_TCKN_7[-4:]
-        assert me["birth_date"] == "1990-01-01"
-        assert me["phone_number"] == "05551234567"
-        # ham TCKN ya da hash'i hicbir yanitta yer almamali
-        assert GECERLI_TCKN_7 not in kayit.text
-        assert GECERLI_TCKN_7 not in str(me)
-        assert "tckn_hash" not in me
-        assert "tckn" not in me
-    finally:
-        asyncio.run(_kullaniciyi_sil(eposta))
-
-
-def test_register_nvi_bypass_ayari_dogrulamayi_atlar(client, override_settings):
-    """`nvi_verification_enabled=False` iken NVI'ye HIC gidilmeden kayit basarili olur."""
-    import asyncio
-
-    override_settings(nvi_verification_enabled=False)
-    eposta = "nvi-bypass@example.com"
-    try:
-        yanit = client.post("/api/auth/register", json=_kayit_govdesi(eposta, GECERLI_TCKN_8))
+        yanit = client.post("/api/auth/register", json=govde)
 
         assert yanit.status_code == 201
     finally:
@@ -281,13 +193,12 @@ def test_me_onboarding_completed_alanini_dondurur(client, auth):
     assert yanit.json()["onboarding_completed"] is True  # demo kullanici seed'de true
 
 
-def test_yeni_kayitli_kullanici_onboarding_completed_false_baslar(client, monkeypatch):
+def test_yeni_kayitli_kullanici_onboarding_completed_false_baslar(client):
     import asyncio
 
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(True))
     eposta = "onboarding-test-flag@example.com"
     try:
-        kayit = client.post("/api/auth/register", json=_kayit_govdesi(eposta, GECERLI_TCKN_3))
+        kayit = client.post("/api/auth/register", json=_kayit_govdesi(eposta))
         token = kayit.json()["access_token"]
 
         yanit = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -297,13 +208,12 @@ def test_yeni_kayitli_kullanici_onboarding_completed_false_baslar(client, monkey
         asyncio.run(_kullaniciyi_sil(eposta))
 
 
-def test_onboarding_complete_risk_toleransini_ve_bayragi_gunceller(client, monkeypatch):
+def test_onboarding_complete_risk_toleransini_ve_bayragi_gunceller(client):
     import asyncio
 
-    monkeypatch.setattr("app.api.routes.auth.verify_identity", _nvi_sonucu(True))
     eposta = "onboarding-test-complete@example.com"
     try:
-        kayit = client.post("/api/auth/register", json=_kayit_govdesi(eposta, GECERLI_TCKN_4))
+        kayit = client.post("/api/auth/register", json=_kayit_govdesi(eposta))
         headers = {"Authorization": f"Bearer {kayit.json()['access_token']}"}
 
         yanit = client.post(

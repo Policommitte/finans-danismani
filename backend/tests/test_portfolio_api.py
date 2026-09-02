@@ -78,6 +78,16 @@ def test_transactions_reject_invalid_limit(client, auth):
     assert yanit.json()["error"]["code"] == "validation_error"
 
 
+def test_snapshot_performans_endpointi_ayri_sozlesme_dondurur(client, auth):
+    yanit = client.get("/api/portfolio/performance-v2?hours=24", headers=auth)
+
+    assert yanit.status_code == 200
+    govde = yanit.json()
+    assert govde["hours"] == 24
+    assert govde["interval_minutes"] == 5
+    assert isinstance(govde["points"], list)
+
+
 def test_user_without_portfolio_gets_404(client):
     """Seed'de 10 numarali kullanicinin portfoyu kasitli olarak BOS."""
     from app.auth.security import create_access_token
