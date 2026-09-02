@@ -351,6 +351,106 @@ class SqlPortfolioRepository(_SqlRepository):
             },
         )
 
+    async def write_value_snapshots(self) -> int:
+        """Her portfoy icin tek, standart 5 dakikalik anlik goruntu yazar.
+
+        Ayni kovada scheduler birden fazla kez calisirsa satir cogaltmak yerine
+        en son dogrulanmis degeri gunceller. Nakit, rezerve bakiye dahil edilerek
+        snapshot anindaki toplamdan hesaplanir; frontend sonradan bugunun
+        nakdini eski noktalara eklemez.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    WITH holdings AS (
+                        SELECT p.id AS portfolio_id,
+                               COALESCE(SUM(h.market_value_try), 0) AS holdings_value_try
+                        FROM portfolios p
+                        LEFT JOIN v_holdings_valued h ON h.portfolio_id = p.id
+                        GROUP BY p.id
+                    ), cash AS (
+                        SELECT p.id AS portfolio_id,
+                               COALESCE(SUM(
+                                   (ca.available_balance + ca.reserved_balance)
+                                   * CASE WHEN ca.currency = 'TRY' THEN 1
+                                          ELSE COALESCE(fx.try_rate, 0) END
+                               ), 0) AS cash_value_try
+                        FROM portfolios p
+                        LEFT JOIN cash_accounts ca ON ca.portfolio_id = p.id
+                        LEFT JOIN v_fx_rates fx ON fx.currency = ca.currency
+                        GROUP BY p.id
+                    ), written AS (
+                        INSERT INTO portfolio_value_snapshots (
+                            portfolio_id, ts, holdings_value_try,
+                            cash_value_try, total_value_try, source
+                        )
+                        SELECT h.portfolio_id,
+                               date_bin(
+                                   INTERVAL '5 minutes', now(),
+                                   TIMESTAMPTZ '1970-01-01 00:00:00+00'
+                               ),
+                               h.holdings_value_try,
+                               c.cash_value_try,
+                               h.holdings_value_try + c.cash_value_try,
+                               'scheduler'
+                        FROM holdings h
+                        JOIN cash c ON c.portfolio_id = h.portfolio_id
+                        ON CONFLICT (portfolio_id, ts) DO UPDATE SET
+                            holdings_value_try = EXCLUDED.holdings_value_try,
+                            cash_value_try = EXCLUDED.cash_value_try,
+                            total_value_try = EXCLUDED.total_value_try,
+                            source = EXCLUDED.source,
+                            updated_at = now()
+                        RETURNING 1
+                    )
+                    SELECT COUNT(*) AS written_count FROM written
+                    """
+                )
+            )
+            count = int(result.scalar_one())
+            await session.commit()
+            return count
+
+    async def get_value_snapshots(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT s.ts, s.holdings_value_try, s.cash_value_try, s.total_value_try
+            FROM portfolio_value_snapshots s
+            JOIN portfolios p ON p.id = s.portfolio_id
+            WHERE p.user_id = :user_id
+              AND s.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
+              AND s.ts >= now() - make_interval(hours => :hours)
+            ORDER BY s.ts
+            """,
+            {"user_id": user_id, "portfolio_id": portfolio_id, "hours": hours},
+        )
+
+    async def prune_value_snapshots(self, keep_days: int = 30) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    DELETE FROM portfolio_value_snapshots
+                    WHERE ts < now() - make_interval(days => :keep_days)
+                    """
+                ),
+                {"keep_days": keep_days},
+            )
+            deleted = int(result.rowcount or 0)
+            await session.commit()
+            return deleted
+
 
 class SqlMarketRepository(_SqlRepository):
     async def list_assets(self, category: str | None = None) -> list[dict]:

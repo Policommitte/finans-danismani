@@ -23,7 +23,9 @@ from app.schemas.portfolio import (
     HoldingsResponse,
     PortfolioPerformancePoint,
     PortfolioPerformanceResponse,
+    PortfolioSnapshotPerformanceResponse,
     PortfolioSummary,
+    PortfolioValueSnapshotPoint,
     Transaction,
     TransactionsResponse,
 )
@@ -184,6 +186,27 @@ async def performans_getir(
                 ),
             )
             for row in temiz_satirlar
+        ],
+        hours=hours,
+    )
+
+
+async def snapshot_performansi_getir(
+    user_id: int, portfolio_id: int | None = None, hours: int = 24
+) -> PortfolioSnapshotPerformanceResponse:
+    """Hesaplanmis fiyat gecmisi yerine kaydedilmis gercek portfoy toplamlarini getirir."""
+    rows = await get_portfolio_repository().get_value_snapshots(
+        user_id, portfolio_id, hours=hours
+    )
+    return PortfolioSnapshotPerformanceResponse(
+        points=[
+            PortfolioValueSnapshotPoint(
+                ts=_iso_timestamp(row["ts"]),
+                holdings_value_try=_f(row["holdings_value_try"]),
+                cash_value_try=_f(row["cash_value_try"]),
+                total_value_try=_f(row["total_value_try"]),
+            )
+            for row in rows
         ],
         hours=hours,
     )

@@ -95,6 +95,20 @@ class PortfolioRepository(Protocol):
         """Mevcut pozisyonlarin gercek fiyat gecmisiyle TL bazli degeri."""
         ...
 
+    async def write_value_snapshots(self) -> int:
+        """Tum portfoylerin o anki toplam degerini 5 dakikalik kovaya yazar."""
+        ...
+
+    async def get_value_snapshots(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        """Daha once kaydedilmis portfoy degeri snapshot'larini okur."""
+        ...
+
+    async def prune_value_snapshots(self, keep_days: int = 30) -> int:
+        """Saklama penceresinden eski portfoy snapshot'larini siler."""
+        ...
+
 
 class MarketRepository(Protocol):
     async def list_assets(self, category: str | None = None) -> list[dict]: ...

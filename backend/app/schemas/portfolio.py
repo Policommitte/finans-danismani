@@ -94,3 +94,16 @@ class PortfolioPerformancePoint(BaseModel):
 class PortfolioPerformanceResponse(BaseModel):
     points: list[PortfolioPerformancePoint]
     hours: int
+
+
+class PortfolioValueSnapshotPoint(BaseModel):
+    ts: str
+    holdings_value_try: float
+    cash_value_try: float
+    total_value_try: float
+
+
+class PortfolioSnapshotPerformanceResponse(BaseModel):
+    points: list[PortfolioValueSnapshotPoint]
+    hours: int
+    interval_minutes: int = 5

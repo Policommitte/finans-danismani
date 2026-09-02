@@ -22,6 +22,7 @@ DROP TABLE IF EXISTS watchlists CASCADE;
 DROP TABLE IF EXISTS live_prices CASCADE;
 DROP TABLE IF EXISTS price_history CASCADE;
 DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS portfolio_value_snapshots CASCADE;
 DROP TABLE IF EXISTS cash_ledger CASCADE;
 DROP TABLE IF EXISTS order_fills CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
@@ -194,6 +195,23 @@ CREATE TABLE cash_accounts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (portfolio_id, currency)
 );
+
+-- Portfoy grafiginin tek gercek kaynagi. Her satir, o 5 dakikalik kovada
+-- varlik ve nakit degerlerinin birlikte alinmis anlik goruntusudur.
+CREATE TABLE portfolio_value_snapshots (
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    ts TIMESTAMPTZ NOT NULL,
+    holdings_value_try NUMERIC(20,2) NOT NULL CHECK (holdings_value_try >= 0),
+    cash_value_try NUMERIC(20,2) NOT NULL CHECK (cash_value_try >= 0),
+    total_value_try NUMERIC(20,2) NOT NULL CHECK (total_value_try >= 0),
+    source VARCHAR(20) NOT NULL DEFAULT 'scheduler',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (portfolio_id, ts)
+);
+
+CREATE INDEX portfolio_value_snapshots_portfolio_ts_idx
+    ON portfolio_value_snapshots (portfolio_id, ts DESC);
 
 CREATE TABLE paper_positions (
     portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
