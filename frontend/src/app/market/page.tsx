@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import type { Forecast } from "../../models/market";
+import { getForecast } from "../../services/marketService";
 import { PriceHistoryChart } from "../../components/market/PriceHistoryChart";
 import { OrderList } from "../../components/market/OrderList";
 import { TradeTicket } from "../../components/market/TradeTicket";
@@ -12,10 +14,52 @@ import { useTrading } from "../../hooks/useTrading";
 import { MARKET_PAGE_READY_EVENT } from "../../components/layout/transitionEvents";
 import { useLanguage } from "../../contexts/LanguageContext";
 
+/**
+ * Secili varligin tahminini ceker.
+ *
+ * `useMarket`'e EKLENMEDI: o hook fiyat/mum/emir akisini yonetiyor ve
+ * tahmin OPSIYONEL bir sustur - basarisiz olursa sayfanin geri kalani
+ * etkilenmemeli. Ayri tutmak, hatayi da ayri tutar.
+ */
+function useForecast(symbol: string | undefined): Forecast | null {
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+
+  useEffect(() => {
+    if (!symbol) {
+      setForecast(null);
+      return;
+    }
+
+    // Sembol degisince ESKI tahmin gorunmeye devam etmemeli: yeni istek
+    // donene kadar temizlenir, aksi halde THYAO'nun tahmini bir an AAPL
+    // grafiginin uzerinde durur.
+    setForecast(null);
+    let iptal = false;
+
+    getForecast(symbol)
+      .then((sonuc) => {
+        if (!iptal) setForecast(sonuc);
+      })
+      .catch(() => {
+        // Tahmin ozelligi kapali ya da uc hata verdi - SESSIZ gecilir,
+        // grafik tahminsiz cizilir. Kullaniciya hata gostermek gereksiz:
+        // istemedigi bir sus icin uyari almamali.
+        if (!iptal) setForecast(null);
+      });
+
+    return () => {
+      iptal = true;
+    };
+  }, [symbol]);
+
+  return forecast;
+}
+
 export default function MarketPage() {
   const { language } = useLanguage();
   const market = useMarket();
   const trading = useTrading();
+  const forecast = useForecast(market.symbol);
 
   useEffect(() => {
     if (market.loading) {
@@ -54,6 +98,7 @@ export default function MarketPage() {
       </div>
       <PriceHistoryChart
         data={market.data.candles}
+        forecast={forecast}
         assetClass={selectedAsset?.asset_class}
         currency={selectedAsset?.currency}
         interval={market.chartInterval}

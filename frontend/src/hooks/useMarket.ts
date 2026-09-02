@@ -45,8 +45,12 @@ export function useMarket(initialSymbol = "THYAO") {
     const preferredIntervals: Record<ChartRange, ChartInterval> = {
       "1d": "5m",
       "5d": "15m",
-      "1m": "1h",
-      "3m": "4h",
+      // 1A/3A gunluk (1d) mumla acilir: hem bu pencerede saatlik/4 saatlik
+      // mumlar asiri kalabalik olurdu (540-720 bar) hem de tahmin cizgisi
+      // SADECE gunluk grafikte cizilir (bkz. PriceHistoryChart.forecastCizilebilir) -
+      // 1Y'de zaten boyleydi, 1A/3A'da da tahminin gorunmesi icin gerekli.
+      "1m": "1d",
+      "3m": "1d",
       "1y": "1d",
     };
     const shouldResetCurrentView = range === chartRange

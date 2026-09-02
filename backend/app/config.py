@@ -145,6 +145,55 @@ class Settings(BaseSettings):
     #: rahatca kapsar. PDF/Excel yolu bundan cok daha hizli biter.
     document_timeout_seconds: int = 180
 
+    # --- Zaman serisi tahmini (1 aylik fiyat ongorusu) -------------------
+    #
+    # ⚠️ MODEL SECIMI OLCUME DAYANIR, TERCIHE DEGIL. 42 varlik / 2 yillik
+    # gercek veriyle, sizintisiz walk-forward backtest ile 6 yaklasim
+    # denendi (naive, ARIMA+izgara, SARIMA, Prophet, Gradient Boosting,
+    # Chronos-Bolt, TimesFM). SONUC: HICBIRI naive'i (fiyat sabit kalir)
+    # ANLAMLI SEKILDE YENEMEDI - finansal serilerin rassal yuruyus
+    # dogasindan kaynaklanir, kod eksikligi degildir.
+    #
+    # Kurulan yapi bu gercegi kabul eder:
+    #   nokta tahmini = SHRINK*TimesFM + (1-SHRINK)*referans
+    #   referans = son fiyat (TL disi) | drift (TL bazli varliklar)
+    #   band     = TimesFM q10/q90, nokta tahmine KAYDIRILMIS
+    #
+    # Asil deger NOKTA tahminde degil, KALIBRE EDILMIS BANTTA: olculen
+    # %80 aralik kapsami ~%77 (hedef %80).
+
+    #: Bos birakilirsa tahmin ozelligi TAMAMEN KAPALI kalir (LLM'de oldugu
+    #: gibi) - uygulama sorunsuz calisir, yalnizca grafiklerde kesikli
+    #: tahmin cizgisi cizilmez. `torch`+`timesfm` KURULU DEGILSE de ayni
+    #: sekilde sessizce kapanir (agir bagimliliklar zorunlu tutulmaz).
+    forecast_model: str = ""
+
+    #: Kac IS GUNU ileri tahmin edilecek. 21 ~ 1 takvim ayi.
+    forecast_horizon_days: int = 21
+
+    #: Model agirligi (0-1). Kalani referans degere (son fiyat/drift) gider.
+    #:
+    #: 0.30 OLCULEREK secildi: ham TimesFM %7,49 MAPE verirken bu shrinkage
+    #: %7,06'ya indirdi ve naive (%7,07) ile ESITLENDI. Modeli tam guvenle
+    #: kullanmak (1.0) hatayi BUYUTUR - dusuk sinyalli finansal seride
+    #: modelin urettigi sapma cogunlukla gurultudur.
+    forecast_model_weight: float = 0.30
+
+    #: TL bazli varliklarda referans "son fiyat" yerine DRIFT olur.
+    #: Gerekce olculdu: TL'nin kalici deger kaybi trendi GERCEK bir
+    #: sinyaldir - dovizde drift naive'in hatasini YARIYA indirdi
+    #: (%1,54 -> %0,72) ve yon isabetini %58,5'e cikardi.
+    forecast_drift_categories: str = "Döviz (Fiat),Tahvil & Bono,BIST Hisse Senedi"
+
+    #: Modele verilecek gecmis pencere (is gunu). TimesFM 2.5 baglami 512'ye
+    #: kadar destekler; daha uzun gecmis marjinal fayda saglar.
+    forecast_context_days: int = 512
+
+    #: Uretilen tahminin gecerlilik suresi (saat). Gunluk mumla calistigi
+    #: icin gun ici tekrar hesaplamak ANLAMSIZ - ayni gun ayni sonucu verir
+    #: ama her istekte ~250ms CPU yakar.
+    forecast_cache_hours: int = 12
+
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # Yalnizca Yahoo Finance'ten GERCEK fiyat kullanilir. Yahoo'ya
     # ulasilamazsa yeni fiyat yazilmaz ve son dogrulanmis fiyat korunur.

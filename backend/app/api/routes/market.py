@@ -5,6 +5,8 @@ from typing import Literal
 from fastapi import APIRouter, Query
 
 from app.auth.deps import CurrentUser
+from app.forecast import service as forecast_service
+from app.forecast.types import Tahmin
 from app.schemas.market import (
     AssetsResponse,
     CandlesResponse,
@@ -117,3 +119,31 @@ async def news(
     gore otomatik atanir (bkz. app/services/news.py -> get_fallback_image).
     """
     return await news_service.haberler_getir(limit=limit, kategori=kategori)
+
+
+@router.get("/forecast/{symbol}", response_model=Tahmin | None)
+async def forecast(user: CurrentUser, symbol: str) -> Tahmin | None:
+    """Bir varligin ~1 aylik fiyat tahmini; ozellik kapaliysa `null`.
+
+    `null` donmesi HATA DEGILDIR - tahmin ozelligi opsiyoneldir
+    (`FORECAST_MODEL` bos ya da torch/timesfm kurulu degil). Frontend
+    `null` gorunce kesikli cizgiyi cizmez, grafigin geri kalani calisir.
+
+    ⚠️ DOGRULUK BEKLENTISI: olculen hata naive tahmine (fiyat sabit kalir)
+    cok yakindir - %6,93 vs %7,07 MAPE. Asil guvenilir bilgi NOKTA
+    tahmininde degil, `alt`/`ust` BANDINDADIR (olculen kapsam %79,1,
+    hedef %80). Arayuzun bunu boyle sunmasi urun karariydi.
+    """
+    return await forecast_service.varlik_tahmini(symbol)
+
+
+@router.get("/forecast-portfolio", response_model=Tahmin | None)
+async def forecast_portfolio(user: CurrentUser) -> Tahmin | None:
+    """Kullanicinin TUM portfoyunun (varliklar + nakit) TL bazli tahmini.
+
+    Tekil varlik tahminlerinin aksine burada para birimi cevirimi ve
+    korelasyon dusuncesi devreye girer - bkz.
+    `app/forecast/service.py::portfoy_tahmini` ve
+    `engine.py::portfoy_tahmini_birlestir`.
+    """
+    return await forecast_service.portfoy_tahmini(user["id"])

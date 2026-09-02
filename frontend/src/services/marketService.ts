@@ -3,6 +3,7 @@ import type {
   CandlesResponse,
   ChartInterval,
   ChartRange,
+  Forecast,
   HistoryResponse,
   MarketSearchRequest,
   MarketSearchResponse,
@@ -63,4 +64,19 @@ export function getPublicLandingPreview(): Promise<PublicLandingPreviewResponse>
 
 export function getMarketPhoto(query: string): Promise<PhotoResponse> {
   return apiRequest<PhotoResponse>(`/api/market/photo?query=${encodeURIComponent(query)}`);
+}
+
+/**
+ * Bir varligin ~1 aylik tahmini. `null` donebilir - HATA DEGILDIR:
+ * tahmin ozelligi opsiyoneldir (backend'de `FORECAST_MODEL` bos ya da
+ * torch/timesfm kurulu degil). Cagiran taraf `null` gorunce kesikli
+ * cizgiyi cizmez, grafigin geri kalani normal calisir.
+ */
+export function getForecast(symbol: string): Promise<Forecast | null> {
+  return apiRequest<Forecast | null>(`/api/market/forecast/${encodeURIComponent(symbol)}`);
+}
+
+/** Portfoyun TUM varliklari + nakdi uzerinden TL bazli birlesik tahmin. */
+export function getPortfolioForecast(): Promise<Forecast | null> {
+  return apiRequest<Forecast | null>("/api/market/forecast-portfolio");
 }
