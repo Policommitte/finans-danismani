@@ -17,12 +17,14 @@ export type PendingAttachment = {
 // burada erken (kullanici bekletilmeden) uyari gostermek icin var, GERCEK
 // sinir backend'de (routes/chat.py -> services/chat.py::decode_attachment).
 const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
-const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif";
+// Backend'in kabul ettigi kumeyle BIREBIR (app/documents/parser.py):
+// GIF ve eski .xls burada acik gorunup sunucuda 422 aliyordu.
+const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
 // Urun karari: belge ekleri SADECE PDF ve Excel (app/documents/parser.py
 // ile AYNI kapsam) - txt/csv/md/json bilincli olarak DISARIDA, backend'in
 // `parser.belge_turu()` zaten reddediyor, frontend secici de ayni sinirdan
 // baska bir sey ONERMEMELI.
-const FILE_ACCEPT = ".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
+const FILE_ACCEPT = ".pdf,.xlsx,.xlsm,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function PlusIcon() {
   return (

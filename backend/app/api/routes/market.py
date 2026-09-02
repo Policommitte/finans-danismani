@@ -121,9 +121,18 @@ async def news(
     return await news_service.haberler_getir(limit=limit, kategori=kategori)
 
 
-@router.get("/forecast/{symbol}", response_model=Tahmin | None)
-async def forecast(user: CurrentUser, symbol: str) -> Tahmin | None:
+@router.get("/forecast", response_model=Tahmin | None)
+async def forecast(
+    user: CurrentUser, symbol: str = Query(description="Varlik kodu (orn. THYAO, USD/TRY)")
+) -> Tahmin | None:
     """Bir varligin ~1 aylik fiyat tahmini; ozellik kapaliysa `null`.
+
+    Sembol SORGU PARAMETRESIDIR, yol parcasi degil - kardes uclarla ayni
+    (`/candles?symbol=`). Yol parcasi olarak yazildiginda `USD/TRY` ve
+    `EUR/TRY` icin 404 aliniyordu: frontend `encodeURIComponent` ile
+    `USD%2FTRY` gonderse de sunucu yolu yonlendirmeden ONCE cozuyor ve
+    `/forecast/USD/TRY` hicbir rotaya uymuyor (TestClient ile dogrulandi).
+    Frontend hatayi yuttugu icin doviz tahminleri sessizce hic cizilmiyordu.
 
     `null` donmesi HATA DEGILDIR - tahmin ozelligi opsiyoneldir
     (`FORECAST_MODEL` bos ya da torch/timesfm kurulu degil). Frontend

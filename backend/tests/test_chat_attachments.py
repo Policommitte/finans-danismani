@@ -40,7 +40,14 @@ def test_pdf_ve_excel_kabul_edilir():
     boru hattimiz destekliyor, bu regresyonu korur."""
     assert chat_service.decode_attachment(_ek("rapor.pdf")) == b"x"
     assert chat_service.decode_attachment(_ek("bilanco.xlsx")) == b"x"
-    assert chat_service.decode_attachment(_ek("eski.xls")) == b"x"
+    assert chat_service.decode_attachment(_ek("makro.xlsm")) == b"x"
+
+
+def test_eski_bicim_xls_reddedilir():
+    """openpyxl BIFF (.xls) okuyamaz; kabul edip sonra "acilamadi" demek
+    yerine kapida reddedilir (bkz. parser.EXCEL_UZANTILARI notu)."""
+    with pytest.raises(BusinessRuleError):
+        chat_service.decode_attachment(_ek("eski.xls"))
 
 
 def test_desteklenmeyen_uzanti_reddedilir():

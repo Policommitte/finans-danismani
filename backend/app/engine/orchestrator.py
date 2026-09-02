@@ -64,8 +64,10 @@ from app.agents.security_agent import PII_FLAG
 from app.config import settings
 from app.core.llm import _gecici_hata_mi
 from app.engine.kapsam import (
+    KAPSAM_BASKA_KISI,
     KAPSAM_BELIRSIZ,
     KAPSAM_DISI,
+    KAPSAM_KUFUR,
     KAPSAM_YASAK,
     KISA_YANIT_KAPSAMLARI,
     SEMBOL_DESENI,
@@ -338,6 +340,13 @@ _KAPSAM_LLM_ETIKET = re.compile(r"\b(UYGUN|DISI|YASAK)\b", re.IGNORECASE)
 #: LLM etiketi -> kapsam siniflari. UYGUN eslemede yoktur: kural karari
 #: oldugu gibi kalir.
 _KAPSAM_LLM_ESLEME = {"DISI": KAPSAM_DISI, "YASAK": KAPSAM_YASAK}
+
+#: Ekli belge olsa bile kisa yanitta KALAN kapsamlar (bkz. `route_node`).
+#: Bunlar metnin kendisi hakkinda RET kararlaridir; "sinyal yok" kararlari
+#: (belirsiz, kapsam disi, selamlama...) ise belge lehine ezilir.
+_BELGEYLE_EZILMEYEN_KAPSAMLAR: frozenset[str] = frozenset(
+    {KAPSAM_KUFUR, KAPSAM_YASAK, KAPSAM_BASKA_KISI}
+)
 
 #: Synthesizer sistem prompt'u - uyum kurallarini tasir.
 SYNTHESIZER_SYSTEM_PROMPT = """Sen bir kişisel finans danışmanı asistanısın.
@@ -614,25 +623,32 @@ class Orchestrator:
         doldurur. Ajanlar bu listeye bakarak kendilerini erken sonlandirabilir
         (ucuz no-op) - bkz. `BaseAgent.is_requested`.
         """
-        # BELGE EKLIYSE KAPSAM KONTROLU ATLANIR.
+        kapsam = kapsam_belirle(state.user_query, devam_turu=self._devam_turu(state))
+
+        # BELGE EKLIYSE "SINYAL YOK" KARARLARI EZILIR - ama RET KARARLARI DEGIL.
         #
         # Kapsam siniflandirici yalnizca METNE bakar; kullanici dosyayi
         # "buna bir bakar misin?" ya da hic yazi yazmadan yollayabilir. O
         # metinde finans sinyali yoktur ve sorgu `small_talk`'a duserdi -
         # yani yuklenen belge SESSIZCE yok sayilirdi. Dosyanin varligi
-        # niyetin kendisidir.
-        if getattr(state, "belge", None) and AGENT_DOCUMENT_ANALYSIS in self.agents:
+        # niyetin kendisidir; belirsiz/kapsam disi/selamlama gibi "sinyal
+        # yok" kararlari belge lehine ezilir.
+        #
+        # ⚠️ Kufur, yasak konu ve baska kisi kararlari EZILMEZ. Eski surum
+        # kapsam kontrolunu tamamen atliyordu; "<hakaret> + herhangi bir PDF"
+        # dogrudan ajanlara ve sentezleyiciye gidiyordu. Bu kararlar metnin
+        # kendisi hakkindadir, belge onlari gecersiz kilmaz.
+        belge_var = bool(getattr(state, "belge", None)) and AGENT_DOCUMENT_ANALYSIS in self.agents
+        if belge_var and kapsam not in _BELGEYLE_EZILMEYEN_KAPSAMLAR:
             logger.info(
                 "ekli belge tespit edildi, belge ajani zorunlu calisiyor",
-                extra={"request_id": state.request_id},
+                extra={"request_id": state.request_id, "metin_kapsami": kapsam},
             )
             return {
                 "requested_agents": [AGENT_DOCUMENT_ANALYSIS],
                 "intent": "belge",
                 "scope": "finans",
             }
-
-        kapsam = kapsam_belirle(state.user_query, devam_turu=self._devam_turu(state))
 
         if kapsam not in KISA_YANIT_KAPSAMLARI:
             kapsam = await self._kapsam_llm_suzgeci(state, kapsam)
@@ -1142,11 +1158,10 @@ class Orchestrator:
         skorunu ve gerekcelerini eksiksiz yazdiktan sonra altina "Not: Su
         analizlere su anda ulasilamadi: portfolio, risk_strategy" ekliyordu.
         """
-        veri_alani = {
-            AGENT_PORTFOLIO: state.portfolio_data,
-            AGENT_MARKET_RESEARCH: state.market_data,
-            AGENT_RISK_STRATEGY: state.risk_data,
-        }
+        # `_AJAN_VERISI` tek kaynak: ayri bir sozluk tutulunca yeni ajan
+        # (belge analizi) burada unutuldu ve deterministik ozet uretmis bir
+        # ajan icin bile "ulasilamadi" notu dusuluyordu.
+        veri_alani = {ajan: okuyucu(state) for ajan, okuyucu in _AJAN_VERISI.items()}
         eksikler: list[str] = []
         for hata in state.agent_errors:
             ad = getattr(hata, "agent_name", None) or (

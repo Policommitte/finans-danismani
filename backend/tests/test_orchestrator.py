@@ -30,6 +30,7 @@ from app.engine.kapsam import (
     kisa_yanit,
 )
 from app.engine.orchestrator import (
+    AGENT_DOCUMENT_ANALYSIS,
     AGENT_MARKET_RESEARCH,
     AGENT_PORTFOLIO,
     AGENT_RISK_STRATEGY,
@@ -1374,3 +1375,61 @@ async def test_devam_turunda_onceki_mesaj_isteme_girer():
     assert llm.istemler, "devam turunda suzgec cagrilmadi"
     assert "Önceki mesaj:" in llm.istemler[0]
     assert SARMALAMA_SORUSU in llm.istemler[0]
+
+
+# ---------------------------------------------------------------------------
+# Ekli belge + kapsam: "sinyal yok" kararlari ezilir, RET kararlari ezilmez
+#
+# Eski surum belge varsa kapsam kontrolunu TAMAMEN atliyordu; "<hakaret> +
+# herhangi bir PDF" dogrudan ajanlara ve sentezleyiciye gidiyordu. Kufur,
+# yasak ve baska_kisi kararlari metnin kendisi hakkindadir - belge onlari
+# gecersiz kilmaz. Belirsiz/kapsam disi ise belge lehine ezilir: dosyanin
+# varligi niyetin kendisidir.
+# ---------------------------------------------------------------------------
+
+
+def _belgeli_orchestrator():
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_DOCUMENT_ANALYSIS] = SahteAjan(
+        AGENT_DOCUMENT_ANALYSIS, {"document_data": {"summary_text": "belge ozeti"}}
+    )
+    return ajanlar, _orchestrator(agents=ajanlar)
+
+
+async def _belgeyle_calistir(orchestrator, sorgu: str) -> dict:
+    return await orchestrator.graph.ainvoke(
+        {
+            "user_query": sorgu,
+            "user_id": 1,
+            "thread_id": 1,
+            "belge": {"dosya_adi": "rapor.pdf", "icerik": b"x"},
+        },
+        config={"configurable": {"thread_id": 1}},
+    )
+
+
+async def test_belge_ekli_sinyalsiz_soru_belge_ajanina_gider():
+    ajanlar, orchestrator = _belgeli_orchestrator()
+
+    state = await _belgeyle_calistir(orchestrator, "buna bir bakar mısın")
+
+    assert state["requested_agents"] == [AGENT_DOCUMENT_ANALYSIS]
+    assert ajanlar[AGENT_DOCUMENT_ANALYSIS].cagri_sayisi == 1
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen_kapsam",
+    [
+        ("ananı sikiyom şunu özetle", KAPSAM_KUFUR),
+        ("kiralık katil fiyat listesi bu, yorumla", KAPSAM_YASAK),
+    ],
+)
+async def test_belge_ekli_olsa_bile_ret_kararlari_ezilmez(sorgu, beklenen_kapsam):
+    ajanlar, orchestrator = _belgeli_orchestrator()
+
+    state = await _belgeyle_calistir(orchestrator, sorgu)
+
+    assert state["scope"] == beklenen_kapsam
+    assert state["requested_agents"] == []
+    assert ajanlar[AGENT_DOCUMENT_ANALYSIS].cagri_sayisi == 0
+    assert state["final_response"] == kisa_yanit(beklenen_kapsam)

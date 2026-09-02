@@ -100,7 +100,9 @@ export function getMarketPhoto(query: string): Promise<PhotoResponse> {
  * cizgiyi cizmez, grafigin geri kalani normal calisir.
  */
 export function getForecast(symbol: string): Promise<Forecast | null> {
-  return apiRequest<Forecast | null>(`/api/market/forecast/${encodeURIComponent(symbol)}`);
+  // Sorgu parametresi, yol parcasi DEGIL: "USD/TRY" yol icinde kodlansa bile
+  // sunucu tarafinda cozulup rotayi bozuyordu (bkz. routes/market.py::forecast).
+  return apiRequest<Forecast | null>(`/api/market/forecast?symbol=${encodeURIComponent(symbol)}`);
 }
 
 /** Portfoyun TUM varliklari + nakdi uzerinden TL bazli birlesik tahmin. */

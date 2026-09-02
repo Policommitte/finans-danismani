@@ -25,7 +25,11 @@ logger = logging.getLogger(__name__)
 #: ayri yoldan). Word/CSV/metin bilincli olarak DISARIDA - her format kendi
 #: ayristirma tuzaklarini getirir ve test edilmeden acilmamalidir.
 PDF_UZANTILARI = {".pdf"}
-EXCEL_UZANTILARI = {".xlsx", ".xlsm", ".xls"}
+#: `.xls` (BIFF) BILINCLI OLARAK YOK: openpyxl yalnizca OOXML okur,
+#: `load_workbook` eski bicimde istisna firlatir - listede dursaydi kullanici
+#: tam bir tur bekleyip "Excel dosyasi acilamadi" gorurdu. Desteklemek icin
+#: `xlrd` eklenip ayri bir okuma yolu yazilmali.
+EXCEL_UZANTILARI = {".xlsx", ".xlsm"}
 GORSEL_UZANTILARI = {".png", ".jpg", ".jpeg", ".webp"}
 
 #: Tek bir tablodan alinacak azami satir. Bir Excel sayfasi 100.000 satir
@@ -58,7 +62,7 @@ def belge_turu(dosya_adi: str) -> str:
         return "gorsel"
 
     raise BelgeAyristirmaHatasi(
-        f"'{uzanti or dosya_adi}' desteklenmiyor. Yalnizca PDF, Excel (.xlsx/.xls) "
+        f"'{uzanti or dosya_adi}' desteklenmiyor. Yalnizca PDF, Excel (.xlsx/.xlsm) "
         "ve gorsel (.png/.jpg/.webp) dosyalari analiz edilebilir."
     )
 

@@ -256,3 +256,37 @@ def test_portfoy_bandi_TOPLANMAZ_riski_abartmaz():
 
 def test_portfoy_bos_listede_none_doner():
     assert engine.portfoy_tahmini_birlestir([], nakit=0.0, son_tarih=date(2026, 9, 1)) is None
+
+
+# ---------------------------------------------------------------------------
+# Rota: sembol sorgu parametresi (yol parcasi degil)
+#
+# `/forecast/{symbol}` iken `USD/TRY` 404 aliyordu: frontend `USD%2FTRY`
+# gonderse de sunucu yolu yonlendirmeden once cozuyor. Kardes uclar
+# (`/candles?symbol=`) zaten sorgu parametresi kullaniyor.
+# ---------------------------------------------------------------------------
+
+
+def test_forecast_rotasi_slash_iceren_sembolu_kabul_eder(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import market as market_routes
+    from app.auth.deps import get_current_user
+    from app.main import app
+
+    gorulen: list[str] = []
+
+    async def sahte_tahmin(symbol: str):
+        gorulen.append(symbol)
+        return None
+
+    monkeypatch.setattr(market_routes.forecast_service, "varlik_tahmini", sahte_tahmin)
+    app.dependency_overrides[get_current_user] = lambda: {"id": 1, "role": "customer"}
+    try:
+        client = TestClient(app)
+        yanit = client.get("/api/market/forecast", params={"symbol": "USD/TRY"})
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    assert yanit.status_code == 200, yanit.text
+    assert gorulen == ["USD/TRY"]
