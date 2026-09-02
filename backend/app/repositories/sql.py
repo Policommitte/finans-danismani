@@ -2930,6 +2930,24 @@ class SqlContestRepository(_SqlRepository):
             )
             await session.commit()
 
+    async def reset_shop_purchases(self, user_id: int) -> None:
+        # `user_powerup`/`donation_purchase` `powerup_purchase`'a FK ile
+        # baglı DEGIL (ayri tablolar) - ucu de tek tek silinir.
+        async with self._session_factory() as session:
+            await session.execute(
+                text("DELETE FROM powerup_purchase WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            )
+            await session.execute(
+                text("DELETE FROM user_powerup WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            )
+            await session.execute(
+                text("DELETE FROM donation_purchase WHERE user_id = :user_id"),
+                {"user_id": user_id},
+            )
+            await session.commit()
+
     async def submit_answer(
         self,
         participation_id: int,

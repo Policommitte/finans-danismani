@@ -2763,6 +2763,11 @@ class InMemoryContestRepository:
         _ANSWERS[:] = [a for a in _ANSWERS if a["participation_id"] not in remove_ids]
         _PAYOUTS[:] = [pay for pay in _PAYOUTS if pay["participation_id"] not in remove_ids]
 
+    async def reset_shop_purchases(self, user_id: int) -> None:
+        _POWERUP_PURCHASES[:] = [r for r in _POWERUP_PURCHASES if r["user_id"] != user_id]
+        _USER_POWERUPS[:] = [r for r in _USER_POWERUPS if r["user_id"] != user_id]
+        _DONATION_PURCHASES[:] = [r for r in _DONATION_PURCHASES if r["user_id"] != user_id]
+
     async def submit_answer(
         self,
         participation_id: int,

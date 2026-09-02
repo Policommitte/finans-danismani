@@ -72,14 +72,142 @@ function CreditCardIcon() {
   );
 }
 
-const TOPIC_ICONS = [TrendingUpIcon, TrendingDownIcon, PieChartIcon, ScaleIcon, ShieldCheckIcon, CreditCardIcon];
-const TOPIC_COLORS = [
+function DropletIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3s7 7.5 7 12a7 7 0 0 1-14 0c0-4.5 7-12 7-12z" />
+    </svg>
+  );
+}
+
+function PercentIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="7" r="2.5" />
+      <circle cx="17" cy="17" r="2.5" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </svg>
+  );
+}
+
+function SwapIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h13" />
+      <path d="M13 4l4 4-4 4" />
+      <path d="M20 16H7" />
+      <path d="M11 20l-4-4 4-4" />
+    </svg>
+  );
+}
+
+export const TOPIC_ICONS = [
+  TrendingUpIcon,
+  TrendingDownIcon,
+  PieChartIcon,
+  ScaleIcon,
+  ShieldCheckIcon,
+  CreditCardIcon,
+];
+export const TOPIC_COLORS = [
   "var(--color-primary)",
   "var(--color-chart-yellow)",
   "var(--color-success)",
   "var(--color-chart-purple)",
   "var(--color-chart-cyan)",
   "var(--color-danger)",
+];
+
+function ForkIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2v6" />
+      <path d="M12 8l-6 6" />
+      <path d="M12 8l6 6" />
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="18" cy="18" r="2" />
+    </svg>
+  );
+}
+
+function ChecklistIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M8 8h8" />
+      <path d="M8 12h8" />
+      <path d="M8 16h5" />
+    </svg>
+  );
+}
+
+function RepeatIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 2l4 4-4 4" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <path d="M7 22l-4-4 4-4" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </svg>
+  );
+}
+
+function SlidersIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+      <circle cx="11" cy="18" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function UmbrellaIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a9 9 0 0 1 9 9H3a9 9 0 0 1 9-9z" />
+      <path d="M12 11v8a2 2 0 0 1-4 0" />
+      <path d="M12 2v2" />
+    </svg>
+  );
+}
+
+function TargetIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+// Sonraki yarışmayı beklerken gösterilen notlar (WAITING_NOTES, oyun.ts) için
+// ÇALIŞMA NOTUNDAKİLERDEN farklı ikon/renk seti - iki ekranın karıştırılmaması icin.
+export const WAITING_TOPIC_ICONS = [
+  DropletIcon,
+  PercentIcon,
+  SwapIcon,
+  ForkIcon,
+  ChecklistIcon,
+  RepeatIcon,
+  SlidersIcon,
+  UmbrellaIcon,
+  TargetIcon,
+];
+export const WAITING_TOPIC_COLORS = [
+  "var(--color-cta)",
+  "color-mix(in srgb, var(--color-primary) 50%, var(--color-chart-cyan) 50%)",
+  "color-mix(in srgb, var(--color-danger) 55%, var(--color-chart-yellow) 45%)",
+  "color-mix(in srgb, var(--color-primary) 55%, var(--color-success) 45%)",
+  "color-mix(in srgb, var(--color-chart-purple) 55%, var(--color-chart-cyan) 45%)",
+  "color-mix(in srgb, var(--color-success) 55%, var(--color-chart-yellow) 45%)",
+  "color-mix(in srgb, var(--color-danger) 55%, var(--color-chart-purple) 45%)",
+  "color-mix(in srgb, var(--color-cta) 55%, var(--color-success) 45%)",
+  "color-mix(in srgb, var(--color-primary) 55%, var(--color-chart-yellow) 45%)",
 ];
 
 export function CheatSheetScreen({ onFinish }: Props) {
@@ -164,15 +292,28 @@ export function CheatSheetScreen({ onFinish }: Props) {
         <button
           onClick={() => setReady(true)}
           disabled={ready}
-          className="rounded-lg px-6 py-3 text-sm font-semibold transition disabled:cursor-default"
-          style={{
-            background: ready ? "var(--color-border)" : "var(--color-primary)",
-            color: ready ? "var(--color-muted)" : "#fff",
-          }}
+          className={`rounded-full px-7 py-3.5 text-sm font-bold text-white transition disabled:cursor-default ${
+            ready ? "" : "hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
+          }`}
+          style={
+            ready
+              ? { background: "var(--color-border)", color: "var(--color-muted)" }
+              : {
+                  background: "linear-gradient(135deg, var(--color-primary) 0%, color-mix(in srgb, var(--color-primary) 70%, #7c3aed) 100%)",
+                  boxShadow: "0 8px 24px color-mix(in srgb, var(--color-primary) 45%, transparent)",
+                }
+          }
         >
-          {ready
-            ? (language === "tr" ? "Hazırsın, yarışma bekleniyor…" : "You're ready, waiting for the contest…")
-            : (language === "tr" ? "Hazırım" : "I'm ready")}
+          <span className="inline-flex items-center justify-center gap-2">
+            {!ready && (
+              <span className="animate-pulse text-base" aria-hidden="true">
+                🚀
+              </span>
+            )}
+            {ready
+              ? (language === "tr" ? "Hazırsın, yarışma bekleniyor…" : "You're ready, waiting for the contest…")
+              : (language === "tr" ? "Hazırım" : "I'm ready")}
+          </span>
         </button>
 
         <p className="app-muted mt-2 text-xs">
@@ -180,14 +321,6 @@ export function CheatSheetScreen({ onFinish }: Props) {
             ? "Yarışma tüm katılımcılar için aynı anda başlar."
             : "The contest starts at the same time for all participants."}
         </p>
-
-        <button
-          onClick={onFinish}
-          className="mt-4 text-xs font-semibold underline underline-offset-4"
-          style={{ color: "var(--color-muted)" }}
-        >
-          {language === "tr" ? "Demo: yarışmaya geç" : "Demo: skip to contest"}
-        </button>
       </div>
     </Card>
   );

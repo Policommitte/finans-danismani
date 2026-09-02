@@ -45,7 +45,7 @@ export type HistoryRow = {
 export const CONFIG = {
   questionCount: 5,
   questionSeconds: 10,
-  cheatSheetSeconds: 180, // 3 dk
+  cheatSheetSeconds: 30,
   // Kazanan sayısı artık HER ZAMAN 100-500 arasında (bkz. pickTargetWinners).
   // Düz 1.000.000 seçildi: en kötü senaryoda (500 kazanan) payout hâlâ 2.000
   // (1500-2000 bandının üst sınırı); en iyi senaryoda (100 kazanan) 10.000'e
@@ -57,48 +57,116 @@ export const CONFIG = {
   forceAnswerB: false,
 } as const;
 
-// ── Çalışma notu ───────────────────────────────────────────
+// ── Çalışma notu (yarışmadan ÖNCE, "Hazırlık" ekranında) ────
 export const CHEAT_SHEET: CheatSheetTopic[] = [
   {
     title: { tr: "Bileşik faiz", en: "Compound interest" },
     body: {
-      tr: "Kazanılan faiz anaparaya eklenir ve yeniden faiz getirir. Erken başlamak süreyi en değerli girdi hâline getirir.",
-      en: "Interest earned is added to the principal and starts earning interest itself. Starting early makes time your most valuable asset.",
+      tr: "Kazanılan faiz de faiz getirir. Erken başlamak en değerli avantajdır.",
+      en: "Interest earns more interest. Starting early is your biggest advantage.",
     },
   },
   {
     title: { tr: "Enflasyon ve alım gücü", en: "Inflation and purchasing power" },
     body: {
-      tr: "Fiyatlar sürekli yükselir, aynı para zamanla daha az şey alır. Getiri enflasyonun altında kalırsa reel olarak kayıp vardır.",
-      en: "Prices keep rising, so the same money buys less over time. If your return falls below inflation, you lose value in real terms.",
+      tr: "Fiyatlar yükselince aynı para daha az alır. Getiri enflasyonun altındaysa reel kayıptasın.",
+      en: "Prices rise, so money buys less over time. A below-inflation return means a real loss.",
     },
   },
   {
     title: { tr: "Çeşitlendirme", en: "Diversification" },
     body: {
-      tr: "Birikimi farklı varlıklara dağıtmak tek bir varlığın kötü gitmesinin etkisini azaltır. Aynı sektördeki varlıklar aynı şoklara birlikte maruz kalır.",
-      en: "Spreading your savings across different assets reduces the impact of any single asset performing poorly. Assets in the same sector are exposed to the same shocks together.",
+      tr: "Birikimi farklı varlıklara dağıtmak riski azaltır. Tek sepete yatırım yapma.",
+      en: "Spreading savings across assets lowers risk. Don't put it all in one basket.",
     },
   },
   {
     title: { tr: "Risk ve getiri", en: "Risk and return" },
     body: {
-      tr: "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek getiri bir arada vaat ediliyorsa risk muhtemelen gizlenmiştir.",
-      en: "Higher returns generally come with higher uncertainty. If risk-free and high returns are promised together, the risk is probably being hidden.",
+      tr: "Yüksek getiri genelde yüksek risk demektir. Risksiz + yüksek getiri vaadi şüphelidir.",
+      en: "Higher return usually means higher risk. A risk-free, high-return promise is suspicious.",
     },
   },
   {
     title: { tr: "Acil durum fonu", en: "Emergency fund" },
     body: {
-      tr: "Beklenmedik giderlerde borçlanmadan dayanmayı sağlayan rezervdir. İhtiyaç anında hızla ve değer kaybetmeden nakde çevrilebilmelidir.",
-      en: "A reserve that lets you cover unexpected expenses without borrowing. It should be quickly convertible to cash without losing value when needed.",
+      tr: "Beklenmedik giderler için hızla nakde çevrilebilen bir rezervdir.",
+      en: "A reserve you can quickly turn into cash for unexpected expenses.",
     },
   },
   {
     title: { tr: "Borç ve kredi yönetimi", en: "Debt and credit management" },
     body: {
-      tr: "Asgari ödeme borcu bitirmez, kalan tutara faiz işlemeye devam eder. Ödeme geçmişi kredi notunu en çok etkileyen unsurdur.",
-      en: "Paying the minimum doesn't clear the debt — interest keeps accruing on the remaining balance. Payment history is the factor that most affects your credit score.",
+      tr: "Asgari ödeme borcu bitirmez, faiz işlemeye devam eder. Ödeme geçmişi kredi notunu belirler.",
+      en: "Minimum payments don't clear debt — interest keeps accruing. Payment history drives your credit score.",
+    },
+  },
+];
+
+// ── Sonraki yarışmayı beklerken göz atılacak notlar (çalışma
+// notundan BİLEREK farklı konular - tekrar değil, ek bilgi) ──
+export const WAITING_NOTES: CheatSheetTopic[] = [
+  {
+    title: { tr: "Likidite", en: "Liquidity" },
+    body: {
+      tr: "Bir varlığı hızlı ve değer kaybetmeden nakde çevirebilme yeteneğidir.",
+      en: "The ability to turn an asset into cash quickly without losing value.",
+    },
+  },
+  {
+    title: { tr: "Vergi ve stopaj", en: "Tax and withholding" },
+    body: {
+      tr: "Kazancın bir kısmı vergi olarak kesilir. Önemli olan vergi sonrası nettir.",
+      en: "Part of your gain goes to tax. What matters is the after-tax net.",
+    },
+  },
+  {
+    title: { tr: "Kur riski", en: "Currency risk" },
+    body: {
+      tr: "Döviz varlıkların TL karşılığı, kurla birlikte büyür ya da erir.",
+      en: "Foreign-currency assets' TL value rises or falls with the exchange rate.",
+    },
+  },
+  {
+    title: { tr: "Fırsat maliyeti", en: "Opportunity cost" },
+    body: {
+      tr: "Bir seçim yapınca vazgeçtiğin en iyi alternatifin değeridir.",
+      en: "The value of the best alternative you give up when you choose.",
+    },
+  },
+  {
+    title: { tr: "Bütçe kuralı", en: "Budgeting rule" },
+    body: {
+      tr: "Geliri ihtiyaç, istek ve birikime ayırmayı kolaylaştıran basit bir kuraldır.",
+      en: "A simple rule that splits income into needs, wants, and savings.",
+    },
+  },
+  {
+    title: { tr: "Düzenli yatırım", en: "Dollar-cost averaging" },
+    body: {
+      tr: "Her ay sabit tutar yatırmak, piyasayı zamanlama riskini azaltır.",
+      en: "Investing a fixed amount every month reduces the risk of timing the market.",
+    },
+  },
+  {
+    title: { tr: "Portföy dengeleme", en: "Rebalancing" },
+    body: {
+      tr: "Zamanla bozulan varlık dağılımını başa döndürüp riski hedefte tutar.",
+      en: "Restoring your original asset mix over time keeps risk at your target level.",
+    },
+  },
+  {
+    title: { tr: "Emeklilik birikimi", en: "Retirement savings" },
+    body: {
+      tr: "Devlet katkısıyla uzun vadeli birikim sağlayan gönüllü bir sistemdir.",
+      en: "A voluntary long-term savings system that includes a government match.",
+    },
+  },
+  {
+    title: { tr: "Finansal hedef belirleme", en: "Goal setting" },
+    body: {
+      tr: "Net bir hedef ve süre, hangi araca yatırım yapacağını netleştirir.",
+      en: "A clear goal and time frame make it easier to pick the right tool.",
     },
   },
 ];
