@@ -70,6 +70,7 @@ CREATE TABLE users (
     tckn_last4 CHAR(4),
     birth_date DATE,
     phone_number VARCHAR(20),
+    account_number VARCHAR(9),
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
