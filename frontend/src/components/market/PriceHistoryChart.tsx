@@ -321,18 +321,20 @@ export function PriceHistoryChart({
       // calismaz, alt dolgu grafigin altindaki her seyi de orterdi.
       // Iki ince cizgi hem calisir hem kullanicinin istedigi "gri kesikli"
       // gorunumle tutarlidir.
-      const bantCizgisi = () =>
+      // Ust bant (yukselis senaryosu) yesil, alt bant (dusus senaryosu)
+      // kirmizi; ikisi de kalin noktali cizgi - eski gri cizgiler cok silikti.
+      const bantCizgisi = (color: string) =>
         chart.addSeries(LineSeries, {
-          color: "rgba(148, 163, 184, 0.8)",
-          lineWidth: 1,
+          color,
+          lineWidth: 2,
           lineStyle: LineStyle.Dotted,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
           priceFormat: { type: "price", precision, minMove },
         });
-      const bantUst = bantCizgisi();
-      const bantAlt = bantCizgisi();
+      const bantUst = bantCizgisi(FORECAST_UP_COLOR);
+      const bantAlt = bantCizgisi(FORECAST_DOWN_COLOR);
 
       // Bant ve cizgi SON GERCEK NOKTADAN baslar - aksi halde gercek seri
       // ile tahmin arasinda gorsel bir kopukluk olusur.
