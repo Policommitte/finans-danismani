@@ -207,11 +207,11 @@ export default function BultenPage() {
   const bulletinItems = filtered.filter((article) => article.id !== featured?.id);
   const showPortfolio = activeTab === "tumu" || activeTab === "portfoy";
 
-  if (loading || news.loading) {
+  if ((loading && !data) || (news.loading && !news.data)) {
     return <LoadingState label={language === "tr" ? "Bülten yükleniyor" : "Loading newsletter"} />;
   }
 
-  if (error || !data) {
+  if (!data) {
     return (
       <ErrorState
         message={error ?? (language === "tr" ? "Bülten verisi boş döndü." : "Newsletter data returned empty.")}

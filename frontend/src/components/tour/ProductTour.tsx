@@ -56,23 +56,13 @@ const STEPS: TourStep[] = [
     },
   },
   {
-    id: "autonomous-actions",
-    target: '[data-tour="nav-oneriler"]',
-    targetPadding: SIDEBAR_TARGET_PADDING,
-    title: { tr: "Otonom Eylemler", en: "Autonomous Actions" },
-    description: {
-      tr: "Portföyün ve piyasa koşulları dikkate alınarak hazırlanan kişisel önerileri bu bölümden inceleyebilirsin.",
-      en: "Review personalized suggestions prepared using your portfolio and current market conditions.",
-    },
-  },
-  {
     id: "markets",
     target: '[data-tour="nav-market"]',
     targetPadding: SIDEBAR_TARGET_PADDING,
-    title: { tr: "Piyasalar", en: "Markets" },
+    title: { tr: "İşlem Merkezi", en: "Trading Center" },
     description: {
-      tr: "Varlık fiyatlarını ve grafiklerini incelemek, sanal emirlerini yönetmek için Piyasalar ekranını kullanabilirsin.",
-      en: "Use Markets to inspect asset prices and charts and manage virtual orders.",
+      tr: "Manuel sanal işlemleri ve portföyüne göre hazırlanan otonom önerileri iki sekmeden yönetebilirsin.",
+      en: "Manage manual virtual trades and autonomous suggestions prepared for your portfolio in two tabs.",
     },
   },
   {
@@ -125,6 +115,8 @@ const STEPS: TourStep[] = [
     },
   },
 ];
+
+const AUTHENTICATED_STEPS = STEPS.filter((step) => step.id !== "home");
 
 type TargetRect = Pick<DOMRect, "bottom" | "height" | "left" | "right" | "top" | "width">;
 type DialogSide = "above" | "below" | "center" | "left" | "right";
@@ -191,8 +183,19 @@ function placeArrow(rect: TargetRect, side: DialogSide) {
   return { left: rect.left + rect.width / 2 - size / 2, top: rect.top - size - 2, transform: "rotate(90deg)" };
 }
 
-export function ProductTour({ open, onClose, storageKey }: { open: boolean; onClose: () => void; storageKey: string }) {
+export function ProductTour({
+  open,
+  onClose,
+  storageKey,
+  showHomeStep = true,
+}: {
+  open: boolean;
+  onClose: () => void;
+  storageKey: string;
+  showHomeStep?: boolean;
+}) {
   const { language } = useLanguage();
+  const steps = showHomeStep ? STEPS : AUTHENTICATED_STEPS;
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [dialogPosition, setDialogPosition] = useState<DialogPosition | null>(null);
@@ -200,7 +203,7 @@ export function ProductTour({ open, onClose, storageKey }: { open: boolean; onCl
   const [exiting, setExiting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
-  const step = STEPS[stepIndex];
+  const step = steps[stepIndex];
 
   useEffect(() => {
     if (!open) {
@@ -229,7 +232,7 @@ export function ProductTour({ open, onClose, storageKey }: { open: boolean; onCl
     if (!open) return;
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") closeTour();
-      else if (!locating && event.key === "ArrowRight") setStepIndex((current) => Math.min(current + 1, STEPS.length - 1));
+      else if (!locating && event.key === "ArrowRight") setStepIndex((current) => Math.min(current + 1, steps.length - 1));
       else if (!locating && event.key === "ArrowLeft") setStepIndex((current) => Math.max(current - 1, 0));
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -306,7 +309,7 @@ export function ProductTour({ open, onClose, storageKey }: { open: boolean; onCl
 
   if (!open) return null;
   const isFirst = stepIndex === 0;
-  const isLast = stepIndex === STEPS.length - 1;
+  const isLast = stepIndex === steps.length - 1;
   const spotlightLeft = targetRect ? Math.max(targetRect.left - 6, 6) : 0;
   const spotlightTop = targetRect ? Math.max(targetRect.top - 6, 6) : 0;
   const arrowPosition = targetRect && dialogPosition && dialogPosition.side !== "center"
@@ -367,7 +370,7 @@ export function ProductTour({ open, onClose, storageKey }: { open: boolean; onCl
       >
         <div className="mb-4 flex items-center justify-between gap-4">
           <span className="rounded-full bg-[var(--color-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--color-primary-soft-text)]">
-            {language === "tr" ? `Adım ${stepIndex + 1} / ${STEPS.length}` : `Step ${stepIndex + 1} / ${STEPS.length}`}
+            {language === "tr" ? `Adım ${stepIndex + 1} / ${steps.length}` : `Step ${stepIndex + 1} / ${steps.length}`}
           </span>
           <button type="button" onClick={skipTour} className="text-sm font-medium app-muted hover:underline">
             {language === "tr" ? "Turu geç" : "Skip tour"}
@@ -378,7 +381,7 @@ export function ProductTour({ open, onClose, storageKey }: { open: boolean; onCl
           {locating ? (language === "tr" ? "İlgili bölüm hazırlanıyor…" : "Preparing this section…") : step.description[language]}
         </p>
         <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-[var(--color-border-soft)]">
-          <div className="h-full rounded-full bg-[var(--color-primary)] transition-[width] duration-300" style={{ width: `${((stepIndex + 1) / STEPS.length) * 100}%` }} />
+          <div className="h-full rounded-full bg-[var(--color-primary)] transition-[width] duration-300" style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} />
         </div>
         <div className="mt-5 flex items-center justify-between gap-3">
           <button type="button" disabled={isFirst || locating} onClick={() => setStepIndex((current) => current - 1)} className="rounded-lg border app-border px-4 py-2 text-sm font-semibold app-heading transition hover:bg-[var(--color-surface-muted)] disabled:cursor-not-allowed disabled:opacity-40">

@@ -149,6 +149,68 @@ class Settings(BaseSettings):
     #: anlamak icin `RAG_TOP_K=20` yapip logdaki `cos_sim` dagilimina bakin.
     rag_top_k: int = 5
 
+    #: ────────────────────────────────────────────────────────────────────
+    #: ⚠️ IKI AYRI ALAKA ESIGI VAR - AYNI SEY DEGILLER, BIRI DIGERININ
+    #: YERINE GECMEZ. Hangi arama yolunun kosuldugu hangisinin devrede
+    #: oldugunu belirler:
+    #:
+    #:   EMBEDDING_MODEL DOLU  -> `hybrid_search` (dense + BM25 -> RRF)
+    #:                            `rag_min_similarity` devrede (cos_sim)
+    #:                            `rag_min_score` KENDINI KAPATIR: RRF
+    #:                            skorlari ~0.016 mertebesindedir, BM25 icin
+    #:                            secilmis esik orada her seyi elerdi.
+    #:
+    #:   EMBEDDING_MODEL BOS   -> saf BM25 (`SqlRagRepository.search`)
+    #:                            `rag_min_similarity` UYGULANAMAZ (ortada
+    #:                            karsilastirilacak vektor yok)
+    #:                            `rag_min_score` devrede (ts_rank_cd)
+    #:
+    #: Yani su anki kurulumda (EMBEDDING_MODEL bos) yalnizca `rag_min_score`
+    #: calisiyor. Embedder baglandiginda devir teslim OTOMATIKTIR.
+    #: ────────────────────────────────────────────────────────────────────
+
+    #: BM25 (`ts_rank_cd`) yolunda alaka esigi. **VARSAYILAN KAPALI (0).**
+    #:
+    #: NE ICIN EKLENDI: embedder bagli degilken arama saf BM25'e duser ve
+    #: `rag_min_similarity` UYGULANAMAZ (karsilastirilacak vektor yok). O
+    #: yolda hicbir alaka filtresi yoktu; portfoy sorusuna "Guney Kore'de
+    #: kopek eti yasagi" haberi kaynak diye gosteriliyordu.
+    #:
+    #: ⚠️ NEDEN VARSAYILAN 0 — MUTLAK ESIK CALISMIYOR.
+    #: Ilk surumde 0.75 secilmisti; canli Supabase'de olculen dagilim buydu:
+    #:     alakasiz tepe 0.50 - 0.70   ·   alakali tepe 0.90 - 1.90
+    #: Ama `ts_rank_cd` KORPUSTAN KORPUSA KARSILASTIRILABILIR DEGIL. Ayni
+    #: esik CI'nin seed korpusunda (14 chunk) olculdugunde:
+    #:     sorgu   : "THYAO ikinci ceyrek karini nasil etkiledi"
+    #:     eslesen : "Turk Hava Yollari 2026 yili ikinci ceyreginde net kari..."
+    #:     skor    : 0.10          <- TAMAMEN ALAKALI, esigin cok altinda
+    #: Yani bir korpusta alakasizi eleyen deger, digerinde alakaliyi eliyor;
+    #: dokuz mevcut test bu yuzden kirmiziya dondu. Sabit bir sayi
+    #: gonderilmesi yanlis olurdu.
+    #:
+    #: ACMAK ICIN: kendi indeksinizde olcun. `RAG_MIN_SCORE=0` iken sorguyu
+    #: calistirip `market_research._alaka_skorlarini_logla` satirina bakin,
+    #: esigi alakali/alakasiz kumelerin ARASINA koyun.
+    #:
+    #: ASIL COZUM BU DEGIL: kalici duzeltme embedder'i baglamaktir
+    #: (EMBEDDING_API_KEY + EMBEDDING_MODEL). O zaman `rag_min_similarity`
+    #: devreye girer - o esik RANK'a degil gercek KOSINUS BENZERLIGINE
+    #: dayandigi icin korpusa bu kadar bagimli degildir.
+    rag_min_score: float = 0.0
+
+    #: Kufur iceren bir mesaj, icinde GERCEK bir finans sorusu olsa bile
+    #: kisa yanitla kapatilsin mi?
+    #:
+    #: `False` (eski davranis): "amk portfoyum neden dustu" cevaplanir -
+    #: sinirli ama gercek soru soran kullaniciyi cevapsiz birakmama karari.
+    #: `True`  (su anki karar): kapatilir. Urun sahibi 1 Eylul 2026'da bu
+    #: yonde karar verdi; kaba dille gelen mesajlara cilali finans analizi
+    #: donmesi istenmiyor.
+    #:
+    #: A kademesi (dogrudan hakaret) bu ayardan ETKILENMEZ - o her zaman
+    #: kosulsuz kapatir.
+    profanity_cancels_finance: bool = True
+
     # --- LLM ------------------------------------------------------------
     # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
     # degilse ajanlar LLM'siz calisir (deterministik ozet/alinti uretirler) -
@@ -162,8 +224,15 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    #: Otomatik saglayici tespitini elle ezmek icin: "gemini" | "nvidia".
-    #: Normalde BOS birakilir.
+    #: OpenRouter (OpenAI uyumlu ucuncu saglayici). Model adi `openrouter:`
+    #: onekiyle ya da `:free` gibi bir OpenRouter rota son ekiyle yazilir -
+    #: bkz. `app.core.llm.model_coz`.
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    #: Otomatik saglayici tespitini elle ezmek icin:
+    #: "gemini" | "nvidia" | "openrouter". Normalde BOS birakilir - TUM
+    #: ajanlari birden etkiler, tek bir ajani baska saglayiciya almak icin
+    #: model adina onek yazin.
     llm_provider: str = ""
     default_model: str = ""
 
@@ -184,6 +253,19 @@ class Settings(BaseSettings):
     risk_model: str = ""
     synthesizer_model: str = ""  # en guclu model burada
     security_model: str = ""  # en kucuk/hizli model burada
+
+    # --- LLM kapsam suzgeci (kapsam.py kurallarinin arkasindaki agiz) ----
+    # Kural merdiveni yalnizca LISTEDEKI yasak konulari yakalar; listede
+    # olmayan bir konu finans kokleriyle sarmalanirsa ("tetikci pazari")
+    # ajanlara sizar. Bu suzgec, ajanlara gidecek ama icinde taninan bir
+    # varlik/sembol GECMEYEN sorulari kucuk modele onaylatir. Model karari
+    # olarak `security_model` kullanilir (ayni "en kucuk/hizli model").
+    #
+    # FAIL-OPEN: model yoksa, coktuyse ya da sure asiminda kural karari
+    # gecerli kalir - saglayici 503 attiginda sohbet OLMEZ, koruma o an
+    # kurallardan ibaret kalir. Bu bilincli bir urun karari (1 Eylul 2026).
+    scope_llm_enabled: bool = True
+    scope_llm_timeout_seconds: float = 6.0
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # Yalnizca Yahoo Finance'ten GERCEK fiyat kullanilir. Yahoo'ya
@@ -414,6 +496,8 @@ class Settings(BaseSettings):
         """
         if saglayici == "nvidia":
             return self.nvidia_api_key.strip()
+        if saglayici == "openrouter":
+            return self.openrouter_api_key.strip()
         return (self.gemini_api_key or self.llm_api_key).strip()
 
     def model_for(self, agent: str) -> str:

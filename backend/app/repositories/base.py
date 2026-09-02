@@ -245,6 +245,20 @@ class RecommendationRepository(Protocol):
         """Otonom akisi acik, portfoyu olan kullanicilar ve baglamlari."""
         ...
 
+    async def user_context(self, user_id: int) -> dict | None:
+        """Sohbet kaynaklı öneri için kullanıcının bakiye ve tercih bağlamı."""
+        ...
+
+    async def holdings_map(self, portfolio_id: int) -> dict[int, float]: ...
+
+    async def get_basket_state(self, user_id: int, goal: str) -> dict | None:
+        """Kullanicinin hedef bazli kalici sepet uyeligi ve esik sayaclari."""
+        ...
+
+    async def upsert_basket_state(self, user_id: int, goal: str, state: dict) -> dict:
+        """Sepet uyeligini ve son degerlendirme zamanlarini atomik gunceller."""
+        ...
+
     async def daily_stats(self, user_id: int) -> dict:
         """BR-AUT-03 gunluk adet ve gunluk toplam tutar."""
         ...

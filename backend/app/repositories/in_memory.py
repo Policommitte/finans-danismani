@@ -1,3 +1,4 @@
+# ruff: noqa: E501 -- Sabit TR/EN oyun metinleri okunabilirlik icin bolunmez.
 """Bellek ici veri - DATABASE_URL tanimli degilken kullanilir.
 
 Bu veri kumesi `db/v5_schema_and_data.sql` icindeki dummy data'nin bir
@@ -248,6 +249,7 @@ def reset_data() -> None:
     _RECOMMENDATIONS.clear()
     _REC_AUDIT.clear()
     _USER_LIMITS.clear()
+    _BASKET_STATES.clear()
     _KILL_SWITCH.update({"active": False, "reason": None, "activated_by": None})
 
 
@@ -332,6 +334,7 @@ _SIGNALS: list[dict] = []
 _RECOMMENDATIONS: list[dict] = []
 _REC_AUDIT: list[dict] = []
 _USER_LIMITS: dict[int, dict] = {}
+_BASKET_STATES: dict[tuple[int, str], dict] = {}
 _KILL_SWITCH: dict = {"active": False, "reason": None, "activated_by": None}
 
 
@@ -1329,10 +1332,23 @@ class InMemoryRecommendationRepository:
                 "name": a["name"],
                 "asset_class": a["asset_class"],
                 "currency": a["currency"],
+                "sector": a.get("sector") or a["asset_class"],
+                "region": a.get("region")
+                or (
+                    "TR"
+                    if a["asset_class"] == "STOCK"
+                    else "US" if a["asset_class"] in {"USA_STOCK", "ETF"} else "GLOBAL"
+                ),
                 "current_price": float(a["current_price"]) * _fx_rate(a["currency"]),
                 "daily_change_pct": a.get("daily_change_pct"),
                 "weekly_change_pct": a.get("weekly_change_pct"),
                 "yearly_change_pct": a.get("yearly_change_pct"),
+                "volatility_20d_pct": abs(float(a.get("daily_change_pct") or 0))
+                + abs(float(a.get("weekly_change_pct") or 0)) * 0.35,
+                "volatility_observation_count": 20,
+                "daily_returns_252d": dict(
+                    a.get("daily_returns_252d") or a.get("daily_returns_60d") or {}
+                ),
                 "price_updated_at": a.get("price_updated_at"),
             }
             for a in _ASSETS
@@ -1378,12 +1394,46 @@ class InMemoryRecommendationRepository:
             )
         return sonuc
 
+    async def user_context(self, user_id: int) -> dict | None:
+        user = next((u for u in _USERS if int(u["id"]) == user_id), None)
+        portfolio = _default_portfolio(user_id)
+        if user is None or portfolio is None:
+            return None
+        hesap = next((c for c in _CASH_ACCOUNTS if c["portfolio_id"] == portfolio["id"]), None)
+        if hesap is None:
+            return None
+        limitler = await self.get_limits(user_id)
+        deger = sum(
+            float(h["quantity"])
+            * float(_asset(h["asset_id"])["current_price"])
+            * _fx_rate(_asset(h["asset_id"])["currency"])
+            for h in _PORTFOLIO_ASSETS
+            if h["portfolio_id"] == portfolio["id"]
+        )
+        return {
+            "user_id": user_id,
+            "risk_tolerance": user.get("risk_tolerance"),
+            "portfolio_id": portfolio["id"],
+            "available_balance": hesap["available_balance"],
+            "portfolio_value_try": deger,
+            "allowed_asset_classes": limitler["allowed_asset_classes"],
+        }
+
     async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
         return {
             int(h["asset_id"]): float(h["quantity"])
             for h in _PORTFOLIO_ASSETS
             if h["portfolio_id"] == portfolio_id and float(h["quantity"]) > 0
         }
+
+    async def get_basket_state(self, user_id: int, goal: str) -> dict | None:
+        state = _BASKET_STATES.get((user_id, goal))
+        return dict(state) if state else None
+
+    async def upsert_basket_state(self, user_id: int, goal: str, state: dict) -> dict:
+        row = {"user_id": user_id, "goal": goal, **state}
+        _BASKET_STATES[(user_id, goal)] = row
+        return dict(row)
 
     async def daily_stats(self, user_id: int) -> dict:
         bugun = datetime.now(timezone.utc).date().isoformat()
