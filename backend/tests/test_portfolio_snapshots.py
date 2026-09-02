@@ -74,9 +74,7 @@ async def test_snapshot_hatasi_fiyat_tickini_durdurmaz(monkeypatch):
         return None
 
     monkeypatch.setattr(scheduler, "get_market_repository", lambda: MarketRepository())
-    monkeypatch.setattr(
-        scheduler, "get_portfolio_repository", lambda: BrokenPortfolioRepository()
-    )
+    monkeypatch.setattr(scheduler, "get_portfolio_repository", lambda: BrokenPortfolioRepository())
     monkeypatch.setattr(trading, "bekleyen_emirleri_isle", no_orders)
     monkeypatch.setattr(recommendation, "suresi_dolanlari_kapat", no_expired)
     monkeypatch.setattr(recommendation, "oneri_uret", no_recommendations)

@@ -195,9 +195,7 @@ async def snapshot_performansi_getir(
     user_id: int, portfolio_id: int | None = None, hours: int = 24
 ) -> PortfolioSnapshotPerformanceResponse:
     """Hesaplanmis fiyat gecmisi yerine kaydedilmis gercek portfoy toplamlarini getirir."""
-    rows = await get_portfolio_repository().get_value_snapshots(
-        user_id, portfolio_id, hours=hours
-    )
+    rows = await get_portfolio_repository().get_value_snapshots(user_id, portfolio_id, hours=hours)
     return PortfolioSnapshotPerformanceResponse(
         points=[
             PortfolioValueSnapshotPoint(

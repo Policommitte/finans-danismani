@@ -23,6 +23,7 @@ from app.schemas.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+
 #: TCKN/NVI dogrulamasi kaldirildiktan sonra kayit formu ad/soyad artik
 #: TOPLAMAZ (bkz. RegisterRequest) - ama `users.first_name`/`last_name`
 #: DB'de NOT NULL. Bu yuzden e-postanin yerel kismindan makul bir isim
