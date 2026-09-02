@@ -267,9 +267,17 @@ async def risk_profili_getir(user_id: int, portfolio_id: int | None = None) -> d
     from app.repositories.deps import get_portfolio_repository, get_user_repository
 
     portfolio_repository = get_portfolio_repository()
-    holdings = await portfolio_repository.get_holdings(user_id, portfolio_id)
-    allocation = await portfolio_repository.get_allocation(user_id, portfolio_id)
-    user = await get_user_repository().get_by_id(user_id)
+    # PARALEL: uc okuma birbirinden bagimsiz. Sirayla calistirildiginda uzak
+    # veritabaninda (~645 ms gidis-donus, bkz. `_oynakliklari_olc`) her
+    # dashboard yuklemesine ~1.3 sn ekleniyordu - `_oynakliklari_olc`
+    # cagrisi zaten paralellestirilmisti ama onun ONUNDEKI uc adim seri
+    # kalmisti. `dashboard.ozet_getir` bu fonksiyonu gather icinde cagirsa
+    # da, icerideki seri zincir toplam sureyi belirliyordu (en uzun dal).
+    holdings, allocation, user = await asyncio.gather(
+        portfolio_repository.get_holdings(user_id, portfolio_id),
+        portfolio_repository.get_allocation(user_id, portfolio_id),
+        get_user_repository().get_by_id(user_id),
+    )
     oynakliklar = await _oynakliklari_olc(holdings)
 
     return risk_profili_hesapla(

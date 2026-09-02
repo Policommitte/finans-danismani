@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import type { PendingAttachment } from "../components/chat/AttachmentMenu";
-import type {
-  AgentError,
-  ChatAttachment,
-  ChatMessage,
-  Source,
-} from "../models/chat";
+import type { AgentError, ChatAttachment, ChatMessage, Source } from "../models/chat";
 import { streamChat } from "../services/chatService";
 
 //: Ek varsa ama mesaj kutusu bosbiraktilarsa, dosya turune gore makul bir
@@ -115,6 +110,11 @@ export function useChatStream() {
                     sources,
                     agent_errors: agentErrors,
                     message_id: event.message_id,
+                    // Belge analiz ajani PDF urettiyse (bkz.
+                    // DocumentAnalysisAgent) indirme baglantisi icin gerekli
+                    // meta veri - gercek dosya SSE'den GECMEZ, ayri bir
+                    // uctan (`/api/chat/reports/{message_id}`) cekilir.
+                    rapor: event.rapor,
                     mentioned_assets: mentionedAssets,
                   }
                 : message,

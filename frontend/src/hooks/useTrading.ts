@@ -26,7 +26,7 @@ export function useTrading() {
     ]);
     return { account, orders, holdings };
   }, []);
-  const state = useAsyncData(loader, [loader]);
+  const state = useAsyncData(loader, [loader], "trading:state");
   const [preview, setPreview] = useState<OrderPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);

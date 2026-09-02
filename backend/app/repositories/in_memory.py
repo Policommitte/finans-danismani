@@ -385,6 +385,7 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": "THYAO",
         "tarih": "2026-08-10",
         "tip": "bilanco",
+        "kaynak_url": "https://www.kap.org.tr/tr/Bildirim/thyao-2026-2c",
         "content": (
             "THY, 2026 yili 2. ceyrek finansal sonuclarinda net karini bir onceki yilin "
             "ayni donemine gore %18 artirdi. Sirket, yolcu doluluk oraninin %84 "
@@ -399,6 +400,7 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": "THYAO",
         "tarih": "2026-08-10",
         "tip": "duyuru",
+        "kaynak_url": "https://www.kap.org.tr/tr/Bildirim/thyao-yakit-maliyeti",
         "content": (
             "THYAO, KAP'a yaptigi aciklamada yakit maliyetlerindeki dususun karlilik "
             "uzerinde olumlu etkisi oldugunu belirtti."
@@ -412,6 +414,10 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": "SASA",
         "tarih": "2026-07-30",
         "tip": "haber",
+        # Bilincli olarak `None`: kaynak_url'i BOS olan dokumanlar gercekte de
+        # vardir (eski ingestion kayitlari). Arayuzun tiklanamaz karti dogru
+        # cizdigi bu satir sayesinde gelistirme modunda da gorunur.
+        "kaynak_url": None,
         "content": (
             "Sasa Polyester'de hammadde maliyetlerindeki artis marjlari baski altinda "
             "tutmaya devam ediyor. Analistler kisa vadede toparlanma beklemiyor."
@@ -425,6 +431,7 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": None,
         "tarih": "2026-08-01",
         "tip": "analist_raporu",
+        "kaynak_url": "https://www.bloomberght.com/kripto/oynaklik-raporu-2026-08",
         "content": (
             "Bitcoin ve Ethereum'da gunluk oynaklik uzun donem ortalamasinin uzerinde "
             "seyrediyor. Yuksek agirlikli kripto pozisyonlari portfoy riskini artiriyor."
@@ -1761,6 +1768,14 @@ class InMemoryChatRepository:
                 session["updated_at"] = message["created_at"]
         return dict(message)
 
+    async def message_owner_id(self, message_id: int) -> int | None:
+        for message in self._messages:
+            if message["id"] == message_id:
+                for session in self._sessions:
+                    if session["id"] == message["session_id"]:
+                        return int(session["user_id"])
+        return None
+
 
 class InMemoryAuditRepository:
     """Denetim kayitlarini yalnizca loga yazar (DB yokken).
@@ -2679,6 +2694,17 @@ class InMemoryContestRepository:
         for contest in _CONTESTS:
             if contest["contest_date"] == bugun:
                 return dict(contest)
+        # DEV/DEMO: sunucu surec gece yarisini gecip RESTART OLMADAN calismaya
+        # devam ederse, modul yuklenirken bir kere hesaplanan `contest_date`
+        # bayatlar ve hicbir satir "bugun"e esit gelmez - "Bugun icin acik bir
+        # yarisma yok" hatasi budur. Tek sabit ("bu akscamki") yarismayi
+        # GUNCEL tarihe kaydirarak kendini onarir; boylece demo icin sunucuyu
+        # her gun yeniden baslatmak gerekmez.
+        if _CONTESTS:
+            contest = _CONTESTS[0]
+            contest["contest_date"] = bugun
+            contest["starts_at"] = _now().replace(hour=20, minute=0, second=0, microsecond=0)
+            return dict(contest)
         return None
 
     async def get_contest_topics(self, contest_id: int) -> list[dict]:

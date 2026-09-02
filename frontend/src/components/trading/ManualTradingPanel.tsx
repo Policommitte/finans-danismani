@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ErrorState } from "../feedback/ErrorState";
 import { LoadingState } from "../feedback/LoadingState";
 import { MARKET_PAGE_READY_EVENT } from "../layout/transitionEvents";
@@ -10,11 +10,55 @@ import { TradeTicket } from "../market/TradeTicket";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { useMarket } from "../../hooks/useMarket";
 import { useTrading } from "../../hooks/useTrading";
+import type { Forecast } from "../../models/market";
+import { getForecast } from "../../services/marketService";
+
+/**
+ * Secili varligin tahminini ceker.
+ *
+ * `useMarket`'e EKLENMEDI: o hook fiyat/mum/emir akisini yonetiyor ve
+ * tahmin OPSIYONEL bir sustur - basarisiz olursa panelin geri kalani
+ * etkilenmemeli. Ayri tutmak, hatayi da ayri tutar.
+ */
+function useForecast(symbol: string | undefined): Forecast | null {
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+
+  useEffect(() => {
+    if (!symbol) {
+      setForecast(null);
+      return;
+    }
+
+    // Sembol degisince ESKI tahmin gorunmeye devam etmemeli: yeni istek
+    // donene kadar temizlenir, aksi halde THYAO'nun tahmini bir an AAPL
+    // grafiginin uzerinde durur.
+    setForecast(null);
+    let iptal = false;
+
+    getForecast(symbol)
+      .then((sonuc) => {
+        if (!iptal) setForecast(sonuc);
+      })
+      .catch(() => {
+        // Tahmin ozelligi kapali ya da uc hata verdi - SESSIZ gecilir,
+        // grafik tahminsiz cizilir. Kullaniciya hata gostermek gereksiz:
+        // istemedigi bir sus icin uyari almamali.
+        if (!iptal) setForecast(null);
+      });
+
+    return () => {
+      iptal = true;
+    };
+  }, [symbol]);
+
+  return forecast;
+}
 
 export function ManualTradingPanel({ onReady }: { onReady?: () => void }) {
   const { language } = useLanguage();
   const market = useMarket();
   const trading = useTrading();
+  const forecast = useForecast(market.symbol);
 
   useEffect(() => {
     if (market.loading) return;
@@ -53,6 +97,7 @@ export function ManualTradingPanel({ onReady }: { onReady?: () => void }) {
   return (
     <PriceHistoryChart
       data={market.data.candles}
+      forecast={forecast}
       assetClass={selectedAsset?.asset_class}
       currency={selectedAsset?.currency}
       interval={market.chartInterval}

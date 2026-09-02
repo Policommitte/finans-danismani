@@ -28,6 +28,8 @@ type Article = {
   body: string[];
   image: string;
   tag?: "positive" | "negative" | "neutral";
+  /** Haberin yayindaki adresi - `NewsDetailModal`'da "Kaynağa git" linkini besler. */
+  sourceUrl?: string | null;
 };
 
 const tabs: { key: "tumu" | Category; label: { tr: string; en: string } }[] = [
@@ -74,6 +76,7 @@ function toArticle(item: NewsArticle, index: number, language: "tr" | "en"): Art
     summary: item.excerpt,
     body: item.body,
     image: item.image_url,
+    sourceUrl: item.kaynak_url,
     // Backend, haberin ilgili oldugu varligin (altin, doviz, taninan bir
     // BIST sirketi vb.) CANLI gunluk degisimini cozebildiyse doldurur;
     // guvenilir bir eslesme yoksa null doner ve rozet hic gosterilmez.
@@ -173,7 +176,7 @@ export default function BultenPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("tumu");
   const [selectedArticle, setSelectedArticle] = useState<NewsDetailArticle | null>(null);
   const { data, loading, error, refetch } = useDashboard();
-  const news = useAsyncData(() => getNews(50), []);
+  const news = useAsyncData(() => getNews(50), [], "news:50");
 
   useEffect(() => {
     if (loading || news.loading) {

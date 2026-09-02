@@ -2,6 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { matchNewsLogo, matchSourceLogo } from "./logos";
+import { guvenliUrl } from "../chat/SourceList";
 import { useLanguage } from "../../contexts/LanguageContext";
 
 function GenericNewsIcon() {
@@ -21,12 +22,19 @@ export type NewsDetailArticle = {
   time: string;
   body: string[];
   symbol?: string;
+  /**
+   * Haberin yayindaki adresi (`rag.documents.kaynak_url`). Portfoyden
+   * TUREYEN "haberler" (bkz. `bulten/page.tsx::buildHoldingArticle`) icin
+   * bu alan hic gonderilmez - onlarin disarida gercek bir karsiligi yok.
+   */
+  sourceUrl?: string | null;
 };
 
 export function NewsDetailModal({ article, onClose }: { article: NewsDetailArticle; onClose: () => void }) {
   const { language } = useLanguage();
   const logoMatch = matchNewsLogo(article.symbol ?? article.title);
   const sourceLogo = matchSourceLogo(article.source);
+  const kaynakAdresi = guvenliUrl(article.sourceUrl);
 
   return createPortal(
     <div
@@ -83,7 +91,7 @@ export function NewsDetailModal({ article, onClose }: { article: NewsDetailArtic
           ))}
         </div>
 
-        <div className="border-t app-border px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t app-border px-5 py-4">
           <button
             type="button"
             onClick={onClose}
@@ -91,6 +99,31 @@ export function NewsDetailModal({ article, onClose }: { article: NewsDetailArtic
           >
             {language === "tr" ? "← Bültene dön" : "← Back to bulletin"}
           </button>
+          {kaynakAdresi && (
+            <a
+              href={kaynakAdresi}
+              target="_blank"
+              rel="noreferrer"
+              title={kaynakAdresi}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold app-heading underline decoration-current/40 underline-offset-2 hover:opacity-80"
+            >
+              {language === "tr" ? "Kaynağa git" : "View source"}
+              <svg
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <path d="M15 3h6v6" />
+                <path d="M10 14 21 3" />
+              </svg>
+            </a>
+          )}
         </div>
       </div>
     </div>,

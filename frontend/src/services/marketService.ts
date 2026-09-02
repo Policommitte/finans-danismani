@@ -3,6 +3,7 @@ import type {
   CandlesResponse,
   ChartInterval,
   ChartRange,
+  Forecast,
   HistoryResponse,
   MarketSearchRequest,
   MarketSearchResponse,
@@ -44,8 +45,35 @@ export function getNews(limit = 20, kategori?: string): Promise<NewsListResponse
   return apiRequest<NewsListResponse>(`/api/market/news?${params.toString()}`);
 }
 
+// Ticker yaniti kisa sureligine paylasilir: ust serit (MarketTicker) ve
+// dashboard'daki doviz cevirimi AYNI ucu, AYNI 60 sn aralikla ayri ayri
+// cekiyordu - her dashboard ziyareti backend'e iki ozdes istek atiyordu.
+// Ayni anda gelen cagrilar tek istege katlanir (in-flight dedupe), sonuc
+// TTL boyunca tekrar kullanilir. TTL, iki tuketicinin de kendi 60 sn
+// tazeleme periyodundan kisa tutuldu ki hicbiri bayat veriyle kalmasin.
+const TICKER_SHARE_TTL_MS = 30_000;
+let tickerCache: { at: number; value: PublicMarketTickerResponse } | null = null;
+let tickerInFlight: Promise<PublicMarketTickerResponse> | null = null;
+
 export function getPublicMarketTicker(): Promise<PublicMarketTickerResponse> {
-  return apiRequest<PublicMarketTickerResponse>("/api/public/market-ticker", { auth: false });
+  const now = Date.now();
+  if (tickerCache !== null && now - tickerCache.at < TICKER_SHARE_TTL_MS) {
+    return Promise.resolve(tickerCache.value);
+  }
+  if (tickerInFlight !== null) {
+    return tickerInFlight;
+  }
+  tickerInFlight = apiRequest<PublicMarketTickerResponse>("/api/public/market-ticker", {
+    auth: false,
+  })
+    .then((value) => {
+      tickerCache = { at: Date.now(), value };
+      return value;
+    })
+    .finally(() => {
+      tickerInFlight = null;
+    });
+  return tickerInFlight;
 }
 
 export function getMarketCandles(
@@ -63,4 +91,21 @@ export function getPublicLandingPreview(): Promise<PublicLandingPreviewResponse>
 
 export function getMarketPhoto(query: string): Promise<PhotoResponse> {
   return apiRequest<PhotoResponse>(`/api/market/photo?query=${encodeURIComponent(query)}`);
+}
+
+/**
+ * Bir varligin ~1 aylik tahmini. `null` donebilir - HATA DEGILDIR:
+ * tahmin ozelligi opsiyoneldir (backend'de `FORECAST_MODEL` bos ya da
+ * torch/timesfm kurulu degil). Cagiran taraf `null` gorunce kesikli
+ * cizgiyi cizmez, grafigin geri kalani normal calisir.
+ */
+export function getForecast(symbol: string): Promise<Forecast | null> {
+  // Sorgu parametresi, yol parcasi DEGIL: "USD/TRY" yol icinde kodlansa bile
+  // sunucu tarafinda cozulup rotayi bozuyordu (bkz. routes/market.py::forecast).
+  return apiRequest<Forecast | null>(`/api/market/forecast?symbol=${encodeURIComponent(symbol)}`);
+}
+
+/** Portfoyun TUM varliklari + nakdi uzerinden TL bazli birlesik tahmin. */
+export function getPortfolioForecast(): Promise<Forecast | null> {
+  return apiRequest<Forecast | null>("/api/market/forecast-portfolio");
 }
