@@ -564,4 +564,58 @@ async def test_alandan_cozulen_sembol_rag_i_kapatmaz():
 
     assert gorev.get("symbol") == "ASELS"
     assert gorev.get("symbol_alandan") is True
-    assert ajan._resolve_mode(gorev, gorev["query"]) == "both"
+    # Fiyat ipucu ("ne kadar yukseldi") olmasina RAGMEN canli yol acilmaz.
+    assert ajan._resolve_mode(gorev, gorev["query"]) == "rag"
+
+
+async def test_alandan_cozulen_sembol_arama_metnine_enjekte_edilmez():
+    """Alandan CIKARILAN sembol arama metnine hicbir sey eklemez.
+
+    Sorulan sirket katalogdakinden baskasi olabilir ve genisletme onun
+    haberlerini eziyor - olculdu:
+
+        "Baykar savunma sanayinde"                     -> 4/5 sonuc Baykar
+        "Baykar savunma sanayinde savunma elektronigi"  -> 0/5 sonuc Baykar
+
+    Ad enjekte edilmese bile duser; sucu tasiyan alan kelimeleri.
+    """
+    cagrilar: list[str] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append(query)
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan._run_rag(
+        {"query": "savunma sanayi nasıl gidiyor", "symbol": "ASELS", "symbol_alandan": True},
+        "savunma sanayi nasıl gidiyor",
+    )
+
+    # Yalnizca damitma - ne ad ne alan kelimesi.
+    assert cagrilar == ["savunma sanayi"]
+
+
+async def test_sorguda_adiyla_gecen_sembol_alan_kelimelerini_alir():
+    """Kullanici sirketi ADIYLA yazdiysa belirsizlik YOK - takviye uygulanir.
+
+    Olculdu: "aselsan" -> savunma haberi 3. siradan 1. siraya (0.345 -> 0.426).
+    """
+    cagrilar: list[str] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append(query)
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan._run_rag(
+        {"query": "aselsan hissesi haberleri", "symbol": "ASELS"},
+        "aselsan hissesi haberleri",
+    )
+
+    assert "savunma sanayi" in cagrilar[0]

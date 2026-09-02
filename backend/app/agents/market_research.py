@@ -516,7 +516,7 @@ def _alandan_coz(query: str, katalog_sembolleri: set[str]) -> str | None:
     yalnizca sembol/unvan eslestirdigi icin bu sorularda `None` doner ve
     canli fiyat yolu hic acilmaz.
 
-    IKI KURAL:
+    UC KURAL:
 
       1. YALNIZCA TEK ESLESME KABUL EDILIR. Ifadeler bire-cok olabilir
          ("yapay zeka cipi" + "bulut bilisim" -> NVDA, MSFT) ama `task`
@@ -526,6 +526,28 @@ def _alandan_coz(query: str, katalog_sembolleri: set[str]) -> str | None:
       2. KATALOGDA OLMAYAN SEMBOL URETILMEZ - `_takma_addan_coz` ile ayni
          kural: varlik silinirse tablo sessizce yanlis sonuc uretmeye
          baslamasin.
+    ⚠️ BU CIKARIM SESSIZ KALIR. Donen sembol NE arama metnine dokunur NE de
+    canli fiyat/kart yolunu acar (bkz. `_run_rag` ve `_resolve_mode`). Sebep:
+    sorudaki alan ifadesi, soruyu SORULAN sirkete degil katalogdaki sirkete
+    mal edebilir -
+
+        "Baykar savunma sanayinde nasil gidiyor"  -> ASELS
+        "Cimsa cimento sektorunde nasil"          -> AKCNS
+
+    ve bu iki sirket de katalogda YOK. Olculdu: alan kelimeleri arama
+    metnine eklenince sorulan sirketin haberleri tamamen dusuyor -
+
+        "Baykar savunma sanayinde"                     -> 4/5 sonuc Baykar
+        "Baykar savunma sanayinde savunma elektronigi" -> 0/5 sonuc Baykar
+
+    (Ad enjekte edilmese bile dusuyor; sucu tasiyan alan kelimeleri.)
+
+    Bir ara "buyuk harfle baslayan, ifadenin disinda kalan, katalogda
+    olmayan token varsa bastir" kurali denendi. KALDIRILDI: Turkcede cumle
+    bas harfi HER ZAMAN buyuk yazilir, dolayisiyla buyuk harf ozel ad kaniti
+    degil - "Bugun savunma sanayi nasil" da bastiriliyordu. Ayni konumdaki
+    "Bugun" ile "Baykar"i sozluk olmadan ayirmak mumkun degil; tahmine
+    dayali bir sinir koymaktansa cikarimi etkisiz birakmak dogru.
     """
     metin = _normalize(query)
     bulunan = {
@@ -935,6 +957,15 @@ _ARAMA_CERCEVESI: tuple[re.Pattern[str], ...] = tuple(
         r"\betkile[rn]\w*\b",  # etkiler, etkilenir
         r"\bgelisme\w*\b",
         r"\bhaber\w*\b",  # her chunk zaten haber; ayirt edici degil
+        # "sektor" ve yalin "son" jenerik dolgudur ve olculebilir zarar
+        # veriyorlardi - "havacilik sektorunde son durum ne" sorusunda:
+        #     'havacilik sektorunde son'  -> 3/5 havacilik sonucu
+        #     'havacilik sektorunde'      -> 2/5
+        #     'havacilik'                 -> 5/5
+        # ("son 24 saatte" bicimi yukaridaki cok kelimeli kalipta zaten
+        # yakalaniyor; bu yalin bicim icin.)
+        r"\bsektor\w*\b",
+        r"\bson\b",
         r"\byorum\w*\b",
         r"\btavsiye\w*\b",
         r"\bportfoy\w*\b",  # portfoy sorusu ayri ajanin isi
@@ -1333,16 +1364,23 @@ class MarketResearchAgent(BaseAgent):
         )
         baglam_isteniyor = any(k in normalized for k in _CONTEXT_KEYWORDS)
 
+        # ALANDAN CIKARILAN SEMBOL CANLI YOLU HIC ACMAZ.
+        #
+        # Cikarim "soruda su sektor geciyor"dan ibaret; sorulan sirketin
+        # katalogdaki sirket oldugunu GOSTERMEZ. Fiyat kartinin cikmasi ise
+        # bunu kesin bir iddiaya cevirir: "Baykar savunma sanayinde fiyati
+        # ne" sorusuna ASELSAN'in 390,25 TL'si gosteriliyordu - Baykar halka
+        # acik bile degil.
+        #
+        # Hangi durumun hangisi oldugunu ayirmak icin bir sinir denendi ve
+        # kaldirildi (bkz. `_alandan_coz`); tahmin etmek yerine cikarimi
+        # canli yoldan tamamen uzak tutmak dogru.
+        if task.get("symbol_alandan"):
+            return "rag"
+
         if canli_isteniyor and baglam_isteniyor:
             return "both"
         if canli_isteniyor:
-            # ALANDAN cozulen sembol tek basina "live"a DUSMEZ. "savunma
-            # sanayi hisseleri ne kadar yukseldi" sorusunda sembol ASELS'e
-            # baglanir ve `_LIVE_KEYWORDS` eslesirdi; salt fiyat donmek
-            # sorunun asil konusunu (sektor haberleri) tamamen atardi -
-            # yani alan sozlugu kendi amacini baltalardi.
-            if task.get("symbol_alandan"):
-                return "both"
             # Donem/mevsim sorusunda RAG'i de acik tutuyoruz: piyasa yolu bos
             # donerse kullanici hicbir sey alamazdi. "both" ile en kotu
             # ihtimalde haber ozeti geliyor.
@@ -1391,12 +1429,28 @@ class MarketResearchAgent(BaseAgent):
         if date_to := task.get("date_to"):
             filters["date_to"] = date_to
 
+        # ARAMA METNI YALNIZCA SORGUDA ADIYLA GECEN SEMBOLDEN BESLENIR.
+        #
+        # Sembol alan ifadesinden CIKARILDIYSA (`symbol_alandan`) arama
+        # metnine hicbir sey eklenmez: kullanicinin sordugu sirket
+        # katalogdakinden baskasi olabilir ve genisletme onun haberlerini
+        # eziyor. Olculdu:
+        #
+        #     "Baykar savunma sanayinde"                     -> 4/5 Baykar
+        #     "Baykar savunma sanayinde savunma elektronigi"  -> 0/5 Baykar
+        #
+        # Kullanici sirketi ADIYLA yazdiysa (`sembol_coz` cozdu) boyle bir
+        # belirsizlik YOK - orada takviye olculmus kazanc saglar:
+        # "aselsan" -> savunma haberi 3. siradan 1. siraya, 0.345 -> 0.426.
         sembol = task.get("symbol")
-        arama = _arama_metni(
-            query,
-            await self._varlik_adi(sembol),
-            _ALAN_SOZLUGU.get(str(sembol or "").upper()),
-        )
+        if task.get("symbol_alandan"):
+            arama = _arama_metni(query)
+        else:
+            arama = _arama_metni(
+                query,
+                await self._varlik_adi(sembol),
+                _ALAN_SOZLUGU.get(str(sembol or "").upper()),
+            )
 
         sonuc = await self.call_tool(
             server=RAG_SERVER_NAME,
