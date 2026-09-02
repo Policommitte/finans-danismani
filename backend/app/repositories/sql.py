@@ -59,8 +59,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, onboarding_completed, role,
-                   tckn_last4, birth_date, phone_number
+                   risk_tolerance, monthly_income, onboarding_completed, has_seen_tour,
+                   role, tckn_last4, birth_date, phone_number
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -70,7 +70,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
-                   onboarding_completed, role, tckn_last4, birth_date, phone_number
+                   onboarding_completed, has_seen_tour, role, tckn_last4, birth_date,
+                   phone_number
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
@@ -99,11 +100,12 @@ class SqlUserRepository(_SqlRepository):
                     """
                     INSERT INTO users
                         (first_name, last_name, email, password_hash, onboarding_completed,
-                         tckn_hash, tckn_last4, birth_date, phone_number)
+                         has_seen_tour, tckn_hash, tckn_last4, birth_date, phone_number)
                     VALUES (:first_name, :last_name, :email, :password_hash, false,
-                            :tckn_hash, :tckn_last4, :birth_date, :phone_number)
+                            false, :tckn_hash, :tckn_last4, :birth_date, :phone_number)
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed, tckn_last4, birth_date, phone_number
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
                     """
                 ),
                 {
@@ -130,10 +132,30 @@ class SqlUserRepository(_SqlRepository):
                     SET risk_tolerance = :risk_tolerance, onboarding_completed = true
                     WHERE id = :user_id
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed, tckn_last4, birth_date, phone_number
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
                     """
                 ),
                 {"user_id": user_id, "risk_tolerance": risk_tolerance},
+            )
+            row = result.mappings().first()
+            await session.commit()
+            return dict(row) if row else None
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET has_seen_tour = true
+                    WHERE id = :user_id
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
+                    """
+                ),
+                {"user_id": user_id},
             )
             row = result.mappings().first()
             await session.commit()
@@ -1638,12 +1660,51 @@ class SqlRecommendationRepository(_SqlRepository):
         return await self._rows(
             """
             SELECT a.id AS asset_id, a.symbol, a.name, ac.code AS asset_class,
-                   a.currency, a.current_price * fx.try_rate AS current_price,
+                   a.currency, a.sector, a.region,
+                   CASE
+                       WHEN fx.try_rate IS NULL THEN a.current_price
+                       ELSE a.current_price * fx.try_rate
+                   END AS current_price,
                    a.daily_change_pct, a.weekly_change_pct, a.yearly_change_pct,
-                   a.price_updated_at
+                   a.price_updated_at, vol.volatility_20d_pct,
+                   COALESCE(vol.volatility_observation_count, 0)
+                       AS volatility_observation_count,
+                   COALESCE(vol.daily_returns_252d, '{}'::jsonb) AS daily_returns_252d
             FROM assets a
             JOIN asset_categories ac ON ac.id = a.category_id
-            JOIN v_fx_rates fx ON fx.currency = a.currency
+            LEFT JOIN v_fx_rates fx ON fx.currency = a.currency
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN count(return_pct) FILTER (WHERE recency <= 20) >= 20
+                            THEN stddev_samp(return_pct) FILTER (WHERE recency <= 20)
+                       END AS volatility_20d_pct,
+                       count(return_pct) FILTER (WHERE recency <= 20)
+                           AS volatility_observation_count,
+                       jsonb_object_agg(ts::text, return_pct ORDER BY ts)
+                           FILTER (WHERE return_pct IS NOT NULL) AS daily_returns_252d
+                FROM (
+                    SELECT ts, return_pct,
+                           row_number() OVER (ORDER BY ts DESC) AS recency
+                    FROM (
+                        SELECT ts,
+                               (price / lag(price) OVER (ORDER BY ts) - 1) * 100
+                                   AS return_pct
+                        FROM (
+                            SELECT day AS ts, price
+                            FROM (
+                                SELECT DISTINCT ON ((ts AT TIME ZONE 'Europe/Istanbul')::date)
+                                       (ts AT TIME ZONE 'Europe/Istanbul')::date AS day,
+                                       price
+                                FROM price_history
+                                WHERE asset_id = a.id
+                                ORDER BY (ts AT TIME ZONE 'Europe/Istanbul')::date DESC,
+                                         ts DESC
+                            ) daily_closes
+                            ORDER BY day DESC
+                            LIMIT 253
+                        ) daily_points
+                    ) returns
+                ) ranked_returns
+            ) vol ON true
             ORDER BY a.id
             """
         )
@@ -1729,6 +1790,25 @@ class SqlRecommendationRepository(_SqlRepository):
             """
         )
 
+    async def user_context(self, user_id: int) -> dict | None:
+        return await self._row(
+            """
+            SELECT u.id AS user_id, u.risk_tolerance,
+                   p.id AS portfolio_id, ca.available_balance,
+                   COALESCE(vs.total_value_try, 0) AS portfolio_value_try,
+                   COALESCE(l.allowed_asset_classes, '[]'::jsonb) AS allowed_asset_classes
+            FROM users u
+            JOIN portfolios p ON p.user_id = u.id
+            JOIN cash_accounts ca ON ca.portfolio_id = p.id AND ca.currency = 'TRY'
+            LEFT JOIN user_trading_limits l ON l.user_id = u.id
+            LEFT JOIN v_portfolio_summary vs ON vs.portfolio_id = p.id
+            WHERE u.id = :user_id
+            ORDER BY p.is_default DESC, p.id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+
     async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
         rows = await self._rows(
             """
@@ -1738,6 +1818,69 @@ class SqlRecommendationRepository(_SqlRepository):
             {"portfolio_id": portfolio_id},
         )
         return {int(r["asset_id"]): float(r["quantity"]) for r in rows}
+
+    async def get_basket_state(self, user_id: int, goal: str) -> dict | None:
+        row = await self._row(
+            """
+            SELECT user_id, goal, memberships, breach_counts,
+                   membership_since, change_signals, profile_signature,
+                   evaluated_at, changed_at, created_at, updated_at
+            FROM idle_cash_basket_states
+            WHERE user_id = :user_id AND goal = :goal
+            """,
+            {"user_id": user_id, "goal": goal},
+        )
+        if row is None:
+            return None
+        return {
+            **row,
+            "memberships": list(row.get("memberships") or []),
+            "breach_counts": dict(row.get("breach_counts") or {}),
+            "membership_since": dict(row.get("membership_since") or {}),
+            "change_signals": dict(row.get("change_signals") or {}),
+        }
+
+    async def upsert_basket_state(self, user_id: int, goal: str, state: dict) -> dict:
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO idle_cash_basket_states (
+                            user_id, goal, memberships, breach_counts,
+                            membership_since, change_signals, profile_signature,
+                            evaluated_at, changed_at, updated_at
+                        ) VALUES (
+                            :user_id, :goal, CAST(:memberships AS JSONB),
+                            CAST(:breach_counts AS JSONB),
+                            CAST(:membership_since AS JSONB),
+                            CAST(:change_signals AS JSONB), :profile_signature,
+                            :evaluated_at, :changed_at, now()
+                        )
+                        ON CONFLICT (user_id, goal) DO UPDATE SET
+                            memberships = EXCLUDED.memberships,
+                            breach_counts = EXCLUDED.breach_counts,
+                            membership_since = EXCLUDED.membership_since,
+                            change_signals = EXCLUDED.change_signals,
+                            profile_signature = EXCLUDED.profile_signature,
+                            evaluated_at = EXCLUDED.evaluated_at,
+                            changed_at = EXCLUDED.changed_at,
+                            updated_at = now()
+                        """
+                    ),
+                    {
+                        "user_id": user_id,
+                        "goal": goal,
+                        "memberships": _json(state["memberships"]),
+                        "breach_counts": _json(state.get("breach_counts") or {}),
+                        "membership_since": _json(state.get("membership_since") or {}),
+                        "change_signals": _json(state.get("change_signals") or {}),
+                        "profile_signature": state["profile_signature"],
+                        "evaluated_at": state["evaluated_at"],
+                        "changed_at": state["changed_at"],
+                    },
+                )
+        return await self.get_basket_state(user_id, goal) or {}
 
     async def daily_stats(self, user_id: int) -> dict:
         row = await self._row(
@@ -2090,6 +2233,18 @@ class SqlRagRepository(_SqlRepository):
     BM25 sorgusunda `plainto_tsquery`'nin AND davranisi OR'a cevrilir: dogal
     dildeki bir sorunun TUM kelimelerinin ayni chunk'ta gecmesi neredeyse
     imkansizdir; cevrilmezse arama sessizce bos doner (db/README.md).
+
+    ALAKA ESIGI (`settings.rag_min_similarity`)
+    -------------------------------------------
+    OR'lama aramayi calisir kilar ama BEDELI vardir: tek bir genel kelime
+    ("sektor") alakasiz dokumanlari aday havuzuna sokar. Donen `score` bunu
+    ayiklamaya YETMEZ - RRF rank tabanlidir, 1. sira alakasiz olsa da ayni
+    degeri alir. Bu yuzden `hybrid_search()` ayrica gercek kosinus benzerligini
+    (`cos_sim`) doner ve esigin altindakileri `rag.hybrid_search`'un ICINDE,
+    `LIMIT`ten ONCE eler.
+
+    Esik YALNIZCA bu yolda islenir; `search()` (BM25) yolunda karsilastirilacak
+    vektor olmadigi icin uygulanamaz.
     """
 
     def __init__(
@@ -2196,11 +2351,17 @@ class SqlRagRepository(_SqlRepository):
         # gonderir ve Postgres fonksiyon overload'unu bulamaz (bkz. embedding
         # pipeline oturum notlari, 2026-08-19/20 - ayni hata local'de
         # `rag.hybrid_search`'u dogrudan cagirirken de yasanmisti).
+        # ASGARI BENZERLIK ESIGI: `0` kapali demektir ve SQL tarafina NULL gider
+        # (fonksiyon NULL'da hicbir satir elemez). Esik SQL'in ICINDE, `LIMIT`ten
+        # ONCE uygulanir - Python'da sonradan filtrelemek `top_k` satirin bir
+        # kismini silip geriye cok az sonuc birakirdi; SQL'de elenenlerin yeri
+        # aday havuzunun derinliginden dolar.
+        esik = settings.rag_min_similarity
         return await self._rows(
             """
             SELECT hs.chunk_id, d.external_id AS doc_id, hs.baslik, hs.sirket,
                    a.symbol, to_char(hs.tarih, 'YYYY-MM-DD') AS tarih, hs.tip,
-                   hs.content, hs.score
+                   hs.content, hs.score, hs.cos_sim
             FROM rag.hybrid_search(
                      p_query     => CAST(:query AS TEXT),
                      p_embedding => CAST(:embedding AS vector),
@@ -2208,7 +2369,8 @@ class SqlRagRepository(_SqlRepository):
                      p_sirket    => CAST(:sirket AS TEXT),
                      p_tip       => CAST(:tip AS TEXT),
                      p_date_from => CAST(:date_from AS DATE),
-                     p_date_to   => CAST(:date_to AS DATE)
+                     p_date_to   => CAST(:date_to AS DATE),
+                     p_min_cos   => CAST(:min_cos AS DOUBLE PRECISION)
                  ) hs
             JOIN rag.documents d ON d.id = hs.document_id
             LEFT JOIN assets a   ON a.id = d.asset_id
@@ -2222,6 +2384,7 @@ class SqlRagRepository(_SqlRepository):
                 "tip": tip,
                 "date_from": date_from,
                 "date_to": date_to,
+                "min_cos": esik if esik > 0 else None,
             },
         )
 
@@ -2535,6 +2698,7 @@ class SqlLeadRepository(_SqlRepository):
         return await self._rows(
             """
             SELECT q.user_id, u.first_name, u.last_name, u.email,
+                   u.phone_number, u.birth_date, u.tckn_last4,
                    q.decision, q.exclusion_reason, q.score, q.score_components,
                    q.reasons, q.total_value_try, q.monthly_income, q.likit_para,
                    q.days_since_activity, q.created_at
@@ -2561,6 +2725,7 @@ class SqlLeadRepository(_SqlRepository):
             SELECT * FROM (
                 SELECT DISTINCT ON (c.user_id)
                        c.user_id, u.first_name, u.last_name, u.email,
+                       u.phone_number, u.birth_date, u.tckn_last4,
                        'AUTONOMOUS' AS decision,
                        CAST(NULL AS VARCHAR) AS exclusion_reason,
                        COALESCE(q.score, 0) AS score,
@@ -2616,14 +2781,71 @@ class SqlContestRepository(_SqlRepository):
     """
 
     async def get_active_contest(self) -> dict | None:
-        return await self._row(
-            """
-            SELECT id, contest_date, starts_at, capacity_total,
-                   prize_pool_points, question_count, created_at
-            FROM contest
-            WHERE contest_date = CURRENT_DATE
-            """
-        )
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO contest (contest_date, starts_at)
+                        VALUES (
+                            CURRENT_DATE,
+                            (CURRENT_DATE::timestamp + TIME '20:00')
+                                AT TIME ZONE 'Europe/Istanbul'
+                        )
+                        ON CONFLICT (contest_date) DO NOTHING
+                        """
+                    )
+                )
+                result = await session.execute(
+                    text(
+                        """
+                        SELECT id, contest_date, starts_at, capacity_total,
+                               prize_pool_points, question_count, created_at
+                        FROM contest
+                        WHERE contest_date = CURRENT_DATE
+                        FOR UPDATE
+                        """
+                    )
+                )
+                contest = result.mappings().one()
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO contest_topic (contest_id, topic_id, sort_order)
+                        SELECT :contest_id, t.id,
+                               row_number() OVER (ORDER BY t.id)::smallint
+                        FROM topic t
+                        ON CONFLICT (contest_id, topic_id) DO NOTHING
+                        """
+                    ),
+                    {"contest_id": contest["id"]},
+                )
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO contest_question (
+                            contest_id, question_id, sort_order
+                        )
+                        SELECT :contest_id, selected.id,
+                               row_number() OVER (ORDER BY selected.selection_order)::smallint
+                        FROM (
+                            SELECT q.id,
+                                   (q.id + EXTRACT(DOY FROM CURRENT_DATE)::integer)
+                                       % GREATEST((SELECT count(*) FROM question), 1)
+                                       AS selection_order
+                            FROM question q
+                            ORDER BY selection_order, q.id
+                            LIMIT :question_count
+                        ) selected
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {
+                        "contest_id": contest["id"],
+                        "question_count": contest["question_count"],
+                    },
+                )
+                return dict(contest)
 
     async def get_contest_topics(self, contest_id: int) -> list[dict]:
         return await self._rows(
@@ -2721,7 +2943,10 @@ class SqlContestRepository(_SqlRepository):
         async with self._session_factory() as session:
             await session.execute(
                 text(
-                    "DELETE FROM participation WHERE user_id = :user_id AND contest_date = CURRENT_DATE"
+                    (
+                        "DELETE FROM participation WHERE user_id = :user_id AND "
+                        "contest_date = CURRENT_DATE"
+                    )
                 ),
                 {"user_id": user_id},
             )

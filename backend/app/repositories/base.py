@@ -72,6 +72,13 @@ class UserRepository(Protocol):
         """`risk_tolerance` yazar ve `onboarding_completed`'i tek islemde true yapar."""
         ...
 
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        """`has_seen_tour`'u true yapar - urun turu (ProductTour) bir daha
+        otomatik acilmaz. Tur ilk kez KAPANDIGINDA (bitirilsin ya da
+        gecilsin, fark etmez) cagrilir - bkz. app/api/routes/auth.py
+        `/tour-seen`."""
+        ...
+
 
 class PortfolioRepository(Protocol):
     async def get_default_portfolio_id(self, user_id: int) -> int | None: ...
@@ -245,6 +252,20 @@ class RecommendationRepository(Protocol):
         """Otonom akisi acik, portfoyu olan kullanicilar ve baglamlari."""
         ...
 
+    async def user_context(self, user_id: int) -> dict | None:
+        """Sohbet kaynaklı öneri için kullanıcının bakiye ve tercih bağlamı."""
+        ...
+
+    async def holdings_map(self, portfolio_id: int) -> dict[int, float]: ...
+
+    async def get_basket_state(self, user_id: int, goal: str) -> dict | None:
+        """Kullanicinin hedef bazli kalici sepet uyeligi ve esik sayaclari."""
+        ...
+
+    async def upsert_basket_state(self, user_id: int, goal: str, state: dict) -> dict:
+        """Sepet uyeligini ve son degerlendirme zamanlarini atomik gunceller."""
+        ...
+
     async def daily_stats(self, user_id: int) -> dict:
         """BR-AUT-03 gunluk adet ve gunluk toplam tutar."""
         ...
@@ -343,6 +364,11 @@ class RagRepository(Protocol):
         `chunk_id`, `doc_id`, `baslik`, `sirket`, `symbol`, `tarih`, `tip`,
         `content`, `score` - `mcp/server.py::_chunk_payload` ikisini de
         ayirt etmeden isler.
+
+        Bu yol ayrica `cos_sim` (gercek kosinus benzerligi) dondurebilir;
+        `score` RRF oldugu ve rank tabanli calistigi icin alaka esigi
+        `cos_sim` uzerinden kurulur (bkz. `settings.rag_min_similarity`).
+        BM25'e dusuldugunde alan bulunmaz - ZORUNLU DEGILDIR.
         """
         ...
 

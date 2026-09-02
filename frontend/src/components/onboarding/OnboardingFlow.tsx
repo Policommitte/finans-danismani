@@ -6,9 +6,8 @@ import { useAuth } from "../../hooks/useAuth";
 import { completeOnboarding } from "../../services/authService";
 import { RiskProfileQuiz } from "../profile/RiskProfileQuiz";
 import { OnboardingBundleScreen } from "./OnboardingBundleScreen";
-import { OnboardingTour } from "./OnboardingTour";
 
-type Step = "quiz" | "bundle" | "tour";
+type Step = "quiz" | "bundle";
 
 function FullscreenOverlay({ children }: { children: ReactNode }) {
   return (
@@ -50,7 +49,11 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
             try {
               await completeOnboarding({ risk_tolerance: tier });
               await auth.refresh();
-              setStep("tour");
+              // Urun turu (ProductTour) artik burada DEGIL, AppShell'de -
+              // `auth.user.has_seen_tour === false` oldugu surece kendi
+              // basina otomatik acilir (bkz. AppShell.tsx). Onboarding
+              // burada biter.
+              onDone();
             } finally {
               setSaving(false);
             }
@@ -58,18 +61,6 @@ export function OnboardingFlow({ onDone }: { onDone: () => void }) {
         />
       </FullscreenOverlay>
     );
-  }
-
-  if (step === "tour") {
-    // Kasitli olarak FullscreenOverlay YOK: driver.js'in gercek Sidebar/
-    // Dashboard DOM'unu hedefleyebilmesi icin altta gercek sayfa gorunmeli.
-    //
-    // NOT: `auth.refresh()` (bir onceki adimda) sunucu bayragini true yaptigi
-    // icin AppShell'in KENDI gate mantigi bu noktada zaten "tamamlandi"
-    // diyebilir - bu yuzden turun gorunur kalmasi `onDone` ile AppShell'e
-    // devredilen AYRI bir yerel state'e bagli, canli `onboarding_completed`
-    // degerine degil (bkz. AppShell.tsx `onboardingActive`).
-    return <OnboardingTour onFinish={onDone} />;
   }
 
   return null;

@@ -49,7 +49,11 @@ class UserResponse(BaseModel):
     risk_tolerance: str | None = Field(default=None, description="LOW | MEDIUM | HIGH")
     monthly_income: float | None = Field(default=None, description="Aylik gelir (TRY)")
     onboarding_completed: bool = Field(
-        description="False ise AppShell zorunlu onboarding akisini (anket -> sepet -> tur) acar."
+        description="False ise AppShell zorunlu onboarding akisini (anket -> sepet) acar."
+    )
+    has_seen_tour: bool = Field(
+        description="False ise AppShell urun turunu (ProductTour) otomatik acar - "
+        "yalnizca onboarding tamamlandiktan sonra, ilk kayitta bir kez."
     )
     role: str = Field(default="customer", description="customer | advisor")
     tckn_last4: str | None = Field(

@@ -62,12 +62,17 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.base import BaseAgent
 from app.agents.security_agent import PII_FLAG
 from app.config import settings
+from app.core.llm import _gecici_hata_mi
 from app.engine.kapsam import (
     KAPSAM_BELIRSIZ,
+    KAPSAM_DISI,
+    KAPSAM_YASAK,
     KISA_YANIT_KAPSAMLARI,
     SEMBOL_DESENI,
     kapsam_belirle,
     kisa_yanit,
+    normalize,
+    varlik_adi_geciyor_mu,
 )
 from app.orchestration.models import RESET, AgentError, AgentState, Source
 
@@ -294,6 +299,36 @@ SAFE_RESPONSE_MESSAGE = (
     "şekilde ifade ederek tekrar deneyin."
 )
 
+#: LLM kapsam suzgecinin istem sablonu (bkz. `_kapsam_llm_suzgeci`).
+#:
+#: Model TEK KELIME dondurmeye zorlanir; uc etiketten birine cozulemezse
+#: karar YOK sayilir ve kural karari gecerli kalir (fail-open). Etiketler
+#: bilincli olarak ASCII: reasoning modelleri bile tek kelimeyi bozmadan
+#: yazabiliyor, Turkce karakterli etiket ("DIŞI") ise normalize derdine
+#: girerdi.
+KAPSAM_LLM_PROMPT = (
+    "Sen bir kişisel finans asistanının kapsam bekçisisin. Asistan yalnızca "
+    "kişisel finans, yatırım, piyasalar, ekonomi, bankacılık ve bütçe "
+    "konularında hizmet verir.\n"
+    "Aşağıdaki kullanıcı isteğini değerlendir (istek bir sohbetin devamı "
+    "olabilir; verilmişse önceki mesajı bağlam olarak dikkate al):\n\n"
+    "{baglam}İstek: {soru}\n\n"
+    "Kararını TEK KELİME olarak yaz, başka hiçbir şey yazma:\n"
+    "- UYGUN: meşru bir finans/ekonomi isteği\n"
+    "- DISI: finansla ilgisi olmayan zararsız bir istek\n"
+    "- YASAK: yasa dışı, şiddet içeren, zarar verici ya da etik dışı bir "
+    "konuyu (kiralık şiddet, uyuşturucu, dolandırıcılık, cinsel hizmet vb.) "
+    "finans diliyle soran istek"
+)
+
+#: Modelin yanitindan etiket cikaran desen. Yanit "YASAK." ya da kucuk
+#: harfli gelebilir; ilk gecen etiket alinir.
+_KAPSAM_LLM_ETIKET = re.compile(r"\b(UYGUN|DISI|YASAK)\b", re.IGNORECASE)
+
+#: LLM etiketi -> kapsam siniflari. UYGUN eslemede yoktur: kural karari
+#: oldugu gibi kalir.
+_KAPSAM_LLM_ESLEME = {"DISI": KAPSAM_DISI, "YASAK": KAPSAM_YASAK}
+
 #: Synthesizer sistem prompt'u - uyum kurallarini tasir.
 SYNTHESIZER_SYSTEM_PROMPT = """Sen bir kişisel finans danışmanı asistanısın.
 Elindeki uzman analizlerini, KULLANICININ SORDUĞU SORUYA cevap veren tek bir
@@ -346,6 +381,13 @@ def _normalize(text: str) -> str:
     return text.translate(_TR_TRANSLATION).lower()
 
 
+#: Sentez akisi ILK TOKEN'DAN ONCE gecici hatayla duserse kac kez daha
+#: denenecegi. Dusuk tutuldu: sentezin dis zaman asimi 45 sn ve basarisizlik
+#: zaten deterministik ozete duserek guvenli sonlanir.
+_SENTEZ_YENIDEN_DENEME = 1
+_SENTEZ_BEKLEME_SANIYE = 1.5
+
+
 class Orchestrator:
     """LangGraph StateGraph'ini kurar ve streaming olarak calistirir.
 
@@ -367,6 +409,7 @@ class Orchestrator:
         checkpointer=None,
         synthesizer_timeout_seconds: int = 40,
         synthesizer_stall_seconds: int = 20,
+        scope_llm=None,
     ) -> None:
         """
         Args:
@@ -388,10 +431,15 @@ class Orchestrator:
             synthesizer_stall_seconds: IC sinir - iki token ARASINDA en fazla
                 bekleme. Model ortada takilirsa dis siniri beklemeden durur ve
                 o ana kadar uretilen metin KORUNUR (bkz. `synthesize`).
+            scope_llm: LLM kapsam suzgecinin kullandigi kucuk/hizli model
+                (`generate(prompt) -> str` sozlesmesi). `None` ise suzgec
+                tamamen kapalidir ve yalnizca `kapsam.py` kurallari karar
+                verir - onceki davranisin birebir aynisi.
         """
         self.agents = agents
         self.security_agent = security_agent
         self.synthesizer_llm = synthesizer_llm
+        self.scope_llm = scope_llm
         self.synthesizer_timeout_seconds = synthesizer_timeout_seconds
         # Ic sinir her zaman dis sinirdan kucuk kalmali; aksi halde dis iptal
         # once devreye girer ve iki kademeli yapinin anlami kaybolur.
@@ -537,15 +585,19 @@ class Orchestrator:
     # Routing
     # ------------------------------------------------------------------
 
-    def route_node(self, state: AgentState) -> dict:
+    async def route_node(self, state: AgentState) -> dict:
         """Once KAPSAM, sonra niyet karari verir.
 
-        Iki asamalidir ve sira onemlidir:
+        Uc asamalidir ve sira onemlidir:
 
-          1. KAPSAM - "bu soru bize mi?" Finans disiysa `requested_agents` bos
-             kalir ve `_kapsam_dallanmasi` akisi `small_talk`'a cevirir; hicbir
-             ajan, hicbir LLM calismaz.
-          2. NIYET - "hangi uzman?" Yalnizca finans sorularinda calisir.
+          1. KAPSAM (kurallar) - "bu soru bize mi?" Finans disiysa
+             `requested_agents` bos kalir ve `_kapsam_dallanmasi` akisi
+             `small_talk`'a cevirir; hicbir ajan, hicbir LLM calismaz.
+          2. KAPSAM (LLM suzgeci) - kurallarin ajanlara gecirdigi ama taninan
+             bir varlik/sembol icermeyen sorular kucuk modele onaylatilir
+             (bkz. `_kapsam_llm_suzgeci`). Kurallar yalnizca LISTEDEKI yasak
+             konulari bilir; suzgec listede olmayanlari yakalar.
+          3. NIYET - "hangi uzman?" Yalnizca finans sorularinda calisir.
 
         NOT: Ajan katmanlari arasindaki kenarlar STATIKTIR; bu node ajanlari
         tek tek devre disi birakmaz, yalnizca `requested_agents` listesini
@@ -553,6 +605,9 @@ class Orchestrator:
         (ucuz no-op) - bkz. `BaseAgent.is_requested`.
         """
         kapsam = kapsam_belirle(state.user_query, devam_turu=self._devam_turu(state))
+
+        if kapsam not in KISA_YANIT_KAPSAMLARI:
+            kapsam = await self._kapsam_llm_suzgeci(state, kapsam)
 
         if kapsam in KISA_YANIT_KAPSAMLARI:
             logger.info(
@@ -567,6 +622,91 @@ class Orchestrator:
             "intent": self._intent_adi(requested),
             "scope": kapsam,
         }
+
+    async def _kapsam_llm_suzgeci(self, state: AgentState, kapsam: str) -> str:
+        """Kurallarin gecirdigi sorguyu kucuk modele onaylatir.
+
+        CANLI SIZINTI (1 Eylul 2026): "yukselen tetikci pazari" ve "tetikci
+        fiyatlari ... iyi bir gelir bicimi mi" sorulari `pazar`/`fiyat`/`gelir`
+        kokleriyle kural merdiveninden gecip ajanlara ulasti. Kelime listesi
+        buyutulerek kapatildi ama yapisal sorun ayni kaliyor: liste yalnizca
+        BILINEN konulari yakalar. Bu suzgec listenin arkasindaki agdir.
+
+        Iki bilincli sinir:
+
+        - Taninan bir varlik adi ya da buyuk harfli BIST sembolu gecen sorular
+          SORULMAZ: "ASELSAN alinir mi" gibi net sorular gecikme odemez;
+          sarmalama saldirilari da tanimli varlik adi tasimaz.
+        - FAIL-OPEN: model yok / coktu / sure asti -> kural karari gecerli
+          kalir. Saglayicinin 503 attigi donemde sohbet OLMEZ; koruma o an
+          kurallardan ibaret kalir. Fail-closed secilseydi NVIDIA'nin her
+          yogunlugunda tum chatbot fiilen kapanirdi (urun karari, kullaniciyla
+          birlikte verildi).
+
+        Devam turu notu: "peki ya simdi?" gibi tek basina anlamsiz sorular
+        icin onceki kullanici mesaji istem icine baglam olarak konur; aksi
+        halde model mesru devam sorularini DISI sayardi.
+        """
+        if self.scope_llm is None or not settings.scope_llm_enabled:
+            return kapsam
+
+        n = normalize(state.user_query)
+        if varlik_adi_geciyor_mu(n) or SEMBOL_DESENI.search(state.user_query):
+            return kapsam
+
+        onceki = self._onceki_kullanici_mesaji(state)
+        baglam = f"Önceki mesaj: {onceki}\n" if onceki else ""
+        istem = KAPSAM_LLM_PROMPT.format(baglam=baglam, soru=state.user_query)
+
+        try:
+            yanit = await asyncio.wait_for(
+                self.scope_llm.generate(istem),
+                timeout=settings.scope_llm_timeout_seconds,
+            )
+        except Exception:  # noqa: BLE001 - suzgec cokerse kural karari kalir
+            logger.warning(
+                "kapsam LLM suzgeci cevap veremedi, kural karari geceriyor",
+                extra={"scope": kapsam, "request_id": state.request_id},
+            )
+            return kapsam
+
+        eslesme = _KAPSAM_LLM_ETIKET.search((yanit or "").upper())
+        if not eslesme:
+            # Model konusmaya basladi ya da bos dondu: karar YOK sayilir.
+            logger.warning(
+                "kapsam LLM suzgeci cozulebilir etiket dondurmedi",
+                extra={"request_id": state.request_id},
+            )
+            return kapsam
+
+        etiket = eslesme.group(1).upper()
+        yeni_kapsam = _KAPSAM_LLM_ESLEME.get(etiket, kapsam)
+        if yeni_kapsam != kapsam:
+            logger.warning(
+                "kapsam LLM suzgeci sorguyu reddetti",
+                extra={
+                    "etiket": etiket,
+                    "eski_scope": kapsam,
+                    "yeni_scope": yeni_kapsam,
+                    "request_id": state.request_id,
+                },
+            )
+        return yeni_kapsam
+
+    @staticmethod
+    def _onceki_kullanici_mesaji(state: AgentState) -> str:
+        """Mevcut sorudan ONCEKI son kullanici mesajini dondurur (yoksa bos).
+
+        `stream_request` mevcut soruyu listeye coktan eklemistir; bu yuzden
+        sondan basa taranirken mevcut soruya esit ILK mesaj atlanir.
+        """
+        gecmis = [m for m in state.messages if isinstance(m, HumanMessage)]
+        if gecmis and gecmis[-1].content == state.user_query:
+            gecmis = gecmis[:-1]
+        if not gecmis:
+            return ""
+        icerik = gecmis[-1].content
+        return icerik if isinstance(icerik, str) else str(icerik)
 
     @staticmethod
     def _devam_turu(state: AgentState) -> bool:
@@ -854,6 +994,9 @@ class Orchestrator:
         # edilse bile uretilen metin kaybolmaz (bkz. `synthesize`).
         parts: list[str] = parcalar if parcalar is not None else []
 
+        # Tek elemanli liste: asagidaki `except` blogu icinden yazilabilsin.
+        _yeniden_deneme_hakki = [_SENTEZ_YENIDEN_DENEME]
+
         akis = self.synthesizer_llm.astream(messages, config=config)
         while True:
             try:
@@ -865,6 +1008,28 @@ class Orchestrator:
                 )
             except StopAsyncIteration:
                 break
+            except Exception as hata:  # noqa: BLE001 - saglayici istisnasi
+                # GECICI SUNUCU HATASI, HENUZ TOKEN YAYINLANMADIYSA.
+                #
+                # Tek seferlik yola (`core.llm`) yeniden deneme eklendi ama
+                # sentez o yolu kullanmiyor; canlida `503 Service temporarily
+                # overloaded` sentezi dusurmeye devam etti.
+                #
+                # ⚠️ SART `not parts`: token yayinlandiktan SONRA yeniden
+                # denemek kullaniciya yarim yanitin ustune ikinci bir yanit
+                # yazardi. Akis daha baslamadiysa hicbir sey gorunmemistir,
+                # yeniden denemek GORUNMEZ olur.
+                if parts or _yeniden_deneme_hakki[0] <= 0 or not _gecici_hata_mi(hata):
+                    raise
+                _yeniden_deneme_hakki[0] -= 1
+                logger.warning(
+                    "sentez akisi gecici hatayla dustu; yeniden deneniyor",
+                    extra={"kalan": _yeniden_deneme_hakki[0], "hata": str(hata)[:200]},
+                )
+                await akis.aclose()
+                await asyncio.sleep(_SENTEZ_BEKLEME_SANIYE)
+                akis = self.synthesizer_llm.astream(messages, config=config)
+                continue
             except asyncio.TimeoutError as exc:
                 # `aclose` cagrilmazsa altta acik kalan HTTP baglantisi
                 # tick tick birikir (ajan tarafinda ayni ders alinmisti).

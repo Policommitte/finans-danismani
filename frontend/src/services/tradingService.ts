@@ -59,6 +59,58 @@ export function createPaperOrder(
   });
 }
 
+export async function createBasketMarketOrders(
+  items: Array<{ symbol: string; quantity: number }>,
+): Promise<PaperOrder[]> {
+  if (items.length === 0) return [];
+
+  const [account, previews] = await Promise.all([
+    getTradingAccount(),
+    Promise.all(
+      items.map((item) =>
+        previewPaperOrder(item.symbol, "BUY", item.quantity, "MARKET", null, "GTC", null),
+      ),
+    ),
+  ]);
+  const totalReserve = previews.reduce((total, preview) => total + preview.estimated_reserve, 0);
+  if (totalReserve > account.available_balance) {
+    throw new Error("Fiyat tamponu ve komisyon dahil sepet emirleri için kullanılabilir nakit yetersiz.");
+  }
+
+  const batchKey = crypto.randomUUID();
+  const orders: PaperOrder[] = [];
+  for (const [index, preview] of previews.entries()) {
+    try {
+      orders.push(
+        await createPaperOrder(
+          preview.symbol,
+          "BUY",
+          preview.quantity,
+          `${batchKey}-${index}`,
+          "MARKET",
+          null,
+          "GTC",
+          null,
+        ),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Emir oluşturulamadı.";
+      const rollbackResults = await Promise.allSettled(
+        orders.map((order) => cancelPaperOrder(order.id)),
+      );
+      const rollbackFailures = rollbackResults.filter((result) => result.status === "rejected").length;
+      throw new Error(
+        rollbackFailures > 0
+          ? `${orders.length - rollbackFailures} emir iptal edildi; ${rollbackFailures} emir iptal edilemedi. Emirler bölümünü kontrol et: ${reason}`
+          : orders.length > 0
+            ? `Sepet tamamlanamadığı için oluşturulan ${orders.length} emir otomatik iptal edildi: ${reason}`
+            : reason,
+      );
+    }
+  }
+  return orders;
+}
+
 export function cancelPaperOrder(orderId: number): Promise<PaperOrder> {
   return apiRequest<PaperOrder>(`/api/trading/orders/${orderId}/cancel`, { method: "POST" });
 }

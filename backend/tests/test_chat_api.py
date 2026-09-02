@@ -72,6 +72,12 @@ def test_olay_tipleri_sozlesmedeki_kumede(client, auth):
     }
 
 
+def test_sepet_mesaji_ozel_popup_olayi_uretmez(client, auth):
+    olaylar = _akit(client, auth, "Atıl bakiyem için sepet öner")
+
+    assert "idle_cash_suggestion" not in {olay["type"] for olay in olaylar}
+
+
 def test_status_olayi_stage_tasir(client, auth):
     olaylar = _akit(client, auth)
 

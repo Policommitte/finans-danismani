@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
+import { markTourSeen } from "../../services/authService";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
 import { OnboardingFlow } from "../onboarding/OnboardingFlow";
@@ -26,9 +27,18 @@ function AppShellContent({ children }: { children: ReactNode }) {
   // şerit dikkat dağıtır, sohbet ise soruların cevabına erişim yolu olur.
   const isGame = pathname === "/yatirim-oyunu";
   const isPrivacyPolicy = pathname === "/gizlilik-politikasi";
+  const isAbout = pathname === "/hakkimizda";
   const isSupportPage = pathname === "/destek";
+  // Danisman ekrani cok sutunlu bir CRM tablosu tasiyor; 7xl kabinda
+  // surekli yatay kaydirma gerekiyordu. Genisletme YALNIZCA bu sayfaya
+  // ozeldir, diger sayfalarin olcusu degismez.
+  const isWidePage = pathname === "/danisman";
   const isPublic =
-    isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isSupportPage;
+    isLanding || isLogin || isRegister || isAdvisorLogin || isPrivacyPolicy || isAbout || isSupportPage;
+  // ProductTour'un "Ana Sayfa" adimi (AUTHENTICATED_STEPS filtresi) icin -
+  // tur SADECE giris yapmis kullanicida otomatik acildigindan bu pratikte
+  // hep false'a cikar, ama bilesen genel kalsin diye buradan hesaplanir.
+  const showHomeNavigation = !auth.user && !auth.hasToken;
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   // page.tsx'teki gerçek yarışma (soru-cevap) ekranı aktifken true olur.
   const [isGameFocused, setIsGameFocused] = useState(false);
@@ -36,12 +46,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
   // kayıt/bekleme/çalışma notu ekranlarında görünür kalır.
   const isFocusedGame = isGame && isGameFocused;
   //: Onboarding'in GORUNURLUGU, canli `onboarding_completed` bayragindan
-  //: kasitli olarak AYRI tutulur: bayrak sepet ekranindaki "Devam Et"te
-  //: (persistence noktasi) hemen true olur, ama tur bundan SONRA baslar.
-  //: Bayragi dogrudan kosul yapsaydik, refresh() aninda OnboardingFlow
-  //: unmount olur ve tur hic gorunmezdi. Bu yuzden akis SADECE kendi
-  //: `onDone` cagrisiyla kapanir. `ProductTour` (asagida) BUNDAN AYRI, tekrar
-  //: baslatilabilir bir urun turu - ilk-giris zorunlu akisiyla cakismaz.
+  //: kasitli olarak AYRI tutulur: `onDone` cagrilana kadar akis acik kalir,
+  //: boylece `auth.refresh()` sirasindaki ara render'larda erken kapanmaz.
+  //: `ProductTour` (asagida) BUNDAN AYRI: onboarding bitince (`onDone`)
+  //: `has_seen_tour === false` oldugu surece kendi basina otomatik acilir -
+  //: ikisi ayni anda gorunmez (bkz. asagidaki tur-tetikleme efekti).
   const [onboardingActive, setOnboardingActive] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [logoutNoticeName, setLogoutNoticeName] = useState<string | null>(null);
@@ -109,13 +118,54 @@ function AppShellContent({ children }: { children: ReactNode }) {
       requestPageTransition("/dashboard", true);
     }
   }, [onboardingActive, isLanding]);
-    useEffect(() => {
-    if (onboardingActive && isLanding) {
-      // Landing sayfasi Sidebar render etmez; tur hedeflerinin DOM'da
-      // olmasi icin kullaniciyi dashboard'a tasiriz.
+
+  //: Urun turu (ProductTour) artik footer'daki manuel bir butonla degil,
+  //: kullanici ilk kez kayit olup onboarding'i (anket -> sepet) bitirdikten
+  //: HEMEN sonra OTOMATIK acilir. `onboardingActive` (yerel state) YERINE
+  //: BILINCLI OLARAK `auth.user.onboarding_completed` (sunucudan gelen
+  //: durum) kullanilir: yeni kayitta ikisi de (`onboarding_completed` VE
+  //: `has_seen_tour`) AYNI ilk render'da false gelir - `onboardingActive`
+  //: kendi setEffect'inde henuz true'ya CEVRILMEMISKEN bu efekt de ayni
+  //: (eski) `false` degerini gorur ve tur, anket bitmeden hemen acilirdi
+  //: (canli Playwright testiyle yakalanan gercek bir yaris durumu).
+  //: `onboarding_completed` ise SADECE "Devam Et" + `auth.refresh()`
+  //: sonrasi, gercekten AYRI bir render turunda true olur - bu yuzden
+  //: guvenli sira garantisi verir.
+  useEffect(() => {
+    if (auth.user && auth.user.onboarding_completed === true && auth.user.has_seen_tour === false) {
+      setTourOpen(true);
+    }
+  }, [auth.user]);
+
+  function handleTourClose() {
+    setTourOpen(false);
+    if (auth.user && auth.user.has_seen_tour === false) {
+      markTourSeen()
+        .then(() => auth.refresh())
+        .catch(() => {
+          // Kaydedilemezse tur bir sonraki girişte tekrar acilir - kotu
+          // ama akis kesilmeyen bir geri dusus (network hatasi vs.).
+        });
+    }
+  }
+
+  //: Portfoyu olan (onboarding tamamlanmis) giris yapmis bir kullanici
+  //: anasayfada ("/") HIC gorunmemeli - dogrudan dashboard'a gitmeli (bug
+  //: raporu: "ana sayfa flash edip sonra yonlendiriliyor"). `auth.loading`
+  //: netlesene kadar durum belirsiz sayilir; bu pencerede ve yonlendirme
+  //: hedefliyken render'da `children` GOSTERILMEZ (asagida) - flash'i onleyen
+  //: asil kisim budur, useEffect'in kendisi degil (o zaten render SONRASI
+  //: calisir, tek basina flash'i onleyemez).
+  //: Onboarding tamamlanmamis kullanicilar (portfoyu HENUZ yok) bu kosula
+  //: girmez - onlar icin anasayfa/onboarding akisi eskisi gibi davranir.
+  const shouldSkipLandingContent =
+    isLanding && (auth.loading || Boolean(auth.user && auth.user.onboarding_completed === true));
+
+  useEffect(() => {
+    if (isLanding && !auth.loading && auth.user && auth.user.onboarding_completed === true) {
       requestPageTransition("/dashboard", true);
     }
-  }, [onboardingActive, isLanding]);
+  }, [isLanding, auth.loading, auth.user]);
 
   useEffect(() => {
     function handleGameFocus(e: Event) {
@@ -141,10 +191,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }
 
   return (
-
-  
-
-  
     <div className="min-h-screen app-bg">
       {!isGame && (
         <MarketTicker
@@ -154,30 +200,49 @@ function AppShellContent({ children }: { children: ReactNode }) {
         />
       )}
       {isLanding ? (
-        <>
-          {children}
-          <SiteFooter className="ml-24 w-[calc(100%-6rem)]" onStartTour={() => setTourOpen(true)} />
-        </>
+        shouldSkipLandingContent ? null : (
+          <>
+            {children}
+            <SiteFooter className={auth.user ? "ml-24 w-[calc(100%-6rem)]" : "w-full"} />
+          </>
+        )
       ) : (
         <>
-          {!isFocusedGame && <Sidebar />}
+          {/* Sidebar SADECE giris yapmis kullanicida gorunur - misafirin
+              zaten anasayfaya donmesi disinda sol menude gidecegi bir yer
+              yok. Sartlar saglanmiyorsa DOM'dan TAMAMEN cikarilir (yeni
+              Aceternity tabanli Sidebar.tsx auth.user'i kendi icinde
+              okur, prop almaz). */}
+          {!isFocusedGame && auth.user && <Sidebar />}
           <div
             className={
               isFocusedGame
                 ? "flex min-h-screen w-full flex-col pt-4"
-                : `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+                : auth.user
+                  ? `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+                  : `flex min-h-screen w-full flex-col ${isGame ? "pt-8" : "pt-20"}`
             }
           >
             <main
               className={
                 isFocusedGame
                   ? "mx-auto w-full max-w-5xl flex-1 px-4 py-4"
-                  : "mx-auto w-full max-w-7xl flex-1 px-4 py-8"
+                  : "relative w-full flex-1"
               }
             >
-              {children}
+              {isFocusedGame ? (
+                children
+              ) : (
+                <div
+                  className={`mx-auto w-full px-4 py-8 ${
+                    isWidePage ? "max-w-[100rem]" : "max-w-7xl"
+                  }`}
+                >
+                  {children}
+                </div>
+              )}
             </main>
-            {!isFocusedGame && <SiteFooter onStartTour={() => setTourOpen(true)} />}
+            {!isFocusedGame && <SiteFooter />}
           </div>
           {!isGame && (
             <ChatWidget
@@ -202,8 +267,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {onboardingActive && <OnboardingFlow onDone={() => setOnboardingActive(false)} />}
       <ProductTour
         open={tourOpen}
-        onClose={() => setTourOpen(false)}
+        onClose={handleTourClose}
         storageKey={`polifin-product-tour-v1:${auth.user?.id ?? "guest"}`}
+        showHomeStep={showHomeNavigation}
       />
       {logoutNoticeName !== null ? (
         <div

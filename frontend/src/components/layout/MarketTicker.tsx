@@ -220,7 +220,11 @@ export function MarketTicker({
   }, [items.length]);
 
   return (
-    <section className="fixed left-24 right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)]">
+    <section
+      className={`fixed right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)] ${
+        isAuthenticated ? "left-24" : "left-0"
+      }`}
+    >
       <Link href="/" className="absolute left-2 top-1/2 hidden -translate-y-1/2 2xl:flex">
         <span
           aria-hidden="true"
