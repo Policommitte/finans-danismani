@@ -35,19 +35,6 @@ function EyeIcon({ off }: { off: boolean }) {
   );
 }
 
-/** Jenerik banka ikonu (kolonlu bina) - hicbir markaya ait DEGIL, internetten
- * cekilmedi, elle cizildi. Tum banka rozetleri AYNI ikonu paylasir. */
-function GenericBankIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 10l9-6 9 6" />
-      <path d="M4 10v9M9 10v9M15 10v9M20 10v9" />
-      <path d="M2 21h20" />
-      <path d="M2 10h20" />
-    </svg>
-  );
-}
-
 const networkNodes = [
   { x: 40, y: 420 }, { x: 110, y: 470 }, { x: 60, y: 520 }, { x: 150, y: 400 },
   { x: 190, y: 500 }, { x: 20, y: 560 }, { x: 130, y: 560 }, { x: 230, y: 440 },
@@ -62,8 +49,20 @@ const networkLinks: [number, number][] = [
 const inputClassName =
   "mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]";
 
-/** Yalnizca gorsel secim icin banka adlari - gercek bir kuruma BAGLANMAZ. */
-const BANK_NAMES = ["Ziraat Bankası", "İş Bankası", "Garanti BBVA", "Akbank", "Yapı Kredi", "Enpara"];
+/**
+ * Yalnizca gorsel secim icin banka rozetleri - gercek bir kuruma BAGLANMAZ.
+ * Logolar Wikimedia Commons'taki resmi/serbest dosyalardan alindi (basit
+ * metin/geometrik logolar coğu ulkede telif esigi altinda sayildigi icin
+ * Commons'ta serbestce barindiriliyor) - `/public/bank-logos/*.svg`.
+ */
+const BANKS = [
+  { name: "Ziraat Bankası", logo: "/bank-logos/ziraat.svg" },
+  { name: "İş Bankası", logo: "/bank-logos/isbankasi.svg" },
+  { name: "Garanti BBVA", logo: "/bank-logos/garanti.svg" },
+  { name: "Akbank", logo: "/bank-logos/akbank.svg" },
+  { name: "Halkbank", logo: "/bank-logos/halkbank.svg" },
+  { name: "VakıfBank", logo: "/bank-logos/vakifbank.svg" },
+];
 
 type Step = "bank" | "credentials";
 
@@ -199,22 +198,24 @@ function RegisterPageContent() {
 
               <form className="mt-4 space-y-4" onSubmit={submitBankStep}>
                 <div className="grid grid-cols-2 gap-2.5">
-                  {BANK_NAMES.map((bank) => {
-                    const active = selectedBank === bank;
+                  {BANKS.map((bank) => {
+                    const active = selectedBank === bank.name;
                     return (
                       <button
-                        key={bank}
+                        key={bank.name}
                         type="button"
-                        onClick={() => setSelectedBank(bank)}
+                        onClick={() => setSelectedBank(bank.name)}
                         aria-pressed={active}
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-xs font-medium transition ${
+                        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-xs font-medium transition ${
                           active
                             ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
                             : "border-[var(--color-border)] bg-[var(--color-input-bg)] text-[var(--color-text)] hover:border-[var(--color-primary)]/60"
                         }`}
                       >
-                        <GenericBankIcon />
-                        <span className="truncate">{bank}</span>
+                        <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-white p-1">
+                          <img src={bank.logo} alt="" aria-hidden="true" className="h-full w-full object-contain" />
+                        </span>
+                        <span className="truncate">{bank.name}</span>
                       </button>
                     );
                   })}
