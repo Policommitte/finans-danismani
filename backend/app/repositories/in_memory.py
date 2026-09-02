@@ -2357,6 +2357,17 @@ class InMemoryContestRepository:
         for contest in _CONTESTS:
             if contest["contest_date"] == bugun:
                 return dict(contest)
+        # DEV/DEMO: sunucu surec gece yarisini gecip RESTART OLMADAN calismaya
+        # devam ederse, modul yuklenirken bir kere hesaplanan `contest_date`
+        # bayatlar ve hicbir satir "bugun"e esit gelmez - "Bugun icin acik bir
+        # yarisma yok" hatasi budur. Tek sabit ("bu akscamki") yarismayi
+        # GUNCEL tarihe kaydirarak kendini onarir; boylece demo icin sunucuyu
+        # her gun yeniden baslatmak gerekmez.
+        if _CONTESTS:
+            contest = _CONTESTS[0]
+            contest["contest_date"] = bugun
+            contest["starts_at"] = _now().replace(hour=20, minute=0, second=0, microsecond=0)
+            return dict(contest)
         return None
 
     async def get_contest_topics(self, contest_id: int) -> list[dict]:
