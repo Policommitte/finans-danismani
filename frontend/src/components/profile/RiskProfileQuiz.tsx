@@ -68,12 +68,12 @@ const MAX_SCORE = quizQuestions.length * 3;
 
 function tierFor(score: number): { label: string; color: string } {
   if (score <= 6) {
-    return { label: "Düşük", color: "var(--color-cta)" };
+    return { label: "Düşük", color: "var(--color-success)" };
   }
   if (score <= 9) {
     return { label: "Orta", color: "var(--color-chart-yellow)" };
   }
-  return { label: "Yüksek", color: "var(--color-success)" };
+  return { label: "Yüksek", color: "var(--color-danger)" };
 }
 
 //: tierFor()'un gosterim esikleriyle (<=6 / <=9 / uzeri) BIREBIR ayni -
@@ -165,17 +165,19 @@ export function RiskProfileQuiz({
             ))}
           </div>
 
-          <Button type="button" onClick={handleSubmit} disabled={!allAnswered} className="mt-4">
-            Testi Tamamla
-          </Button>
+          <div className="mt-4 flex justify-end">
+            <Button type="button" onClick={handleSubmit} disabled={!allAnswered}>
+              Testi Tamamla
+            </Button>
+          </div>
         </>
       ) : (
         <div className="mt-4 rounded-xl app-card-muted p-4">
           <div className="relative mt-2">
             <div className="flex h-3 overflow-hidden rounded-full">
-              <div className="flex-1" style={{ background: "var(--color-cta)" }} />
-              <div className="flex-1" style={{ background: "var(--color-chart-yellow)" }} />
               <div className="flex-1" style={{ background: "var(--color-success)" }} />
+              <div className="flex-1" style={{ background: "var(--color-chart-yellow)" }} />
+              <div className="flex-1" style={{ background: "var(--color-danger)" }} />
             </div>
             <div
               className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow"

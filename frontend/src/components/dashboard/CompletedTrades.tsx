@@ -1,6 +1,11 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import type { PaperOrder } from "../../models/trading";
 import { useLanguage } from "../../contexts/LanguageContext";
 import Card from "../ui/Card";
+
+type OrderFilter = "ALL" | "BUY" | "SELL" | "PENDING";
 
 function orderKind(order: PaperOrder, language: "tr" | "en") {
   if (order.order_type === "STOP_MARKET") {
@@ -14,6 +19,7 @@ function orderKind(order: PaperOrder, language: "tr" | "en") {
 
 export function CompletedTrades({ items }: { items: PaperOrder[] }) {
   const { language } = useLanguage();
+  const [filter, setFilter] = useState<OrderFilter>("ALL");
   const locale = language === "tr" ? "tr-TR" : "en-US";
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
@@ -22,31 +28,65 @@ export function CompletedTrades({ items }: { items: PaperOrder[] }) {
     maximumFractionDigits: 2,
   });
   const quantity = new Intl.NumberFormat(locale, { maximumFractionDigits: 6 });
+  const filteredItems = useMemo(() => items.filter((order) => {
+    if (filter === "PENDING") return order.status === "PENDING";
+    if (filter === "BUY" || filter === "SELL") return order.side === filter;
+    return true;
+  }), [filter, items]);
+  const filters: Array<{ value: OrderFilter; tr: string; en: string; count: number }> = [
+    { value: "ALL", tr: "Tümü", en: "All", count: items.length },
+    { value: "BUY", tr: "Al", en: "Buy", count: items.filter((order) => order.side === "BUY").length },
+    { value: "SELL", tr: "Sat", en: "Sell", count: items.filter((order) => order.side === "SELL").length },
+    { value: "PENDING", tr: "Bekleyen", en: "Pending", count: items.filter((order) => order.status === "PENDING").length },
+  ];
 
   return (
     <Card className="overflow-hidden !p-0">
-      <div className="border-b app-border px-5 py-4">
-        <h2 className="text-base font-semibold app-heading">
-          {language === "tr" ? "Gerçekleşen İşlemler" : "Completed Trades"}
-        </h2>
-        <p className="mt-1 text-sm app-muted">
-          {language === "tr"
-            ? "Yalnızca gerçekleşmiş alım ve satım işlemleri gösterilir."
-            : "Only completed buy and sell transactions are shown."}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b app-border px-5 py-4">
+        <div>
+          <h2 className="text-base font-semibold app-heading">
+            {language === "tr" ? "İşlemler" : "Trades"}
+          </h2>
+          <p className="mt-1 text-sm app-muted">
+            {language === "tr"
+              ? "Gerçekleşen ve bekleyen alım-satım emirlerini görüntüleyin."
+              : "View completed and pending buy and sell orders."}
+          </p>
+        </div>
+        <div
+          className="flex flex-wrap gap-1 rounded-lg border app-border app-card-muted p-1"
+          role="group"
+          aria-label={language === "tr" ? "İşlem filtresi" : "Trade filter"}
+        >
+          {filters.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              aria-pressed={filter === item.value}
+              onClick={() => setFilter(item.value)}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                filter === item.value
+                  ? "bg-[var(--color-panel-dark)] text-white shadow-sm"
+                  : "app-muted hover:text-[var(--color-heading)]"
+              }`}
+            >
+              {item[language]} <span className="opacity-70">{item.count}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {items.length === 0 ? (
+      {filteredItems.length === 0 ? (
         <p className="px-5 py-8 text-center text-sm app-muted">
-          {language === "tr"
-            ? "Henüz gerçekleşmiş bir sanal işlem bulunmuyor."
-            : "There are no completed virtual trades yet."}
+          {items.length === 0
+            ? (language === "tr" ? "Henüz bir sanal işlem bulunmuyor." : "There are no virtual trades yet.")
+            : (language === "tr" ? "Bu filtreye uygun işlem bulunmuyor." : "There are no trades matching this filter.")}
         </p>
       ) : (
         <div
-          className={items.length > 5 ? "max-h-[28rem] overflow-auto" : "overflow-x-auto"}
-          tabIndex={items.length > 5 ? 0 : undefined}
-          aria-label={items.length > 5 ? (language === "tr" ? "Gerçekleşen işlemler listesi" : "Completed trades list") : undefined}
+          className={filteredItems.length > 5 ? "max-h-[28rem] overflow-auto" : "overflow-x-auto"}
+          tabIndex={filteredItems.length > 5 ? 0 : undefined}
+          aria-label={filteredItems.length > 5 ? (language === "tr" ? "İşlemler listesi" : "Trades list") : undefined}
         >
           <table className="min-w-full text-left text-sm">
             <thead className="sticky top-0 z-10 app-card-muted text-xs uppercase app-muted shadow-[0_1px_0_var(--color-border)]">
@@ -54,19 +94,21 @@ export function CompletedTrades({ items }: { items: PaperOrder[] }) {
                 <th className="px-5 py-3">{language === "tr" ? "Varlık" : "Asset"}</th>
                 <th className="px-5 py-3">{language === "tr" ? "İşlem" : "Trade"}</th>
                 <th className="px-5 py-3">{language === "tr" ? "Adet" : "Quantity"}</th>
-                <th className="px-5 py-3">{language === "tr" ? "Gerçekleşme fiyatı" : "Fill price"}</th>
+                <th className="px-5 py-3">{language === "tr" ? "Fiyat" : "Price"}</th>
                 <th className="px-5 py-3">{language === "tr" ? "Komisyon" : "Commission"}</th>
                 <th className="px-5 py-3">{language === "tr" ? "Net / Toplam" : "Net / Total"}</th>
                 <th className="px-5 py-3">{language === "tr" ? "Tarih" : "Date"}</th>
               </tr>
             </thead>
             <tbody className="divide-y app-border-soft">
-              {items.map((order) => {
-                const fillPrice = order.average_fill_price ?? order.quoted_price;
-                const gross = fillPrice * order.filled_quantity;
-                const total = order.side === "BUY"
-                  ? gross + order.commission
-                  : gross - order.commission;
+              {filteredItems.map((order) => {
+                const pending = order.status === "PENDING";
+                const displayedQuantity = pending ? order.quantity : order.filled_quantity;
+                const displayedPrice = pending
+                  ? (order.order_type === "LIMIT" ? order.limit_price : order.stop_loss_price) ?? order.quoted_price
+                  : order.average_fill_price ?? order.quoted_price;
+                const gross = displayedPrice * displayedQuantity;
+                const total = order.side === "BUY" ? gross + order.commission : gross - order.commission;
                 return (
                   <tr key={order.id}>
                     <td className="px-5 py-4">
@@ -84,13 +126,18 @@ export function CompletedTrades({ items }: { items: PaperOrder[] }) {
                           : (language === "tr" ? "SAT" : "SELL")}
                       </span>
                       <p className="mt-1 text-xs app-muted">{orderKind(order, language)}</p>
+                      {pending ? (
+                        <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                          {language === "tr" ? "BEKLİYOR" : "PENDING"}
+                        </span>
+                      ) : null}
                     </td>
-                    <td className="px-5 py-4 app-heading">{quantity.format(order.filled_quantity)}</td>
-                    <td className="px-5 py-4 app-heading">{money.format(fillPrice)}</td>
-                    <td className="px-5 py-4 app-muted">{money.format(order.commission)}</td>
-                    <td className="px-5 py-4 font-semibold app-heading">{money.format(total)}</td>
+                    <td className="px-5 py-4 app-heading">{quantity.format(displayedQuantity)}</td>
+                    <td className="px-5 py-4 app-heading">{money.format(displayedPrice)}</td>
+                    <td className="px-5 py-4 app-muted">{pending ? "—" : money.format(order.commission)}</td>
+                    <td className="px-5 py-4 font-semibold app-heading">{pending ? "—" : money.format(total)}</td>
                     <td className="whitespace-nowrap px-5 py-4 app-muted">
-                      {new Date(order.filled_at ?? order.created_at).toLocaleString(locale)}
+                      {new Date(pending ? order.created_at : order.filled_at ?? order.created_at).toLocaleString(locale)}
                     </td>
                   </tr>
                 );

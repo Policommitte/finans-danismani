@@ -15,7 +15,7 @@ import logging
 
 from app.config import settings
 from app.market.provider import MarketDataProvider, build_provider
-from app.repositories.deps import get_market_repository
+from app.repositories.deps import get_market_repository, get_portfolio_repository
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ YAZILABILIR_KAYNAKLAR = frozenset({"api"})
 #: ~2,6 saatte biter. Varsayilan 300 saniyede saatte 192 istek olur.
 ASGARI_ONERILEN_TICK_SANIYE = 300
 ONE_MINUTE_RETENTION_DAYS = 30
+PORTFOLIO_SNAPSHOT_RETENTION_DAYS = 30
 
 
 async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
@@ -89,6 +90,17 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
             logger.info("paper emirleri gerceklesti", extra={"orders": gerceklesen})
     except Exception:  # noqa: BLE001 - emir motoru fiyat akisini durdurmamali
         logger.exception("paper emirleri islenemedi")
+
+    # Emirlerin gerceklesmesi pozisyon ve nakdi degistirebilir. Bu nedenle
+    # snapshot fiyat yazimindan ve emir islemeden SONRA alinir. Snapshot
+    # altyapisi hata verse bile piyasa verisi akisi bundan etkilenmez.
+    try:
+        snapshot_count = await get_portfolio_repository().write_value_snapshots()
+        logger.debug("portfoy snapshot'i yazildi", extra={"portfolios": snapshot_count})
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - snapshot fiyat akisini durdurmamali
+        logger.exception("portfoy snapshot'i yazilamadi")
 
     # Otonom oneri turu: sinyal uretimi ve TTL kapanisi. Fiyat yazildiktan
     # SONRA calisir - sinyaller bu tick'te dogrulanmis fiyatlari gorsun.
@@ -147,6 +159,16 @@ async def cleanup_old_candles() -> int:
     )
     if deleted:
         logger.info("eski 1dk mumlari temizlendi", extra={"deleted": deleted})
+    return deleted
+
+
+async def cleanup_old_portfolio_snapshots() -> int:
+    """Portfoy snapshot'larini 30 gunluk kayan pencerede tutar."""
+    deleted = await get_portfolio_repository().prune_value_snapshots(
+        keep_days=PORTFOLIO_SNAPSHOT_RETENTION_DAYS
+    )
+    if deleted:
+        logger.info("eski portfoy snapshot'lari temizlendi", extra={"deleted": deleted})
     return deleted
 
 
@@ -233,6 +255,10 @@ async def run_price_scheduler(provider: MarketDataProvider | None = None) -> Non
                     await cleanup_old_candles()
                 except Exception:  # noqa: BLE001 - bakim fiyat akisini durdurmamali
                     logger.exception("eski mum temizligi basarisiz")
+                try:
+                    await cleanup_old_portfolio_snapshots()
+                except Exception:  # noqa: BLE001 - bakim fiyat akisini durdurmamali
+                    logger.exception("eski portfoy snapshot temizligi basarisiz")
             canli_yaz = tick % max(settings.price_history_every_n_ticks, 1) == 0
             sayi = await price_tick(provider, write_live=canli_yaz)
             logger.debug("fiyat tick", extra={"updated": sayi, "live": canli_yaz})

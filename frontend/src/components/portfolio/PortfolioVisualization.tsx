@@ -8,7 +8,6 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
-  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -17,7 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import { useLanguage } from "../../contexts/LanguageContext";
-import type { Holding, PortfolioPerformancePoint } from "../../models/portfolio";
+import type { Holding, PortfolioValueSnapshotPoint } from "../../models/portfolio";
 import Card from "../ui/Card";
 
 export type PortfolioViewMode = "line" | "candlestick" | "pie";
@@ -57,36 +56,55 @@ function formatTime(value: string, language: "tr" | "en"): string {
   }).format(new Date(value));
 }
 
-function buildHalfHourlyCandles(points: PortfolioPerformancePoint[]): CandlePoint[] {
-  const buckets = new Map<number, CandlePoint>();
+export function buildCompletedHalfHourlyCandles(
+  points: PortfolioValueSnapshotPoint[],
+): CandlePoint[] {
+  const fiveMinutes = 5 * 60 * 1_000;
+  const halfHour = 30 * 60 * 1_000;
+  const buckets = new Map<number, Map<number, number>>();
 
-  [...points]
-    .sort((left, right) => new Date(left.ts).getTime() - new Date(right.ts).getTime())
-    .forEach((point) => {
-      const timestamp = new Date(point.ts).getTime();
-      const bucketTimestamp = Math.floor(timestamp / 1_800_000) * 1_800_000;
-      const value = point.total_value_try;
-      const existing = buckets.get(bucketTimestamp);
+  points.forEach((point) => {
+    const timestamp = new Date(point.ts).getTime();
+    if (!Number.isFinite(timestamp) || timestamp % fiveMinutes !== 0) {
+      return;
+    }
 
-      if (!existing) {
-        buckets.set(bucketTimestamp, {
-          ts: new Date(bucketTimestamp).toISOString(),
-          open: value,
-          high: value,
-          low: value,
-          close: value,
-          range: [value, value],
-        });
-        return;
+    const bucketTimestamp = Math.floor(timestamp / halfHour) * halfHour;
+    const bucket = buckets.get(bucketTimestamp) ?? new Map<number, number>();
+    bucket.set(timestamp, point.total_value_try);
+    buckets.set(bucketTimestamp, bucket);
+  });
+
+  return [...buckets.entries()]
+    .sort(([left], [right]) => left - right)
+    .flatMap(([bucketTimestamp, values]) => {
+      const expectedValues = Array.from({ length: 6 }, (_, index) =>
+        values.get(bucketTimestamp + index * fiveMinutes),
+      );
+      if (expectedValues.some((value) => value == null)) {
+        return [];
       }
 
-      existing.high = Math.max(existing.high, value);
-      existing.low = Math.min(existing.low, value);
-      existing.close = value;
-      existing.range = [existing.low, existing.high];
+      const completedValues = expectedValues as number[];
+      const open = completedValues[0];
+      const close = completedValues.at(-1) ?? open;
+      const high = Math.max(...completedValues);
+      const low = Math.min(...completedValues);
+      return [{
+        ts: new Date(bucketTimestamp).toISOString(),
+        open,
+        high,
+        low,
+        close,
+        range: [low, high] as [number, number],
+      }];
     });
+}
 
-  return [...buckets.values()];
+function paddedDomain(minimum: number, maximum: number): [number, number] {
+  const spread = maximum - minimum;
+  const padding = Math.max(spread * 0.12, Math.abs(maximum) * 0.0005, 1);
+  return [minimum - padding, maximum + padding];
 }
 
 function CandlestickShape({ x = 0, y = 0, width = 0, height = 0, payload }: CandlestickShapeProps) {
@@ -270,7 +288,7 @@ export function PortfolioVisualization({
 }: {
   holdings: Holding[];
   cashTotalTry?: number;
-  performancePoints: PortfolioPerformancePoint[];
+  performancePoints: PortfolioValueSnapshotPoint[];
   performanceLoading?: boolean;
   performanceError?: string | null;
   mode: PortfolioViewMode;
@@ -300,16 +318,27 @@ export function PortfolioVisualization({
     notation: "compact",
     maximumFractionDigits: 1,
   });
+  const millionCurrency = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: displayCurrency,
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+  const formatYAxisValue = (value: number) =>
+    Math.abs(value) >= 1_000_000
+      ? `${millionCurrency.format(value / 1_000_000)} Mn`
+      : compactCurrency.format(value);
   const quantityFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 4 });
   const chartPoints = useMemo(
     () => performancePoints
       .filter((point) => !Number.isNaN(new Date(point.ts).getTime()))
       .map((point) => ({
         ...point,
-        total_value_try: (point.total_value_try + cashTotalTry) / conversionDivisor,
-        bist100_value_try: point.bist100_value_try == null ? null : point.bist100_value_try / conversionDivisor,
+        holdings_value_try: point.holdings_value_try / conversionDivisor,
+        cash_value_try: point.cash_value_try / conversionDivisor,
+        total_value_try: point.total_value_try / conversionDivisor,
       })),
-    [cashTotalTry, conversionDivisor, performancePoints],
+    [conversionDivisor, performancePoints],
   );
   const totalValueTry = holdings.reduce((sum, item) => sum + item.market_value_try, 0) + cashTotalTry;
   const totalValue = totalValueTry / conversionDivisor;
@@ -345,9 +374,9 @@ export function PortfolioVisualization({
   const changePct = first > 0 ? (change / first) * 100 : 0;
   const positive = change >= 0;
   const performanceValues = chartPoints.map((point) => point.total_value_try);
-  const hasBist100 = chartPoints.some((point) => point.bist100_value_try != null);
   const minimum = performanceValues.length > 0 ? Math.min(...performanceValues) : current;
   const maximum = performanceValues.length > 0 ? Math.max(...performanceValues) : current;
+  const lineDomain = paddedDomain(minimum, maximum);
   const trendStops = useMemo(() => {
     const success = "var(--color-success)";
     const danger = "var(--color-danger)";
@@ -373,9 +402,13 @@ export function PortfolioVisualization({
     stops.push({ offset: 100, color: segmentColors.at(-1) ?? success });
     return stops;
   }, [chartPoints]);
-  const candlePoints = useMemo(() => buildHalfHourlyCandles(chartPoints), [chartPoints]);
+  const candlePoints = useMemo(
+    () => buildCompletedHalfHourlyCandles(chartPoints),
+    [chartPoints],
+  );
   const candleMinimum = candlePoints.length > 0 ? Math.min(...candlePoints.map((point) => point.low)) : current;
   const candleMaximum = candlePoints.length > 0 ? Math.max(...candlePoints.map((point) => point.high)) : current;
+  const candleDomain = paddedDomain(candleMinimum, candleMaximum);
 
   useEffect(() => {
     if (mode !== "pie") {
@@ -424,7 +457,7 @@ export function PortfolioVisualization({
           </h2>
           <p className="mt-1 text-xs app-muted">
             {mode === "line"
-              ? language === "tr" ? `Bugün · ${displayCurrencyLabel} bazlı` : `Today · ${displayCurrencyLabel} based`
+              ? language === "tr" ? `Son 24 saat · ${displayCurrencyLabel} bazlı` : `Last 24 hours · ${displayCurrencyLabel} based`
               : mode === "candlestick"
                 ? language === "tr" ? `30 dakikalık · ${displayCurrencyLabel} bazlı` : `30-minute · ${displayCurrencyLabel} based`
               : language === "tr" ? "Portföydeki varlık oranları ve değerleri" : "Portfolio asset weights and values"}
@@ -543,7 +576,13 @@ export function PortfolioVisualization({
           </div>
         ) : chartPoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center text-center text-sm app-muted">
-            {language === "tr" ? "Bugün için henüz yeterli gerçek fiyat geçmişi oluşmadı." : "There is not enough real price history for today yet."}
+            {language === "tr" ? "Henüz portföy snapshot verisi oluşmadı." : "No portfolio snapshot data is available yet."}
+          </div>
+        ) : mode === "candlestick" && candlePoints.length === 0 ? (
+          <div className="grid min-h-[356px] place-items-center px-6 text-center text-sm app-muted">
+            {language === "tr"
+              ? "Tamamlanmış bir 30 dakikalık mum için henüz altı adet 5 dakikalık değer oluşmadı."
+              : "Six 5-minute values have not yet formed a completed 30-minute candle."}
           </div>
         ) : mode === "candlestick" ? (
           <>
@@ -566,9 +605,9 @@ export function PortfolioVisualization({
                     tick={{ fill: "var(--color-muted)", fontSize: 12 }}
                   />
                   <YAxis
-                    width={72}
-                    domain={[candleMinimum, candleMaximum]}
-                    tickFormatter={(value) => compactCurrency.format(Number(value))}
+                    width={94}
+                    domain={candleDomain}
+                    tickFormatter={(value) => formatYAxisValue(Number(value))}
                     axisLine={false}
                     tickLine={false}
                     tick={{ fill: "var(--color-muted)", fontSize: 12 }}
@@ -633,12 +672,6 @@ export function PortfolioVisualization({
             <div className="flex items-end justify-between gap-4">
               <div className="text-2xl font-semibold app-heading">{currency.format(current)}</div>
               <div className="flex items-center gap-4">
-                {hasBist100 ? (
-                  <span className="flex items-center gap-2 text-xs app-muted">
-                    <span className="w-7 border-t-2 border-dashed border-[var(--color-chart-yellow)]" />
-                    BIST 100
-                  </span>
-                ) : null}
                 <span className={`text-sm font-semibold ${positive ? "app-success" : "app-danger"}`}>
                   {positive ? "▲" : "▼"} %{Math.abs(changePct).toFixed(2)}
                 </span>
@@ -668,18 +701,18 @@ export function PortfolioVisualization({
                     tick={{ fill: "var(--color-muted)", fontSize: 12 }}
                   />
                   <YAxis
-                    width={72}
-                    domain={["dataMin", "dataMax"]}
-                    tickFormatter={(value) => compactCurrency.format(Number(value))}
+                    width={94}
+                    domain={lineDomain}
+                    tickFormatter={(value) => formatYAxisValue(Number(value))}
                     axisLine={false}
                     tickLine={false}
                     tick={{ fill: "var(--color-muted)", fontSize: 12 }}
                   />
                   <Tooltip
                     labelFormatter={(label) => formatTime(String(label), language)}
-                    formatter={(value, name) => [
+                    formatter={(value) => [
                       currency.format(Number(value)),
-                      name === "bist100_value_try" ? "BIST 100" : language === "tr" ? "Portföy" : "Portfolio",
+                      language === "tr" ? "Portföy" : "Portfolio",
                     ]}
                     contentStyle={{
                       background: "var(--color-panel-dark)",
@@ -704,22 +737,6 @@ export function PortfolioVisualization({
                     activeDot={{ r: 5, strokeWidth: 2, fill: "var(--color-surface)" }}
                     isAnimationActive={false}
                   />
-                  {hasBist100 ? (
-                    <Line
-                      key={`bist100-line-${chartAnimationKey}`}
-                      animationId={chartAnimationKey}
-                      className="portfolio-cartesian-series"
-                      type="monotone"
-                      dataKey="bist100_value_try"
-                      stroke="var(--color-chart-yellow)"
-                      strokeWidth={2.5}
-                      strokeDasharray="7 6"
-                      dot={false}
-                      connectNulls
-                      activeDot={{ r: 4, strokeWidth: 2, fill: "var(--color-surface)" }}
-                      isAnimationActive={false}
-                    />
-                  ) : null}
                 </AreaChart>
               </ResponsiveContainer>
             </div>

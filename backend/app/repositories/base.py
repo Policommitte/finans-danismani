@@ -40,36 +40,33 @@ class UserRepository(Protocol):
         """Profil bilgisi - `password_hash`/`tckn_hash` ICERMEZ, `role` alani vardir."""
         ...
 
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        """Ayni TCKN ile ikinci bir hesap acilip acilmadigini kontrol icin.
-
-        `hash_tckn` DETERMINISTIK oldugundan (bkz. app/core/tckn.py) ayni
-        TCKN her zaman ayni hash'i uretir - bu yuzden esitlik sorgusu
-        anlamlidir (bcrypt'in aksine).
-        """
-        ...
-
     async def create(
         self,
         first_name: str,
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date: date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         """Yeni kullanici olusturur; `onboarding_completed=false` ile baslar.
 
-        `tckn_hash`/`tckn_last4` cagiran taraftan (route katmani, `password_hash`
-        ile AYNI desen) ZATEN islenmis gelir - bu katman hash mantigi bilmez,
-        yalnizca yazar. Donen sozlukte `password_hash`/`tckn_hash` YOKTUR.
+        TCKN/NVI dogrulamali eski akis kaldirildiktan sonra bu metot artik
+        TCKN ile ilgili hicbir alan almaz (DB kolonlari halen mevcut -
+        eski kayitlar icin - ama yeni kayitta yazilmaz). `account_number`
+        banka hesabi baglama SIMULASYONUNDA girilen, dogrulanmayan bilgi
+        amacli bir alandir. Donen sozlukte `password_hash` YOKTUR.
         """
         ...
 
     async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
         """`risk_tolerance` yazar ve `onboarding_completed`'i tek islemde true yapar."""
+        ...
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        """`has_seen_tour`'u true yapar - urun turu (ProductTour) bir daha
+        otomatik acilmaz. Tur ilk kez KAPANDIGINDA (bitirilsin ya da
+        gecilsin, fark etmez) cagrilir - bkz. app/api/routes/auth.py
+        `/tour-seen`."""
         ...
 
 
@@ -96,6 +93,20 @@ class PortfolioRepository(Protocol):
         self, user_id: int, portfolio_id: int | None = None, hours: int = 24
     ) -> list[dict]:
         """Mevcut pozisyonlarin gercek fiyat gecmisiyle TL bazli degeri."""
+        ...
+
+    async def write_value_snapshots(self) -> int:
+        """Tum portfoylerin o anki toplam degerini 5 dakikalik kovaya yazar."""
+        ...
+
+    async def get_value_snapshots(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        """Daha once kaydedilmis portfoy degeri snapshot'larini okur."""
+        ...
+
+    async def prune_value_snapshots(self, keep_days: int = 30) -> int:
+        """Saklama penceresinden eski portfoy snapshot'larini siler."""
         ...
 
 
