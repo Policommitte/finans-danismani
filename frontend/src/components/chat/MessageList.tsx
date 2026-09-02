@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { ChatMessage } from "../../models/chat";
 import { downloadChatReport } from "../../services/chatService";
 import { AgentErrorNotice } from "./AgentErrorNotice";
+import { MentionedAssetCard } from "./MentionedAssetCard";
 import { SourceList } from "./SourceList";
 
 function ReportDownloadButton({ messageId, dosyaAdi }: { messageId: number; dosyaAdi: string }) {
@@ -54,9 +55,11 @@ function ReportDownloadButton({ messageId, dosyaAdi }: { messageId: number; dosy
 export function MessageList({
   messages,
   emptyState = "Portföyün, piyasa verileri veya risk durumun hakkında soru sorabilirsin.",
+  onSelectAsset,
 }: {
   messages: ChatMessage[];
   emptyState?: ReactNode;
+  onSelectAsset?: (symbol: string) => void;
 }) {
   return (
     <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -109,6 +112,9 @@ export function MessageList({
               messageId={message.message_id}
               dosyaAdi={message.rapor.dosya_adi}
             />
+          )}
+          {message.role === "assistant" && onSelectAsset && (
+            <MentionedAssetCard symbols={message.mentioned_assets ?? []} onOpenAsset={onSelectAsset} />
           )}
         </div>
       ))}

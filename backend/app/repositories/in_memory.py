@@ -1,3 +1,4 @@
+# ruff: noqa: E501 -- Sabit TR/EN oyun metinleri okunabilirlik icin bolunmez.
 """Bellek ici veri - DATABASE_URL tanimli degilken kullanilir.
 
 Bu veri kumesi `db/v5_schema_and_data.sql` icindeki dummy data'nin bir
@@ -35,6 +36,9 @@ _USERS: list[dict] = [
         "onboarding_completed": True,
         "marketing_consent": True,
         "likit_para": 200000.0,
+        "phone_number": "+905321112233",
+        "birth_date": "1985-04-12",
+        "tckn_last4": "4821",
         "role": "customer",
     },
     {
@@ -48,6 +52,9 @@ _USERS: list[dict] = [
         "onboarding_completed": True,
         "marketing_consent": True,
         "likit_para": 150000.0,
+        "phone_number": "+905339998877",
+        "birth_date": "1992-11-03",
+        "tckn_last4": "1750",
         "role": "customer",
     },
     {
@@ -60,6 +67,9 @@ _USERS: list[dict] = [
         "monthly_income": 0.0,
         "marketing_consent": False,
         "likit_para": 0.0,
+        "phone_number": None,
+        "birth_date": None,
+        "tckn_last4": None,
         "role": "advisor",
     },
     # Portfoyu YOK (`_PORTFOLIOS`'ta satiri yok) ve islemi YOK: yani
@@ -76,6 +86,9 @@ _USERS: list[dict] = [
         "monthly_income": 45000.0,
         "marketing_consent": True,
         "likit_para": 300000.0,
+        "phone_number": "+905324445566",
+        "birth_date": "1978-07-21",
+        "tckn_last4": "9034",
         "role": "customer",
     },
 ]
@@ -236,6 +249,7 @@ def reset_data() -> None:
     _RECOMMENDATIONS.clear()
     _REC_AUDIT.clear()
     _USER_LIMITS.clear()
+    _BASKET_STATES.clear()
     _KILL_SWITCH.update({"active": False, "reason": None, "activated_by": None})
 
 
@@ -320,6 +334,7 @@ _SIGNALS: list[dict] = []
 _RECOMMENDATIONS: list[dict] = []
 _REC_AUDIT: list[dict] = []
 _USER_LIMITS: dict[int, dict] = {}
+_BASKET_STATES: dict[tuple[int, str], dict] = {}
 _KILL_SWITCH: dict = {"active": False, "reason": None, "activated_by": None}
 
 
@@ -551,20 +566,42 @@ def _holdings_valued(user_id: int, portfolio_id: int | None) -> list[dict]:
     return rows
 
 
+#: `password_hash`/`tckn_hash` HICBIR zaman disari donmez (get_by_email
+#: haric - o auth katmani icin password_hash'i taşımak ZORUNDA, ama
+#: tckn_hash orada da gerekmiyor).
+_GIZLI_ALANLAR = ("password_hash", "tckn_hash")
+
+
 class InMemoryUserRepository:
     async def get_by_email(self, email: str) -> dict | None:
         for user in _USERS:
             if user["email"].lower() == email.lower():
-                return dict(user)
+                return {k: v for k, v in user.items() if k != "tckn_hash"}
         return None
 
     async def get_by_id(self, user_id: int) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
-                return {k: v for k, v in user.items() if k != "password_hash"}
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
-    async def create(self, first_name: str, last_name: str, email: str, password_hash: str) -> dict:
+    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
+        for user in _USERS:
+            if user.get("tckn_hash") == tckn_hash:
+                return {"id": user["id"], "email": user["email"]}
+        return None
+
+    async def create(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        password_hash: str,
+        tckn_hash: str,
+        tckn_last4: str,
+        birth_date,
+        phone_number: str,
+    ) -> dict:
         new_id = max((user["id"] for user in _USERS), default=0) + 1
         user = {
             "id": new_id,
@@ -575,16 +612,20 @@ class InMemoryUserRepository:
             "risk_tolerance": None,
             "monthly_income": 0.0,
             "onboarding_completed": False,
+            "tckn_hash": tckn_hash,
+            "tckn_last4": tckn_last4,
+            "birth_date": birth_date,
+            "phone_number": phone_number,
         }
         _USERS.append(user)
-        return {k: v for k, v in user.items() if k != "password_hash"}
+        return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
 
     async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
         for user in _USERS:
             if user["id"] == user_id:
                 user["risk_tolerance"] = risk_tolerance
                 user["onboarding_completed"] = True
-                return {k: v for k, v in user.items() if k != "password_hash"}
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
 
@@ -1298,10 +1339,23 @@ class InMemoryRecommendationRepository:
                 "name": a["name"],
                 "asset_class": a["asset_class"],
                 "currency": a["currency"],
+                "sector": a.get("sector") or a["asset_class"],
+                "region": a.get("region")
+                or (
+                    "TR"
+                    if a["asset_class"] == "STOCK"
+                    else "US" if a["asset_class"] in {"USA_STOCK", "ETF"} else "GLOBAL"
+                ),
                 "current_price": float(a["current_price"]) * _fx_rate(a["currency"]),
                 "daily_change_pct": a.get("daily_change_pct"),
                 "weekly_change_pct": a.get("weekly_change_pct"),
                 "yearly_change_pct": a.get("yearly_change_pct"),
+                "volatility_20d_pct": abs(float(a.get("daily_change_pct") or 0))
+                + abs(float(a.get("weekly_change_pct") or 0)) * 0.35,
+                "volatility_observation_count": 20,
+                "daily_returns_252d": dict(
+                    a.get("daily_returns_252d") or a.get("daily_returns_60d") or {}
+                ),
                 "price_updated_at": a.get("price_updated_at"),
             }
             for a in _ASSETS
@@ -1347,12 +1401,46 @@ class InMemoryRecommendationRepository:
             )
         return sonuc
 
+    async def user_context(self, user_id: int) -> dict | None:
+        user = next((u for u in _USERS if int(u["id"]) == user_id), None)
+        portfolio = _default_portfolio(user_id)
+        if user is None or portfolio is None:
+            return None
+        hesap = next((c for c in _CASH_ACCOUNTS if c["portfolio_id"] == portfolio["id"]), None)
+        if hesap is None:
+            return None
+        limitler = await self.get_limits(user_id)
+        deger = sum(
+            float(h["quantity"])
+            * float(_asset(h["asset_id"])["current_price"])
+            * _fx_rate(_asset(h["asset_id"])["currency"])
+            for h in _PORTFOLIO_ASSETS
+            if h["portfolio_id"] == portfolio["id"]
+        )
+        return {
+            "user_id": user_id,
+            "risk_tolerance": user.get("risk_tolerance"),
+            "portfolio_id": portfolio["id"],
+            "available_balance": hesap["available_balance"],
+            "portfolio_value_try": deger,
+            "allowed_asset_classes": limitler["allowed_asset_classes"],
+        }
+
     async def holdings_map(self, portfolio_id: int) -> dict[int, float]:
         return {
             int(h["asset_id"]): float(h["quantity"])
             for h in _PORTFOLIO_ASSETS
             if h["portfolio_id"] == portfolio_id and float(h["quantity"]) > 0
         }
+
+    async def get_basket_state(self, user_id: int, goal: str) -> dict | None:
+        state = _BASKET_STATES.get((user_id, goal))
+        return dict(state) if state else None
+
+    async def upsert_basket_state(self, user_id: int, goal: str, state: dict) -> dict:
+        row = {"user_id": user_id, "goal": goal, **state}
+        _BASKET_STATES[(user_id, goal)] = row
+        return dict(row)
 
     async def daily_stats(self, user_id: int) -> dict:
         bugun = datetime.now(timezone.utc).date().isoformat()
@@ -1841,6 +1929,9 @@ class InMemoryLeadRepository:
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"],
+                    "phone_number": user.get("phone_number"),
+                    "birth_date": user.get("birth_date"),
+                    "tckn_last4": user.get("tckn_last4"),
                 }
             )
         return sonuc
@@ -1881,6 +1972,9 @@ class InMemoryLeadRepository:
                     "first_name": user["first_name"],
                     "last_name": user["last_name"],
                     "email": user["email"],
+                    "phone_number": user.get("phone_number"),
+                    "birth_date": user.get("birth_date"),
+                    "tckn_last4": user.get("tckn_last4"),
                     "decision": "AUTONOMOUS",
                     "exclusion_reason": None,
                     "score": karar.get("score", 0),
@@ -1896,6 +1990,100 @@ class InMemoryLeadRepository:
         return sonuc
 
 
+#: `db/migrations/018_economic_events.sql` + `019_economic_events_saat.sql`
+#: ile AYNI 7 satir - DB'siz modda da Turkiye'ye ozel ekonomik olaylar
+#: gorunsun diye (bkz. dosyanin ust yorumu). Saatler resmi/yerlesik
+#: aciklama saatleridir: TCMB PPK karari 14:00'te, TUIK enflasyon verisi
+#: 10:00'da aciklanir (Turkiye saati).
+_ECONOMIC_EVENTS: list[dict] = [
+    {
+        "event_date": date(2026, 9, 10),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 10, 22),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 12, 10),
+        "event_time": "14:00",
+        "country": "TR",
+        "event_name": "TCMB PPK Faiz Kararı",
+        "importance": "high",
+        "source": "TCMB",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 9, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 10, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 11, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+    {
+        "event_date": date(2026, 12, 3),
+        "event_time": "10:00",
+        "country": "TR",
+        "event_name": "TÜİK Enflasyon (TÜFE) Açıklaması",
+        "importance": "medium",
+        "source": "TÜİK",
+        "expected": None,
+        "actual": None,
+        "previous": None,
+    },
+]
+
+
+class InMemoryEconomicCalendarRepository:
+    async def list_events(self, start: date, end: date) -> list[dict]:
+        return sorted(
+            (dict(e) for e in _ECONOMIC_EVENTS if start <= e["event_date"] <= end),
+            key=lambda e: e["event_date"],
+        )
+
+
 _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")
 
 
@@ -1909,3 +2097,843 @@ def _flatten(record: dict) -> dict:
         k: (v if isinstance(v, (str, int, float, bool, type(None))) else str(v))
         for k, v in record.items()
     }
+
+
+# --- sans yatirimda (oyun) ---------------------------------------------------
+# `db/v5_schema_and_data.sql` 7B bolumundeki tohum veriyle BIREBIR AYNI
+# metinler (frontend/src/models/oyun.ts CHEAT_SHEET / QUESTIONS ile de ayni).
+# Rakip simulasyonu (isim/skor/yuzde) icin veri YOK - bkz. base.py::ContestRepository.
+
+_TOPICS: list[dict] = [
+    {
+        "id": 1,
+        "title_tr": "Bileşik faiz",
+        "title_en": "Compound interest",
+        "body_tr": (
+            "Kazanılan faiz anaparaya eklenir ve yeniden faiz getirir. Erken başlamak "
+            "süreyi en değerli girdi hâline getirir."
+        ),
+        "body_en": (
+            "Interest earned is added to the principal and starts earning interest "
+            "itself. Starting early makes time your most valuable asset."
+        ),
+    },
+    {
+        "id": 2,
+        "title_tr": "Enflasyon ve alım gücü",
+        "title_en": "Inflation and purchasing power",
+        "body_tr": (
+            "Fiyatlar sürekli yükselir, aynı para zamanla daha az şey alır. Getiri "
+            "enflasyonun altında kalırsa reel olarak kayıp vardır."
+        ),
+        "body_en": (
+            "Prices keep rising, so the same money buys less over time. If your return "
+            "falls below inflation, you lose value in real terms."
+        ),
+    },
+    {
+        "id": 3,
+        "title_tr": "Çeşitlendirme",
+        "title_en": "Diversification",
+        "body_tr": (
+            "Birikimi farklı varlıklara dağıtmak tek bir varlığın kötü gitmesinin "
+            "etkisini azaltır. Aynı sektördeki varlıklar aynı şoklara birlikte maruz "
+            "kalır."
+        ),
+        "body_en": (
+            "Spreading your savings across different assets reduces the impact of any "
+            "single asset performing poorly. Assets in the same sector are exposed to "
+            "the same shocks together."
+        ),
+    },
+    {
+        "id": 4,
+        "title_tr": "Risk ve getiri",
+        "title_en": "Risk and return",
+        "body_tr": (
+            "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek "
+            "getiri bir arada vaat ediliyorsa risk muhtemelen gizlenmiştir."
+        ),
+        "body_en": (
+            "Higher returns generally come with higher uncertainty. If risk-free and "
+            "high returns are promised together, the risk is probably being hidden."
+        ),
+    },
+    {
+        "id": 5,
+        "title_tr": "Acil durum fonu",
+        "title_en": "Emergency fund",
+        "body_tr": (
+            "Beklenmedik giderlerde borçlanmadan dayanmayı sağlayan rezervdir. İhtiyaç "
+            "anında hızla ve değer kaybetmeden nakde çevrilebilmelidir."
+        ),
+        "body_en": (
+            "A reserve that lets you cover unexpected expenses without borrowing. It "
+            "should be quickly convertible to cash without losing value when needed."
+        ),
+    },
+    {
+        "id": 6,
+        "title_tr": "Borç ve kredi yönetimi",
+        "title_en": "Debt and credit management",
+        "body_tr": (
+            "Asgari ödeme borcu bitirmez, kalan tutara faiz işlemeye devam eder. Ödeme "
+            "geçmişi kredi notunu en çok etkileyen unsurdur."
+        ),
+        "body_en": (
+            "Paying the minimum doesn't clear the debt — interest keeps accruing on the "
+            "remaining balance. Payment history is the factor that most affects your "
+            "credit score."
+        ),
+    },
+]
+
+_QUESTIONS: list[dict] = [
+    {
+        "id": 1,
+        "topic_id": 1,
+        "text_tr": (
+            "Aynı faiz oranı ve aynı anapara ile 10 yıl yatırım yapan iki kişiden biri "
+            "basit, diğeri bileşik faiz kullanıyor. Aradaki farkın temel nedeni nedir?"
+        ),
+        "text_en": (
+            "Two people invest for 10 years with the same interest rate and the same "
+            "principal — one uses simple interest, the other compound interest. What "
+            "mainly causes the difference between them?"
+        ),
+        "options": [
+            {
+                "tr": "Bileşik faizde oran her yıl otomatik olarak yükseltilir",
+                "en": "With compound interest, the rate automatically increases every year",
+            },
+            {
+                "tr": "Bileşik faizde kazanılan faiz de faiz getirmeye başlar",
+                "en": "With compound interest, the interest earned starts earning interest too",
+            },
+            {
+                "tr": "Basit faizde vergi kesintisi daha yüksektir",
+                "en": "With simple interest, the tax deduction is higher",
+            },
+            {
+                "tr": "Basit faizde anapara her yıl azaltılır",
+                "en": "With simple interest, the principal is reduced every year",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Bileşik faizde oran değişmez; değişen şey faiz işleyen tutardır. Kazanç "
+            "anaparaya eklendikçe taban büyür ve süre uzadıkça fark hızla açılır."
+        ),
+        "education_note_en": (
+            "With compound interest, the rate doesn't change — what changes is the "
+            "amount that earns interest. As gains are added to the principal, the base "
+            "grows, and the gap widens quickly over time."
+        ),
+        "difficulty": "orta",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 2,
+        "topic_id": 2,
+        "text_tr": (
+            "Yıllık getirisi %30 olan bir yatırım, enflasyonun %45 olduğu bir yılda ne "
+            "anlama gelir?"
+        ),
+        "text_en": (
+            "What does a 30% annual return mean for an investment in a year when "
+            "inflation is 45%?"
+        ),
+        "options": [
+            {"tr": "Reel olarak kazanç sağlanmıştır", "en": "A real gain was achieved"},
+            {"tr": "Reel olarak kayıp yaşanmıştır", "en": "A real loss was incurred"},
+            {"tr": "Reel getiri tam olarak sıfırdır", "en": "The real return is exactly zero"},
+            {
+                "tr": "Enflasyon reel getiriyi etkilemez",
+                "en": "Inflation does not affect real return",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Nominal getiri enflasyonun altında kaldığında paranın miktarı artsa bile "
+            "alım gücü azalır. Gerçek performans, getiriden enflasyon düşülerek ölçülür."
+        ),
+        "education_note_en": (
+            "When the nominal return stays below inflation, purchasing power falls even "
+            "though the amount of money increases. Real performance is measured by "
+            "subtracting inflation from the return."
+        ),
+        "difficulty": "orta",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 3,
+        "topic_id": 3,
+        "text_tr": (
+            "Bir yatırımcı tüm birikimini aynı sektördeki beş farklı şirkete dağıtıyor. "
+            "Bu neden tam bir çeşitlendirme sayılmaz?"
+        ),
+        "text_en": (
+            "An investor spreads all their savings across five different companies in "
+            "the same sector. Why doesn't this count as full diversification?"
+        ),
+        "options": [
+            {
+                "tr": "Beş varlık çeşitlendirme için yetersiz sayıdadır",
+                "en": "Five assets are not enough for diversification",
+            },
+            {
+                "tr": "Aynı sektördeki varlıklar benzer risklerden birlikte etkilenir",
+                "en": "Assets in the same sector are affected together by similar risks",
+            },
+            {
+                "tr": "Çeşitlendirme yalnızca farklı ülkelerde yapılabilir",
+                "en": "Diversification can only be done across different countries",
+            },
+            {
+                "tr": "Hisse senetleri çeşitlendirmeye uygun değildir",
+                "en": "Stocks are not suitable for diversification",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Çeşitlendirmenin işe yaraması için varlıkların birlikte hareket etmemesi "
+            "gerekir. Aynı sektör aynı şoklara maruz kaldığı için sayı artsa da risk "
+            "yeterince dağılmaz."
+        ),
+        "education_note_en": (
+            "For diversification to work, assets shouldn't move together. Since the same "
+            "sector is exposed to the same shocks, risk isn't spread enough even if the "
+            "number of holdings increases."
+        ),
+        "difficulty": "zor",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 4,
+        "topic_id": 4,
+        "text_tr": (
+            '"Garantili, risksiz, aylık %20 getiri" vaat eden bir yatırım teklifi için '
+            "aşağıdakilerden hangisi doğrudur?"
+        ),
+        "text_en": (
+            "Which of the following is true for an investment offer promising "
+            '"guaranteed, risk-free, 20% monthly return"?'
+        ),
+        "options": [
+            {
+                "tr": "Getirisi yüksek olduğu için öncelikli tercih edilmelidir",
+                "en": "It should be preferred first because its return is high",
+            },
+            {
+                "tr": "Risk ve getiri ilişkisine aykırıdır, riski gizlenmiş olabilir",
+                "en": "It contradicts the risk-return relationship; the risk may be hidden",
+            },
+            {
+                "tr": "Kısa vadede risksiz, uzun vadede risklidir",
+                "en": "It's risk-free in the short term but risky in the long term",
+            },
+            {
+                "tr": "Faiz oranı sabitse risk otomatik olarak ortadan kalkar",
+                "en": "If the interest rate is fixed, the risk automatically disappears",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Yüksek getiri kural olarak yüksek belirsizlikle gelir. Risksiz ve yüksek "
+            "getiri bir arada vaat ediliyorsa, risk ortadan kalkmamıştır; yalnızca "
+            "gösterilmemektedir."
+        ),
+        "education_note_en": (
+            "High returns generally come with high uncertainty. If risk-free and high "
+            "returns are promised together, the risk hasn't disappeared — it's simply "
+            "not being shown."
+        ),
+        "difficulty": "kolay",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 5,
+        "topic_id": 5,
+        "text_tr": "Acil durum fonu için aşağıdaki saklama biçimlerinden hangisi en uygundur?",
+        "text_en": "Which of the following storage methods is most suitable for an emergency fund?",
+        "options": [
+            {
+                "tr": "Beş yıl vadeli, erken çıkışta ceza uygulanan bir üründe",
+                "en": "A 5-year term product with an early-withdrawal penalty",
+            },
+            {
+                "tr": "Kısa sürede nakde çevrilebilen likit bir araçta",
+                "en": "A liquid instrument that can be converted to cash quickly",
+            },
+            {
+                "tr": "Uzun vadede en çok kazandıran yüksek riskli varlıkta",
+                "en": "A high-risk asset with the best long-term returns",
+            },
+            {
+                "tr": "Satışı haftalar sürebilen fiziksel bir varlıkta",
+                "en": "A physical asset that can take weeks to sell",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Acil durum fonunun amacı kazanç değil erişilebilirliktir. İhtiyaç anında "
+            "beklemeden ve değer kaybetmeden çekilebilmesi gerekir."
+        ),
+        "education_note_en": (
+            "The purpose of an emergency fund is accessibility, not return. It should be "
+            "withdrawable instantly and without losing value when needed."
+        ),
+        "difficulty": "kolay",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 6,
+        "topic_id": 6,
+        "text_tr": (
+            "Kredi kartı ekstresinde yalnızca asgari tutarı ödeyen bir kullanıcı için "
+            "aşağıdakilerden hangisi doğrudur?"
+        ),
+        "text_en": (
+            "Which of the following is true for a user who only pays the minimum amount "
+            "on their credit card statement?"
+        ),
+        "options": [
+            {
+                "tr": "Kalan borç faizsiz olarak bir sonraki aya devreder",
+                "en": "The remaining debt carries over to next month interest-free",
+            },
+            {
+                "tr": "Ödenmeyen tutara faiz işler ve borç büyümeye devam eder",
+                "en": "Interest accrues on the unpaid amount and the debt keeps growing",
+            },
+            {
+                "tr": "Kart limiti otomatik olarak yükseltilir",
+                "en": "The card limit is automatically increased",
+            },
+            {
+                "tr": "O ay yapılan tüm harcamalar iptal edilir",
+                "en": "All purchases made that month are cancelled",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Asgari ödeme kartın kapanmasını önler ama borcu bitirmez. Kalan tutara akdi "
+            "faiz işler; her ay tekrarlandığında borç bileşik biçimde büyür."
+        ),
+        "education_note_en": (
+            "The minimum payment keeps the card from defaulting, but it doesn't clear "
+            "the debt. Contractual interest accrues on the remaining amount; if repeated "
+            "every month, the debt grows compound."
+        ),
+        "difficulty": "kolay",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 7,
+        "topic_id": None,
+        "text_tr": "50/30/20 bütçe kuralında yüzde 20'lik dilim neyi ifade eder?",
+        "text_en": "In the 50/30/20 budget rule, what does the 20% portion represent?",
+        "options": [
+            {"tr": "Zorunlu giderleri", "en": "Essential expenses"},
+            {"tr": "Birikim ve borç kapatmayı", "en": "Savings and debt repayment"},
+            {"tr": "Kişisel harcamaları", "en": "Personal spending"},
+            {"tr": "Vergi ve sigorta ödemelerini", "en": "Tax and insurance payments"},
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Kuralda gelirin yarısı zorunlu ihtiyaçlara, yüzde 30'u isteklere, yüzde "
+            "20'si birikime ve borç kapatmaya ayrılır. Birikimi önce ayırmak, kalanla "
+            "yaşamayı kolaylaştırır."
+        ),
+        "education_note_en": (
+            "Under the rule, half of income goes to essential needs, 30% to wants, and "
+            "20% to savings and debt repayment. Setting savings aside first makes it "
+            "easier to live on the rest."
+        ),
+        "difficulty": "kolay",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 8,
+        "topic_id": 6,
+        "text_tr": (
+            "Bir kişinin kredi notunu en olumsuz etkileyen davranış aşağıdakilerden " "hangisidir?"
+        ),
+        "text_en": (
+            "Which of the following behaviors most negatively affects a person's credit " "score?"
+        ),
+        "options": [
+            {"tr": "Kredi kartını hiç kullanmamak", "en": "Never using a credit card"},
+            {"tr": "Ödemeleri düzenli olarak geciktirmek", "en": "Regularly making late payments"},
+            {"tr": "Birden fazla bankada hesabı olmak", "en": "Having accounts at multiple banks"},
+            {
+                "tr": "Otomatik ödeme talimatı vermek",
+                "en": "Setting up automatic payment instructions",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Kredi notunu belirleyen en ağırlıklı unsur ödeme geçmişidir. Gecikmeler "
+            "kayda geçer ve sonraki kredi başvurularında hem onayı hem faiz oranını "
+            "olumsuz etkiler."
+        ),
+        "education_note_en": (
+            "Payment history is the most heavily weighted factor in a credit score. Late "
+            "payments get recorded and negatively affect both approval and the interest "
+            "rate on future credit applications."
+        ),
+        "difficulty": "orta",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 9,
+        "topic_id": None,
+        "text_tr": (
+            'Vadeli mevduatta "brüt faiz" ile "net faiz" arasındaki fark neyden ' "kaynaklanır?"
+        ),
+        "text_en": (
+            'In a term deposit, what causes the difference between "gross interest" '
+            'and "net interest"?'
+        ),
+        "options": [
+            {
+                "tr": "Bankanın uyguladığı hesap işletim ücretinden",
+                "en": "The account maintenance fee charged by the bank",
+            },
+            {
+                "tr": "Faiz gelirinden yapılan stopaj kesintisinden",
+                "en": "The withholding tax deducted from interest income",
+            },
+            {"tr": "Enflasyon oranındaki değişimden", "en": "Changes in the inflation rate"},
+            {
+                "tr": "Vade sonunda uygulanan kur farkından",
+                "en": "The exchange-rate difference applied at maturity",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Mevduat faizinden yasal stopaj kesilir. Ürünleri karşılaştırırken brüt oran "
+            "değil, elinize geçecek net tutar dikkate alınmalıdır."
+        ),
+        "education_note_en": (
+            "Statutory withholding tax is deducted from deposit interest. When comparing "
+            "products, you should look at the net amount you'll actually receive, not "
+            "the gross rate."
+        ),
+        "difficulty": "zor",
+        "timer_seconds": 10,
+    },
+    {
+        "id": 10,
+        "topic_id": 4,
+        "text_tr": (
+            "Portföyünde ağırlıklı olarak hisse senedi bulunan bir yatırımcı, "
+            "emekliliğine iki yıl kala ne yapmalıdır?"
+        ),
+        "text_en": (
+            "What should an investor whose portfolio is mostly stocks do two years "
+            "before retirement?"
+        ),
+        "options": [
+            {
+                "tr": "Riski artırıp getiriyi hızlandırmalıdır",
+                "en": "Increase risk to accelerate returns",
+            },
+            {
+                "tr": "Dalgalanmayı azaltmak için düşük riskli araçların payını artırmalıdır",
+                "en": "Increase the share of low-risk instruments to reduce volatility",
+            },
+            {
+                "tr": "Tüm birikimi tek bir hisseye toplamalıdır",
+                "en": "Put all savings into a single stock",
+            },
+            {
+                "tr": "Portföyü olduğu gibi bırakmalıdır, vade önemsizdir",
+                "en": "Leave the portfolio as is; the time horizon doesn't matter",
+            },
+        ],
+        "correct_index": 1,
+        "education_note_tr": (
+            "Yatırım ufku kısaldıkça kayıpları telafi etme süresi de azalır. Hedefe "
+            "yaklaşırken portföyün risk düzeyini kademeli düşürmek yaygın bir "
+            "yaklaşımdır."
+        ),
+        "education_note_en": (
+            "As the investment horizon shortens, there's less time to recover from "
+            "losses. Gradually lowering the portfolio's risk level as you approach your "
+            "goal is a common approach."
+        ),
+        "difficulty": "orta",
+        "timer_seconds": 10,
+    },
+]
+
+#: Bugunku oturum - ilk 5 soru sirayla, tum konular baglanir. `contest_date`
+#: her modul yuklendiginde YENIDEN hesaplanir (`_bugun()`), boylece dev
+#: sunucusu gun asimini otomatik takip eder.
+_CONTESTS: list[dict] = [
+    {
+        "id": 1,
+        "contest_date": _bugun(),
+        "starts_at": _now().replace(hour=20, minute=0, second=0, microsecond=0),
+        "capacity_total": 1000,
+        "prize_pool_points": 1_000_000,
+        "question_count": 5,
+        "created_at": _now(),
+    }
+]
+_CONTEST_TOPICS: list[dict] = [
+    {"id": i, "contest_id": 1, "topic_id": t["id"], "sort_order": i}
+    for i, t in enumerate(_TOPICS, start=1)
+]
+_CONTEST_QUESTIONS: list[dict] = [
+    {"id": i, "contest_id": 1, "question_id": qid, "sort_order": i}
+    for i, qid in enumerate([1, 2, 3, 4, 5], start=1)
+]
+_next_contest_id = 2
+
+_CONTEST_AGREEMENTS: list[dict] = []
+_next_contest_agreement_id = 1
+
+_PARTICIPATIONS: list[dict] = []
+_next_participation_id = 1
+
+_ANSWERS: list[dict] = []
+_next_answer_id = 1
+
+_PAYOUTS: list[dict] = []
+_next_payout_id = 1
+
+_DONATION_PURCHASES: list[dict] = []
+_next_donation_purchase_id = 1
+
+_USER_POWERUPS: list[dict] = []
+
+_POWERUP_PURCHASES: list[dict] = []
+_next_powerup_purchase_id = 1
+
+#: Bir kullaniciya "gecmis gunler" hikayesi bir kez tohumlandi mi (bkz.
+#: `_gecmis_gunleri_tohumla`). DEV/DEMO ONBELLEGI - gercek DB'de karsiligi YOK.
+_TOHUMLANAN_KULLANICILAR: set[int] = set()
+
+#: (kac gun once, kazandi mi, skor, elenilen soru, odul puani) - eskiden
+#: yalnizca frontend'de GORUNTU icin var olan sahte "Puan gecmisi" dolgusu
+#: (bkz. eski `frontend/src/models/oyun.ts::HISTORY`) artik BURADA, gercek
+#: katilim+odul satirlari olarak yaziliyor ki kullanici bu puanlari GERCEKTEN
+#: harcayabilsin (bkz. GOREV: magazadaki "gozuken" bakiye ile gercek bakiye
+#: ayni sey olmali). Rakamlar frontend'deki halinden BIREBIR tasindi.
+_GECMIS_GUNLER_SABLONU: list[tuple[int, bool, int, int | None, int]] = [
+    (1, False, 260, 4, 0),
+    (2, True, 905, None, 3150),
+    (3, False, 340, 2, 0),
+    (4, True, 810, None, 3480),
+    (5, True, 720, None, 2260),
+    (6, False, 180, 1, 0),
+]
+
+
+def _gecmis_gunleri_tohumla(user_id: int) -> None:
+    """DEV/DEMO: kullanicinin cuzdaninda ilk eristiginde (henuz hic gercek
+    katilimi yoksa) "gecmis gunler" hikayesini gercek `participation`/`payout`
+    satirlari olarak ekler - boylece demo bos bir cuzdanla degil, dolu ve
+    GERCEKTEN harcanabilir bir bakiyeyle basliyor. Yalnizca in-memory (dev)
+    modda calisir; gercek veritabaninda bu tohumlama YOKTUR - gercek
+    kullanicilar sifir bakiyeyle baslar."""
+    global _next_participation_id, _next_payout_id
+
+    if user_id in _TOHUMLANAN_KULLANICILAR:
+        return
+    _TOHUMLANAN_KULLANICILAR.add(user_id)
+    if any(p["user_id"] == user_id for p in _PARTICIPATIONS):
+        return  # zaten gercek gecmisi var - sahte gecmis ustune eklenmez
+
+    for gun_once, won, score, eliminated_q, payout_points in _GECMIS_GUNLER_SABLONU:
+        an = _now() - timedelta(days=gun_once)
+        katilim = {
+            "id": _next_participation_id,
+            "contest_id": 1,
+            "user_id": user_id,
+            "contest_date": an.date().isoformat(),
+            "registered_at": an,
+            "eliminated_at_question": eliminated_q,
+            "final_score": score,
+            "won": won,
+        }
+        _PARTICIPATIONS.append(katilim)
+        _next_participation_id += 1
+        if payout_points:
+            _PAYOUTS.append(
+                {
+                    "id": _next_payout_id,
+                    "participation_id": katilim["id"],
+                    "points_awarded": payout_points,
+                    "created_at": an,
+                }
+            )
+            _next_payout_id += 1
+
+
+class InMemoryContestRepository:
+    """Sans Yatirimda oyunu - DB yokken devreye giren yedek.
+
+    Rakip simulasyonu (isim/skor/yuzde) icin veri TUTMAZ - bu katman
+    yalnizca kullanicinin KENDI katilimini, cevaplarini ve cuzdanini
+    tasir (bkz. base.py::ContestRepository).
+    """
+
+    async def get_active_contest(self) -> dict | None:
+        bugun = _bugun()
+        for contest in _CONTESTS:
+            if contest["contest_date"] == bugun:
+                return dict(contest)
+        return None
+
+    async def get_contest_topics(self, contest_id: int) -> list[dict]:
+        by_id = {t["id"]: t for t in _TOPICS}
+        links = sorted(
+            (ct for ct in _CONTEST_TOPICS if ct["contest_id"] == contest_id),
+            key=lambda ct: ct["sort_order"],
+        )
+        return [dict(by_id[link["topic_id"]]) for link in links if link["topic_id"] in by_id]
+
+    async def get_contest_questions(self, contest_id: int) -> list[dict]:
+        by_id = {q["id"]: q for q in _QUESTIONS}
+        links = sorted(
+            (cq for cq in _CONTEST_QUESTIONS if cq["contest_id"] == contest_id),
+            key=lambda cq: cq["sort_order"],
+        )
+        result = []
+        for link in links:
+            question = by_id.get(link["question_id"])
+            if question is None:
+                continue
+            row = dict(question)
+            row["contest_question_id"] = link["id"]
+            row["sort_order"] = link["sort_order"]
+            result.append(row)
+        return result
+
+    async def has_agreement(self, user_id: int) -> bool:
+        return any(a["user_id"] == user_id for a in _CONTEST_AGREEMENTS)
+
+    async def create_agreement(self, user_id: int) -> None:
+        global _next_contest_agreement_id
+        if await self.has_agreement(user_id):
+            return
+        _CONTEST_AGREEMENTS.append(
+            {"id": _next_contest_agreement_id, "user_id": user_id, "accepted_at": _now()}
+        )
+        _next_contest_agreement_id += 1
+
+    async def count_participants(self, contest_id: int) -> int:
+        return sum(1 for p in _PARTICIPATIONS if p["contest_id"] == contest_id)
+
+    async def register_participation(self, contest_id: int, user_id: int) -> dict:
+        global _next_participation_id
+        bugun = _bugun()
+        for p in _PARTICIPATIONS:
+            if p["user_id"] == user_id and p["contest_date"] == bugun:
+                raise BusinessRuleError("Bugun icin katilim hakkini zaten kullandin.")
+        row = {
+            "id": _next_participation_id,
+            "contest_id": contest_id,
+            "user_id": user_id,
+            "contest_date": bugun,
+            "registered_at": _now(),
+            "eliminated_at_question": None,
+            "final_score": 0,
+            "won": False,
+        }
+        _PARTICIPATIONS.append(row)
+        _next_participation_id += 1
+        return dict(row)
+
+    async def get_participation(self, participation_id: int) -> dict | None:
+        for p in _PARTICIPATIONS:
+            if p["id"] == participation_id:
+                return dict(p)
+        return None
+
+    async def reset_todays_participation(self, user_id: int) -> None:
+        bugun = _bugun()
+        remove_ids = {
+            p["id"]
+            for p in _PARTICIPATIONS
+            if p["user_id"] == user_id and p["contest_date"] == bugun
+        }
+        if not remove_ids:
+            return
+        _PARTICIPATIONS[:] = [p for p in _PARTICIPATIONS if p["id"] not in remove_ids]
+        _ANSWERS[:] = [a for a in _ANSWERS if a["participation_id"] not in remove_ids]
+        _PAYOUTS[:] = [pay for pay in _PAYOUTS if pay["participation_id"] not in remove_ids]
+
+    async def submit_answer(
+        self,
+        participation_id: int,
+        contest_question_id: int,
+        selected_index: int | None,
+        is_correct: bool,
+        points_earned: int,
+        elapsed_seconds: float,
+    ) -> dict:
+        global _next_answer_id
+        row = {
+            "id": _next_answer_id,
+            "participation_id": participation_id,
+            "contest_question_id": contest_question_id,
+            "selected_index": selected_index,
+            "is_correct": is_correct,
+            "points_earned": points_earned,
+            "elapsed_seconds": elapsed_seconds,
+            "answered_at": _now(),
+        }
+        _ANSWERS.append(row)
+        _next_answer_id += 1
+        return dict(row)
+
+    async def list_answers(self, participation_id: int) -> list[dict]:
+        sort_order_by_cq = {cq["id"]: cq["sort_order"] for cq in _CONTEST_QUESTIONS}
+        rows = [dict(a) for a in _ANSWERS if a["participation_id"] == participation_id]
+        rows.sort(key=lambda a: sort_order_by_cq.get(a["contest_question_id"], 0))
+        return rows
+
+    async def finalize_participation(
+        self,
+        participation_id: int,
+        won: bool,
+        final_score: int,
+        eliminated_at_question: int | None,
+    ) -> dict:
+        for p in _PARTICIPATIONS:
+            if p["id"] == participation_id:
+                p.update(
+                    won=won, final_score=final_score, eliminated_at_question=eliminated_at_question
+                )
+                return dict(p)
+        raise NotFoundError("Katilim bulunamadi.")
+
+    async def create_payout(self, participation_id: int, payout_points: int) -> None:
+        global _next_payout_id
+        if any(p["participation_id"] == participation_id for p in _PAYOUTS):
+            return
+        _PAYOUTS.append(
+            {
+                "id": _next_payout_id,
+                "participation_id": participation_id,
+                "points_awarded": payout_points,
+                "created_at": _now(),
+            }
+        )
+        _next_payout_id += 1
+
+    async def get_leaderboard(self, period: str) -> list[dict]:
+        cutoff: datetime | None = None
+        if period == "gunluk":
+            cutoff = _now() - timedelta(days=1)
+        elif period == "haftalik":
+            cutoff = _now() - timedelta(days=7)
+        rows = [p for p in _PARTICIPATIONS if cutoff is None or p["registered_at"] >= cutoff]
+        rows = sorted(rows, key=lambda p: p["final_score"], reverse=True)
+        by_user = {u["id"]: u for u in _USERS}
+        result = []
+        for rank, p in enumerate(rows, start=1):
+            user = by_user.get(p["user_id"])
+            if user is None:
+                continue
+            result.append(
+                {
+                    "rank": rank,
+                    "label": f"{user['first_name']} {user['last_name']}",
+                    "score": p["final_score"],
+                }
+            )
+        return result
+
+    async def list_participations(self, user_id: int, limit: int = 20) -> list[dict]:
+        _gecmis_gunleri_tohumla(user_id)
+        payout_by_participation = {p["participation_id"]: p["points_awarded"] for p in _PAYOUTS}
+        rows = [p for p in _PARTICIPATIONS if p["user_id"] == user_id]
+        rows.sort(key=lambda p: p["registered_at"], reverse=True)
+        result = []
+        for p in rows[:limit]:
+            row = dict(p)
+            row["points_awarded"] = payout_by_participation.get(p["id"], 0)
+            result.append(row)
+        return result
+
+    async def get_points_balance(self, user_id: int) -> int:
+        _gecmis_gunleri_tohumla(user_id)
+        earned = sum(
+            payout["points_awarded"]
+            for payout in _PAYOUTS
+            for p in _PARTICIPATIONS
+            if p["id"] == payout["participation_id"] and p["user_id"] == user_id
+        )
+        spent = sum(row["price_points"] for row in _POWERUP_PURCHASES if row["user_id"] == user_id)
+        spent += sum(
+            row["price_points"] for row in _DONATION_PURCHASES if row["user_id"] == user_id
+        )
+        return earned - spent
+
+    async def get_user_powerups(self, user_id: int) -> dict[str, int]:
+        return {row["kind"]: row["quantity"] for row in _USER_POWERUPS if row["user_id"] == user_id}
+
+    async def consume_powerup(self, user_id: int, kind: str) -> bool:
+        for row in _USER_POWERUPS:
+            if row["user_id"] == user_id and row["kind"] == kind and row["quantity"] > 0:
+                row["quantity"] -= 1
+                return True
+        return False
+
+    async def record_powerup_purchase(self, user_id: int, kind: str, price_points: int) -> None:
+        global _next_powerup_purchase_id
+        _POWERUP_PURCHASES.append(
+            {
+                "id": _next_powerup_purchase_id,
+                "user_id": user_id,
+                "kind": kind,
+                "price_points": price_points,
+                "purchased_at": _now(),
+            }
+        )
+        _next_powerup_purchase_id += 1
+
+        for row in _USER_POWERUPS:
+            if row["user_id"] == user_id and row["kind"] == kind:
+                row["quantity"] += 1
+                return
+        _USER_POWERUPS.append({"user_id": user_id, "kind": kind, "quantity": 1})
+
+    async def list_powerup_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [r for r in _POWERUP_PURCHASES if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["purchased_at"], reverse=True)
+        return [dict(r) for r in rows[:limit]]
+
+    async def get_user_badges(self, user_id: int) -> list[str]:
+        return [row["badge_label"] for row in _DONATION_PURCHASES if row["user_id"] == user_id]
+
+    async def record_donation_purchase(
+        self, user_id: int, donation_key: str, badge_label: str, price_points: int
+    ) -> None:
+        global _next_donation_purchase_id
+        if any(
+            row["user_id"] == user_id and row["donation_key"] == donation_key
+            for row in _DONATION_PURCHASES
+        ):
+            return
+        _DONATION_PURCHASES.append(
+            {
+                "id": _next_donation_purchase_id,
+                "user_id": user_id,
+                "donation_key": donation_key,
+                "badge_label": badge_label,
+                "price_points": price_points,
+                "purchased_at": _now(),
+            }
+        )
+        _next_donation_purchase_id += 1
+
+    async def list_donation_purchases(self, user_id: int, limit: int = 20) -> list[dict]:
+        rows = [r for r in _DONATION_PURCHASES if r["user_id"] == user_id]
+        rows.sort(key=lambda r: r["purchased_at"], reverse=True)
+        return [dict(r) for r in rows[:limit]]

@@ -51,6 +51,7 @@ export function useChatStream() {
     let assistantText = "";
     let sources: Source[] = [];
     let agentErrors: AgentError[] = [];
+    let mentionedAssets: string[] = [];
 
     setMessages((current) => [
       ...current,
@@ -99,6 +100,7 @@ export function useChatStream() {
         }
 
         if (event.type === "done") {
+          mentionedAssets = event.mentioned_assets ?? [];
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantId
@@ -113,6 +115,7 @@ export function useChatStream() {
                     // meta veri - gercek dosya SSE'den GECMEZ, ayri bir
                     // uctan (`/api/chat/reports/{message_id}`) cekilir.
                     rapor: event.rapor,
+                    mentioned_assets: mentionedAssets,
                   }
                 : message,
             ),
@@ -127,5 +130,11 @@ export function useChatStream() {
     }
   }
 
-  return { messages, status, isStreaming, error, sendMessage };
+  return {
+    messages,
+    status,
+    isStreaming,
+    error,
+    sendMessage,
+  };
 }

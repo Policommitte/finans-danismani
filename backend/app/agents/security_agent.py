@@ -26,6 +26,7 @@ import logging
 import re
 
 from app.agents.base import BaseAgent
+from app.core.tckn import tckn_checksum_valid
 from app.orchestration.models import AgentState
 
 logger = logging.getLogger(__name__)
@@ -200,20 +201,6 @@ _TCKN_ANAHTAR_RE = re.compile(
 )
 
 
-def _tckn_saglama_gecerli(numara: str) -> bool:
-    """TCKN'in resmi saglama (checksum) kurallarini dogrular.
-
-    10. hane: (tek sirali hanelerin toplami * 7 - cift sirali hanelerin
-    toplami) mod 10. 11. hane: ilk 10 hanenin toplami mod 10.
-    """
-    haneler = [int(k) for k in numara]
-    tek_toplam = sum(haneler[0:9:2])  # 1., 3., 5., 7., 9. haneler
-    cift_toplam = sum(haneler[1:8:2])  # 2., 4., 6., 8. haneler
-    if (tek_toplam * 7 - cift_toplam) % 10 != haneler[9]:
-        return False
-    return sum(haneler[:10]) % 10 == haneler[10]
-
-
 def pii_kimlik_no_var_mi(normalized: str) -> bool:
     """Metinde TCKN paylasimi var mi?
 
@@ -237,7 +224,7 @@ def pii_kimlik_no_var_mi(normalized: str) -> bool:
         return False
     if _TCKN_ANAHTAR_RE.search(normalized):
         return True
-    return any(_tckn_saglama_gecerli(aday) for aday in adaylar)
+    return any(tckn_checksum_valid(aday) for aday in adaylar)
 
 
 class SecurityAgent(BaseAgent):

@@ -26,6 +26,7 @@ from app.engine.kapsam import (
     KAPSAM_DISI,
     KAPSAM_KUFUR,
     KAPSAM_SELAMLAMA,
+    KAPSAM_YASAK,
     kisa_yanit,
 )
 from app.engine.orchestrator import (
@@ -571,8 +572,25 @@ async def test_selamlama_ile_baslayan_finans_sorusu_ajanlara_gider():
     assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 1
 
 
-async def test_dolgu_kufru_gercek_soruyu_iptal_etmez():
-    """Sinirli ama gercek soru soran kullaniciya yanit verilmeli."""
+async def test_dolgu_kufru_ajanlari_calistirmaz():
+    """URUN KARARI DEGISTI (1 Eylul 2026) - bkz. `test_kapsam.py`.
+
+    Eskiden dolgu kufru gercek soruyu iptal ETMIYORDU ve bu test
+    `AGENT_PORTFOLIO in requested_agents` diyordu. Yeni kararda kufur iceren
+    mesaj kisa yanitla kapaniyor: HICBIR ajan calismamali.
+    """
+    orchestrator = _orchestrator()
+
+    state = await _calistir(orchestrator, "amk portföyüm neden düştü")
+
+    assert state["requested_agents"] == []
+
+
+async def test_ayar_kapaliyken_dolgu_kufru_soruyu_iptal_etmez(monkeypatch):
+    """Eski davranis `PROFANITY_CANCELS_FINANCE=false` ile geri gelir."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "profanity_cancels_finance", False)
     orchestrator = _orchestrator()
 
     state = await _calistir(orchestrator, "amk portföyüm neden düştü")
@@ -1204,3 +1222,155 @@ def test_portfoy_acikca_gecerse_hepsi_calisir():
     )
 
     assert set(secilen) == {AGENT_MARKET_RESEARCH, AGENT_PORTFOLIO, AGENT_RISK_STRATEGY}
+
+
+# ---------------------------------------------------------------------------
+# LLM kapsam suzgeci
+#
+# Bu bolumun varlik sebebi gercek bir sizinti (1 Eylul 2026): "yukselen
+# tetikci pazari" sorusu `pazar` kokuyle kural merdiveninden gecip ajanlara
+# ulasti ve sistem alakasiz haber kaynaklariyla ciddi bir yanit uretti.
+# Kelime listesi buyutuldu ama liste yalnizca BILINEN konulari yakalar;
+# suzgec listenin arkasindaki agdir. Buradaki testler sarmalama ornegi olarak
+# listede OLMAYAN uydurma bir konu kullanir ("kelebek pazari") - gercek yasak
+# kelimeler kural katinda (test_kapsam.py) sinanir.
+# ---------------------------------------------------------------------------
+
+
+class SahteKapsamLLM:
+    """`generate` sozlesmesini taklit eden kapsam suzgeci modeli."""
+
+    def __init__(self, yanit: str = "UYGUN", hata: Exception | None = None, gecikme: float = 0.0):
+        self.yanit = yanit
+        self.hata = hata
+        self.gecikme = gecikme
+        self.istemler: list[str] = []
+
+    async def generate(self, prompt: str, *, model: str | None = None) -> str:
+        self.istemler.append(prompt)
+        if self.gecikme:
+            await asyncio.sleep(self.gecikme)
+        if self.hata is not None:
+            raise self.hata
+        return self.yanit
+
+
+#: Kurallarin FINANS saydigi ama taninan varlik/sembol icermeyen sarmalama.
+SARMALAMA_SORUSU = "yükselen kelebek pazarı hakkında bilgi getirir misin"
+
+
+async def test_kapsam_llm_yasak_derse_ajanlar_calismaz():
+    ajanlar = _uc_ajan()
+    llm = SahteKapsamLLM(yanit="YASAK")
+    orchestrator = _orchestrator(agents=ajanlar, scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert llm.istemler, "suzgec hic cagrilmadi"
+    assert state["scope"] == KAPSAM_YASAK
+    assert state["requested_agents"] == []
+    assert all(ajan.cagri_sayisi == 0 for ajan in ajanlar.values())
+    assert state["final_response"] == kisa_yanit(KAPSAM_YASAK)
+
+
+async def test_kapsam_llm_disi_derse_kapsam_disi_yaniti_doner():
+    llm = SahteKapsamLLM(yanit="DISI")
+    orchestrator = _orchestrator(scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert state["scope"] == KAPSAM_DISI
+    assert state["final_response"] == kisa_yanit(KAPSAM_DISI)
+
+
+async def test_kapsam_llm_uygun_derse_ajanlar_calisir():
+    ajanlar = _uc_ajan()
+    llm = SahteKapsamLLM(yanit="UYGUN")
+    orchestrator = _orchestrator(agents=ajanlar, scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert llm.istemler
+    assert state["scope"] == "finans"
+    assert state["requested_agents"]
+
+
+async def test_kapsam_llm_cokerse_kural_karari_gecerli_kalir():
+    """FAIL-OPEN: saglayici 503 attiginda sohbet olmemeli."""
+    ajanlar = _uc_ajan()
+    llm = SahteKapsamLLM(hata=RuntimeError("Service temporarily overloaded"))
+    orchestrator = _orchestrator(agents=ajanlar, scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert state["scope"] == "finans"
+    assert state["requested_agents"]
+
+
+async def test_kapsam_llm_sure_asiminda_kural_karari_gecerli_kalir(monkeypatch):
+    monkeypatch.setattr(orchestrator_modulu.settings, "scope_llm_timeout_seconds", 0.05)
+    ajanlar = _uc_ajan()
+    llm = SahteKapsamLLM(yanit="YASAK", gecikme=0.5)
+    orchestrator = _orchestrator(agents=ajanlar, scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert state["scope"] == "finans"
+    assert state["requested_agents"]
+
+
+async def test_kapsam_llm_anlamsiz_yanitta_kural_karari_gecerli_kalir():
+    """Model konusmaya baslarsa (etiket cozulmezse) karar YOK sayilir."""
+    llm = SahteKapsamLLM(yanit="42")
+    orchestrator = _orchestrator(scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert state["scope"] == "finans"
+
+
+async def test_varlik_adi_gecen_soru_llm_e_sorulmaz():
+    """'ASELSAN alinir mi' gibi net sorular gecikme odememeli."""
+    llm = SahteKapsamLLM(yanit="YASAK")  # cagrilsaydi yaniti bloklardi
+    orchestrator = _orchestrator(scope_llm=llm)
+
+    state = await _calistir(orchestrator, "aselsan hissesi alınır mı")
+
+    assert llm.istemler == []
+    assert state["scope"] == "finans"
+    assert state["requested_agents"]
+
+
+async def test_scope_llm_yoksa_davranis_degismez():
+    """`scope_llm=None` onceki davranisin birebir aynisi olmali."""
+    orchestrator = _orchestrator()  # scope_llm verilmedi
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert state["scope"] == "finans"
+    assert state["requested_agents"]
+
+
+async def test_kapsam_llm_ayarla_kapatilabilir(monkeypatch):
+    monkeypatch.setattr(orchestrator_modulu.settings, "scope_llm_enabled", False)
+    llm = SahteKapsamLLM(yanit="YASAK")
+    orchestrator = _orchestrator(scope_llm=llm)
+
+    state = await _calistir(orchestrator, SARMALAMA_SORUSU)
+
+    assert llm.istemler == []
+    assert state["scope"] == "finans"
+
+
+async def test_devam_turunda_onceki_mesaj_isteme_girer():
+    """'peki ya simdi?' tek basina anlamsiz; baglamsiz sorulsa DISI cikardi."""
+    llm = SahteKapsamLLM(yanit="UYGUN")
+    orchestrator = _orchestrator(scope_llm=llm)
+
+    await _olaylar(orchestrator, SARMALAMA_SORUSU, thread_id=7)
+    llm.istemler.clear()
+    await _olaylar(orchestrator, "peki bu iyi bir gelir biçimi mi sence", thread_id=7)
+
+    assert llm.istemler, "devam turunda suzgec cagrilmadi"
+    assert "Önceki mesaj:" in llm.istemler[0]
+    assert SARMALAMA_SORUSU in llm.istemler[0]

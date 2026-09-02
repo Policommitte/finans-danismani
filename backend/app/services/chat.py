@@ -168,7 +168,12 @@ async def stream_chat_response(
             pdf_baytlari = event.pop("_dahili_pdf_bytes", None)
 
             mesaj = await _asistan_mesajini_kaydet(
-                thread_id, "".join(parcalar), kaynaklar, ajan_hatalari, request_id
+                thread_id,
+                "".join(parcalar),
+                kaynaklar,
+                ajan_hatalari,
+                request_id,
+                mentioned_assets=event.get("mentioned_assets") or [],
             )
             if mesaj is not None:
                 event = {**event, "message_id": mesaj["id"]}
@@ -196,6 +201,7 @@ async def _asistan_mesajini_kaydet(
     kaynaklar: list[dict],
     ajan_hatalari: list[dict],
     request_id: str,
+    mentioned_assets: list[str] | None = None,
 ) -> dict | None:
     """Asistan yanitini kaydeder.
 
@@ -210,7 +216,11 @@ async def _asistan_mesajini_kaydet(
             session_id=thread_id,
             sender_role="assistant",
             content=metin,
-            meta={"sources": kaynaklar, "agent_errors": ajan_hatalari},
+            meta={
+                "sources": kaynaklar,
+                "agent_errors": ajan_hatalari,
+                "mentioned_assets": mentioned_assets or [],
+            },
             request_id=request_id,
         )
     except Exception:  # noqa: BLE001 - kalicilik hatasi yaniti gecersiz kilmaz

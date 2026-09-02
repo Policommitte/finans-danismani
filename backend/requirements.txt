@@ -86,6 +86,12 @@ reportlab==5.0.1
 matplotlib==3.11.1
 
 httpx==0.28.1
+
+# Kayit formundaki TCKN dogrulamasi (app/services/nvi.py) - NVI'nin SOAP 1.1
+# servisini cagirmak icin standart Python SOAP istemcisi. WSDL'i kendisi
+# okur/ayristirir; lxml bagimliligini getirir.
+zeep==4.3.1
+
 ruff==0.8.4
 black==24.10.0
 pytest==8.4.2

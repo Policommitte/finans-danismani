@@ -507,6 +507,10 @@ def _chunk_payload(row: dict) -> dict[str, Any]:
         # Haberin yayindaki adresi. Kaynak kartini tiklanabilir yapan tek alan
         # budur; tasinmazsa arayuz kullaniciyi haberin sitesine goturemez.
         "kaynak_url": row.get("kaynak_url"),
+        # `score` RRF'tir (rank tabanli) - alaka esigi koymaya ELVERISLI DEGIL.
+        # `cos_sim` gercek kosinus benzerligidir; BM25 yolunda (embedder yoksa)
+        # hesaplanamaz ve `None` kalir.
+        "cos_sim": _f(row.get("cos_sim")),
         # --- eski adlar (MarketResearchAgent) ---
         "title": baslik,
         "text": row.get("content"),

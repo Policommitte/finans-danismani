@@ -80,11 +80,11 @@ export default function DashboardPage() {
     return () => window.cancelAnimationFrame(frame);
   }, [dashboard.loading, performance.loading]);
 
-  if (dashboard.loading) {
+  if (dashboard.loading && !dashboard.data) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
   }
 
-  if (dashboard.error || !dashboard.data) {
+  if (!dashboard.data) {
     return (
       <ErrorState
         message={dashboard.error ?? (language === "tr" ? "Genel bakış verisi boş döndü." : "Overview data is empty.")}
@@ -106,6 +106,22 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {dashboard.error ? (
+        <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border app-warning-box px-4 py-3 text-sm">
+          <span>
+            {language === "tr"
+              ? "Veriler geçici olarak güncellenemedi. Son başarılı veriler gösteriliyor."
+              : "Data could not be refreshed temporarily. The last successful data is shown."}
+          </span>
+          <button
+            type="button"
+            className="font-semibold underline underline-offset-4"
+            onClick={() => void dashboard.refetch()}
+          >
+            {language === "tr" ? "Tekrar dene" : "Retry"}
+          </button>
+        </div>
+      ) : null}
       <div>
         <h1 className="text-2xl font-bold app-heading">
           {language === "tr" ? "Portföyün ve genel görünümün," : "Your portfolio overview,"}{" "}
