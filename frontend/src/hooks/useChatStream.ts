@@ -12,6 +12,19 @@ const DEFAULT_ATTACHMENT_PROMPTS: Record<PendingAttachment["kind"], string> = {
   file: "Bu dosyayı analiz et.",
 };
 
+export type SendMessageOptions = {
+  /**
+   * Kullanici balonunda GORUNECEK metin; verilmezse gonderilen mesajin
+   * kendisi gosterilir.
+   *
+   * Gomulu istemler icin var (bkz. `useDailyBrief` - gunluk ozet daveti):
+   * modele giden yonerge uzundur ve kullaniciya oldugu gibi gosterilmesi
+   * anlamsizdir, ama istemin KENDISI degismeden gider - backend'e ayri bir
+   * "gizli mesaj" yolu acilmaz, sohbet gecmisine de tam metin yazilir.
+   */
+  displayText?: string;
+};
+
 export function useChatStream() {
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -19,7 +32,11 @@ export function useChatStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function sendMessage(content: string, pendingAttachment?: PendingAttachment) {
+  async function sendMessage(
+    content: string,
+    pendingAttachment?: PendingAttachment,
+    options?: SendMessageOptions,
+  ) {
     const trimmed = content.trim();
     if ((!trimmed && !pendingAttachment) || isStreaming) {
       return;
@@ -38,7 +55,7 @@ export function useChatStream() {
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: effectiveMessage,
+      content: options?.displayText ?? effectiveMessage,
       attachment: pendingAttachment
         ? {
             kind: pendingAttachment.kind,

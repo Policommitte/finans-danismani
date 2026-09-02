@@ -5,8 +5,12 @@ import "blobatar/motion.css";
 import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
+import { useAuth } from "../../hooks/useAuth";
 import { useChatStream } from "../../hooks/useChatStream";
+import { useDailyBrief } from "../../hooks/useDailyBrief";
 import type { PendingAttachment } from "./AttachmentMenu";
+import { DailyBriefBubble } from "./DailyBriefBubble";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 
@@ -90,6 +94,17 @@ export function ChatWidget({
   const latestPanelRectRef = useRef<PanelRect | null>(null);
   const chat = useChatStream();
   const messages = canSend ? chat.messages : [];
+  const auth = useAuth();
+  const { language } = useLanguage();
+  const dailyBrief = useDailyBrief({
+    enabled: canSend,
+    userId: auth.user?.id ?? null,
+    language,
+  });
+  //: Gunluk ozet OTURUM BASINA TEK KEZ istenir: davete tekrar tekrar
+  //: tiklanamaz (baloncuk kapaniyor) ama panel kapanip acilirsa ayni
+  //: istemin ikinci kez tum ajanlari kosturmasi da istenmez.
+  const briefRequestedRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -304,6 +319,20 @@ export function ChatWidget({
     chat.sendMessage(trimmed, attachment);
   }
 
+  /** Davete tiklandi: panel acilir ve gunluk ozet istemi bir kez gonderilir. */
+  function openDailyBrief() {
+    const brief = dailyBrief.brief;
+    dailyBrief.dismiss();
+    setOpen(true);
+
+    if (!brief || !canSend || briefRequestedRef.current) {
+      return;
+    }
+
+    briefRequestedRef.current = true;
+    chat.sendMessage(brief.prompt, undefined, { displayText: brief.displayText });
+  }
+
   return (
     <>
       <div className="fixed bottom-5 right-5 z-40">
@@ -372,6 +401,16 @@ export function ChatWidget({
             className="pointer-events-none absolute bottom-1 right-1 z-30 h-2.5 w-2.5 border-b-2 border-r-2 border-[var(--color-muted)] opacity-40"
           />
         </section>
+      )}
+      {!open && dailyBrief.brief && (
+        <DailyBriefBubble
+          tone={dailyBrief.brief.tone}
+          teaser={dailyBrief.brief.teaser}
+          actionLabel={dailyBrief.brief.actionLabel}
+          closeLabel={language === "tr" ? "Günün özetini kapat" : "Dismiss today's brief"}
+          onOpen={openDailyBrief}
+          onDismiss={dailyBrief.dismiss}
+        />
       )}
       <button
         type="button"
