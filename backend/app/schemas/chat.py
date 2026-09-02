@@ -4,7 +4,20 @@ SSE olaylarinin sozlesmesi burada DEGIL, `docs/api-sozlesmesi.md` icindedir:
 akis gövdesi bir Pydantic modeli degil, `text/event-stream` gövdesidir.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class ChatAttachment(BaseModel):
+    """Sohbet mesajina eklenen goersel/dosya - `app/services/chat_attachments.py`
+    tarafindan cozulur/dogrulanir. `data_base64` boyutu route seviyesinde
+    (akis baslamadan once) kontrol edilir - bkz. routes/chat.py."""
+
+    kind: Literal["image", "file"]
+    filename: str = Field(max_length=255)
+    mime_type: str = Field(max_length=100)
+    data_base64: str
 
 
 class ChatRequest(BaseModel):
@@ -13,6 +26,11 @@ class ChatRequest(BaseModel):
         default=None,
         description="Mevcut sohbet. Bos birakilirsa yeni sohbet acilir ve "
         "`meta` olayinda id doner.",
+    )
+    attachment: ChatAttachment | None = Field(
+        default=None,
+        description="Opsiyonel goersel/dosya eki - varsa ek-analizi yolu (cok-ajanli "
+        "orkestratoru ATLAYARAK) calisir, bkz. app/services/chat_attachments.py.",
     )
 
 

@@ -40,8 +40,8 @@ def kural_adi(rule_code: str) -> str:
     return KURAL_ADLARI.get(rule_code, rule_code)
 
 
-#: Endeksler dogrudan alinip satilamaz (BR-AUT / trading ile ayni kural).
-ISLEM_DISI_SINIFLAR = frozenset({"INDEX"})
+#: Endeksler ve uygulamadaki tahvil-getiri gostergesi dogrudan alinip satilamaz.
+ISLEM_DISI_SINIFLAR = frozenset({"INDEX", "BOND"})
 
 
 def _yuzde(value) -> float | None:

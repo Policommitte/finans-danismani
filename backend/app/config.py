@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     embedding_api_key: str = ""
 
+    # --- Kimlik dogrulama (TCKN / NVI) ------------------------------------
+    # NVI'nin ucretsiz, herkese acik SOAP servisi (anahtar gerektirmez).
+    # False yapilirsa NVI'ye HIC istek atilmaz, dogrulama otomatik basarili
+    # sayilir - bu bir eksiklik degil, gercek TC Kimlik No olmadan US15
+    # akisini test edebilmek icin bilincli bir kacis kapisi (bkz.
+    # app/services/nvi.py). Uretimde MUTLAKA True/tanimsiz birakilir.
+    nvi_verification_enabled: bool = True
+    nvi_timeout_seconds: float = 8.0
+    #: TCKN'i saklama icin tek yonlu ozetlerken (HMAC-SHA256) kullanilan
+    #: anahtar. Bos birakilirsa JWT_SECRET'a duser - ayri bir sir yonetmek
+    #: istemeyen kucuk ekipler icin (bkz. app/core/tckn.py::hash_tckn).
+    tckn_hash_pepper: str = ""
+
     # --- Bulten gorselleri ------------------------------------------------
     # BOS birakilirsa haber gorseli eslestirme Pexels'e hic istek atmaz,
     # dogrudan kategori bazli sabit gorsellere duser (bkz. app/services/news.py
@@ -71,6 +84,132 @@ class Settings(BaseSettings):
     #: bekliyor, bu yuzden kisa tutulur. Asilirsa/hata alirsa hibrit arama
     #: sessizce BM25'e (`SqlRagRepository.search`) duser - istek asla coker.
     rag_query_embedding_timeout_seconds: float = 3.0
+
+    #: Bir chunk'in kaynak olarak GOSTERILEBILMESI icin gereken asgari kosinus
+    #: benzerligi. `0` = filtre kapali (eski davranis).
+    #:
+    #: NEDEN GEREKLI: `rag.hybrid_search`'un dondurdugu `score` RRF'tir ve RANK
+    #: tabanlidir - 1. sira her zaman 1/(60+1) eder, sonuc alakasiz olsa bile.
+    #: Yani skor uzerinden "bu yeterince alakali mi?" sorusu YANITLANAMAZ. Esik
+    #: bu yuzden ayri bir kolona (`cos_sim`) dayanir.
+    #:
+    #: NE COZER: BM25 ayagi `plainto_tsquery`yi OR'ladigi icin tek bir genel
+    #: kelime ("sektor") alakasiz haberleri listeye sokuyordu - "bankacilik
+    #: sektorundeki haberleri ozetle" sorgusu insaat/istihdam haberlerini kaynak
+    #: gosteriyordu. Esik bunlari LLM'e gitmeden ve kullaniciya kaynak olarak
+    #: gorunmeden eler.
+    #:
+    #: ⚠️ EMBEDDER YOKSA ETKISIZDIR. EMBEDDING_API_KEY/EMBEDDING_MODEL tanimli
+    #: degilse arama saf BM25'e duser (`SqlRagRepository.search`), orada
+    #: karsilastirilacak vektor yoktur ve esik UYGULANMAZ.
+    #:
+    #: ⚠️ DEGER KALIBRASYON ISTER. 0.30, CANLI indekste olculerek secildi
+    #: (234 dokuman / 917 chunk; sorgu: "havacilik sektoruyle ilgili haberleri
+    #: getir"; 20 aday). Gercek sorgu->dokuman dagilimi:
+    #:
+    #:     Baykar ihracat (havacilik) ....... 0.370   <- ILGILI
+    #:     Vergi haberi / havacilik chunk'i . 0.360   <- ILGILI (bkz. asagisi)
+    #:     Turk savunma sanayisi ............ 0.328   <- ILGILI
+    #:     "5 yildir zirve degismedi" ....... 0.314   <- sinirda
+    #:     Bulgaristan maaslar .............. 0.282   <- alakasiz
+    #:     Ucretli calisan sayisi ........... 0.272   <- alakasiz
+    #:     Havalimani kapasitesi ............ 0.271   <- ILGILI ama DUSUK
+    #:     Insaat sektoru ................... 0.261   <- alakasiz
+    #:
+    #: ⚠️ TEMIZ BIR AYRIM YOK. Dagilim 0.249-0.370'e sikismis ve kumeler
+    #: ORTUSUYOR: dogrudan havalimani haberi (0.271) alakasiz bir maas
+    #: haberinin (0.282) ALTINDA kaliyor. 0.30 acikca alakasiz olanlari keser
+    #: ama havalimani haberini de kaybeder - bu bir DENGE, cozum degil. Kalici
+    #: iyilesme esikten degil, retrieval kalitesinden gelir.
+    #:
+    #: ⚠️ BASLIK CHUNK'I TEMSIL ETMEZ. Yukaridaki "vergi haberi" aslinda
+    #: alakalidir: eslesen chunk "Savunma ve havacilik sektorunde son 5 yilin
+    #: ihracat lideri olan Baykar..." metnini tasiyor. Eslesme CHUNK bazinda
+    #: olurken kaynak kartinda DOKUMAN basligi gosteriliyor; bu yuzden dogru
+    #: sonuclar alakasiz gorunebiliyor (bkz. `_to_source`).
+    #:
+    #: ⚠️ ONCEKI DEGER 0.40 YANLISTI. Seed verideki DOKUMAN-DOKUMAN benzerligiyle
+    #: secilmisti (orada tepe 1.0 idi). Gercek sorgular Cohere'e
+    #: `input_type="search_query"` ile gider ve dokuman vektorleriyle ASIMETRIK
+    #: eslesir; skorlar sistematik olarak cok daha dusuktur. 0.40 canlida
+    #: HICBIR sonucun gecmemesine yol acti ("haber bulunamadi").
+    #:
+    #: YENIDEN OLCMEK ICIN: `RAG_MIN_SIMILARITY=0` yapip sorguyu calistirin ve
+    #: `market_research._alaka_skorlarini_logla` satirina bakin - butun adaylar
+    #: gercek skorlariyla gorunur. `RAG_TOP_K` ile aday havuzunu genisletin.
+    rag_min_similarity: float = 0.30
+
+    #: `rag_search`'un dondurecegi chunk sayisi. AYNI ANDA IKI ISI birden yapar
+    #: (bkz. `rag.hybrid_search`): aday havuzu `top_k * 4` genisliginde acilir,
+    #: nihai `LIMIT` ise `top_k`'dir. Yani buyutmek hem daha genis arama hem
+    #: daha cok kaynak demektir.
+    #:
+    #: TESHIS ICIN GECICI OLARAK BUYUTUN: `_alaka_skorlarini_logla` yalnizca
+    #: nihai satirlari gorebilir; bir dokumanin havuza girip girmedigini
+    #: anlamak icin `RAG_TOP_K=20` yapip logdaki `cos_sim` dagilimina bakin.
+    rag_top_k: int = 5
+
+    #: ────────────────────────────────────────────────────────────────────
+    #: ⚠️ IKI AYRI ALAKA ESIGI VAR - AYNI SEY DEGILLER, BIRI DIGERININ
+    #: YERINE GECMEZ. Hangi arama yolunun kosuldugu hangisinin devrede
+    #: oldugunu belirler:
+    #:
+    #:   EMBEDDING_MODEL DOLU  -> `hybrid_search` (dense + BM25 -> RRF)
+    #:                            `rag_min_similarity` devrede (cos_sim)
+    #:                            `rag_min_score` KENDINI KAPATIR: RRF
+    #:                            skorlari ~0.016 mertebesindedir, BM25 icin
+    #:                            secilmis esik orada her seyi elerdi.
+    #:
+    #:   EMBEDDING_MODEL BOS   -> saf BM25 (`SqlRagRepository.search`)
+    #:                            `rag_min_similarity` UYGULANAMAZ (ortada
+    #:                            karsilastirilacak vektor yok)
+    #:                            `rag_min_score` devrede (ts_rank_cd)
+    #:
+    #: Yani su anki kurulumda (EMBEDDING_MODEL bos) yalnizca `rag_min_score`
+    #: calisiyor. Embedder baglandiginda devir teslim OTOMATIKTIR.
+    #: ────────────────────────────────────────────────────────────────────
+
+    #: BM25 (`ts_rank_cd`) yolunda alaka esigi. **VARSAYILAN KAPALI (0).**
+    #:
+    #: NE ICIN EKLENDI: embedder bagli degilken arama saf BM25'e duser ve
+    #: `rag_min_similarity` UYGULANAMAZ (karsilastirilacak vektor yok). O
+    #: yolda hicbir alaka filtresi yoktu; portfoy sorusuna "Guney Kore'de
+    #: kopek eti yasagi" haberi kaynak diye gosteriliyordu.
+    #:
+    #: ⚠️ NEDEN VARSAYILAN 0 — MUTLAK ESIK CALISMIYOR.
+    #: Ilk surumde 0.75 secilmisti; canli Supabase'de olculen dagilim buydu:
+    #:     alakasiz tepe 0.50 - 0.70   ·   alakali tepe 0.90 - 1.90
+    #: Ama `ts_rank_cd` KORPUSTAN KORPUSA KARSILASTIRILABILIR DEGIL. Ayni
+    #: esik CI'nin seed korpusunda (14 chunk) olculdugunde:
+    #:     sorgu   : "THYAO ikinci ceyrek karini nasil etkiledi"
+    #:     eslesen : "Turk Hava Yollari 2026 yili ikinci ceyreginde net kari..."
+    #:     skor    : 0.10          <- TAMAMEN ALAKALI, esigin cok altinda
+    #: Yani bir korpusta alakasizi eleyen deger, digerinde alakaliyi eliyor;
+    #: dokuz mevcut test bu yuzden kirmiziya dondu. Sabit bir sayi
+    #: gonderilmesi yanlis olurdu.
+    #:
+    #: ACMAK ICIN: kendi indeksinizde olcun. `RAG_MIN_SCORE=0` iken sorguyu
+    #: calistirip `market_research._alaka_skorlarini_logla` satirina bakin,
+    #: esigi alakali/alakasiz kumelerin ARASINA koyun.
+    #:
+    #: ASIL COZUM BU DEGIL: kalici duzeltme embedder'i baglamaktir
+    #: (EMBEDDING_API_KEY + EMBEDDING_MODEL). O zaman `rag_min_similarity`
+    #: devreye girer - o esik RANK'a degil gercek KOSINUS BENZERLIGINE
+    #: dayandigi icin korpusa bu kadar bagimli degildir.
+    rag_min_score: float = 0.0
+
+    #: Kufur iceren bir mesaj, icinde GERCEK bir finans sorusu olsa bile
+    #: kisa yanitla kapatilsin mi?
+    #:
+    #: `False` (eski davranis): "amk portfoyum neden dustu" cevaplanir -
+    #: sinirli ama gercek soru soran kullaniciyi cevapsiz birakmama karari.
+    #: `True`  (su anki karar): kapatilir. Urun sahibi 1 Eylul 2026'da bu
+    #: yonde karar verdi; kaba dille gelen mesajlara cilali finans analizi
+    #: donmesi istenmiyor.
+    #:
+    #: A kademesi (dogrudan hakaret) bu ayardan ETKILENMEZ - o her zaman
+    #: kosulsuz kapatir.
+    profanity_cancels_finance: bool = True
 
     # --- LLM ------------------------------------------------------------
     # KODA HICBIR MODEL ADI GOMULU DEGILDIR. Anahtar veya model tanimli
@@ -85,8 +224,15 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
-    #: Otomatik saglayici tespitini elle ezmek icin: "gemini" | "nvidia".
-    #: Normalde BOS birakilir.
+    #: OpenRouter (OpenAI uyumlu ucuncu saglayici). Model adi `openrouter:`
+    #: onekiyle ya da `:free` gibi bir OpenRouter rota son ekiyle yazilir -
+    #: bkz. `app.core.llm.model_coz`.
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    #: Otomatik saglayici tespitini elle ezmek icin:
+    #: "gemini" | "nvidia" | "openrouter". Normalde BOS birakilir - TUM
+    #: ajanlari birden etkiler, tek bir ajani baska saglayiciya almak icin
+    #: model adina onek yazin.
     llm_provider: str = ""
     default_model: str = ""
 
@@ -107,6 +253,19 @@ class Settings(BaseSettings):
     risk_model: str = ""
     synthesizer_model: str = ""  # en guclu model burada
     security_model: str = ""  # en kucuk/hizli model burada
+
+    # --- LLM kapsam suzgeci (kapsam.py kurallarinin arkasindaki agiz) ----
+    # Kural merdiveni yalnizca LISTEDEKI yasak konulari yakalar; listede
+    # olmayan bir konu finans kokleriyle sarmalanirsa ("tetikci pazari")
+    # ajanlara sizar. Bu suzgec, ajanlara gidecek ama icinde taninan bir
+    # varlik/sembol GECMEYEN sorulari kucuk modele onaylatir. Model karari
+    # olarak `security_model` kullanilir (ayni "en kucuk/hizli model").
+    #
+    # FAIL-OPEN: model yoksa, coktuyse ya da sure asiminda kural karari
+    # gecerli kalir - saglayici 503 attiginda sohbet OLMEZ, koruma o an
+    # kurallardan ibaret kalir. Bu bilincli bir urun karari (1 Eylul 2026).
+    scope_llm_enabled: bool = True
+    scope_llm_timeout_seconds: float = 6.0
 
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # Yalnizca Yahoo Finance'ten GERCEK fiyat kullanilir. Yahoo'ya
@@ -337,6 +496,8 @@ class Settings(BaseSettings):
         """
         if saglayici == "nvidia":
             return self.nvidia_api_key.strip()
+        if saglayici == "openrouter":
+            return self.openrouter_api_key.strip()
         return (self.gemini_api_key or self.llm_api_key).strip()
 
     def model_for(self, agent: str) -> str:

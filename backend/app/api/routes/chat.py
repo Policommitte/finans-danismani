@@ -22,6 +22,7 @@ from app.schemas.chat import (
     MessagesResponse,
 )
 from app.services import chat as service
+from app.services import chat_attachments
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -93,11 +94,19 @@ async def chat_stream(request: Request, user: CurrentUser, payload: ChatRequest)
     # Gövde uretilirken firlasaydi durum kodu coktan 200 gonderilmis olurdu.
     session = await service.sohbet_bul_veya_ac(user["id"], payload.conversation_id, payload.message)
 
+    # Ek boyut/format dogrulamasi da AYNI SEBEPLE akis baslamadan once yapilir
+    # (422/JSON donmesi icin) - gercek cozme/analiz ek-yolunun icinde olur.
+    if payload.attachment is not None:
+        chat_attachments.decode_attachment(
+            payload.attachment.data_base64, payload.attachment.mime_type, payload.attachment.kind
+        )
+
     olaylar = service.stream_chat_response(
         user_id=user["id"],
         message=payload.message,
         session=session,
         request_id=request_id,
+        attachment=payload.attachment,
     )
 
     async def govde():

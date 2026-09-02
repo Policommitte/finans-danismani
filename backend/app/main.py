@@ -16,7 +16,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.routes import (
     auth,
     chat,
+    contest,
     dashboard,
+    economic_calendar,
     health,
     leads,
     market,
@@ -176,3 +178,5 @@ app.include_router(recommendations.router)
 app.include_router(risk.router)
 app.include_router(chat.router)
 app.include_router(leads.router)
+app.include_router(contest.router)
+app.include_router(economic_calendar.router)

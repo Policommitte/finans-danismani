@@ -18,6 +18,9 @@ langchain-openai==1.6.0
 # HENUZ VERILMEDI: anahtar veya model adi tanimli degilse ajanlar LLM'siz
 # calisir, paket yuklu olsa bile kullanilmaz.
 google-genai==1.75.0
+# Sohbet ek analizi (chat_attachments.py) icin PDF metin cikarimi - saf
+# Python, sistem seviyesinde ek binary gerektirmez.
+pypdf==6.16.2
 
 # NVIDIA NIM (build.nvidia.com) OpenAI'nin API sozlesmesini konusuyor, bu
 # yuzden ayri bir SDK yok: `openai` paketi base_url degistirilerek
@@ -65,6 +68,12 @@ PyJWT==2.10.1
 bcrypt==4.2.1
 
 httpx==0.28.1
+
+# Kayit formundaki TCKN dogrulamasi (app/services/nvi.py) - NVI'nin SOAP 1.1
+# servisini cagirmak icin standart Python SOAP istemcisi. WSDL'i kendisi
+# okur/ayristirir; lxml bagimliligini getirir.
+zeep==4.3.1
+
 ruff==0.8.4
 black==24.10.0
 pytest==8.4.2

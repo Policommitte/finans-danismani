@@ -180,7 +180,7 @@ data: {"type":"agent_error","agent":"market_research","error_type":"timeout"}
 
 data: {"type":"error","code":"ORCHESTRATOR_FAILED","message":"…"}
 
-data: {"type":"done","latency_ms":8420,"message_id":42}
+data: {"type":"done","latency_ms":8420,"message_id":42,"mentioned_assets":["TUPRS"]}
 ```
 
 | Olay | Ne zaman | Frontend davranışı |
@@ -191,7 +191,7 @@ data: {"type":"done","latency_ms":8420,"message_id":42}
 | `token` | Yanıt üretilirken | Mesaja parça parça eklenir |
 | `agent_error` | Tek ajan timeout/hata verdiğinde | **Kısmi başarısızlık uyarısı** — sohbet fail edilmez, akış devam eder |
 | `error` | Graph hiç çalışamazsa | Genel hata mesajı, akış kapanır |
-| `done` | Akış bittiğinde | Stream kapatılır; `message_id` ile mesaj kalıcı hâle getirilir |
+| `done` | Akış bittiğinde | Stream kapatılır; `message_id` ile mesaj kalıcı hâle getirilir; `mentioned_assets` doluysa cevabın altında varlık kartı gösterilir (bkz. `market_research` ajanının katalogla doğruladığı sembol) |
 
 **Sıra garantisi:** `meta` ilk · `sources` ilk `token`'dan önce · `done` en son.
 

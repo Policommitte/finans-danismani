@@ -1,5 +1,6 @@
 """Kimlik dogrulama sozlesmeleri."""
 
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
@@ -15,6 +16,15 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, description="Sifre (en az 8 karakter)")
     first_name: str = Field(min_length=1, max_length=50)
     last_name: str = Field(min_length=1, max_length=50)
+    tckn: str = Field(
+        pattern=r"^\d{11}$",
+        description="TC Kimlik Numarasi (11 haneli) - NVI ile dogrulanir, DUZ METIN saklanmaz",
+        examples=["10000000146"],
+    )
+    birth_date: date = Field(
+        description="Dogum tarihi - NVI dogrulamasinda yalnizca yili kullanilir"
+    )
+    phone_number: str = Field(min_length=10, max_length=20, examples=["05551234567"])
 
 
 class OnboardingCompleteRequest(BaseModel):
@@ -42,3 +52,8 @@ class UserResponse(BaseModel):
         description="False ise AppShell zorunlu onboarding akisini (anket -> sepet -> tur) acar."
     )
     role: str = Field(default="customer", description="customer | advisor")
+    tckn_last4: str | None = Field(
+        default=None, description="TC Kimlik No'nun son 4 hanesi - tam numara HICBIR yanitta donmez"
+    )
+    birth_date: date | None = Field(default=None)
+    phone_number: str | None = Field(default=None)
