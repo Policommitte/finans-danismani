@@ -401,10 +401,25 @@ def _normalize(text: str) -> str:
 
 
 #: Sentez akisi ILK TOKEN'DAN ONCE gecici hatayla duserse kac kez daha
-#: denenecegi. Dusuk tutuldu: sentezin dis zaman asimi 45 sn ve basarisizlik
-#: zaten deterministik ozete duserek guvenli sonlanir.
-_SENTEZ_YENIDEN_DENEME = 1
-_SENTEZ_BEKLEME_SANIYE = 1.5
+#: denenecegi. Toplam deneme = 1 + bu sayi.
+#:
+#: 1 -> 2 (2 Eylul 2026, canlida olculdu): saglayici arka arkaya iki kez
+#: `503 Service temporarily overloaded` dondugunde tek yeniden deneme
+#: yetmedi ve yanit deterministik ozete dustu - kullanici ajan bolumlerini
+#: (`Piyasa arastirmasi: ... Portfoy analizi: ...`) alt alta gordu. Ajan
+#: tarafindaki hak zaten 2 (`app/core/llm.py::_YENIDEN_DENEME`); sentez
+#: ondan daha kirilgan olmamali.
+#:
+#: UST SINIR VAR: her deneme once ILK TOKEN'i beklemek zorunda
+#: (`synthesizer_stall_seconds`) ve beklemeler `synthesizer_timeout_seconds`
+#: butcesinden yenir. Hak daha da artirilirsa dis zaman asimi tetiklenir -
+#: sonuc yine deterministik ozet olur ama kullanici cok daha uzun bekler.
+_SENTEZ_YENIDEN_DENEME = 2
+
+#: Denemeler arasi bekleme - kademeli. Sabit bekleme yogunluk aninda ikinci
+#: denemeyi de ayni dalgaya sokuyordu; ajan tarafindaki kademelendirmeyle
+#: (`app/core/llm.py::_BEKLEME_SANIYE`) ayni mantik.
+_SENTEZ_BEKLEME_SANIYELERI = (1.5, 3.0)
 
 
 class Orchestrator:
@@ -1076,13 +1091,25 @@ class Orchestrator:
                 # yeniden denemek GORUNMEZ olur.
                 if parts or _yeniden_deneme_hakki[0] <= 0 or not _gecici_hata_mi(hata):
                     raise
+                # Kacinci deneme oldugumuza gore bekle: hak azaldikca
+                # kademede ilerleriz (2 hak -> 1.5 sn, 1 hak -> 3.0 sn).
+                bekleme = _SENTEZ_BEKLEME_SANIYELERI[
+                    min(
+                        _SENTEZ_YENIDEN_DENEME - _yeniden_deneme_hakki[0],
+                        len(_SENTEZ_BEKLEME_SANIYELERI) - 1,
+                    )
+                ]
                 _yeniden_deneme_hakki[0] -= 1
                 logger.warning(
                     "sentez akisi gecici hatayla dustu; yeniden deneniyor",
-                    extra={"kalan": _yeniden_deneme_hakki[0], "hata": str(hata)[:200]},
+                    extra={
+                        "kalan": _yeniden_deneme_hakki[0],
+                        "bekleme_sn": bekleme,
+                        "hata": str(hata)[:200],
+                    },
                 )
                 await akis.aclose()
-                await asyncio.sleep(_SENTEZ_BEKLEME_SANIYE)
+                await asyncio.sleep(bekleme)
                 akis = self.synthesizer_llm.astream(messages, config=config)
                 continue
             except asyncio.TimeoutError as exc:
