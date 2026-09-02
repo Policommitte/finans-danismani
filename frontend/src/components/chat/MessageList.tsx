@@ -1,8 +1,56 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import type { ChatMessage } from "../../models/chat";
+import { downloadChatReport } from "../../services/chatService";
 import { AgentErrorNotice } from "./AgentErrorNotice";
 import { MentionedAssetCard } from "./MentionedAssetCard";
 import { SourceList } from "./SourceList";
+
+function ReportDownloadButton({ messageId, dosyaAdi }: { messageId: number; dosyaAdi: string }) {
+  const [indiriliyor, setIndiriliyor] = useState(false);
+  const [hata, setHata] = useState<string | null>(null);
+
+  async function handleClick() {
+    setIndiriliyor(true);
+    setHata(null);
+    try {
+      await downloadChatReport(messageId, dosyaAdi);
+    } catch (exc) {
+      setHata(exc instanceof Error ? exc.message : "Rapor indirilemedi.");
+    } finally {
+      setIndiriliyor(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={indiriliyor}
+        className="flex items-center gap-1.5 rounded-md border app-border bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] transition hover:bg-[var(--color-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <svg
+          aria-hidden="true"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        {indiriliyor ? "İndiriliyor…" : `Raporu indir (${dosyaAdi})`}
+      </button>
+      {hata && <div className="app-danger-box mt-1 rounded-md px-2 py-1 text-xs">{hata}</div>}
+    </div>
+  );
+}
 
 export function MessageList({
   messages,
@@ -59,6 +107,12 @@ export function MessageList({
           <div className="whitespace-pre-wrap">{message.content || "..."}</div>
           {message.role === "assistant" && <SourceList sources={message.sources ?? []} />}
           {message.role === "assistant" && <AgentErrorNotice errors={message.agent_errors ?? []} />}
+          {message.role === "assistant" && message.rapor && message.message_id && (
+            <ReportDownloadButton
+              messageId={message.message_id}
+              dosyaAdi={message.rapor.dosya_adi}
+            />
+          )}
           {message.role === "assistant" && onSelectAsset && (
             <MentionedAssetCard symbols={message.mentioned_assets ?? []} onOpenAsset={onSelectAsset} />
           )}

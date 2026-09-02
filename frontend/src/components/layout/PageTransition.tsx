@@ -22,6 +22,13 @@ const REVEAL_DELAY_MS = 40;
 // sonra sayfa yine acilir; serit kendi iskeletiyle sonradan dolar -
 // islevsel bir kayip yok, yalnizca kotu gunun tavani dusuyor.
 const TICKER_READY_TIMEOUT_MS = 2500;
+// Sayfa verisi (dashboard/market/bulten/oneriler) icin ayni turden bir tavan.
+// Eskiden YOKTU: backend yavaslarsa ya da bir istek asilirsa perde sonsuza
+// kadar kapali kaliyordu - kullanicinin "sonsuza kadar bekliyoruz" dedigi
+// durum tam olarak buydu. Tavan dolunca sayfa kendi yukleme metniyle acilir;
+// veri gelince yerine oturur. Ticker tavanindan uzun tutuldu cunku burada
+// bekledigimiz sey sayfanin asil icerigi, bos acilmak son care.
+const PAGE_READY_TIMEOUT_MS = 4000;
 
 type TransitionPhase = "idle" | "covering" | "covered" | "revealing";
 
@@ -41,6 +48,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
   useEffect(() => {
     let revealStarted = false;
     let tickerWaitExpired = false;
+    let pageWaitExpired = false;
 
     function revealPage() {
       if (revealStarted) {
@@ -69,10 +77,10 @@ export function PageTransition({ children }: { children: ReactNode }) {
 
       return (
         (!pageHasTicker || tickerIsReady || tickerWaitExpired) &&
-        (!pageNeedsDashboard || dashboardIsReady) &&
-        (!pageNeedsMarket || marketPageIsReady) &&
-        (!pageNeedsBulletin || bulletinPageIsReady) &&
-        (!pageNeedsAutonomousActions || autonomousActionsIsReady)
+        (!pageNeedsDashboard || dashboardIsReady || pageWaitExpired) &&
+        (!pageNeedsMarket || marketPageIsReady || pageWaitExpired) &&
+        (!pageNeedsBulletin || bulletinPageIsReady || pageWaitExpired) &&
+        (!pageNeedsAutonomousActions || autonomousActionsIsReady || pageWaitExpired)
       );
     }
 
@@ -83,6 +91,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
     }
 
     let tickerReadyTimeout: number | null = null;
+    let pageReadyTimeout: number | null = null;
 
     if (!requiredDataIsReady()) {
       window.addEventListener(MARKET_TICKER_READY_EVENT, handleDataReady);
@@ -94,6 +103,10 @@ export function PageTransition({ children }: { children: ReactNode }) {
         tickerWaitExpired = true;
         handleDataReady();
       }, TICKER_READY_TIMEOUT_MS);
+      pageReadyTimeout = window.setTimeout(() => {
+        pageWaitExpired = true;
+        handleDataReady();
+      }, PAGE_READY_TIMEOUT_MS);
     } else {
       revealPage();
     }
@@ -106,6 +119,9 @@ export function PageTransition({ children }: { children: ReactNode }) {
       window.removeEventListener(AUTONOMOUS_ACTIONS_READY_EVENT, handleDataReady);
       if (tickerReadyTimeout !== null) {
         window.clearTimeout(tickerReadyTimeout);
+      }
+      if (pageReadyTimeout !== null) {
+        window.clearTimeout(pageReadyTimeout);
       }
       if (revealTimerRef.current !== null) {
         window.clearTimeout(revealTimerRef.current);

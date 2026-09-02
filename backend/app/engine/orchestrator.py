@@ -64,8 +64,10 @@ from app.agents.security_agent import PII_FLAG
 from app.config import settings
 from app.core.llm import _gecici_hata_mi
 from app.engine.kapsam import (
+    KAPSAM_BASKA_KISI,
     KAPSAM_BELIRSIZ,
     KAPSAM_DISI,
+    KAPSAM_KUFUR,
     KAPSAM_YASAK,
     KISA_YANIT_KAPSAMLARI,
     SEMBOL_DESENI,
@@ -91,9 +93,17 @@ NODE_SMALL_TALK = "small_talk"
 AGENT_MARKET_RESEARCH = "market_research"
 AGENT_PORTFOLIO = "portfolio"
 AGENT_RISK_STRATEGY = "risk_strategy"
+AGENT_DOCUMENT_ANALYSIS = "document_analysis"
 
 #: Birbirinden bagimsiz ajanlar - router'dan sonra PARALEL calisir.
-PARALLEL_AGENTS: tuple[str, ...] = (AGENT_MARKET_RESEARCH, AGENT_PORTFOLIO)
+#:
+#: Belge ajani buraya girer cunku hicbir ajanin ciktisina ihtiyac duymaz;
+#: veri kaynagi kullanicinin YUKLEDIGI dosyadir.
+PARALLEL_AGENTS: tuple[str, ...] = (
+    AGENT_MARKET_RESEARCH,
+    AGENT_PORTFOLIO,
+    AGENT_DOCUMENT_ANALYSIS,
+)
 
 #: Baska ajanlarin ciktisina ihtiyac duyan ajanlar - paralel fazdan SONRA,
 #: tanimlandiklari sirayla zincirlenerek calisir.
@@ -102,6 +112,7 @@ SEQUENTIAL_AGENTS: tuple[str, ...] = (AGENT_RISK_STRATEGY,)
 #: Ajan -> deterministik yanittaki bolum basligi. Sozlugun SIRASI ayni zamanda
 #: yedek siradir (router bir sey soylemediginde kullanilir).
 _BOLUM_BASLIKLARI: dict[str, str] = {
+    AGENT_DOCUMENT_ANALYSIS: "Belge analizi",
     AGENT_MARKET_RESEARCH: "Piyasa araştırması",
     AGENT_PORTFOLIO: "Portföy analizi",
     AGENT_RISK_STRATEGY: "Risk değerlendirmesi",
@@ -112,6 +123,7 @@ _AJAN_VERISI: dict[str, Callable[[AgentState], dict | None]] = {
     AGENT_MARKET_RESEARCH: lambda s: s.market_data,
     AGENT_PORTFOLIO: lambda s: s.portfolio_data,
     AGENT_RISK_STRATEGY: lambda s: s.risk_data,
+    AGENT_DOCUMENT_ANALYSIS: lambda s: s.document_data,
 }
 
 #: Kullaniciya SSE ile gonderilecek ilerleme mesajlari.
@@ -328,6 +340,13 @@ _KAPSAM_LLM_ETIKET = re.compile(r"\b(UYGUN|DISI|YASAK)\b", re.IGNORECASE)
 #: LLM etiketi -> kapsam siniflari. UYGUN eslemede yoktur: kural karari
 #: oldugu gibi kalir.
 _KAPSAM_LLM_ESLEME = {"DISI": KAPSAM_DISI, "YASAK": KAPSAM_YASAK}
+
+#: Ekli belge olsa bile kisa yanitta KALAN kapsamlar (bkz. `route_node`).
+#: Bunlar metnin kendisi hakkinda RET kararlaridir; "sinyal yok" kararlari
+#: (belirsiz, kapsam disi, selamlama...) ise belge lehine ezilir.
+_BELGEYLE_EZILMEYEN_KAPSAMLAR: frozenset[str] = frozenset(
+    {KAPSAM_KUFUR, KAPSAM_YASAK, KAPSAM_BASKA_KISI}
+)
 
 #: Synthesizer sistem prompt'u - uyum kurallarini tasir.
 SYNTHESIZER_SYSTEM_PROMPT = """Sen bir kişisel finans danışmanı asistanısın.
@@ -606,6 +625,31 @@ class Orchestrator:
         """
         kapsam = kapsam_belirle(state.user_query, devam_turu=self._devam_turu(state))
 
+        # BELGE EKLIYSE "SINYAL YOK" KARARLARI EZILIR - ama RET KARARLARI DEGIL.
+        #
+        # Kapsam siniflandirici yalnizca METNE bakar; kullanici dosyayi
+        # "buna bir bakar misin?" ya da hic yazi yazmadan yollayabilir. O
+        # metinde finans sinyali yoktur ve sorgu `small_talk`'a duserdi -
+        # yani yuklenen belge SESSIZCE yok sayilirdi. Dosyanin varligi
+        # niyetin kendisidir; belirsiz/kapsam disi/selamlama gibi "sinyal
+        # yok" kararlari belge lehine ezilir.
+        #
+        # ⚠️ Kufur, yasak konu ve baska kisi kararlari EZILMEZ. Eski surum
+        # kapsam kontrolunu tamamen atliyordu; "<hakaret> + herhangi bir PDF"
+        # dogrudan ajanlara ve sentezleyiciye gidiyordu. Bu kararlar metnin
+        # kendisi hakkindadir, belge onlari gecersiz kilmaz.
+        belge_var = bool(getattr(state, "belge", None)) and AGENT_DOCUMENT_ANALYSIS in self.agents
+        if belge_var and kapsam not in _BELGEYLE_EZILMEYEN_KAPSAMLAR:
+            logger.info(
+                "ekli belge tespit edildi, belge ajani zorunlu calisiyor",
+                extra={"request_id": state.request_id, "metin_kapsami": kapsam},
+            )
+            return {
+                "requested_agents": [AGENT_DOCUMENT_ANALYSIS],
+                "intent": "belge",
+                "scope": "finans",
+            }
+
         if kapsam not in KISA_YANIT_KAPSAMLARI:
             kapsam = await self._kapsam_llm_suzgeci(state, kapsam)
 
@@ -622,6 +666,17 @@ class Orchestrator:
             "intent": self._intent_adi(requested),
             "scope": kapsam,
         }
+
+    def _belge_disi_ajanlar(self) -> list[str]:
+        """ "Hepsini calistir" yedeklerinde kullanilan ajan listesi.
+
+        Belge ajani DISARIDA birakilir: ekli dosya olmadan yapabilecegi
+        hicbir sey yoktur (veri kaynagi dosyanin kendisidir) ve listeye
+        girseydi `_BOLUM_BASLIKLARI` sirasina gore deterministik yanita bos
+        bir "Belge analizi" basligi dusme riski dogardi. Dosya varken zaten
+        `route_node` ondan once donuyor.
+        """
+        return [ad for ad in self.agents if ad != AGENT_DOCUMENT_ANALYSIS]
 
     async def _kapsam_llm_suzgeci(self, state: AgentState, kapsam: str) -> str:
         """Kurallarin gecirdigi sorguyu kucuk modele onaylatir.
@@ -793,7 +848,7 @@ class Orchestrator:
             # anlasilamaz ("Peki ya simdi?"). Eski guvenli varsayilan korunur -
             # eksik yanit vermektense biraz fazla calis.
             if self._devam_turu(state):
-                return list(self.agents)
+                return self._belge_disi_ajanlar()
 
             # Ilk tur: finans sinyali VAR ama hangi uzman oldugu belirsiz
             # ("THYAO ne kadar?"). Varsayilan PIYASA ARASTIRMASIDIR.
@@ -805,7 +860,7 @@ class Orchestrator:
             # finans sorularini da karsiladigi icin dogru varsayilan odur.
             if AGENT_MARKET_RESEARCH in self.agents:
                 return [AGENT_MARKET_RESEARCH]
-            return list(self.agents)
+            return self._belge_disi_ajanlar()
 
         # Genel tavsiye kelimesi + piyasa sorusu = enstruman tavsiyesi.
         # "THYAO almami tavsiye eder misin?" sorusunda tavsiye edilen sey
@@ -1057,17 +1112,26 @@ class Orchestrator:
         return messages
 
     def _build_context(self, state: AgentState) -> str:
-        """Ajan ciktilarini LLM'e verilecek tek bir baglam metnine cevirir."""
+        """Ajan ciktilarini LLM'e verilecek tek bir baglam metnine cevirir.
+
+        ⚠️ REGRESYON GECMISI: bu fonksiyon eskiden `portfolio_data`/
+        `market_data`/`risk_data` icin AYRI, SABIT bir liste tutuyordu.
+        `document_analysis` ajani eklendiginde bu liste GUNCELLENMEDI - ajan
+        `_AJAN_VERISI`/`_BOLUM_BASLIKLARI`'a (LLM'siz yedek yol,
+        `_fallback_response`) doğru eklenmisti ama GERCEK sentez yolu
+        (synthesizer_llm BAGLIYKEN calisan asil yol) belgeyi hic GORMEDI:
+        kullanici PDF/Excel/gorsel yukleyip analiz istedeginde, sentezleyici
+        LLM'e hicbir belge verisi gitmiyordu - yanit konuyla ILGISIZ ya da
+        genel bir metin uretiyordu, ustelik bu metin `chat_messages`'a
+        KALICI olarak kaydediliyordu. Ayni sozlukten (`_AJAN_VERISI`)
+        okunarak bu iki yolun ARTIK AYRISAMAYACAGI garanti edilir.
+        """
         bolumler = [f"Kullanicinin sorusu: {state.user_query}"]
 
-        veri_alanlari = (
-            ("Portfoy analizi", state.portfolio_data),
-            ("Piyasa arastirmasi", state.market_data),
-            ("Risk degerlendirmesi", state.risk_data),
-        )
-        for baslik, veri in veri_alanlari:
+        for ajan in self._bolum_sirasi(state):
+            veri = _AJAN_VERISI[ajan](state)
             if veri is not None:
-                bolumler.append(f"\n{baslik}:\n{_ajan_metni(veri)}")
+                bolumler.append(f"\n{_BOLUM_BASLIKLARI[ajan]}:\n{_ajan_metni(veri)}")
 
         if state.sources:
             kaynaklar = "\n".join(f"- [{s.doc_id}] {s.baslik}" for s in state.sources)
@@ -1094,11 +1158,10 @@ class Orchestrator:
         skorunu ve gerekcelerini eksiksiz yazdiktan sonra altina "Not: Su
         analizlere su anda ulasilamadi: portfolio, risk_strategy" ekliyordu.
         """
-        veri_alani = {
-            AGENT_PORTFOLIO: state.portfolio_data,
-            AGENT_MARKET_RESEARCH: state.market_data,
-            AGENT_RISK_STRATEGY: state.risk_data,
-        }
+        # `_AJAN_VERISI` tek kaynak: ayri bir sozluk tutulunca yeni ajan
+        # (belge analizi) burada unutuldu ve deterministik ozet uretmis bir
+        # ajan icin bile "ulasilamadi" notu dusuluyordu.
+        veri_alani = {ajan: okuyucu(state) for ajan, okuyucu in _AJAN_VERISI.items()}
         eksikler: list[str] = []
         for hata in state.agent_errors:
             ad = getattr(hata, "agent_name", None) or (
@@ -1218,6 +1281,7 @@ class Orchestrator:
         thread_id: int,
         request_id: str = "",
         portfolio_id: int | None = None,
+        belge: dict | None = None,
     ) -> AsyncGenerator[dict, None]:
         """FastAPI endpoint'inin cagirdigi TEK giris noktasi.
 
@@ -1260,6 +1324,14 @@ class Orchestrator:
             "portfolio_data": None,
             "market_data": None,
             "risk_data": None,
+            "document_data": None,
+            "document_report": None,
+            # Ekli dosya HER TURDA acikca yazilir (yoksa `None`).
+            # Sifirlanmasaydi kullanicinin ilk turda yukledigi belge
+            # checkpointer'da kalir ve sonraki HER soruda yeniden analiz
+            # edilirdi: router `belge` doluyken kosulsuz belge ajanina
+            # gidiyor, yani sohbet kalici olarak o dosyaya kilitlenirdi.
+            "belge": belge,
             # Reducer'li alanlar: `[]` yazmak SIFIRLAMAZ (reducer "hicbir sey
             # ekleme" olarak uygular). Sentinel gonderilmezse kaynaklar ve ajan
             # hatalari her turda birikir; ikinci turda kaynaklar ikiye katlanir
@@ -1282,6 +1354,9 @@ class Orchestrator:
         token_yayinlandi = False
         kaynaklar_yayinlandi = False
         toplanan_kaynaklar: list[Source] = []
+        #: Belge ajaninin urettigi PDF: {"pdf_bytes": ..., "dosya_adi": ...}.
+        #: Akis boyunca saklanir, `done` olayinda VARLIGI bildirilir.
+        uretilen_rapor: dict | None = None
         #: `market_research` ajaninin katalogla dogruladigi sembol - reducer'li
         #: DEGIL (state.market_data tek bir dict, birikmez), o yuzden basit
         #: atama yeterli. `done` olayina eklenir (bkz. asagisi); "sources" gibi
@@ -1327,6 +1402,14 @@ class Orchestrator:
 
                     if isinstance(update, dict):
                         toplanan_kaynaklar.extend(update.get("sources") or [])
+
+                        # Uretilen PDF raporu: BURADA YAYINLANMAZ, saklanir.
+                        # SSE govdesi metindir; ikili icerik oraya konamaz.
+                        # `done` olayinda yalnizca raporun VARLIGI ve adi
+                        # bildirilir, dosyayi API katmani ayri bir uctan
+                        # verir (bkz. asagidaki `rapor` alani).
+                        if update.get("document_report"):
+                            uretilen_rapor = update["document_report"]
 
                         piyasa_verisi = update.get("market_data")
                         if isinstance(piyasa_verisi, dict) and piyasa_verisi.get("symbol"):
@@ -1394,11 +1477,27 @@ class Orchestrator:
         # `message_id` alanini API katmani ekler: mesaj once kalici hale
         # getirilir, sonra `done` istemciye yazilir. Yanit metni bu olayda
         # TEKRAR gonderilmez - API katmani token'lari zaten biriktiriyor.
-        yield {
+        bitis_olayi: dict = {
             "type": "done",
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
             "mentioned_assets": bahsedilen_semboller,
         }
+        if uretilen_rapor:
+            # `rapor`: yalnizca META veri (dosya adi/boyut) - SSE'ye JSON
+            # olarak gider, istemci bunu gorur.
+            #
+            # `_dahili_pdf_bytes`: HAM PDF baytlari. Alt cizgiyle baslamasi
+            # BILINCLI - `app.services.chat.stream_chat_response` bu alani
+            # okuyup raporu onbellege (`report_cache`) yazdiktan SONRA
+            # olaydan POPLAR; SSE paketleyici (`sse_paketle`) bu alani asla
+            # gormemeli, gorursede JSON'a gomulu binary veri kullaniciya
+            # gider ve akis bozulur.
+            bitis_olayi["rapor"] = {
+                "dosya_adi": uretilen_rapor.get("dosya_adi", "rapor.pdf"),
+                "boyut": len(uretilen_rapor.get("pdf_bytes") or b""),
+            }
+            bitis_olayi["_dahili_pdf_bytes"] = uretilen_rapor.get("pdf_bytes")
+        yield bitis_olayi
 
     @staticmethod
     def _hata_ayrintisi_gonderilsin() -> bool:

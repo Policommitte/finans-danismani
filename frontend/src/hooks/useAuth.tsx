@@ -9,6 +9,7 @@ import {
   logout as logoutRequest,
   register as registerRequest,
 } from "../services/authService";
+import { clearAsyncDataCache } from "./useAsyncData";
 
 type AuthContextValue = {
   user: User | null;
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (exc) {
       setUser(null);
       logoutRequest();
+      clearAsyncDataCache();
       setHasToken(false);
       setError(exc instanceof Error ? exc.message : "Oturum dogrulanamadi.");
     } finally {
@@ -57,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       await loginRequest({ email, password });
+      // Onceki oturumun sayfa verisi (portfoy, oneriler) yeni kullaniciya
+      // bir an bile gorunmemeli.
+      clearAsyncDataCache();
       setHasToken(true);
       await refresh();
     } finally {
@@ -68,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       await registerRequest(payload);
+      clearAsyncDataCache();
       setHasToken(true);
       await refresh();
     } finally {
@@ -77,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     logoutRequest();
+    clearAsyncDataCache();
     setUser(null);
     setHasToken(false);
   }
