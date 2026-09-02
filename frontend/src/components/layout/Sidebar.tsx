@@ -75,7 +75,7 @@ export function Sidebar() {
 
   return (
     <SidebarPrimitive>
-      {/* Kapaliyken 96px, uzerine gelince 300px'e acilip icerigin USTUNE biner
+      {/* Kapaliyken 96px, uzerine gelince 220px'e acilip icerigin USTUNE biner
           (fixed + shadow) - sayfa icerigi kaymaz, mevcut layout/marjin sistemine
           (AppShell, MarketTicker) dokunulmaz. `flex flex-col` (on-prefiksiz)
           primitive'in kendi `hidden md:flex` tabanini gecersiz kilar - bu

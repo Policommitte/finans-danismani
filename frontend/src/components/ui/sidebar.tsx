@@ -106,7 +106,7 @@ export const DesktopSidebar = ({
         // framer-motion `animate` bir CSS degiskenini duzgun interpolate
         // edemeyebilecegi icin burada literal "96px" birakildi - sidebar
         // genisligi degisirse bu deger de elle guncellenmeli.
-        width: animate ? (open ? "300px" : "96px") : "300px",
+        width: animate ? (open ? "220px" : "96px") : "220px",
       }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
@@ -181,7 +181,8 @@ export const SidebarLink = ({
     <Link
       href={link.href}
       className={cn(
-        "flex items-center justify-start gap-2 group/sidebar py-2",
+        "flex items-center gap-2 group/sidebar py-2",
+        open || !animate ? "justify-start" : "justify-center",
         className
       )}
       {...props}
