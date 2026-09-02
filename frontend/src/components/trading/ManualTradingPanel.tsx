@@ -18,7 +18,10 @@ import { useTrading } from "../../hooks/useTrading";
 //: (hisse/kripto/doviz/altin) once gelsin. Projede tanimli OLMAYAN bir tip
 //: (orn. "FUND") burada yoksa listede hic gorunmez - yalnizca `market.data`
 //: icinde GERCEKTEN var olan siniflar sekme olarak cikar.
-const CLASS_ORDER = ["STOCK", "USA_STOCK", "EU_STOCK", "CRYPTO", "FOREX", "GOLD", "BOND", "INDEX"];
+const CLASS_ORDER = [
+  "STOCK", "USA_STOCK", "EU_STOCK", "CRYPTO", "FOREX", "GOLD",
+  "COMMODITY", "BOND", "ETF", "INDEX",
+];
 const CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   STOCK: { tr: "Hisse", en: "Stocks" },
   USA_STOCK: { tr: "ABD Hissesi", en: "US Stocks" },
@@ -26,7 +29,9 @@ const CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   CRYPTO: { tr: "Kripto", en: "Crypto" },
   FOREX: { tr: "Döviz", en: "Forex" },
   GOLD: { tr: "Altın", en: "Gold" },
+  COMMODITY: { tr: "Emtia", en: "Commodities" },
   BOND: { tr: "Tahvil", en: "Bonds" },
+  ETF: { tr: "Fon (ETF)", en: "ETF" },
   INDEX: { tr: "Endeks", en: "Index" },
 };
 
