@@ -12,7 +12,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # env_file_encoding ACIKCA utf-8: verilmezse pydantic-settings dosyayi
+    # isletim sisteminin yerel kodlamasiyla acar - Windows'ta cp1254. Turkce
+    # karakter tasiyan bir deger (FORECAST_DRIFT_CATEGORIES="Döviz (Fiat),...")
+    # orada "DÃ¶viz" diye okunur ve kategori eslesmesi SESSIZCE bozulur.
+    # .env dosyalari zaten UTF-8 (yorumlardaki ⚠️ ve em-dash bunu gerektirir).
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "development"
     log_level: str = "INFO"
