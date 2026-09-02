@@ -1489,7 +1489,7 @@ class Orchestrator:
             # `_dahili_pdf_bytes`: HAM PDF baytlari. Alt cizgiyle baslamasi
             # BILINCLI - `app.services.chat.stream_chat_response` bu alani
             # okuyup raporu onbellege (`report_cache`) yazdiktan SONRA
-            # olaydan POPLAR; SSE paketleyici (`sse_paketle`) bu alani asla
+            # olaydan POPLAR; SSE paketleyici (`format_sse`) bu alani asla
             # gormemeli, gorursede JSON'a gomulu binary veri kullaniciya
             # gider ve akis bozulur.
             bitis_olayi["rapor"] = {

@@ -107,7 +107,7 @@ def test_search_rejects_too_short_query(client, auth):
 
 @pytest.mark.db
 async def test_arama_dense_ayagi_gercekten_calisir(client, auth, monkeypatch):
-    """`arama_yap` artik `.search()` yerine `.hybrid_search()` cagirir (bkz.
+    """`search_assets` artik `.search()` yerine `.hybrid_search()` cagirir (bkz.
     `app/services/market.py`) - bu test dense (embedding) ayagin bu REST
     yolunda da GERCEKTEN devrede oldugunu kanitlar, sadece "hata firlatmadi"
     degil. Ayni DOC-005 deseni:
