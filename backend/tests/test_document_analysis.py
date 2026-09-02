@@ -340,13 +340,13 @@ def test_rapor_dosya_adi_tehlikeli_karakterleri_temizler():
 # ---------------------------------------------------------------------------
 
 
-def test_belge_ekliyken_router_belge_ajanini_secer():
+async def test_belge_ekliyken_router_belge_ajanini_secer():
     """Finans sinyali OLMAYAN bir cumlede bile ekli dosya belirleyicidir."""
     from app.engine.factory import build_orchestrator
     from app.engine.orchestrator import AGENT_DOCUMENT_ANALYSIS
 
     orch = build_orchestrator()
-    karar = orch.route_node(
+    karar = await orch.route_node(
         AgentState(
             user_query="buna bir bakar mısın?",
             user_id=1,
@@ -361,13 +361,13 @@ def test_belge_ekliyken_router_belge_ajanini_secer():
     assert karar["scope"] == "finans"
 
 
-def test_belge_yokken_belge_ajani_calismaz():
+async def test_belge_yokken_belge_ajani_calismaz():
     from app.engine.factory import build_orchestrator
     from app.engine.orchestrator import AGENT_DOCUMENT_ANALYSIS
 
     orch = build_orchestrator()
 
-    piyasa = orch.route_node(
+    piyasa = await orch.route_node(
         AgentState(user_query="THYAO hissesi ne durumda?", user_id=1, thread_id=1)
     )
     assert AGENT_DOCUMENT_ANALYSIS not in piyasa["requested_agents"]
