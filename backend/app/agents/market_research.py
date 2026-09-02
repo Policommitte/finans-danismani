@@ -413,7 +413,10 @@ def _takma_addan_coz(tokenler: list[str], katalog_sembolleri: set[str]) -> tuple
 
 
 def _alaka_skorlarini_logla(
-    query: str, chunks: list[dict[str, Any]], filters: dict[str, Any] | None = None
+    query: str,
+    chunks: list[dict[str, Any]],
+    filters: dict[str, Any] | None = None,
+    arama: str | None = None,
 ) -> None:
     """Donen chunk'larin GERCEK kosinus benzerliklerini tek satirda loglar.
 
@@ -445,12 +448,16 @@ def _alaka_skorlarini_logla(
     # `filters` DE loglanir: sessiz bir `symbol`/tarih filtresi aramayi
     # daraltip "hicbir sey bulunamadi" gibi gosterebilir - o durumda sorun
     # esikte degil, router'in cikardigi filtrededir.
+    # `arama` DA loglanir: gomulen metin artik ham sorgudan FARKLI
+    # (bkz. `_arama_metni`). Yalnizca ham sorgu loglansaydi, kotu bir
+    # damitmanin urettigi bos sonuc "indekste icerik yok" gibi gorunurdu.
     logger.info(
-        "rag alaka skorlari | esik=%s top_k=%s | filtre=%s | sorgu=%r | %s",
+        "rag alaka skorlari | esik=%s top_k=%s | filtre=%s | sorgu=%r | arama=%r | %s",
         settings.rag_min_similarity or "kapali",
         settings.rag_top_k,
         filters or "-",
         query[:60],
+        (arama if arama is not None else query)[:60],
         " · ".join(_bicimle(c) for c in chunks) or "(sonuc yok)",
     )
 
@@ -720,6 +727,115 @@ def _normalize(text: str) -> str:
     return text.translate(_TR_TRANSLATION).lower()
 
 
+#: ARAMA metninden atilan "yatirim cercevesi" kaliplari.
+#:
+#: NEDEN VAR: kullanicinin ham cumlesi oldugu gibi gomuluyordu ve soruyu
+#: SARAN kelimeler ("hissesini etkileyebilecek gelismeler neler") sorgu
+#: vektorunu haberlerden UZAKLASTIRIP jenerik piyasa yorumu metinlerine
+#: cekiyordu. Olculdu (17 Agustos 2026 indeksi, 917 chunk, esik 0.30):
+#:
+#:     "Turk Hava Yollari hissesini etkileyebilecek gelismeler neler"
+#:         -> gercek THY haberi  0.275  ELENIR
+#:     "Turk Hava Yollari"
+#:         -> ayni haber         0.395  gecer
+#:
+#: Yani ilgili haber indekste dururken yalnizca sorunun kurulusu yuzunden
+#: eleniyordu. Ayni olcumde alakasiz bir hububat ihracati haberi (0.293)
+#: gercek THY haberini geciyordu.
+#:
+#: ⚠️ BU LISTE YALNIZCA ARAMAYI ETKILER. LLM'e giden prompt HAM sorguyu
+#: kullanmaya devam eder (`_run_rag` ikisini ayri tasir) - model kullanicinin
+#: gercek sorusunu gormezse ozet soruyla alakasiz cikar.
+_ARAMA_CERCEVESI: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(kalip)
+    for kalip in (
+        # Cok kelimeli kaliplar ONCE: tek kelimeler once silinirse bunlar
+        # bir daha eslesmez ("son 24 saat" -> "son saat" olurdu).
+        r"\bson\s+\d+\s+\w+\b",  # "son 24 saatte"
+        r"\bgenel\s+olarak\b",
+        r"\bvar\s+m[iı]\b",
+        r"\byok\s+mu\b",
+        r"\bne\s+olur\b",
+        # Yatirim/soru cercevesi - tek kelimeler.
+        r"\bhisse\w*\b",  # hisse, hissesi, hissesini, hisselerini
+        r"\betkiley\w*\b",  # etkileyebilecek, etkileyecek
+        r"\betkile[rn]\w*\b",  # etkiler, etkilenir
+        r"\bgelisme\w*\b",
+        r"\bhaber\w*\b",  # her chunk zaten haber; ayirt edici degil
+        r"\byorum\w*\b",
+        r"\btavsiye\w*\b",
+        r"\bportfoy\w*\b",  # portfoy sorusu ayri ajanin isi
+        r"\bnas[iı]l\b",
+        # ⚠️ `ne(?:ler)?` - `neler?` DEGIL. Ikincisi "nele" + opsiyonel "r"
+        # demektir ve tek basina "ne"yi HIC yakalamaz (ilk yazimda oyleydi;
+        # "sebebi ne olabilir" cumlesinde "ne" arama metninde kaliyordu).
+        r"\bne(?:ler)?\b",
+        r"\bnedir\b",
+        r"\bneden\b",
+        r"\bsebe[bp]\w*\b",
+        r"\bolabilir\b",
+        r"\bol(?:an|mus|uyor)\b",  # icerik tasimayan yardimci fiiller
+        r"\bgidiyor\b",
+        r"\bdurum\w*\b",
+        r"\bgorun\w*\b",  # gorunuyor
+        r"\bacaba\b",
+        r"\bsence\b",
+        r"\bpeki\b",
+        r"\bm[iıuü]\b",  # tek harfli soru eki
+    )
+)
+
+#: Damitma sonrasi kabul edilen ASGARI uzunluk. Altina duserse ham sorgu
+#: kullanilir: "neler oluyor" gibi bir cumleden geriye hicbir sey kalmaz ve
+#: bos metni gommek her chunk'a esit uzaklikta anlamsiz bir vektor uretir.
+_ASGARI_ARAMA_UZUNLUGU = 3
+
+
+def _arama_metni(query: str, varlik_adi: str | None = None) -> str:
+    """Gomulecek ARAMA metnini uretir - ham sorgunun yerine gecmez.
+
+    Iki is yapar:
+      1. `_ARAMA_CERCEVESI` kaliplarini atar (yukaridaki gerekce).
+      2. `varlik_adi` verilmisse metnin BASINA ekler. Kullanici "asels"
+         yazmis olabilir; korpusta gecen bicim "ASELSAN"dir.
+
+    ⚠️ KALIPLAR NORMALIZE metinde ARANIR, KESME ORIJINALDE YAPILIR.
+    `_normalize` yalnizca 1:1 karakter cevirisi + `lower()` oldugu icin
+    karakter sayisini korur, dolayisiyla indeksler iki metinde hizalidir.
+    Boylece "Türk Hava Yolları" diakritigini KAYBETMEDEN kalir - normalize
+    edilmis metni gommek gomme kalitesini dusururdu.
+
+    Hizalama beklenmedik bicimde bozulursa (ileride tabloya cok karakterli
+    bir esleme eklenirse) ham sorgu dondurulur: sessizce yanlis yerden kesip
+    metni bozmaktansa damitmadan vazgecmek daha guvenli.
+    """
+    ham = (query or "").strip()
+    normalize = _normalize(ham)
+    if len(normalize) != len(ham):
+        return ham
+
+    araliklar = [m.span() for kalip in _ARAMA_CERCEVESI for m in kalip.finditer(normalize)]
+
+    korunan: list[str] = []
+    imlec = 0
+    for bas, son in sorted(araliklar):
+        if bas >= imlec:
+            korunan.append(ham[imlec:bas])
+            imlec = son
+        else:  # ic ice gecen eslesme - yalnizca ileri git
+            imlec = max(imlec, son)
+    korunan.append(ham[imlec:])
+
+    damitilmis = " ".join("".join(korunan).split())
+    if len(damitilmis) < _ASGARI_ARAMA_UZUNLUGU:
+        damitilmis = ham
+
+    ad = (varlik_adi or "").strip()
+    if ad and _normalize(ad) not in _normalize(damitilmis):
+        damitilmis = f"{ad} {damitilmis}".strip()
+    return damitilmis
+
+
 class MarketResearchAgent(BaseAgent):
     """RAG + canli piyasa verisini birlestiren arastirma ajani."""
 
@@ -892,13 +1008,34 @@ class MarketResearchAgent(BaseAgent):
         self._katalog_zamani = simdi
         return self._katalog
 
+    async def _varlik_adi(self, sembol: str | None) -> str | None:
+        """Sembolun katalogdaki ADI ("ASELS" -> "Aselsan"); bulunamazsa `None`.
+
+        Arama metnine kod degil AD konur: haber metinlerinde "ASELS" gecmez,
+        "ASELSAN" gecer. Katalog okunamazsa `None` doner ve `_arama_metni`
+        yalnizca damitma yapar - arama yine calisir, sadece ad takviyesi olmaz.
+        """
+        if not sembol:
+            return None
+
+        katalog = await self._sembol_katalogu()
+        for kayit in katalog or []:
+            if str(kayit.get("symbol") or "").upper() == sembol.upper():
+                return str(kayit.get("ad") or "").strip() or None
+        return None
+
     async def _sembolu_katalogdan_coz(self, task: dict[str, Any]) -> None:
         """`task["symbol"]` degerini katalogla dogrular ya da SILER.
 
         Silme kismi kritik: katalog okunabildigi halde sorguda hicbir gercek
         sembol yoksa, `build_task`'in regex tahmini ("HISSE", "VERI") task'ta
-        kalmamalidir. Kalirsa `_run_rag` aramayi olmayan bir sirkete
-        filtreler ve sonuc her zaman bos doner.
+        kalmamalidir. Kalirsa canli fiyat yolu olmayan bir sembolu sorar ve
+        `_run_rag` arama metnine uydurma bir varlik adi ekler.
+
+        (Eskiden bu tahmin RAG'i olmayan bir sirkete FILTRELIYORDU ve sonuc
+        her zaman bos donuyordu; sembol artik filtre degil arama metni -
+        bkz. `_run_rag`. Yanlis tahmini silmek yine de gerekli, yalnizca
+        bedeli artik "hicbir sonuc" degil "gurultulu arama metni".)
 
         Router sembolu ACIKCA verdiyse dokunulmaz.
 
@@ -1010,28 +1147,49 @@ class MarketResearchAgent(BaseAgent):
     ) -> tuple[str | None, list[Source], list[dict[str, Any]], float | None, AgentError | None]:
         """Haber/rapor indeksinde arama yapar ve kaynaga dayali ozet uretir.
 
+        SEMBOL FILTRE DEGIL, ARAMA METNININ PARCASIDIR
+        ----------------------------------------------
+        Onceden cozulen sembol `filters["symbol"]` olarak gonderiliyordu ve
+        `rag.hybrid_search` bunu SIRALAMADAN ONCE calisan bir `WHERE` olarak
+        uyguluyor: eslesmeyen satirlar aday havuzuna hic girmiyor. Eslesme ise
+        yalnizca uc yoldan olabiliyor - `assets.symbol`, `assets.name` ya da
+        `documents.baslik ILIKE '%SEMBOL%'`.
+
+        Gercek veride ucu de olu: `rag.documents.asset_id` HIC doldurulmuyor
+        (234/234 satir NULL) ve hicbir baslikta ham kod ("ASELS") gecmiyor.
+        Sonuc, sembol DOGRU cozuldugunde bile havuzun tamamen bosalmasiydi -
+        olculdu, dort sembolde de ayni: filtreli 0 chunk, filtresiz 5 chunk.
+        Yani sembolu dogru bilmek aramayi BOZUYORDU.
+
+        Bu yuzden sembol artik filtreye degil ARAMA METNINE gider (varligin
+        katalogdaki adiyla, bkz. `_arama_metni`): dense ayak zaten dogru
+        haberi one cikariyor, alakasizlari da `rag_min_similarity` eliyor.
+
+        Tarih filtreleri KALIR: onlar `documents.tarih` uzerinden calisir ve
+        eksik metadataya bagli degildir.
+
         Returns:
             (ozet, Source listesi, ham kaynak sozlukleri, guven skoru, hata)
         """
         filters: dict[str, Any] = {}
-        if sembol := task.get("symbol"):
-            filters["symbol"] = sembol
         if date_from := task.get("date_from"):
             filters["date_from"] = date_from
         if date_to := task.get("date_to"):
             filters["date_to"] = date_to
 
+        arama = _arama_metni(query, await self._varlik_adi(task.get("symbol")))
+
         sonuc = await self.call_tool(
             server=RAG_SERVER_NAME,
             tool="rag_search",
             arguments={
-                "query": query,
+                "query": arama,
                 "top_k": task.get("top_k") or settings.rag_top_k or DEFAULT_TOP_K,
                 "filters": filters,
             },
         )
         chunks: list[dict[str, Any]] = sonuc.get("chunks", [])
-        _alaka_skorlarini_logla(query, chunks, filters)
+        _alaka_skorlarini_logla(query, chunks, filters, arama)
 
         if not chunks:
             # Kaynak yoksa LLM'e HIC gidilmez: modelin bosluktan icerik

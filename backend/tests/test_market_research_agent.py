@@ -11,7 +11,11 @@ HIC gidilmez, boylece model bosluktan icerik uretemez.
 
 import pytest
 
-from app.agents.market_research import NO_RETRIEVAL_MESSAGE, MarketResearchAgent
+from app.agents.market_research import (
+    NO_RETRIEVAL_MESSAGE,
+    MarketResearchAgent,
+    _arama_metni,
+)
 from app.mcp.client import MCPClient, MCPServer
 from app.mcp.server import build_servers
 from app.orchestration.models import AgentState, Source
@@ -373,3 +377,95 @@ def test_source_tip_yoksa_eski_topic_eslemesine_duser():
     )
 
     assert kaynak.tip == "analist_raporu"
+
+
+# ---------------------------------------------------------------------------
+# Arama metni damitma (`_arama_metni`) ve sembolun filtre OLMAMASI
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen",
+    [
+        # Yatirim cercevesi tamamen atilir, geriye varlik adi kalir.
+        ("Türk Hava Yolları hissesini etkileyebilecek gelişmeler neler", "Türk Hava Yolları"),
+        ("genel olarak aselsan hissesini etkileyebilecek olan haber yok mu", "aselsan"),
+        # Sektor sorusunda konu kelimeleri KORUNUR - damitma konuyu silmez.
+        ("savunma sanayi nasıl gidiyor", "savunma sanayi"),
+    ],
+)
+def test_arama_metni_yatirim_cercevesini_atar(sorgu, beklenen):
+    assert _arama_metni(sorgu) == beklenen
+
+
+def test_arama_metni_turkce_karakterleri_korur():
+    """Eslesme normalize metinde yapilir ama KESME orijinalde - diakritik kalmali.
+
+    Normalize edilmis metni gommek gomme kalitesini dusururdu: korpusta
+    "Türk Hava Yolları" diakritikli yaziliyor.
+    """
+    assert _arama_metni("Türk Hava Yolları hissesi") == "Türk Hava Yolları"
+
+
+def test_arama_metni_varlik_adini_basa_ekler():
+    """Kullanici kodu yazar ("THYAO"), korpusta unvan gecer."""
+    sonuc = _arama_metni("THYAO bugün neden yükseldi", "Türk Hava Yolları")
+
+    assert sonuc.startswith("Türk Hava Yolları")
+    assert "THYAO" in sonuc
+
+
+def test_arama_metni_ad_zaten_varsa_tekrarlamaz():
+    assert _arama_metni("Aselsan hissesi", "Aselsan") == "Aselsan"
+
+
+def test_arama_metni_her_sey_silinirse_ham_sorguya_doner():
+    """Bos metni gommek her chunk'a esit uzaklikta anlamsiz bir vektor uretir."""
+    assert _arama_metni("neler oluyor") == "neler oluyor"
+
+
+async def test_sembol_rag_filtresi_olarak_GONDERILMEZ():
+    """A: sembol filtresi `rag.hybrid_search` icinde havuzu tamamen bosaltiyordu.
+
+    Filtre `assets.symbol`/`assets.name`/`documents.baslik` uzerinden eslesiyor
+    ama `rag.documents.asset_id` uretimde hic doldurulmamis ve basliklarda ham
+    kod gecmiyor - yani sembol DOGRU cozuldugunde bile sonuc her zaman bos
+    donuyordu. Sembol artik arama metnine gider.
+    """
+    cagrilar: list[dict] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append({"query": query, "filters": filters or {}})
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan.run(_state("THYAO hissesini etkileyebilecek gelişmeler neler"))
+
+    assert cagrilar, "rag_search hic cagrilmadi"
+    assert "symbol" not in cagrilar[0]["filters"]
+    assert "sirket" not in cagrilar[0]["filters"]
+    # Sembol kaybolmaz - arama metnine tasinir.
+    assert "THYAO" in cagrilar[0]["query"]
+
+
+async def test_tarih_filtreleri_korunur():
+    """Tarih `documents.tarih` uzerinden calisir; eksik metadataya bagli degil."""
+    cagrilar: list[dict] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append(filters or {})
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan.run(
+        _state("piyasa ozeti", **_gorev(mode="rag", date_from="2026-08-01", date_to="2026-08-17"))
+    )
+
+    assert cagrilar[0]["date_from"] == "2026-08-01"
+    assert cagrilar[0]["date_to"] == "2026-08-17"
