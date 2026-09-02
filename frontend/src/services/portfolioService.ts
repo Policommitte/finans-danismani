@@ -2,6 +2,7 @@ import type {
   AllocationResponse,
   HoldingsResponse,
   PortfolioPerformanceResponse,
+  PortfolioSnapshotPerformanceResponse,
   PortfolioSummary,
   TransactionsResponse,
 } from "../models/portfolio";
@@ -25,4 +26,12 @@ export function getPortfolioTransactions(limit = 20): Promise<TransactionsRespon
 
 export function getPortfolioPerformance(hours = 24): Promise<PortfolioPerformanceResponse> {
   return apiRequest<PortfolioPerformanceResponse>(`/api/portfolio/performance?hours=${hours}`);
+}
+
+export function getPortfolioSnapshotPerformance(
+  hours = 24,
+): Promise<PortfolioSnapshotPerformanceResponse> {
+  return apiRequest<PortfolioSnapshotPerformanceResponse>(
+    `/api/portfolio/performance-v2?hours=${hours}`,
+  );
 }

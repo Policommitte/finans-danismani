@@ -172,7 +172,7 @@ export default function DashboardPage() {
         <RecommendationList risk={data.risk} />
       </div>
 
-      <CompletedTrades items={data.filled_orders} />
+      <CompletedTrades items={data.orders} />
     </div>
   );
 }

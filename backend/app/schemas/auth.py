@@ -12,19 +12,20 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    """TCKN/NVI dogrulamali eski akis kaldirildi - kayit artik sadece
+    e-posta + sifre ister. `account_number`, "banka hesabi baglama"
+    ekranindaki SIMULASYON adiminda girilir - gercek bir banka API'sine
+    baglanilmaz, DOGRULANMAZ, yalnizca bilgi amacli saklanir."""
+
     email: EmailStr = Field(description="Kullanici e-postasi")
     password: str = Field(min_length=8, description="Sifre (en az 8 karakter)")
-    first_name: str = Field(min_length=1, max_length=50)
-    last_name: str = Field(min_length=1, max_length=50)
-    tckn: str = Field(
-        pattern=r"^\d{11}$",
-        description="TC Kimlik Numarasi (11 haneli) - NVI ile dogrulanir, DUZ METIN saklanmaz",
-        examples=["10000000146"],
+    account_number: str | None = Field(
+        default=None,
+        max_length=9,
+        description="Banka hesabi baglama simulasyonunda girilen hesap numarasi "
+        "(dogrulanmaz, bilgi amaclidir)",
+        examples=["123456789"],
     )
-    birth_date: date = Field(
-        description="Dogum tarihi - NVI dogrulamasinda yalnizca yili kullanilir"
-    )
-    phone_number: str = Field(min_length=10, max_length=20, examples=["05551234567"])
 
 
 class OnboardingCompleteRequest(BaseModel):
@@ -49,7 +50,11 @@ class UserResponse(BaseModel):
     risk_tolerance: str | None = Field(default=None, description="LOW | MEDIUM | HIGH")
     monthly_income: float | None = Field(default=None, description="Aylik gelir (TRY)")
     onboarding_completed: bool = Field(
-        description="False ise AppShell zorunlu onboarding akisini (anket -> sepet -> tur) acar."
+        description="False ise AppShell zorunlu onboarding akisini (anket -> sepet) acar."
+    )
+    has_seen_tour: bool = Field(
+        description="False ise AppShell urun turunu (ProductTour) otomatik acar - "
+        "yalnizca onboarding tamamlandiktan sonra, ilk kayitta bir kez."
     )
     role: str = Field(default="customer", description="customer | advisor")
     tckn_last4: str | None = Field(

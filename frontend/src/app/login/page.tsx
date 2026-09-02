@@ -125,8 +125,7 @@ function LoginPageContent() {
         <span className="sr-only">POLIFIN</span>
 
         <div className="w-full rounded-2xl bg-[var(--color-surface-elevated)] p-7 shadow-2xl">
-          <h1 className="text-xl font-bold text-[var(--color-heading)]">Giriş Yap</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Hesabınıza güvenle erişin</p>
+          <h1 className="text-center text-xl font-bold text-[var(--color-heading)]">Giriş Yap</h1>
 
           <form className="mt-6 space-y-4" onSubmit={submit}>
             <label className="block text-sm">

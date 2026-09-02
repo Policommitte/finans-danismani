@@ -4,11 +4,11 @@ import { getPaperOrders } from "./tradingService";
 
 export async function getDashboardSummary(): Promise<DashboardSummaryResponse> {
   const [summary, orders] = await Promise.all([
-    apiRequest<Omit<DashboardSummaryResponse, "filled_orders">>("/api/dashboard/summary"),
+    apiRequest<Omit<DashboardSummaryResponse, "orders">>("/api/dashboard/summary"),
     getPaperOrders(100),
   ]);
   return {
     ...summary,
-    filled_orders: orders.items.filter((order) => order.status === "FILLED"),
+    orders: orders.items.filter((order) => order.status === "FILLED" || order.status === "PENDING"),
   };
 }
