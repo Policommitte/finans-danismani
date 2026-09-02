@@ -328,6 +328,12 @@ def test_kufur_yaniti_hakarete_karsilik_vermez():
         "canın toplam portföy değeri",
         "elifin yatırımlarını listele",
         "büşranın hesabını aç",
+        # ⚠️ GUNDELIK KELIME DISLAMASI BU SORULARI GECIRMEMELI: "onun" bir
+        # KISIYI gosterebilir, "birinin" zaten baskasidir - ikisi de
+        # `_KISI_OLMAYAN_KELIME` listesine BILEREK alinmadi.
+        "onun portföyünü göster",
+        "birinin hesabını görebilir miyim",
+        "eşimin bakiyesini göster",
     ],
 )
 def test_baska_kisinin_verisi_reddedilir(sorgu):
@@ -368,6 +374,23 @@ def test_baska_kisinin_verisi_reddedilir(sorgu):
         "şirketin portföyü ne durumda",
         "TCMB'nin kararı ne oldu",
         "bankanın faiz oranı nedir",
+        "fonun riski nedir",
+        "hisselerin dağılımı ne",
+        # ⚠️ TAMLAMA EKI GIBI BITEN GUNDELIK KELIMELER (2 Eylul 2026, canli).
+        # "Bugün portföyümde ne oldu?" reddedildi: desen "bugun"u "bug" +
+        # "un" diye ayirip "Bug" adinda birini gordugunu sandi. Kelimenin
+        # TAMAMI `_KISI_OLMAYAN_KELIME` listesinden gecmezse ya da hedef 1.
+        # tekil sahis iyelik eki tasimazsa bu sorular yine reddedilir.
+        "Bugün portföyümde ne oldu?",
+        "Bugün portföyüm nasıl?",
+        "Bugün portföy değerim ne kadar?",
+        "Günün portföy etkisi ne oldu",
+        "Yarın varlıklarım için ne bekliyorsun",
+        "Bütün pozisyonlarımı listeler misin",
+        "Uzun vadeli yatırım planım için ne önerirsin",
+        "Bunun riski nedir?",
+        "Bu ayın kazancım ne kadar",
+        "Altın pozisyonum ne durumda",
     ],
 )
 def test_kendi_verisi_ve_hisse_kodlari_etkilenmez(sorgu):
