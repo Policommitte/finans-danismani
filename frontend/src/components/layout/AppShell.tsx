@@ -172,17 +172,22 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   : "relative w-full flex-1"
               }
             >
-              {isFocusedGame ? (
-                children
-              ) : (
-                <div
-                  className={`mx-auto w-full px-4 py-8 ${
-                    isWidePage ? "max-w-[100rem]" : "max-w-7xl"
-                  }`}
-                >
-                  {children}
-                </div>
-              )}
+              {/* `children` HER ZAMAN AYNI div'in icinde, tek degisen className -
+                  onceden bu iki dal ayri JSX yapilariydi (biri sarmalayici div'siz,
+                  digeri div'li); isFocusedGame degistigi ANDA (tam da yarisma
+                  baslarken) React bu yuzden alt agaci komple unmount+remount
+                  ediyordu - sayfanin TUM state'i (screen dahil) sifirlaniyor,
+                  kayit backend'de zaten olustugu icin "bugun katildin" kapisina
+                  dusuluyordu (bkz. Issue #65). Yapi sabit, sadece className degisir. */}
+              <div
+                className={
+                  isFocusedGame
+                    ? undefined
+                    : `mx-auto w-full px-4 py-8 ${isWidePage ? "max-w-[100rem]" : "max-w-7xl"}`
+                }
+              >
+                {children}
+              </div>
             </main>
             <SiteFooter onStartTour={() => setTourOpen(true)} />
           </div>
