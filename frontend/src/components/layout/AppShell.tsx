@@ -6,6 +6,7 @@ import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
+import { ASSET_MODAL_CLOSED_EVENT } from "./GlobalSearch";
 import { OnboardingFlow } from "../onboarding/OnboardingFlow";
 import { ProductTour } from "../tour/ProductTour";
 import { MarketTicker } from "./MarketTicker";
@@ -163,7 +164,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {selectedSymbol ? (
         <AssetSummaryModal
           symbol={selectedSymbol}
-          onClose={() => setSelectedSymbol(null)}
+          onClose={() => {
+            setSelectedSymbol(null);
+            //: Kart aramadan acildiysa palet geri gelsin. GlobalSearch bu
+            //: olayi dinler ve YALNIZCA karti kendisi actiysa acilir.
+            window.dispatchEvent(new Event(ASSET_MODAL_CLOSED_EVENT));
+          }}
+          onNavigate={() => setSelectedSymbol(null)}
           isAuthenticated={Boolean(auth.user)}
         />
       ) : null}
