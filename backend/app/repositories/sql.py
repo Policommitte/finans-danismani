@@ -2251,6 +2251,7 @@ class SqlRagRepository(_SqlRepository):
             SELECT c.id AS chunk_id, d.external_id AS doc_id, d.baslik, d.sirket,
                    a.symbol,
                    to_char(d.tarih, 'YYYY-MM-DD') AS tarih, d.tip,
+                   d.kaynak_url,
                    c.content,
                    ts_rank_cd(c.content_tsv, q.tsq) AS score
             FROM rag.chunks c
@@ -2339,6 +2340,9 @@ class SqlRagRepository(_SqlRepository):
             """
             SELECT hs.chunk_id, d.external_id AS doc_id, hs.baslik, hs.sirket,
                    a.symbol, to_char(hs.tarih, 'YYYY-MM-DD') AS tarih, hs.tip,
+                   -- `kaynak_url` `hybrid_search()`'un donus tipinde YOKTUR;
+                   -- zaten var olan `rag.documents` join'inden alinir.
+                   d.kaynak_url,
                    hs.content, hs.score, hs.cos_sim
             FROM rag.hybrid_search(
                      p_query     => CAST(:query AS TEXT),
@@ -2478,6 +2482,18 @@ class SqlChatRepository(_SqlRepository):
             )
             await session.commit()
             return dict(result.mappings().one())
+
+    async def message_owner_id(self, message_id: int) -> int | None:
+        satir = await self._row(
+            """
+            SELECT s.user_id
+            FROM chat_messages m
+            JOIN chat_sessions s ON s.id = m.session_id
+            WHERE m.id = :message_id
+            """,
+            {"message_id": message_id},
+        )
+        return int(satir["user_id"]) if satir else None
 
 
 class SqlAuditRepository(_SqlRepository):
