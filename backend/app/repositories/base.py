@@ -40,31 +40,21 @@ class UserRepository(Protocol):
         """Profil bilgisi - `password_hash`/`tckn_hash` ICERMEZ, `role` alani vardir."""
         ...
 
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        """Ayni TCKN ile ikinci bir hesap acilip acilmadigini kontrol icin.
-
-        `hash_tckn` DETERMINISTIK oldugundan (bkz. app/core/tckn.py) ayni
-        TCKN her zaman ayni hash'i uretir - bu yuzden esitlik sorgusu
-        anlamlidir (bcrypt'in aksine).
-        """
-        ...
-
     async def create(
         self,
         first_name: str,
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date: date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         """Yeni kullanici olusturur; `onboarding_completed=false` ile baslar.
 
-        `tckn_hash`/`tckn_last4` cagiran taraftan (route katmani, `password_hash`
-        ile AYNI desen) ZATEN islenmis gelir - bu katman hash mantigi bilmez,
-        yalnizca yazar. Donen sozlukte `password_hash`/`tckn_hash` YOKTUR.
+        TCKN/NVI dogrulamali eski akis kaldirildiktan sonra bu metot artik
+        TCKN ile ilgili hicbir alan almaz (DB kolonlari halen mevcut -
+        eski kayitlar icin - ama yeni kayitta yazilmaz). `account_number`
+        banka hesabi baglama SIMULASYONUNDA girilen, dogrulanmayan bilgi
+        amacli bir alandir. Donen sozlukte `password_hash` YOKTUR.
         """
         ...
 

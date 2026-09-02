@@ -24,14 +24,9 @@ export type LoginRequest = {
 export type RegisterRequest = {
   email: string;
   password: string;
-  first_name: string;
-  last_name: string;
-  /** 11 haneli TC Kimlik No - NVI ile dogrulanir, backend'e DUZ METIN gider
-   * ama hicbir yerde duz metin olarak saklanmaz/donmez. */
-  tckn: string;
-  /** "YYYY-AA-GG" - native `<input type="date">` cikisiyla birebir eslesir. */
-  birth_date: string;
-  phone_number: string;
+  /** Banka hesabi baglama SIMULASYONUNDA girilen 9 haneli hesap numarasi -
+   * dogrulanmaz, yalnizca bilgi amacli saklanir. Opsiyoneldir. */
+  account_number?: string;
 };
 
 export type RiskTier = "LOW" | "MEDIUM" | "HIGH";

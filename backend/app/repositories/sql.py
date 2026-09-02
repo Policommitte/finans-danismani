@@ -77,22 +77,13 @@ class SqlUserRepository(_SqlRepository):
             {"user_id": user_id},
         )
 
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        return await self._row(
-            "SELECT id, email FROM users WHERE tckn_hash = :tckn_hash",
-            {"tckn_hash": tckn_hash},
-        )
-
     async def create(
         self,
         first_name: str,
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         async with self._session_factory() as session:
             result = await session.execute(
@@ -100,9 +91,9 @@ class SqlUserRepository(_SqlRepository):
                     """
                     INSERT INTO users
                         (first_name, last_name, email, password_hash, onboarding_completed,
-                         has_seen_tour, tckn_hash, tckn_last4, birth_date, phone_number)
+                         has_seen_tour, account_number)
                     VALUES (:first_name, :last_name, :email, :password_hash, false,
-                            false, :tckn_hash, :tckn_last4, :birth_date, :phone_number)
+                            false, :account_number)
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
                               onboarding_completed, has_seen_tour, tckn_last4, birth_date,
                               phone_number
@@ -113,10 +104,7 @@ class SqlUserRepository(_SqlRepository):
                     "last_name": last_name,
                     "email": email,
                     "password_hash": password_hash,
-                    "tckn_hash": tckn_hash,
-                    "tckn_last4": tckn_last4,
-                    "birth_date": birth_date,
-                    "phone_number": phone_number,
+                    "account_number": account_number,
                 },
             )
             row = result.mappings().one()

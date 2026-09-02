@@ -61,14 +61,13 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     embedding_api_key: str = ""
 
-    # --- Kimlik dogrulama (TCKN / NVI) ------------------------------------
-    # NVI'nin ucretsiz, herkese acik SOAP servisi (anahtar gerektirmez).
-    # False yapilirsa NVI'ye HIC istek atilmaz, dogrulama otomatik basarili
-    # sayilir - bu bir eksiklik degil, gercek TC Kimlik No olmadan US15
-    # akisini test edebilmek icin bilincli bir kacis kapisi (bkz.
-    # app/services/nvi.py). Uretimde MUTLAKA True/tanimsiz birakilir.
-    nvi_verification_enabled: bool = True
-    nvi_timeout_seconds: float = 8.0
+    # --- Kimlik dogrulama (TCKN) -------------------------------------------
+    # NVI/TCKN dogrulamali kayit akisi kaldirildi (bkz. app/api/routes/auth.py)
+    # - `nvi_verification_enabled`/`nvi_timeout_seconds` ayarlari bu yuzden
+    # SILINDI (artik hicbir yerden okunmuyorlardi). `tckn_hash_pepper` KALDI:
+    # `app/core/tckn.py::hash_tckn` hala chatbot'un PII guvenlik koruyucusu
+    # tarafindan (app/agents/security_agent.py) kullaniliyor.
+    #
     #: TCKN'i saklama icin tek yonlu ozetlerken (HMAC-SHA256) kullanilan
     #: anahtar. Bos birakilirsa JWT_SECRET'a duser - ayri bir sir yonetmek
     #: istemeyen kucuk ekipler icin (bkz. app/core/tckn.py::hash_tckn).

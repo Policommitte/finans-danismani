@@ -578,22 +578,13 @@ class InMemoryUserRepository:
                 return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        for user in _USERS:
-            if user.get("tckn_hash") == tckn_hash:
-                return {"id": user["id"], "email": user["email"]}
-        return None
-
     async def create(
         self,
         first_name: str,
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         new_id = max((user["id"] for user in _USERS), default=0) + 1
         user = {
@@ -606,10 +597,11 @@ class InMemoryUserRepository:
             "monthly_income": 0.0,
             "onboarding_completed": False,
             "has_seen_tour": False,
-            "tckn_hash": tckn_hash,
-            "tckn_last4": tckn_last4,
-            "birth_date": birth_date,
-            "phone_number": phone_number,
+            "tckn_hash": None,
+            "tckn_last4": None,
+            "birth_date": None,
+            "phone_number": None,
+            "account_number": account_number,
         }
         _USERS.append(user)
         return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
