@@ -47,7 +47,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def _veritabani(request, monkeypatch):
+def _database(request, monkeypatch):
     """`db` isaretli testleri veritabanina baglar.
 
     `autouse`: bir testin ayar degistirmesi digerlerini etkilemesin.

@@ -4,7 +4,12 @@ import type {
   RecommendationListResponse,
   RejectionReason,
 } from "../models/recommendation";
-import type { IdleCashBasketCatalog, IdleCashSuggestion } from "../models/chat";
+import type {
+  IdleCashBasketCatalog,
+  IdleCashSuggestion,
+  InvestmentPackage,
+  InvestmentPackageRequest,
+} from "../models/chat";
 import { apiRequest } from "./apiClient";
 
 export function getRecommendations(status?: string): Promise<RecommendationListResponse> {
@@ -62,5 +67,13 @@ export function getIdleCashBasketCatalog(
   return apiRequest<IdleCashBasketCatalog>("/api/oneriler/sepetler", {
     method: "POST",
     body: JSON.stringify({ goal }),
+  });
+}
+
+/** Guided chat flow: ready-made package for the given budget/horizon/risk/goal. */
+export function getInvestmentPackage(request: InvestmentPackageRequest): Promise<InvestmentPackage> {
+  return apiRequest<InvestmentPackage>("/api/oneriler/paket", {
+    method: "POST",
+    body: JSON.stringify(request),
   });
 }

@@ -39,8 +39,8 @@ def build(event_type: str, payload: dict) -> tuple[str, str]:
 def _filled(p: dict) -> tuple[str, str]:
     yon = _YON.get(p.get("side", ""), p.get("side", ""))
     sembol = p.get("symbol", "-")
-    adet = _sayi(p.get("quantity"))
-    fiyat = _para(p.get("price"))
+    adet = _format_number(p.get("quantity"))
+    fiyat = _format_money(p.get("price"))
     konu = f"Polifin - {sembol} {yon.lower()} emriniz gerceklesti"
 
     satirlar = [
@@ -49,8 +49,8 @@ def _filled(p: dict) -> tuple[str, str]:
         f"  Yon            : {yon}",
         f"  Adet           : {adet}",
         f"  Gerceklesme    : {fiyat} TRY",
-        f"  Komisyon       : {_para(p.get('commission'))} TRY",
-        f"  Toplam         : {_para(p.get('total'))} TRY",
+        f"  Komisyon       : {_format_money(p.get('commission'))} TRY",
+        f"  Toplam         : {_format_money(p.get('total'))} TRY",
     ]
     if p.get("order_type"):
         satirlar.append(f"  Emir tipi      : {p['order_type']}")
@@ -74,7 +74,7 @@ def _rejected(p: dict) -> tuple[str, str]:
         [
             f"{sembol} icin {yon.lower()} emriniz gerceklesmedi.",
             "",
-            f"  Adet    : {_sayi(p.get('quantity'))}",
+            f"  Adet    : {_format_number(p.get('quantity'))}",
             f"  Gerekce : {gerekce}",
             "",
             "Bloke edilen bakiye varsa serbest birakilmistir; yeni bir emir",
@@ -95,7 +95,7 @@ def _expired(p: dict) -> tuple[str, str]:
         [
             f"{sembol} icin bekleyen emrinizin gecerlilik suresi doldu ve emir iptal edildi.",
             "",
-            f"  Adet : {_sayi(p.get('quantity'))}",
+            f"  Adet : {_format_number(p.get('quantity'))}",
             "",
             "Bloke edilen bakiye serbest birakilmistir.",
             "",
@@ -120,9 +120,9 @@ def _recommendation(p: dict) -> tuple[str, str]:
     satirlar = [
         f"{sembol} ({p.get('asset_name', '-')}) icin bir {yon.lower()} onerisi olustu.",
         "",
-        f"  Onerilen adet : {_sayi(p.get('quantity'))}",
-        f"  Referans fiyat: {_para(p.get('reference_price'))} TRY",
-        f"  Tahmini tutar : {_para(p.get('estimated_amount'))} TRY",
+        f"  Onerilen adet : {_format_number(p.get('quantity'))}",
+        f"  Referans fiyat: {_format_money(p.get('reference_price'))} TRY",
+        f"  Tahmini tutar : {_format_money(p.get('estimated_amount'))} TRY",
         f"  Guven duzeyi  : {p.get('confidence')}",
         "",
         "Gerekce:",
@@ -142,14 +142,14 @@ def _recommendation(p: dict) -> tuple[str, str]:
     return konu, "\n".join(satirlar)
 
 
-def _para(value) -> str:
+def _format_money(value) -> str:
     try:
         return f"{float(value or 0):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     except (TypeError, ValueError):
         return "-"
 
 
-def _sayi(value) -> str:
+def _format_number(value) -> str:
     try:
         sayi = float(value or 0)
     except (TypeError, ValueError):

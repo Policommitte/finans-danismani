@@ -69,6 +69,54 @@ export type ChatMessage = {
   rapor?: ChatRaporMeta;
   /** Cevapta bahsedilen (katalogla dogrulanmis) varlik sembolleri - orn. ["TUPRS"]. */
   mentioned_assets?: string[];
+  /**
+   * Guided "I want to invest" flow (see useInvestmentPackageFlow.ts). These
+   * messages are produced locally and never sent to the backend.
+   */
+  local?: boolean;
+  /** Tappable answers shown under an assistant message; cleared once answered. */
+  quickReplies?: ChatQuickReply[];
+  /** Ready-made package rendered as a card with a one-tap purchase button. */
+  investmentPackage?: InvestmentPackage;
+};
+
+export type ChatQuickReply = {
+  id: string;
+  label: string;
+  /** Optional secondary line under the label. */
+  hint?: string;
+  /** Text echoed into the conversation as the user's message when tapped. */
+  message: string;
+};
+
+export type InvestmentHorizon = "SHORT" | "MEDIUM" | "LONG";
+export type InvestmentRiskProfile = "LOW" | "MEDIUM" | "HIGH";
+export type InvestmentGoal = IdleCashSuggestion["goal"];
+
+export type InvestmentPackageRequest = {
+  amount: number;
+  horizon: InvestmentHorizon;
+  risk_profile: InvestmentRiskProfile;
+  goal: InvestmentGoal;
+};
+
+/** Response of `POST /api/oneriler/paket` (backend/app/schemas/investment_package.py). */
+export type InvestmentPackage = {
+  title: string;
+  summary: string;
+  horizon: InvestmentHorizon;
+  horizon_label: string;
+  risk_profile: InvestmentRiskProfile;
+  goal: InvestmentGoal;
+  goal_label: string;
+  requested_amount: number;
+  available_balance: number;
+  exceeds_balance: boolean;
+  strategy_key: IdleCashBasketOption["strategy_key"];
+  strategy_label: string;
+  metrics: IdleCashBasketOption["metrics"];
+  suggestion: IdleCashSuggestion;
+  disclaimer: string;
 };
 
 /** PDF rapor teslimati meta verisi - baytlar SSE'den GECMEZ, yalnizca

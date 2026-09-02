@@ -5,10 +5,14 @@ import "blobatar/motion.css";
 import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useLanguage } from "../../contexts/LanguageContext";
 import { useChatStream } from "../../hooks/useChatStream";
+import { useInvestmentPackageFlow } from "../../hooks/useInvestmentPackageFlow";
+import type { ChatQuickReply } from "../../models/chat";
 import type { PendingAttachment } from "./AttachmentMenu";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
+import { SuggestionBubble } from "./SuggestionBubble";
 
 type ResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type PanelRect = { height: number; left: number; top: number; width: number };
@@ -88,7 +92,13 @@ export function ChatWidget({
   const panelRef = useRef<HTMLElement | null>(null);
   const resizeStateRef = useRef<ResizeState | null>(null);
   const latestPanelRectRef = useRef<PanelRect | null>(null);
+  const { language } = useLanguage();
   const chat = useChatStream();
+  const investmentFlow = useInvestmentPackageFlow({
+    language,
+    appendLocalMessage: chat.appendLocalMessage,
+    updateMessage: chat.updateMessage,
+  });
   const messages = canSend ? chat.messages : [];
 
   useEffect(() => {
@@ -301,7 +311,23 @@ export function ChatWidget({
       return;
     }
 
+    // While the guided investment flow is collecting answers, typed text is
+    // an answer to its current question - it never reaches the chat backend.
+    if (!attachment && investmentFlow.handleUserMessage(trimmed)) {
+      return;
+    }
+
     chat.sendMessage(trimmed, attachment);
+  }
+
+  function selectQuickReply(reply: ChatQuickReply) {
+    if (!canSend || chat.isStreaming) {
+      return;
+    }
+    if (investmentFlow.handleQuickReply(reply)) {
+      return;
+    }
+    chat.sendMessage(reply.message);
   }
 
   return (
@@ -342,8 +368,21 @@ export function ChatWidget({
           <MessageList
             messages={messages}
             onSelectAsset={onSelectAsset}
+            leading={
+              canSend && messages.length === 0 ? (
+                <SuggestionBubble
+                  title={investmentFlow.suggestionTitle}
+                  suggestions={investmentFlow.suggestions}
+                  disabled={chat.isStreaming}
+                  onSelect={selectQuickReply}
+                />
+              ) : undefined
+            }
+            quickRepliesDisabled={chat.isStreaming}
+            onQuickReply={selectQuickReply}
+            onPackagePurchased={investmentFlow.notifyPurchased}
             emptyState={
-              canSend ? undefined : (
+              canSend ? null : (
                 <Link href="/login" className="font-semibold text-[var(--color-primary)] underline-offset-4 hover:underline">
                   {blockedMessage}
                 </Link>
@@ -351,9 +390,13 @@ export function ChatWidget({
             }
           />
           <MessageInput
-            disabled={!canSend || chat.isStreaming}
+            disabled={!canSend || chat.isStreaming || investmentFlow.step === "building"}
             onSend={sendMessage}
-            placeholder={canSend ? "Mesajınızı yazın" : "Giriş yapmanız gerekir"}
+            placeholder={
+              !canSend
+                ? "Giriş yapmanız gerekir"
+                : investmentFlow.inputPlaceholder ?? "Mesajınızı yazın"
+            }
             buttonLabel="Gönder"
           />
           {resizeHandles.map((handle) => (

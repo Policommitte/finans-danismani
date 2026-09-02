@@ -1,6 +1,6 @@
-"""Sorgudan varlik sembolu cozme (`app/agents/market_research.py::sembol_coz`).
+"""Sorgudan varlik sembolu cozme (`app/agents/market_research.py::resolve_symbol`).
 
-NEDEN AYRI DOSYA: `sembol_coz` SAF bir fonksiyondur - veritabani istemez.
+NEDEN AYRI DOSYA: `resolve_symbol` SAF bir fonksiyondur - veritabani istemez.
 `test_market_research_agent.py` ise `pytest.mark.db` tasidigi icin DB'siz
 ortamda tamamen atlanir; bu testler orada dursaydi CI'da hic calismazdi.
 
@@ -31,7 +31,7 @@ from app.agents.market_research import (
     MarketResearchAgent,
     _dokuman_bazinda_tekille,
     _icerikten_baslik,
-    sembol_coz,
+    resolve_symbol,
 )
 
 #: Gercek `assets` tablosundaki adlarla ayni - kisaltilmis katalog.
@@ -84,7 +84,7 @@ KATALOG = [
     ],
 )
 def test_gunluk_dilde_sorulan_varliklar_cozulur(sorgu, beklenen):
-    assert sembol_coz(sorgu, KATALOG) == beklenen
+    assert resolve_symbol(sorgu, KATALOG) == beklenen
 
 
 @pytest.mark.parametrize(
@@ -103,7 +103,7 @@ def test_gunluk_dilde_sorulan_varliklar_cozulur(sorgu, beklenen):
     ],
 )
 def test_kod_birebir_yazildiginda_cozulur(sorgu, beklenen):
-    assert sembol_coz(sorgu, KATALOG) == beklenen
+    assert resolve_symbol(sorgu, KATALOG) == beklenen
 
 
 @pytest.mark.parametrize(
@@ -128,24 +128,24 @@ def test_kod_birebir_yazildiginda_cozulur(sorgu, beklenen):
     ],
 )
 def test_gunluk_kelimeler_sembol_sanilmaz(sorgu):
-    assert sembol_coz(sorgu, KATALOG) is None
+    assert resolve_symbol(sorgu, KATALOG) is None
 
 
 def test_katalogda_olmayan_takma_ad_uretilmez():
     """Takma ad tablosu KATALOGU EZEMEZ.
 
-    `sembol_coz`'un temel kurali: veritabaninda gercekten var olmayan hicbir
+    `resolve_symbol`'un temel kurali: veritabaninda gercekten var olmayan hicbir
     sey sembol sayilmaz. USD/TRY katalogdan cikarilirsa "dolar" da cozulmemeli -
     aksi halde tablo, silinmis bir varlik icin sessizce sembol uretmeye devam
     ederdi ve fiyat sorgusu bos donerdi.
     """
     dolarsiz = [k for k in KATALOG if k["symbol"] != "USD/TRY"]
 
-    assert sembol_coz("dolar kuru ne olur", dolarsiz) is None
+    assert resolve_symbol("dolar kuru ne olur", dolarsiz) is None
 
 
 def test_bos_katalogda_sembol_uretilmez():
-    assert sembol_coz("dolar kuru ne olur", []) is None
+    assert resolve_symbol("dolar kuru ne olur", []) is None
 
 
 # ---------------------------------------------------------------------------

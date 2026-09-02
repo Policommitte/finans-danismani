@@ -10,7 +10,7 @@ ayakta degilse sistem hata vermek yerine bellek ici veriyle acilir. Yedege
 dusuldugu her seferinde WARNING loglanir ve `/health` `data_source: in-memory`
 doner - yani yedekte oldugumuz gizlenmez.
 
-Baglanti bir kez denenir ve sonuc onbeleklenir (`_veritabani_calisiyor`);
+Baglanti bir kez denenir ve sonuc onbeleklenir (`_database_is_up`);
 her istekte tekrar denemek gereksiz gecikme yaratirdi. `reset_repositories()`
 bu karari da sifirlar.
 
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 BAGLANTI_TIMEOUT_SANIYE = 5
 
 
-def _senkron_dsn(url: str) -> str:
+def _sync_dsn(url: str) -> str:
     """Baglanti denemesi icin `postgresql://...` bicimine cevirir.
 
     Deneme SENKRON yapilir: bu fonksiyon repository secilirken (async olmayan
@@ -89,7 +89,7 @@ DB_YENIDEN_DENEME_SANIYE = 60
 _DB_DURUM: dict = {"calisiyor": None, "kontrol": 0.0}
 
 
-def _baglanti_dene() -> bool:
+def _try_connection() -> bool:
     if not settings.database_enabled:
         logger.warning("DATABASE_URL tanimli degil; bellek ici veriye dusuluyor.")
         return False
@@ -98,7 +98,7 @@ def _baglanti_dene() -> bool:
         import psycopg
 
         with psycopg.connect(
-            _senkron_dsn(settings.database_url),
+            _sync_dsn(settings.database_url),
             connect_timeout=BAGLANTI_TIMEOUT_SANIYE,
         ) as conn:
             conn.execute("SELECT 1")
@@ -112,7 +112,7 @@ def _baglanti_dene() -> bool:
     return True
 
 
-def _veritabani_calisiyor() -> bool:
+def _database_is_up() -> bool:
     """DB tanimli mi ve gercekten baglanilabiliyor mu?
 
     Olumlu sonuc yeniden denenmez (havuzu bosuna mesgul etmemek icin).
@@ -127,7 +127,7 @@ def _veritabani_calisiyor() -> bool:
         return False
 
     onceki = _DB_DURUM["calisiyor"]
-    sonuc = _baglanti_dene()
+    sonuc = _try_connection()
     _DB_DURUM.update(calisiyor=sonuc, kontrol=simdi)
 
     if sonuc and onceki is False:
@@ -135,7 +135,7 @@ def _veritabani_calisiyor() -> bool:
         # bellek ici ornekleri tutuyor; temizlenmezse DB geri gelse de
         # kullanilmaz.
         logger.info("veritabani geri geldi; repository onbellekleri temizleniyor")
-        _saglayici_onbelleklerini_temizle()
+        _clear_provider_caches()
 
     return sonuc
 
@@ -149,7 +149,7 @@ def _session_factory():
 
 @lru_cache
 def get_user_repository() -> UserRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlUserRepository
 
         return SqlUserRepository(_session_factory())
@@ -158,7 +158,7 @@ def get_user_repository() -> UserRepository:
 
 @lru_cache
 def get_portfolio_repository() -> PortfolioRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlPortfolioRepository
 
         return SqlPortfolioRepository(_session_factory())
@@ -167,7 +167,7 @@ def get_portfolio_repository() -> PortfolioRepository:
 
 @lru_cache
 def get_market_repository() -> MarketRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlMarketRepository
 
         return SqlMarketRepository(_session_factory())
@@ -176,7 +176,7 @@ def get_market_repository() -> MarketRepository:
 
 @lru_cache
 def get_trading_repository() -> TradingRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlTradingRepository
 
         return SqlTradingRepository(_session_factory())
@@ -185,7 +185,7 @@ def get_trading_repository() -> TradingRepository:
 
 @lru_cache
 def get_rag_repository() -> RagRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.ingestion.embeddings import get_embedder
         from app.repositories.sql import SqlRagRepository
 
@@ -198,7 +198,7 @@ def get_rag_repository() -> RagRepository:
 
 @lru_cache
 def get_chat_repository() -> ChatRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlChatRepository
 
         return SqlChatRepository(_session_factory())
@@ -207,7 +207,7 @@ def get_chat_repository() -> ChatRepository:
 
 @lru_cache
 def get_lead_repository() -> LeadRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlLeadRepository
 
         return SqlLeadRepository(_session_factory())
@@ -216,7 +216,7 @@ def get_lead_repository() -> LeadRepository:
 
 @lru_cache
 def get_audit_repository() -> AuditRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlAuditRepository
 
         return SqlAuditRepository(_session_factory())
@@ -225,7 +225,7 @@ def get_audit_repository() -> AuditRepository:
 
 @lru_cache
 def get_notification_repository() -> NotificationRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlNotificationRepository
 
         return SqlNotificationRepository(_session_factory())
@@ -234,7 +234,7 @@ def get_notification_repository() -> NotificationRepository:
 
 @lru_cache
 def get_recommendation_repository() -> RecommendationRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlRecommendationRepository
 
         return SqlRecommendationRepository(_session_factory())
@@ -243,7 +243,7 @@ def get_recommendation_repository() -> RecommendationRepository:
 
 @lru_cache
 def get_contest_repository() -> ContestRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlContestRepository
 
         return SqlContestRepository(_session_factory())
@@ -252,7 +252,7 @@ def get_contest_repository() -> ContestRepository:
 
 @lru_cache
 def get_economic_calendar_repository() -> EconomicCalendarRepository:
-    if _veritabani_calisiyor():
+    if _database_is_up():
         from app.repositories.sql import SqlEconomicCalendarRepository
 
         return SqlEconomicCalendarRepository(_session_factory())
@@ -266,7 +266,7 @@ def reset_repositories() -> None:
     fonksiyonu cagirir; aksi halde ilk secim tum test oturumu boyunca yapisir.
     """
     _DB_DURUM.update(calisiyor=None, kontrol=0.0)
-    _saglayici_onbelleklerini_temizle()
+    _clear_provider_caches()
     # Engine de sifirlanmali: havuz kuyrugu eski testin event loop'una bagli
     # kalirsa yeni loop'ta beklemeye dusen ilk checkout patlar (ayrinti:
     # app/db/session.py::reset_engine_cache).
@@ -275,7 +275,7 @@ def reset_repositories() -> None:
     reset_engine_cache()
 
 
-def _saglayici_onbelleklerini_temizle() -> None:
+def _clear_provider_caches() -> None:
     """Repository saglayicilarinin lru_cache'lerini bosaltir."""
     for provider in (
         _session_factory,
@@ -297,4 +297,4 @@ def _saglayici_onbelleklerini_temizle() -> None:
 
 def describe_backend() -> str:
     """Log ve `/health` icin: hangi veri kaynagi bagli?"""
-    return "postgresql" if _veritabani_calisiyor() else "in-memory"
+    return "postgresql" if _database_is_up() else "in-memory"

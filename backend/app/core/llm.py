@@ -89,7 +89,7 @@ _NIM_DUSUNME_KAPALI: dict[str, Any] = {"chat_template_kwargs": {"enable_thinking
 _DUSUNME_BAYRAGINI_ANLAYAN = "nemotron"
 
 
-def _nim_ek_govde(model: str) -> dict[str, Any]:
+def _nim_extra_body(model: str) -> dict[str, Any]:
     """Modele gore NIM `extra_body` alanlari; uymuyorsa BOS sozluk.
 
     Bos donmesi "ayar unutuldu" degil, "bu model o bayragi tanimiyor"
@@ -115,13 +115,13 @@ def _nim_ek_govde(model: str) -> dict[str, Any]:
 _OPENROUTER_DUSUNME_KAPALI: dict[str, Any] = {"reasoning": {"enabled": False}}
 
 
-def _ek_govde(saglayici: str, model: str) -> dict[str, Any]:
+def _extra_body(saglayici: str, model: str) -> dict[str, Any]:
     """Saglayiciya gore `extra_body`. Uymayan her durumda BOS sozluk."""
     if settings.llm_nvidia_extra_body_off:
         return {}
     if saglayici == "openrouter":
         return dict(_OPENROUTER_DUSUNME_KAPALI)
-    return _nim_ek_govde(model)
+    return _nim_extra_body(model)
 
 
 #: GECICI sunucu hatalari - yeniden denemeye deger.
@@ -144,7 +144,7 @@ _YENIDEN_DENEME = 2
 _BEKLEME_SANIYE = (1.0, 3.0)
 
 
-def _gecici_hata_mi(hata: Exception) -> bool:
+def _is_transient_error(hata: Exception) -> bool:
     """Sunucu tarafi GECICI bir hata mi (yeniden denemeye deger mi)?"""
     kod = getattr(hata, "status_code", None)
     if kod in _GECICI_HATA_KODLARI:
@@ -153,7 +153,7 @@ def _gecici_hata_mi(hata: Exception) -> bool:
     return any(f" {k} " in metin or f"code: {k}" in metin for k in _GECICI_HATA_KODLARI)
 
 
-def _ek_govde_reddedildi(hata: Exception) -> bool:
+def _extra_body_rejected(hata: Exception) -> bool:
     """Sunucu istegi EK GOVDE yuzunden mi reddetti?
 
     Ayrimi kesin yapmak mumkun degil (400 baska sebeplerle de gelir) ama
@@ -193,7 +193,7 @@ _SAGLAYICI_ONEKLERI = ("openrouter", "nvidia", "gemini")
 _OPENROUTER_ROTA_SONEKLERI = (":free", ":nitro", ":floor", ":online")
 
 
-def model_coz(model: str) -> tuple[str, str]:
+def resolve_model(model: str) -> tuple[str, str]:
     """Yapilandirmadaki model adini (saglayici, GERCEK model kimligi) yapar.
 
     Uc yol vardir, sirasiyla:
@@ -203,7 +203,7 @@ def model_coz(model: str) -> tuple[str, str]:
          model kimliginin PARCASI oldugu icin yalnizca ILK iki nokta ayrilir.
       2. ROTA SONEKI `inclusionai/ling-3.0-flash-fin:free`
          Onek unutulmus ama son ek OpenRouter'a ozgu - saglayici anlasilir.
-      3. ESKI KURAL  `/` varsa NIM, yoksa Gemini (`saglayici_belirle`).
+      3. ESKI KURAL  `/` varsa NIM, yoksa Gemini (`detect_provider`).
     """
     ham = (model or "").strip()
     if not ham:
@@ -216,10 +216,10 @@ def model_coz(model: str) -> tuple[str, str]:
     if ham.lower().endswith(_OPENROUTER_ROTA_SONEKLERI):
         return "openrouter", ham
 
-    return saglayici_belirle(ham), ham
+    return detect_provider(ham), ham
 
 
-def saglayici_belirle(model: str) -> str:
+def detect_provider(model: str) -> str:
     """Model adindan saglayiciyi cikarir: "gemini" | "nvidia".
 
     `LLM_PROVIDER` tanimliysa o kazanir. Aksi halde `/` iceren kimlikler NIM
@@ -300,7 +300,7 @@ class NvidiaLLMClient:
     def model(self) -> str:
         return self._default_model
 
-    async def _cagir(self, model: str | None, prompt: str, ek: dict[str, Any]):
+    async def _call(self, model: str | None, prompt: str, ek: dict[str, Any]):
         return await self._client.chat.completions.create(
             model=model or self._default_model,
             messages=[{"role": "user", "content": prompt}],
@@ -310,20 +310,20 @@ class NvidiaLLMClient:
         )
 
     async def generate(self, prompt: str, *, model: str | None = None) -> str:
-        govde = _ek_govde(self._saglayici, model or self._default_model)
+        govde = _extra_body(self._saglayici, model or self._default_model)
         ek: dict[str, Any] = {"extra_body": govde} if govde else {}
 
         yanit = None
         kalan_deneme = _YENIDEN_DENEME
         while True:
             try:
-                yanit = await self._cagir(model, prompt, ek)
+                yanit = await self._call(model, prompt, ek)
                 break
             except Exception as hata:  # noqa: BLE001 - tur openai paketine bagli
                 # 1) Ek govde reddedildiyse ONU SUCLAMA, ama modeli de
                 #    kaybetme: bayraksiz bir kez daha dene. Bu deneme
                 #    yeniden-deneme butcesini HARCAMAZ - farkli bir sorun.
-                if ek and _ek_govde_reddedildi(hata):
+                if ek and _extra_body_rejected(hata):
                     logger.warning(
                         "ek govde reddedildi; bayrak olmadan yeniden deneniyor",
                         extra={"model": model or self._default_model, "hata": str(hata)[:200]},
@@ -332,7 +332,7 @@ class NvidiaLLMClient:
                     continue
 
                 # 2) Gecici sunucu hatasi: kisa bir geri cekilmeyle tekrar dene.
-                if kalan_deneme > 0 and _gecici_hata_mi(hata):
+                if kalan_deneme > 0 and _is_transient_error(hata):
                     bekleme = _BEKLEME_SANIYE[_YENIDEN_DENEME - kalan_deneme]
                     logger.warning(
                         "gecici LLM hatasi; yeniden deneniyor",
@@ -361,7 +361,7 @@ class NvidiaLLMClient:
         yok ve olmasini da istemeyiz (finansal ekran goruntusu olabilir).
 
         ⚠️ Bu yol yalnizca GORME YETENEGI OLAN modelle cagrilmalidir. Salt
-        metin bir model bu govdeyi 400 ile reddeder; `_nim_ek_govde` de
+        metin bir model bu govdeyi 400 ile reddeder; `_nim_extra_body` de
         gorsel modele dusunme bayragi gondermez (bayrak Nemotron'a ozgudur,
         zaten model adi eslesmezse bos doner).
         """
@@ -403,7 +403,7 @@ class NvidiaLLMClient:
 
 #: OpenRouter da OpenAI sozlesmesini konusur; ayni istemci yalnizca `base_url`
 #: degisip kullanilir. NIM'e ozgu `extra_body` govdesi model adina bakan
-#: `_nim_ek_govde()` tarafindan uretiliyor ve "nemotron" gecmeyen kimliklerde
+#: `_nim_extra_body()` tarafindan uretiliyor ve "nemotron" gecmeyen kimliklerde
 #: BOS donuyor - yani OpenRouter'a NIM govdesi hic gitmez.
 OpenAIUyumluLLMClient = NvidiaLLMClient
 
@@ -436,7 +436,7 @@ def get_streaming_llm(agent: str = "synthesizer"):
     Cagiran taraf (`factory.build_synthesizer_llm`) o durumda tek seferlik
     istemciye duser - sentez yine LLM ile yapilir, sadece token token akmaz.
     """
-    saglayici, model = model_coz(settings.model_for(agent))
+    saglayici, model = resolve_model(settings.model_for(agent))
     if not model:
         return None
 
@@ -460,7 +460,7 @@ def get_streaming_llm(agent: str = "synthesizer"):
         )
         return None
 
-    govde = _ek_govde(saglayici, model)
+    govde = _extra_body(saglayici, model)
     ek: dict[str, Any] = {"extra_body": govde} if govde else {}
 
     return ChatOpenAI(
@@ -480,7 +480,7 @@ def get_llm_client(agent: str) -> LLMClient | None:
     `None` donmesi bir hata DEGILDIR - "LLM'siz calis" demektir. Cagiran taraf
     (`app.engine.factory`) bunu dogal bir durum olarak isler.
     """
-    saglayici, model = model_coz(settings.model_for(agent))
+    saglayici, model = resolve_model(settings.model_for(agent))
     if not model:
         logger.info(
             "LLM baglanmadi, ajan modelsiz calisacak",

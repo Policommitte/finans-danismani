@@ -15,7 +15,7 @@ pytestmark = pytest.mark.db
 BEKLENEN_TOPLAM = 1_638_585.00
 
 
-def test_ozet_seed_ile_ayni_toplami_verir(client, auth):
+def test_summary_total_matches_seed(client, auth):
     yanit = client.get("/api/portfolio/summary", headers=auth)
 
     assert yanit.status_code == 200
@@ -24,14 +24,14 @@ def test_ozet_seed_ile_ayni_toplami_verir(client, auth):
     assert round(govde["total_value_try"], 2) == BEKLENEN_TOPLAM
 
 
-def test_ozet_kar_zarari_maliyetten_hesaplar(client, auth):
+def test_summary_computes_profit_loss_from_cost(client, auth):
     govde = client.get("/api/portfolio/summary", headers=auth).json()
 
     beklenen_pnl = govde["total_value_try"] - govde["total_cost_try"]
     assert round(govde["total_pnl_try"], 2) == round(beklenen_pnl, 2)
 
 
-def test_varliklar_deger_sirali_doner(client, auth):
+def test_holdings_returned_sorted_by_value(client, auth):
     govde = client.get("/api/portfolio/holdings", headers=auth).json()
 
     degerler = [h["market_value_try"] for h in govde["items"]]
@@ -39,7 +39,7 @@ def test_varliklar_deger_sirali_doner(client, auth):
     assert govde["items"][0]["symbol"] == "BTC"  # FX cevrimi sonrasi en buyuk
 
 
-def test_varliklar_toplami_ozetle_tutarli(client, auth):
+def test_holdings_total_consistent_with_summary(client, auth):
     """Ayni sayi iki uctan da ayni gelmeli - hesap tek kaynaktan geliyor."""
     ozet = client.get("/api/portfolio/summary", headers=auth).json()
     varliklar = client.get("/api/portfolio/holdings", headers=auth).json()
@@ -47,7 +47,7 @@ def test_varliklar_toplami_ozetle_tutarli(client, auth):
     assert round(varliklar["total_value_try"], 2) == round(ozet["total_value_try"], 2)
 
 
-def test_yabanci_para_varlik_try_ye_cevrilir(client, auth):
+def test_foreign_currency_asset_converted_to_try(client, auth):
     """BTC fiyati USD; portfoy degeri USD/TRY kuru ile carpilmis olmali."""
     varliklar = client.get("/api/portfolio/holdings", headers=auth).json()["items"]
     btc = next(h for h in varliklar if h["symbol"] == "BTC")
@@ -56,7 +56,7 @@ def test_yabanci_para_varlik_try_ye_cevrilir(client, auth):
     assert round(btc["market_value_try"], 2) == round(0.5 * 65_400.0 * 33.55, 2)
 
 
-def test_dagilim_yuzdeleri_100_e_tamamlanir(client, auth):
+def test_allocation_percentages_sum_to_100(client, auth):
     govde = client.get("/api/portfolio/allocation", headers=auth).json()
 
     toplam_yuzde = sum(dilim["class_pct"] for dilim in govde["items"])
@@ -64,21 +64,21 @@ def test_dagilim_yuzdeleri_100_e_tamamlanir(client, auth):
     assert {d["asset_class"] for d in govde["items"]} == {"STOCK", "CRYPTO"}
 
 
-def test_islemler_limit_parametresine_uyar(client, auth):
+def test_transactions_respect_limit_parameter(client, auth):
     govde = client.get("/api/portfolio/transactions?limit=2", headers=auth).json()
 
     assert govde["limit"] == 2
     assert len(govde["items"]) <= 2
 
 
-def test_islemler_gecersiz_limiti_reddeder(client, auth):
+def test_transactions_reject_invalid_limit(client, auth):
     yanit = client.get("/api/portfolio/transactions?limit=0", headers=auth)
 
     assert yanit.status_code == 422
     assert yanit.json()["error"]["code"] == "validation_error"
 
 
-def test_portfoyu_bos_kullanici_404_alir(client):
+def test_user_without_portfolio_gets_404(client):
     """Seed'de 10 numarali kullanicinin portfoyu kasitli olarak BOS."""
     from app.auth.security import create_access_token
 
@@ -91,14 +91,14 @@ def test_portfoyu_bos_kullanici_404_alir(client):
     assert yanit.status_code == 200
 
 
-async def test_bos_portfoyde_ozet_none_doner():
+async def test_empty_portfolio_summary_returns_none():
     """Bos portfoy bir HATA degil; repository `None` dondurmeli."""
     from app.repositories.deps import get_portfolio_repository
 
     assert await get_portfolio_repository().get_summary(user_id=2_000_000_000) is None
 
 
-def test_dashboard_tek_istekte_hepsini_dondurur(client, auth):
+def test_dashboard_returns_everything_in_one_request(client, auth):
     """Ilk yukleme 4 istek yerine 1: summary + holdings + allocation + risk."""
     govde = client.get("/api/dashboard/summary", headers=auth).json()
 
@@ -111,7 +111,7 @@ def test_dashboard_tek_istekte_hepsini_dondurur(client, auth):
     assert govde["movers"]
 
 
-def test_dashboard_ile_granuler_uclar_ayni_sayiyi_verir(client, auth):
+def test_dashboard_and_granular_endpoints_agree(client, auth):
     dashboard = client.get("/api/dashboard/summary", headers=auth).json()
     ozet = client.get("/api/portfolio/summary", headers=auth).json()
     risk = client.get("/api/risk/profile", headers=auth).json()

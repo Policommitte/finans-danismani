@@ -231,7 +231,7 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     #: OpenRouter (OpenAI uyumlu ucuncu saglayici). Model adi `openrouter:`
     #: onekiyle ya da `:free` gibi bir OpenRouter rota son ekiyle yazilir -
-    #: bkz. `app.core.llm.model_coz`.
+    #: bkz. `app.core.llm.resolve_model`.
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     #: Otomatik saglayici tespitini elle ezmek icin:

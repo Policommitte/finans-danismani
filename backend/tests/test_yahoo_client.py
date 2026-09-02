@@ -423,7 +423,7 @@ def test_uzlastirma_devam_eden_saatlik_mumu_yazmaz():
         {"ts": "2026-08-25T10:30:00+00:00"},
     ]
 
-    sonuc = yahoo.tamamlanmis_saatlik_mumlar(
+    sonuc = yahoo.completed_hourly_candles(
         rows,
         now=pd.Timestamp("2026-08-25T11:00:00Z").to_pydatetime(),
     )
