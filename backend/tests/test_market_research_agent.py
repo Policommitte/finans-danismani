@@ -12,8 +12,11 @@ HIC gidilmez, boylece model bosluktan icerik uretemez.
 import pytest
 
 from app.agents.market_research import (
+    _ALAN_SOZLUGU,
+    _ALAN_TERS,
     NO_RETRIEVAL_MESSAGE,
     MarketResearchAgent,
+    _alandan_coz,
     _arama_metni,
 )
 from app.mcp.client import MCPClient, MCPServer
@@ -469,3 +472,96 @@ async def test_tarih_filtreleri_korunur():
 
     assert cagrilar[0]["date_from"] == "2026-08-01"
     assert cagrilar[0]["date_to"] == "2026-08-17"
+
+
+# ---------------------------------------------------------------------------
+# Alan sozlugu (`_ALAN_SOZLUGU`) - ileri ve geri yon
+# ---------------------------------------------------------------------------
+
+
+def test_alan_sozlugunde_capraz_alt_dize_yok():
+    """Bir ifade, BASKA bir sembolun ifadesinin alt dizesi olmamali.
+
+    Olsaydi geri yon sessizce belirsizlesir ve `_alandan_coz` "birden cok
+    eslesme" sayip sembolu HIC cozemezdi - hata vermeden, yalnizca ozellik
+    calismayarak. Tablo elle buyutuldugu icin bu denetim gerekli.
+    """
+    cakisan = [
+        (a, _ALAN_TERS[a], b, _ALAN_TERS[b])
+        for a in _ALAN_TERS
+        for b in _ALAN_TERS
+        if a != b and a in b and _ALAN_TERS[a] != _ALAN_TERS[b]
+    ]
+
+    assert not cakisan, f"capraz alt dize: {cakisan}"
+
+
+def test_alan_ifadeleri_katalog_sembolu_kullanir():
+    """Tablo, gercek sembol kodlarina baglanmali (yazim hatasi erken yakalansin)."""
+    assert "ASELS" in _ALAN_SOZLUGU
+    assert "savunma sanayi" in _ALAN_SOZLUGU["ASELS"]
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen",
+    [
+        ("savunma sanayi nasıl gidiyor", "ASELS"),
+        ("havacılık sektörü nasıl", "THYAO"),
+        ("bankacılık sektöründe durum ne", "GARAN"),
+    ],
+)
+def test_alandan_coz_sektor_sorusunu_sembole_baglar(sorgu, beklenen):
+    assert _alandan_coz(sorgu, {"ASELS", "THYAO", "GARAN"}) == beklenen
+
+
+def test_alandan_coz_birden_cok_eslesmede_sembol_uretmez():
+    """`task` TEKIL sembol tasir; yanlis birini secmektense sembolsuz devam."""
+    sorgu = "yapay zeka çipi ve bulut bilişim hisseleri nasıl"
+
+    assert _alandan_coz(sorgu, {"NVDA", "MSFT"}) is None
+
+
+def test_alandan_coz_jenerik_kelimeye_takilmaz():
+    assert _alandan_coz("teknoloji hisseleri nasıl", {"NVDA", "MSFT"}) is None
+    assert _alandan_coz("sanayi nasıl", {"ASELS"}) is None
+
+
+def test_alandan_coz_katalogda_olmayan_sembolu_uretmez():
+    """`_takma_addan_coz` ile ayni kural: varlik silinirse tablo yanlis donmesin."""
+    assert _alandan_coz("savunma sanayi nasıl gidiyor", {"THYAO"}) is None
+
+
+def test_arama_metni_alan_kelimelerini_sona_ekler():
+    """Sorunun konusu basta kalir, alan kelimeleri arkadan agirlik verir."""
+    sonuc = _arama_metni("THYAO hissesi", "Türk Hava Yolları", ("havacılık", "uçuş ağı"))
+
+    assert sonuc.startswith("Türk Hava Yolları")
+    assert sonuc.endswith("havacılık uçuş ağı")
+
+
+def test_arama_metni_ad_metinde_varsa_alan_yine_eklenir():
+    """ "aselsan hissesi" -> ad zaten geciyor, tekrarlanmaz; alan yine de eklenir."""
+    sonuc = _arama_metni("aselsan hissesi", "Aselsan", ("savunma sanayi",))
+
+    assert sonuc == "aselsan savunma sanayi"
+
+
+def test_arama_metni_zaten_gecen_alan_kelimesini_tekrarlamaz():
+    sonuc = _arama_metni("savunma sanayi nasıl gidiyor", None, ("savunma sanayi",))
+
+    assert sonuc.count("savunma sanayi") == 1
+
+
+async def test_alandan_cozulen_sembol_rag_i_kapatmaz():
+    """Alan sembolu tek basina "live"a dusmemeli - sektor sorusunun konusu haber.
+
+    Dusseydi alan sozlugu kendi amacini baltalardi: "savunma sanayi hisseleri
+    ne kadar yukseldi" salt fiyat dondururdu.
+    """
+    ajan = _ajan(mcp_client=build_mcp_client())
+    gorev = {"query": "savunma sanayi hisseleri ne kadar yükseldi"}
+    await ajan._sembolu_katalogdan_coz(gorev)
+
+    assert gorev.get("symbol") == "ASELS"
+    assert gorev.get("symbol_alandan") is True
+    assert ajan._resolve_mode(gorev, gorev["query"]) == "both"

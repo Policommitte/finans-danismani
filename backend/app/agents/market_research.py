@@ -412,6 +412,130 @@ def _takma_addan_coz(tokenler: list[str], katalog_sembolleri: set[str]) -> tuple
     return None
 
 
+#: Turkce karakterleri ASCII karsiliklarina cevirir; anahtar kelime listesi tek
+#: yazimla ("guncel") hem "güncel" hem "guncel" girdisini yakalar.
+#:
+#: NOT: `app.engine.orchestrator` icinde de ayni tablo vardir. Ajan katmaninin
+#: motor katmanina bagimli olmamasi icin (agents -> engine dairesel import)
+#: burada bilincli olarak yerel bir kopya tutuluyor.
+#:
+#: ⚠️ MODULUN BASLARINDA DURMALI: `_ALAN_TERS` IMPORT ANINDA `_normalize`
+#: cagirir. Asagi tasinirsa modul NameError ile yuklenmez.
+_TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+
+
+def _normalize(text: str) -> str:
+    return text.translate(_TR_TRANSLATION).lower()
+
+
+#: Varlik -> o varligin HABER DILINDEKI alan kelimeleri.
+#:
+#: NEDEN GEREKLI: gomme uzayinda sirket adi ile SEKTORU komsu degil. Olculdu
+#: (17 Agustos 2026 indeksi, 917 chunk, esik 0.30):
+#:
+#:     "Aselsan hissesini etkileyebilecek gelismeler neler"
+#:         -> "Turk savunma sanayisi ..." haberi   0.212  ELENIR
+#:     ayni sorgu + "savunma sanayi"
+#:         -> ayni haber                          0.382  gecer
+#:
+#: Yani model Aselsan'in ne is yaptigini BILMIYOR. Ayni olcumde alakasiz bir
+#: hububat ihracati haberi (0.281) savunma haberini geciyordu.
+#:
+#: NEDEN `assets.sector` KULLANILMIYOR: o kolon GICS kovasi tasiyor ve
+#: Ingilizce - ASELS icin "INDUSTRIALS". Turkce haber metnine yapismiyor;
+#: olculdu, esigi GECIREMIYOR:
+#:
+#:     + "INDUSTRIALS" (ham sector)  0.235   elenir
+#:     + "Sanayi" (sectorun Turkcesi) 0.238  elenir
+#:     + "savunma sanayi"             0.382  gecer
+#:
+#: Ustelik ayni kova hem Aselsan'i hem Kontrolmatik'i (enerji/otomasyon)
+#: kapsiyor, yani GERI YONDE de anahtar olamaz.
+#:
+#: TABLO IKI YONDE DE OKUNUR - ikinci bir tablo YOKTUR:
+#:     ileri: sembol -> ifadeler   (arama metnine eklenir, `_arama_metni`)
+#:     geri : ifade  -> sembol     (`_ALAN_TERS`, `_alandan_coz`)
+#:
+#: ⚠️ IFADELER DUZGUN TURKCE YAZILIR. Ileri yonde dogrudan korpusa gidiyorlar
+#: ve korpus diakritikli; eslesme ise `_normalize` uzerinden yapildigi icin
+#: diakritik geri yonu bozmaz.
+#:
+#: ⚠️ JENERIK TEK KELIME EKLEMEYIN ("teknoloji", "sanayi", "holding",
+#: "kripto"). Ileri yonde ayirt etmezler, geri yonde ise ya birden cok
+#: varliga cikip eslesmeyi iptal ederler ya da alakasiz sorulari bir hisseye
+#: baglarlar. Ifadeler MUMKUN OLDUGUNCA SPESIFIK olmali.
+_ALAN_SOZLUGU: dict[str, tuple[str, ...]] = {
+    # --- BIST ---
+    "ASELS": ("savunma sanayi", "savunma elektroniği", "radar sistemleri"),
+    "KONTR": ("enerji depolama", "batarya üretimi"),
+    "THYAO": ("havacılık", "havayolu", "uçuş ağı", "havalimanı"),
+    "GARAN": ("bankacılık", "mevduat", "kredi hacmi"),
+    "TCELL": ("telekomünikasyon", "mobil operatör"),
+    "TUPRS": ("rafineri", "akaryakıt"),
+    "EREGL": ("demir çelik", "çelik üretimi"),
+    "SISE": ("cam sanayi",),
+    "SASA": ("polyester", "petrokimya"),
+    "AKCNS": ("çimento",),
+    "TOASO": ("otomotiv",),
+    "BIMAS": ("market zinciri", "indirim marketi"),
+    # --- Emtia / kur / tahvil ---
+    "BRENT": ("ham petrol", "petrol fiyatları", "OPEC"),
+    "GRAM_ALTIN": ("ons altın", "altın fiyatları", "kıymetli maden"),
+    "GUMUS": ("gümüş fiyatları",),
+    "BAKIR": ("bakır fiyatları",),
+    "MISIR": ("tahıl", "hububat"),
+    "USD/TRY": ("dolar kuru",),
+    "EUR/TRY": ("euro kuru",),
+    "US10Y": ("tahvil faizi", "ABD tahvili"),
+    # --- ABD hisseleri ---
+    # NOT: Turkce haberlerde bu sirketler ADLARIYLA aniliyor, dolayisiyla
+    # ileri yondeki katkilari BIST'e gore dusuk. Yine de geri yon icin
+    # ("elektrikli arac hisseleri nasil") anlamlilar.
+    "NVDA": ("yapay zeka çipi", "grafik işlemci"),
+    "INTC": ("işlemci üreticisi",),
+    "MSFT": ("bulut bilişim", "kurumsal yazılım"),
+    "AAPL": ("akıllı telefon",),
+    "AMZN": ("e-ticaret",),
+    "TSLA": ("elektrikli araç",),
+    "META": ("sosyal medya",),
+    "GOOG": ("arama motoru", "dijital reklam"),
+    "LLY": ("ilaç sektörü",),
+}
+
+#: `_ALAN_SOZLUGU`'nun TERSI - ayri bir tablo degil, tek satirlik turetme.
+#: Anahtarlar normalize edilir cunku eslesme normalize sorgu metninde aranir.
+_ALAN_TERS: dict[str, str] = {
+    _normalize(ifade): sembol for sembol, ifadeler in _ALAN_SOZLUGU.items() for ifade in ifadeler
+}
+
+
+def _alandan_coz(query: str, katalog_sembolleri: set[str]) -> str | None:
+    """Sorgudaki ALAN ifadesinden sembol cozer ("savunma sanayi" -> ASELS).
+
+    Sirket adi hic gecmeyen sektor sorularini varliga baglar; `sembol_coz`
+    yalnizca sembol/unvan eslestirdigi icin bu sorularda `None` doner ve
+    canli fiyat yolu hic acilmaz.
+
+    IKI KURAL:
+
+      1. YALNIZCA TEK ESLESME KABUL EDILIR. Ifadeler bire-cok olabilir
+         ("yapay zeka cipi" + "bulut bilisim" -> NVDA, MSFT) ama `task`
+         TEKIL bir `symbol` tasiyor; birden cok varliga cikan sorgularda
+         sembolsuz devam etmek (bugunku davranis) yanlis bir tanesini
+         secmekten iyidir.
+      2. KATALOGDA OLMAYAN SEMBOL URETILMEZ - `_takma_addan_coz` ile ayni
+         kural: varlik silinirse tablo sessizce yanlis sonuc uretmeye
+         baslamasin.
+    """
+    metin = _normalize(query)
+    bulunan = {
+        sembol
+        for ifade, sembol in _ALAN_TERS.items()
+        if ifade in metin and sembol in katalog_sembolleri
+    }
+    return bulunan.pop() if len(bulunan) == 1 else None
+
+
 def _alaka_skorlarini_logla(
     query: str,
     chunks: list[dict[str, Any]],
@@ -776,19 +900,6 @@ def _mevsim_araligi(query: str) -> dict[str, Any] | None:
     }
 
 
-#: Turkce karakterleri ASCII karsiliklarina cevirir; anahtar kelime listesi tek
-#: yazimla ("guncel") hem "güncel" hem "guncel" girdisini yakalar.
-#:
-#: NOT: `app.engine.orchestrator` icinde de ayni tablo vardir. Ajan katmaninin
-#: motor katmanina bagimli olmamasi icin (agents -> engine dairesel import)
-#: burada bilincli olarak yerel bir kopya tutuluyor.
-_TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
-
-
-def _normalize(text: str) -> str:
-    return text.translate(_TR_TRANSLATION).lower()
-
-
 #: ARAMA metninden atilan "yatirim cercevesi" kaliplari.
 #:
 #: NEDEN VAR: kullanicinin ham cumlesi oldugu gibi gomuluyordu ve soruyu
@@ -853,10 +964,18 @@ _ARAMA_CERCEVESI: tuple[re.Pattern[str], ...] = tuple(
 _ASGARI_ARAMA_UZUNLUGU = 3
 
 
-def _arama_metni(query: str, varlik_adi: str | None = None) -> str:
+def _arama_metni(
+    query: str,
+    varlik_adi: str | None = None,
+    alan: tuple[str, ...] | None = None,
+) -> str:
     """Gomulecek ARAMA metnini uretir - ham sorgunun yerine gecmez.
 
-    Iki is yapar:
+    Uc is yapar:
+      0. `alan` verilmisse (bkz. `_ALAN_SOZLUGU`) varligin alan kelimelerini
+         SONA ekler. Gomme uzayinda sirket adi sektorune komsu olmadigi icin
+         ("Aselsan" -> savunma haberi 0.212) bu takviye olmadan sektor
+         haberleri esigin altinda kaliyor.
       1. `_ARAMA_CERCEVESI` kaliplarini atar (yukaridaki gerekce).
       2. `varlik_adi` verilmisse metnin BASINA ekler. Kullanici "asels"
          yazmis olabilir; korpusta gecen bicim "ASELSAN"dir.
@@ -895,6 +1014,12 @@ def _arama_metni(query: str, varlik_adi: str | None = None) -> str:
     ad = (varlik_adi or "").strip()
     if ad and _normalize(ad) not in _normalize(damitilmis):
         damitilmis = f"{ad} {damitilmis}".strip()
+
+    # Alan kelimeleri SONA eklenir: sorunun kendi konusu basta kalsin, alan
+    # yalnizca sektor haberlerini yakina cekmek icin agirlik olsun.
+    for ifade in alan or ():
+        if _normalize(ifade) not in _normalize(damitilmis):
+            damitilmis = f"{damitilmis} {ifade}".strip()
     return damitilmis
 
 
@@ -1119,10 +1244,30 @@ class MarketResearchAgent(BaseAgent):
         if katalog is None:
             return  # katalog yok - eski davranis korunur
 
-        sembol = sembol_coz(task.get("query") or "", katalog)
+        sorgu = task.get("query") or ""
+        sembol = sembol_coz(sorgu, katalog)
         if sembol:
             task["symbol"] = sembol
             task["symbol_kesin"] = True
+            return
+
+        # Sirket adi hic gecmiyorsa ALAN ifadesinden dene ("savunma sanayi"
+        # -> ASELS). Bu, `sembol_coz`'un kapsamadigi sektor sorularini
+        # varliga baglar; sorunun kendisi zaten RAG'e gidiyordu, kazanc canli
+        # fiyat/kart yolunun da acilmasi.
+        katalog_sembolleri = {str(k.get("symbol") or "").upper() for k in katalog}
+        if alan_sembolu := _alandan_coz(sorgu, katalog_sembolleri):
+            task.pop("symbol", None)  # varsa regex tahminini once temizle
+            task["symbol"] = alan_sembolu
+            # Cikarim, acik bir kod yazimi DEGIL: `_run_live` fiyatla teyit
+            # etsin, tutmazsa sessizce dussun.
+            task["symbol_kesin"] = False
+            # `_resolve_mode` bunu gorunce RAG'i acik tutar (bkz. orasi).
+            task["symbol_alandan"] = True
+            logger.debug(
+                "sembol alan ifadesinden cozuldu",
+                extra={"agent": self.name, "symbol": alan_sembolu},
+            )
             return
 
         if task.pop("symbol", None) is not None:
@@ -1191,6 +1336,13 @@ class MarketResearchAgent(BaseAgent):
         if canli_isteniyor and baglam_isteniyor:
             return "both"
         if canli_isteniyor:
+            # ALANDAN cozulen sembol tek basina "live"a DUSMEZ. "savunma
+            # sanayi hisseleri ne kadar yukseldi" sorusunda sembol ASELS'e
+            # baglanir ve `_LIVE_KEYWORDS` eslesirdi; salt fiyat donmek
+            # sorunun asil konusunu (sektor haberleri) tamamen atardi -
+            # yani alan sozlugu kendi amacini baltalardi.
+            if task.get("symbol_alandan"):
+                return "both"
             # Donem/mevsim sorusunda RAG'i de acik tutuyoruz: piyasa yolu bos
             # donerse kullanici hicbir sey alamazdi. "both" ile en kotu
             # ihtimalde haber ozeti geliyor.
@@ -1239,7 +1391,12 @@ class MarketResearchAgent(BaseAgent):
         if date_to := task.get("date_to"):
             filters["date_to"] = date_to
 
-        arama = _arama_metni(query, await self._varlik_adi(task.get("symbol")))
+        sembol = task.get("symbol")
+        arama = _arama_metni(
+            query,
+            await self._varlik_adi(sembol),
+            _ALAN_SOZLUGU.get(str(sembol or "").upper()),
+        )
 
         sonuc = await self.call_tool(
             server=RAG_SERVER_NAME,
