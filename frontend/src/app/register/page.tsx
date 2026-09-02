@@ -60,20 +60,11 @@ const BANKS = [
   { name: "İş Bankası", logo: "/bank-logos/isbankasi.svg" },
   { name: "Garanti BBVA", logo: "/bank-logos/garanti.svg" },
   { name: "Akbank", logo: "/bank-logos/akbank.svg" },
-  { name: "Halkbank", logo: "/bank-logos/halkbank.svg" },
+  { name: "DenizBank", logo: "/bank-logos/denizbank.svg" },
   { name: "VakıfBank", logo: "/bank-logos/vakifbank.svg" },
 ];
 
 type Step = "bank" | "credentials";
-
-function StepDots({ step }: { step: Step }) {
-  return (
-    <div className="flex items-center justify-center gap-2" aria-hidden="true">
-      <span className={`h-1.5 w-6 rounded-full transition ${step === "bank" ? "bg-[var(--color-primary)]" : "bg-emerald-500"}`} />
-      <span className={`h-1.5 w-6 rounded-full transition ${step === "credentials" ? "bg-[var(--color-primary)]" : "bg-white/15"}`} />
-    </div>
-  );
-}
 
 function RegisterPageContent() {
   const auth = useAuth();
@@ -185,15 +176,14 @@ function RegisterPageContent() {
 
         <div className="w-full rounded-2xl bg-[var(--color-surface-elevated)] p-7 shadow-2xl">
           <h1 className="text-center text-xl font-bold text-[var(--color-heading)]">Kayıt Ol</h1>
-          <div className="mt-4">
-            <StepDots step={step} />
-          </div>
 
           {step === "bank" ? (
             <>
-              <p className="mt-5 text-center text-sm text-[var(--color-muted)]">
-                Banka hesabını bağla{" "}
-                <span className="text-[var(--color-muted)]/80">(simülasyon)</span>
+              <p className="mt-5 text-center text-sm font-semibold text-[var(--color-heading)]">
+                İş Ortağı Bankalarımız
+              </p>
+              <p className="mt-1 text-center text-sm text-[var(--color-muted)]">
+                Portföy bilgilerini taşı
               </p>
 
               <form className="mt-4 space-y-4" onSubmit={submitBankStep}>
@@ -260,11 +250,7 @@ function RegisterPageContent() {
             </>
           ) : (
             <>
-              <p className="mt-5 text-center text-sm text-[var(--color-muted)]">
-                E-posta ve şifreni belirle
-              </p>
-
-              <form className="mt-4 space-y-4" onSubmit={submitCredentialsStep}>
+              <form className="mt-5 space-y-4" onSubmit={submitCredentialsStep}>
                 <label className="block text-sm">
                   <span className="font-medium text-[var(--color-text)]">E-mail</span>
                   <input
