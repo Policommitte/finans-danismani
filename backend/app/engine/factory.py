@@ -143,6 +143,10 @@ def build_orchestrator(mcp_client: MCPClient | None = None, **kwargs) -> Orchest
             llm=build_agent_llm("security"),
             audit=get_audit_repository(),
         ),
+        # LLM kapsam suzgeci ayni kucuk/hizli modeli kullanir (SECURITY_MODEL).
+        # Model tanimli degilse None doner ve suzgec sessizce kapali kalir -
+        # kapsam karari yalnizca kapsam.py kurallarinda verilir (fail-open).
+        scope_llm=build_agent_llm("security") if settings.scope_llm_enabled else None,
         synthesizer_timeout_seconds=settings.synthesizer_timeout_seconds,
         synthesizer_stall_seconds=settings.synthesizer_stall_seconds,
         **kwargs,

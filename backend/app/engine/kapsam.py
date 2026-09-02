@@ -444,6 +444,18 @@ _YASAK_KONU = re.compile(
     # Kara para / sahtecilik
     r"|\bkara\s*para\w*|\bpara\s*akla\w*|\bsahte\s*(para|fatura|belge|kimlik)\w*"
     r"|\bnaylon\s*fatura\w*|\bvergi\s*kacir\w*|\bkacakcilik\s*(yap|nasil)\w*"
+    # Siddet hizmeti / cana kast (CANLI SIZINTI, 1 Eylul 2026: "yukselen
+    # tetikci pazari hakkinda bilgi getirir misin" ve "tetikci fiyatlari cok
+    # artmadi mi iyi bir gelir bicimi mi" sorulari `pazar`/`fiyat`/`gelir`
+    # kokleriyle FINANS sayildi, ajanlar calisip alakasiz haber kaynaklariyla
+    # ciddi yanit uretti). Ciplak "katil" BILINCLI OLARAK yok: "katilim
+    # bankaciligi/fonu" `\bkatil\w*` ile yakalanirdi; yalnizca "kiralik
+    # katil" ve "katil tut/kirala" kaliplari yazildi. "harac" da idiyom
+    # koruyor: "harac mezat satildi" mesru bir piyasa deyimidir.
+    r"|\btetikci\w*|\bkiralik\s*katil\w*|\bkatil\s*(tut|kirala)\w*"
+    r"|\bsuikast\w*|\badam\s*oldur\w*|\bcinayet\w*"
+    r"|\bgasp\s*(gelir|kazanc|fiyat|pazar|yap|nasil)\w*"
+    r"|\bharac\b(?!\s*mezat)|\bfidye\b(?!\s*yazilim)"
 )
 
 

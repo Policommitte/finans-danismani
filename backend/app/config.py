@@ -254,6 +254,19 @@ class Settings(BaseSettings):
     synthesizer_model: str = ""  # en guclu model burada
     security_model: str = ""  # en kucuk/hizli model burada
 
+    # --- LLM kapsam suzgeci (kapsam.py kurallarinin arkasindaki agiz) ----
+    # Kural merdiveni yalnizca LISTEDEKI yasak konulari yakalar; listede
+    # olmayan bir konu finans kokleriyle sarmalanirsa ("tetikci pazari")
+    # ajanlara sizar. Bu suzgec, ajanlara gidecek ama icinde taninan bir
+    # varlik/sembol GECMEYEN sorulari kucuk modele onaylatir. Model karari
+    # olarak `security_model` kullanilir (ayni "en kucuk/hizli model").
+    #
+    # FAIL-OPEN: model yoksa, coktuyse ya da sure asiminda kural karari
+    # gecerli kalir - saglayici 503 attiginda sohbet OLMEZ, koruma o an
+    # kurallardan ibaret kalir. Bu bilincli bir urun karari (1 Eylul 2026).
+    scope_llm_enabled: bool = True
+    scope_llm_timeout_seconds: float = 6.0
+
     # --- Piyasa verisi katmani (mimari v4 bolum 8) ----------------------
     # Yalnizca Yahoo Finance'ten GERCEK fiyat kullanilir. Yahoo'ya
     # ulasilamazsa yeni fiyat yazilmaz ve son dogrulanmis fiyat korunur.
