@@ -11,7 +11,7 @@ export function usePortfolioTransactions(limit = 20) {
 
 export function usePortfolioPerformance(hours = 24) {
   const loader = useCallback(() => getPortfolioPerformance(hours), [hours]);
-  const performance = useAsyncData(loader, [loader]);
+  const performance = useAsyncData(loader, [loader], `portfolio:performance:${hours}`);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

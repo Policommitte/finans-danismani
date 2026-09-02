@@ -5,7 +5,7 @@ import { getDashboardSummary } from "../services/dashboardService";
 import { useAsyncData } from "./useAsyncData";
 
 export function useDashboard() {
-  const dashboard = useAsyncData(getDashboardSummary, []);
+  const dashboard = useAsyncData(getDashboardSummary, [], "dashboard:summary");
 
   useEffect(() => {
     const timer = window.setInterval(() => {

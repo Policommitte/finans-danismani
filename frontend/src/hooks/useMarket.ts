@@ -22,7 +22,11 @@ export function useMarket(initialSymbol = "THYAO") {
     return { assets, candles };
   }, [chartInterval, chartRange, symbol]);
 
-  const state = useAsyncData(loader, [loader]);
+  const state = useAsyncData(
+    loader,
+    [loader],
+    `market:${symbol}:${chartInterval}:${chartRange}`,
+  );
 
   useEffect(() => {
     const timer = window.setInterval(() => void state.refresh(), 60_000);

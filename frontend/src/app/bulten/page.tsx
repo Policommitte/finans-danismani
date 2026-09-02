@@ -176,7 +176,7 @@ export default function BultenPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("tumu");
   const [selectedArticle, setSelectedArticle] = useState<NewsDetailArticle | null>(null);
   const { data, loading, error, refetch } = useDashboard();
-  const news = useAsyncData(() => getNews(50), []);
+  const news = useAsyncData(() => getNews(50), [], "news:50");
 
   useEffect(() => {
     if (loading || news.loading) {

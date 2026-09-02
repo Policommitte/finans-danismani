@@ -45,8 +45,35 @@ export function getNews(limit = 20, kategori?: string): Promise<NewsListResponse
   return apiRequest<NewsListResponse>(`/api/market/news?${params.toString()}`);
 }
 
+// Ticker yaniti kisa sureligine paylasilir: ust serit (MarketTicker) ve
+// dashboard'daki doviz cevirimi AYNI ucu, AYNI 60 sn aralikla ayri ayri
+// cekiyordu - her dashboard ziyareti backend'e iki ozdes istek atiyordu.
+// Ayni anda gelen cagrilar tek istege katlanir (in-flight dedupe), sonuc
+// TTL boyunca tekrar kullanilir. TTL, iki tuketicinin de kendi 60 sn
+// tazeleme periyodundan kisa tutuldu ki hicbiri bayat veriyle kalmasin.
+const TICKER_SHARE_TTL_MS = 30_000;
+let tickerCache: { at: number; value: PublicMarketTickerResponse } | null = null;
+let tickerInFlight: Promise<PublicMarketTickerResponse> | null = null;
+
 export function getPublicMarketTicker(): Promise<PublicMarketTickerResponse> {
-  return apiRequest<PublicMarketTickerResponse>("/api/public/market-ticker", { auth: false });
+  const now = Date.now();
+  if (tickerCache !== null && now - tickerCache.at < TICKER_SHARE_TTL_MS) {
+    return Promise.resolve(tickerCache.value);
+  }
+  if (tickerInFlight !== null) {
+    return tickerInFlight;
+  }
+  tickerInFlight = apiRequest<PublicMarketTickerResponse>("/api/public/market-ticker", {
+    auth: false,
+  })
+    .then((value) => {
+      tickerCache = { at: Date.now(), value };
+      return value;
+    })
+    .finally(() => {
+      tickerInFlight = null;
+    });
+  return tickerInFlight;
 }
 
 export function getMarketCandles(
