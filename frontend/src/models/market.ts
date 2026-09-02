@@ -140,3 +140,28 @@ export type PublicLandingPreviewResponse = {
   allocation: PublicLandingAllocationItem[];
   holdings: PublicLandingHoldingItem[];
 };
+
+/**
+ * Bir varligin (ya da portfoyun) ileriye donuk tahmini.
+ *
+ * ⚠️ `deger` (nokta tahmini) ile `alt`/`ust` (bant) ARASINDAKI FARK ONEMLI.
+ * Olculdu: nokta tahmininin hatasi, "fiyat sabit kalir" varsayimina cok
+ * yakin (%6,93 vs %7,07 MAPE) - yani cizginin YONUNE guvenilmemeli.
+ * Guvenilir olan BANTTIR: %80 araliginin gercek kapsami %79,1 olcuklendi.
+ * Arayuz bu yuzden bandi vurgular, cizgiyi soluk/kesikli gosterir.
+ */
+export type ForecastPoint = {
+  tarih: string;
+  deger: number;
+  alt: number;
+  ust: number;
+};
+
+export type Forecast = {
+  sembol: string;
+  son_fiyat: number;
+  son_tarih: string;
+  noktalar: ForecastPoint[];
+  model: string;
+  uyari: string;
+};

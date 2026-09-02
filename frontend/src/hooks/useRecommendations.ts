@@ -18,7 +18,7 @@ export function useRecommendations() {
     const [list, account] = await Promise.all([getRecommendations(), getTradingAccount()]);
     return { ...list, account };
   }, []);
-  const state = useAsyncData(loader, [loader]);
+  const state = useAsyncData(loader, [loader], "recommendations:list");
   const [selected, setSelected] = useState<Recommendation | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);

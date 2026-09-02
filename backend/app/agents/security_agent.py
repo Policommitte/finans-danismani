@@ -474,11 +474,19 @@ class SecurityAgent(BaseAgent):
 
         `None` olan alanlar atlanir; boylece hata veren bir ajanin bos degeri
         denetim metnine "None" olarak sizmaz.
+
+        ⚠️ ALAN LISTESI ELLE TUTULMAZ: `AgentState` uzerindeki `*_data`
+        alanlarinin tamami taranir. Elle yazilan uclu (portfolio/market/risk)
+        belge ajani eklenince guncellenmemisti ve ajanin ciktisi - yani
+        KULLANICININ YUKLEDIGI PDF/Excel/gorselden turetilen metin, bu
+        sistemdeki en bariz dolayli injection kaynagi - cikti kapisindan HIC
+        gecmeden sentezleyiciye gidiyordu. Yeni bir veri ajani eklendiginde
+        alan adi `_data` ile bitiyorsa otomatik olarak denetime girer.
         """
         parts = [
             str(value)
-            for value in (state.portfolio_data, state.market_data, state.risk_data)
-            if value is not None
+            for alan in type(state).model_fields
+            if alan.endswith("_data") and (value := getattr(state, alan, None)) is not None
         ]
         return "\n".join(parts)
 

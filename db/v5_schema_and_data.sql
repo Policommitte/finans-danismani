@@ -22,6 +22,7 @@ DROP TABLE IF EXISTS watchlists CASCADE;
 DROP TABLE IF EXISTS live_prices CASCADE;
 DROP TABLE IF EXISTS price_history CASCADE;
 DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS portfolio_value_snapshots CASCADE;
 DROP TABLE IF EXISTS cash_ledger CASCADE;
 DROP TABLE IF EXISTS order_fills CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
@@ -57,6 +58,11 @@ CREATE TABLE users (
     role VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'advisor')),
     likit_para DOUBLE PRECISION,
     onboarding_completed BOOLEAN NOT NULL DEFAULT true,
+    -- Ürün turu (ProductTour) kullanıcıya SADECE BİR KEZ gösterilir; bayrak
+    -- kalıcı olmak zorunda (bkz. db/migrations/024_users_has_seen_tour.sql).
+    -- DEFAULT true: mevcut kullanıcılar tura zorlanmaz, yeni kayıtlar
+    -- backend'in `create()` metodunda açıkça false ile eklenir.
+    has_seen_tour BOOLEAN NOT NULL DEFAULT true,
     -- Kimlik alanları. TCKN DOĞRUDAN SAKLANMAZ: `tckn_hash` (SHA-256 hex)
     -- doğrulama/tekillik için, `tckn_last4` arayüzde "•••• 1234" gösterimi
     -- için tutulur; tam numara veritabanında hiçbir yerde bulunmaz.
@@ -64,6 +70,7 @@ CREATE TABLE users (
     tckn_last4 CHAR(4),
     birth_date DATE,
     phone_number VARCHAR(20),
+    account_number VARCHAR(9),
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -189,6 +196,23 @@ CREATE TABLE cash_accounts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (portfolio_id, currency)
 );
+
+-- Portfoy grafiginin tek gercek kaynagi. Her satir, o 5 dakikalik kovada
+-- varlik ve nakit degerlerinin birlikte alinmis anlik goruntusudur.
+CREATE TABLE portfolio_value_snapshots (
+    portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+    ts TIMESTAMPTZ NOT NULL,
+    holdings_value_try NUMERIC(20,2) NOT NULL CHECK (holdings_value_try >= 0),
+    cash_value_try NUMERIC(20,2) NOT NULL CHECK (cash_value_try >= 0),
+    total_value_try NUMERIC(20,2) NOT NULL CHECK (total_value_try >= 0),
+    source VARCHAR(20) NOT NULL DEFAULT 'scheduler',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (portfolio_id, ts)
+);
+
+CREATE INDEX portfolio_value_snapshots_portfolio_ts_idx
+    ON portfolio_value_snapshots (portfolio_id, ts DESC);
 
 CREATE TABLE paper_positions (
     portfolio_id INTEGER NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,

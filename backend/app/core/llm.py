@@ -167,6 +167,21 @@ class LLMClient(Protocol):
     async def generate(self, prompt: str, *, model: str | None = None) -> str: ...
 
 
+class VisionLLMClient(Protocol):
+    """Gorsel + metin birlikte kabul eden istemci.
+
+    AYRI BIR PROTOKOL cunku her model bunu yapamaz: `nemotron-3-super-120b-a12b`
+    salt metindir. `LLMClient`'a opsiyonel bir `image` parametresi eklemek,
+    cagiran tarafin "bu model gorsel aliyor mu" sorusunu CALISMA ZAMANINDA
+    ogrenmesi demekti - 400 hatasi olarak. Ayri protokol, destegi olmayan
+    modelin bu yola HIC girmemesini saglar.
+    """
+
+    async def generate_with_image(
+        self, prompt: str, image_bytes: bytes, mime_type: str, *, model: str | None = None
+    ) -> str: ...
+
+
 #: Model adinda ACIK saglayici oneki olarak taninan degerler.
 #: `openrouter:inclusionai/ling-3.0-flash-fin:free` -> ("openrouter", "inclusionai/...")
 _SAGLAYICI_ONEKLERI = ("openrouter", "nvidia", "gemini")
@@ -246,10 +261,11 @@ class GeminiLLMClient:
     async def generate_with_image(
         self, prompt: str, image_bytes: bytes, mime_type: str, *, model: str | None = None
     ) -> str:
-        """Goersel + metin girdiyle uretim - sohbet ek analizi icin
-        (`app/services/chat_attachments.py`). `NvidiaLLMClient`'ta BILEREK
-        YOK: NIM modellerinin coğu goersel desteklemez, cagiran taraf once
-        `saglayici_belirle()` ile Gemini oldugunu dogrular."""
+        """Goersel + metin girdiyle uretim - `VisionLLMClient` protokolunu
+        Gemini icin karsilar (bkz. `app/agents/document_analysis.py`).
+        `DOCUMENT_VISION_MODEL` bir Gemini modeline ayarlanirsa bu yol
+        kullanilir; onerilen varsayilan NVIDIA nano-omni oldugu icin
+        `NvidiaLLMClient` de ayni metodu saglar."""
         from google.genai import types
 
         response = await self._client.aio.models.generate_content(
@@ -333,6 +349,40 @@ class NvidiaLLMClient:
 
                 raise
 
+        return self._metni_al(yanit)
+
+    async def generate_with_image(
+        self, prompt: str, image_bytes: bytes, mime_type: str, *, model: str | None = None
+    ) -> str:
+        """Gorsel + metin gonderir (OpenAI uyumlu `image_url` icerik parcasi).
+
+        Gorsel `data:` URI olarak GOMULUR, uzak URL verilmez: dosya
+        kullanicinin yukledigi gecici bir icerik: internete acik bir adresi
+        yok ve olmasini da istemeyiz (finansal ekran goruntusu olabilir).
+
+        ⚠️ Bu yol yalnizca GORME YETENEGI OLAN modelle cagrilmalidir. Salt
+        metin bir model bu govdeyi 400 ile reddeder; `_nim_ek_govde` de
+        gorsel modele dusunme bayragi gondermez (bayrak Nemotron'a ozgudur,
+        zaten model adi eslesmezse bos doner).
+        """
+        import base64
+
+        kodlu = base64.b64encode(image_bytes).decode("ascii")
+        icerik = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{kodlu}"}},
+        ]
+
+        yanit = await self._client.chat.completions.create(
+            model=model or self._default_model,
+            messages=[{"role": "user", "content": icerik}],
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+        )
+        return self._metni_al(yanit)
+
+    @staticmethod
+    def _metni_al(yanit) -> str:
         if not yanit.choices:
             return ""
         mesaj = yanit.choices[0].message

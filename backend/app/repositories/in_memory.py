@@ -238,6 +238,7 @@ def reset_data() -> None:
     _API_USAGE.clear()
     _CASH_ACCOUNTS.clear()
     _CASH_ACCOUNTS.extend(dict(row) for row in _SEED_CASH_ACCOUNTS)
+    _PORTFOLIO_VALUE_SNAPSHOTS.clear()
     _PORTFOLIO_ASSETS.clear()
     _PORTFOLIO_ASSETS.extend(dict(row) for row in _SEED_PORTFOLIO_ASSETS)
     _TRANSACTIONS.clear()
@@ -323,6 +324,7 @@ _SEED_CASH_ACCOUNTS: list[dict] = [
     },
 ]
 _CASH_ACCOUNTS: list[dict] = [dict(row) for row in _SEED_CASH_ACCOUNTS]
+_PORTFOLIO_VALUE_SNAPSHOTS: list[dict] = []
 _ORDERS: list[dict] = []
 #: Bellek ici bildirim outbox'i - SQL'deki `notification_outbox` karsiligi.
 _NOTIFICATION_OUTBOX: list[dict] = []
@@ -385,6 +387,7 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": "THYAO",
         "tarih": "2026-08-10",
         "tip": "bilanco",
+        "kaynak_url": "https://www.kap.org.tr/tr/Bildirim/thyao-2026-2c",
         "content": (
             "THY, 2026 yili 2. ceyrek finansal sonuclarinda net karini bir onceki yilin "
             "ayni donemine gore %18 artirdi. Sirket, yolcu doluluk oraninin %84 "
@@ -399,6 +402,7 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": "THYAO",
         "tarih": "2026-08-10",
         "tip": "duyuru",
+        "kaynak_url": "https://www.kap.org.tr/tr/Bildirim/thyao-yakit-maliyeti",
         "content": (
             "THYAO, KAP'a yaptigi aciklamada yakit maliyetlerindeki dususun karlilik "
             "uzerinde olumlu etkisi oldugunu belirtti."
@@ -412,6 +416,10 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": "SASA",
         "tarih": "2026-07-30",
         "tip": "haber",
+        # Bilincli olarak `None`: kaynak_url'i BOS olan dokumanlar gercekte de
+        # vardir (eski ingestion kayitlari). Arayuzun tiklanamaz karti dogru
+        # cizdigi bu satir sayesinde gelistirme modunda da gorunur.
+        "kaynak_url": None,
         "content": (
             "Sasa Polyester'de hammadde maliyetlerindeki artis marjlari baski altinda "
             "tutmaya devam ediyor. Analistler kisa vadede toparlanma beklemiyor."
@@ -425,6 +433,7 @@ _RAG_CHUNKS: list[dict] = [
         "symbol": None,
         "tarih": "2026-08-01",
         "tip": "analist_raporu",
+        "kaynak_url": "https://www.bloomberght.com/kripto/oynaklik-raporu-2026-08",
         "content": (
             "Bitcoin ve Ethereum'da gunluk oynaklik uzun donem ortalamasinin uzerinde "
             "seyrediyor. Yuksek agirlikli kripto pozisyonlari portfoy riskini artiriyor."
@@ -578,22 +587,13 @@ class InMemoryUserRepository:
                 return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        for user in _USERS:
-            if user.get("tckn_hash") == tckn_hash:
-                return {"id": user["id"], "email": user["email"]}
-        return None
-
     async def create(
         self,
         first_name: str,
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         new_id = max((user["id"] for user in _USERS), default=0) + 1
         user = {
@@ -605,10 +605,12 @@ class InMemoryUserRepository:
             "risk_tolerance": None,
             "monthly_income": 0.0,
             "onboarding_completed": False,
-            "tckn_hash": tckn_hash,
-            "tckn_last4": tckn_last4,
-            "birth_date": birth_date,
-            "phone_number": phone_number,
+            "has_seen_tour": False,
+            "tckn_hash": None,
+            "tckn_last4": None,
+            "birth_date": None,
+            "phone_number": None,
+            "account_number": account_number,
         }
         _USERS.append(user)
         return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
@@ -618,6 +620,13 @@ class InMemoryUserRepository:
             if user["id"] == user_id:
                 user["risk_tolerance"] = risk_tolerance
                 user["onboarding_completed"] = True
+                return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
+        return None
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        for user in _USERS:
+            if user["id"] == user_id:
+                user["has_seen_tour"] = True
                 return {k: v for k, v in user.items() if k not in _GIZLI_ALANLAR}
         return None
 
@@ -704,6 +713,66 @@ class InMemoryPortfolioRepository:
     ) -> list[dict]:
         # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
         return []
+
+    async def write_value_snapshots(self) -> int:
+        now = _now().astimezone(timezone.utc)
+        bucket = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
+        written = 0
+        for portfolio in _PORTFOLIOS:
+            holdings = sum(
+                float(row["market_value_try"])
+                for row in _holdings_valued(portfolio["user_id"], portfolio["id"])
+            )
+            cash = sum(
+                float(account["available_balance"]) + float(account["reserved_balance"])
+                for account in _CASH_ACCOUNTS
+                if account["portfolio_id"] == portfolio["id"] and account["currency"] == "TRY"
+            )
+            snapshot = {
+                "portfolio_id": portfolio["id"],
+                "ts": bucket,
+                "holdings_value_try": holdings,
+                "cash_value_try": cash,
+                "total_value_try": holdings + cash,
+            }
+            existing = next(
+                (
+                    row
+                    for row in _PORTFOLIO_VALUE_SNAPSHOTS
+                    if row["portfolio_id"] == portfolio["id"] and row["ts"] == bucket
+                ),
+                None,
+            )
+            if existing is None:
+                _PORTFOLIO_VALUE_SNAPSHOTS.append(snapshot)
+            else:
+                existing.update(snapshot)
+            written += 1
+        return written
+
+    async def get_value_snapshots(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        target = portfolio_id or await self.get_default_portfolio_id(user_id)
+        valid_portfolio = next(
+            (p for p in _PORTFOLIOS if p["id"] == target and p["user_id"] == user_id), None
+        )
+        if valid_portfolio is None:
+            return []
+        cutoff = _now().astimezone(timezone.utc) - timedelta(hours=hours)
+        return [
+            dict(row)
+            for row in sorted(_PORTFOLIO_VALUE_SNAPSHOTS, key=lambda item: item["ts"])
+            if row["portfolio_id"] == target and row["ts"] >= cutoff
+        ]
+
+    async def prune_value_snapshots(self, keep_days: int = 30) -> int:
+        cutoff = _now().astimezone(timezone.utc) - timedelta(days=keep_days)
+        old_count = len(_PORTFOLIO_VALUE_SNAPSHOTS)
+        _PORTFOLIO_VALUE_SNAPSHOTS[:] = [
+            row for row in _PORTFOLIO_VALUE_SNAPSHOTS if row["ts"] >= cutoff
+        ]
+        return old_count - len(_PORTFOLIO_VALUE_SNAPSHOTS)
 
 
 class InMemoryMarketRepository:
@@ -1752,6 +1821,14 @@ class InMemoryChatRepository:
             if session["id"] == session_id:
                 session["updated_at"] = message["created_at"]
         return dict(message)
+
+    async def message_owner_id(self, message_id: int) -> int | None:
+        for message in self._messages:
+            if message["id"] == message_id:
+                for session in self._sessions:
+                    if session["id"] == message["session_id"]:
+                        return int(session["user_id"])
+        return None
 
 
 class InMemoryAuditRepository:

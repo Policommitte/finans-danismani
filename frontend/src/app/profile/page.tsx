@@ -11,15 +11,44 @@ type Goal = {
   name: string;
   target: number;
   saved: number;
+  /** null = "Vade Yok". Basit bir yedek hesapla (kalan tutar / ay sayisi)
+   * aylik biriktirme onerisi turetmek icin kullanilir - bkz. monthlySuggestion().
+   * Mevcut oneri sistemi (Otonom Eylemler'in AL/SAT sinyal motoru,
+   * backend/app/services/recommendation.py) bu tur bir hesap icin
+   * TASARLANMAMIS (kural tabanli piyasa sinyali uretir, hedef/vade
+   * planlamasi yapmaz) - kullaniciyla teyit edilip bilincli olarak bu
+   * basit hesap tercih edildi. */
+  termMonths: number | null;
 };
 
+//: `value` <select>'te string olarak tutulur - "" = Vade Yok (null).
+const TERM_OPTIONS: { label: string; value: string; months: number | null }[] = [
+  { label: "Vade Yok", value: "", months: null },
+  { label: "1 Ay", value: "1", months: 1 },
+  { label: "3 Ay", value: "3", months: 3 },
+  { label: "6 Ay", value: "6", months: 6 },
+  { label: "12 Ay", value: "12", months: 12 },
+  { label: "24 Ay", value: "24", months: 24 },
+  { label: "36 Ay", value: "36", months: 36 },
+];
+
 const initialGoals: Goal[] = [
-  { id: "goal-1", name: "Ev peşinatı — Kadıköy 2+1", target: 500000, saved: 320000 },
-  { id: "goal-2", name: "6 aylık acil durum fonu", target: 150000, saved: 142500 },
-  { id: "goal-3", name: "Japonya tatili · 2027 yaz", target: 120000, saved: 45600 },
+  { id: "goal-1", name: "Ev peşinatı — Kadıköy 2+1", target: 500000, saved: 320000, termMonths: 24 },
+  { id: "goal-2", name: "6 aylık acil durum fonu", target: 150000, saved: 142500, termMonths: null },
+  { id: "goal-3", name: "Japonya tatili · 2027 yaz", target: 120000, saved: 45600, termMonths: 12 },
 ];
 
 const currency = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 0 });
+
+/** Basit yedek hesap: kalan tutar / ay sayisi. Hedefe zaten ulasildiysa
+ * (kalan <= 0) `0` doner - "ayda biriktir" onerisi anlamsiz hale gelir. */
+function monthlySuggestion(goal: Goal): number | null {
+  if (!goal.termMonths) {
+    return null;
+  }
+  const remaining = goal.target - goal.saved;
+  return remaining > 0 ? remaining / goal.termMonths : 0;
+}
 
 function progressPercent(goal: Goal): number {
   if (goal.target <= 0) {
@@ -90,6 +119,7 @@ function FinancialGoals() {
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [saved, setSaved] = useState("");
+  const [term, setTerm] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
@@ -98,6 +128,7 @@ function FinancialGoals() {
     const trimmedName = name.trim();
     const targetValue = Number(target);
     const savedValue = Number(saved) || 0;
+    const termValue = term ? Number(term) : null;
 
     if (!trimmedName || !targetValue || targetValue <= 0) {
       return;
@@ -105,11 +136,12 @@ function FinancialGoals() {
 
     setGoals((prev) => [
       ...prev,
-      { id: `goal-${Date.now()}`, name: trimmedName, target: targetValue, saved: savedValue },
+      { id: `goal-${Date.now()}`, name: trimmedName, target: targetValue, saved: savedValue, termMonths: termValue },
     ]);
     setName("");
     setTarget("");
     setSaved("");
+    setTerm("");
   }
 
   function handleRemove(id: string) {
@@ -183,6 +215,20 @@ function FinancialGoals() {
               placeholder="0"
               className="mt-1.5 w-full rounded-lg border app-input px-3.5 py-2.5 text-sm outline-none"
             />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="font-medium app-heading">Vade</span>
+            <select
+              value={term}
+              onChange={(event) => setTerm(event.target.value)}
+              className="mt-1.5 w-full rounded-lg border app-input px-3.5 py-2.5 text-sm outline-none"
+            >
+              {TERM_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
 
@@ -271,6 +317,18 @@ function FinancialGoals() {
                       }}
                     />
                   </div>
+                  {goal.termMonths ? (
+                    <p className="mt-2.5 text-xs app-muted">
+                      Vade: <span className="font-semibold app-heading">{goal.termMonths} Ay</span>
+                      {" · "}
+                      {(() => {
+                        const monthly = monthlySuggestion(goal);
+                        return monthly && monthly > 0
+                          ? <>Ayda <span className="font-semibold app-heading">₺{currency.format(Math.ceil(monthly))}</span> biriktirmelisin</>
+                          : "Hedefe ulaşıldı";
+                      })()}
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>

@@ -26,16 +26,6 @@ const STEPS: TourStep[] = [
     },
   },
   {
-    id: "home",
-    target: '[data-tour="nav-home"]',
-    targetPadding: SIDEBAR_TARGET_PADDING,
-    title: { tr: "Ana Sayfa", en: "Home" },
-    description: {
-      tr: "Polifin'in sunduğu özelliklerin genel tanıtımına ve herkese açık bilgilere buradan ulaşabilirsin.",
-      en: "Open the public introduction to Polifin and its main features here.",
-    },
-  },
-  {
     id: "overview",
     target: '[data-tour="nav-dashboard"]',
     targetPadding: SIDEBAR_TARGET_PADDING,

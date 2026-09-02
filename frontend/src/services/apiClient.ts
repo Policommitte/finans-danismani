@@ -3,9 +3,21 @@ const TOKEN_KEY = "access_token";
 
 type RequestOptions = RequestInit & {
   auth?: boolean;
+  /** Istegin toplam ust siniri (ms). `0` = sinirsiz. Verilmezse GET icin
+   *  `DEFAULT_GET_TIMEOUT_MS`, digerleri icin sinirsiz. */
+  timeoutMs?: number;
 };
 
 const GET_RETRY_DELAYS_MS = [300, 900];
+
+// Okuma istekleri icin varsayilan ust sinir. Eskiden HICBIR istekte timeout
+// yoktu: backend takilinca (Supabase havuzu dolu, Pexels 6 sn'lik dis cagri
+// zinciri...) `useAsyncData.loading` hic bitmiyor ve gecis perdesi asili
+// kaliyordu. 20 sn, en agir mesru istegin (soguk dashboard ozeti) bile
+// ustunde; yalnizca gercekten takilmis istekleri keser. Yazma istekleri
+// (POST/PUT/DELETE) BILINCLI OLARAK kapsam disi: yarim kalmis bir emir ya
+// da onay istegini istemci tarafinda kesmek, sonucu belirsiz birakir.
+const DEFAULT_GET_TIMEOUT_MS = 20_000;
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") {
@@ -57,10 +69,32 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetchWithNetworkRetry(getApiUrl(path), {
-    ...options,
-    headers,
-  });
+  const method = (options.method ?? "GET").toUpperCase();
+  const timeoutMs = options.timeoutMs ?? (method === "GET" ? DEFAULT_GET_TIMEOUT_MS : 0);
+  // Cagiran kendi sinyalini verdiyse ona dokunulmaz; timeout yalnizca sinyalsiz
+  // isteklerde bizim tarafimizdan kurulur.
+  const controller = timeoutMs > 0 && !options.signal ? new AbortController() : null;
+  const timeoutTimer =
+    controller !== null ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+  const { timeoutMs: _ignored, ...fetchOptions } = options;
+
+  let response: Response;
+  try {
+    response = await fetchWithNetworkRetry(getApiUrl(path), {
+      ...fetchOptions,
+      headers,
+      signal: controller?.signal ?? options.signal,
+    });
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new Error(`Sunucu ${Math.round(timeoutMs / 1000)} saniye icinde yanit vermedi.`);
+    }
+    throw error;
+  } finally {
+    if (timeoutTimer !== null) {
+      window.clearTimeout(timeoutTimer);
+    }
+  }
 
   if (!response.ok) {
     let message = "API istegi basarisiz oldu.";

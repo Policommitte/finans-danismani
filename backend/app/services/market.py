@@ -36,8 +36,40 @@ INTERVAL_SECONDS = {
     "1d": 86400,
 }
 RANGE_DAYS = {"1d": 1, "5d": 5, "1m": 30, "3m": 90, "1y": 365}
-HISTORY_BUFFER_DAYS = {"1m": 30, "5m": 60, "1h": 730, "1d": 730}
+#: Kaynak mum serisi basina ASGARI yukleme penceresi (gun). Grafik sola
+#: kaydirilabilsin diye gorunen aralik kadar degil, daha fazlasi yuklenir.
+#:
+#: ⚠️ ESKIDEN "1h": 730 idi ve HER aralikta uygulaniyordu: market sayfasinin
+#: varsayilan 1 aylik/saatlik grafigi icin iki yillik saatlik arsivin tamami
+#: (binlerce satir, yuz kilobaytlarca JSON) cekiliyor, ustelik 60 sn'de bir
+#: tazeleniyordu - ve bu istek sayfa gecis perdesinin bekledigi istekti.
+#: Tampon artik gorunen aralikla OLCEKLENIR (bkz. `_gecmis_gun_sayisi`);
+#: yillik gorunum yine tam arsivi alir, aylik gorunum almaz.
+HISTORY_BUFFER_DAYS = {"1m": 30, "5m": 60, "1h": 120, "1d": 730}
+#: Depodaki en uzun arsiv (015_hourly_market_candles.sql: saatlik mumlar iki
+#: yil tutulur). Hicbir istek bunun otesini istemez.
+HISTORY_ARCHIVE_DAYS = 730
+#: Sola kaydirma payi: gorunen aralik kadar daha eski veri.
+HISTORY_SCROLL_FACTOR = 2
 CHART_TIME_ZONE = ZoneInfo("Europe/Istanbul")
+
+
+def _gecmis_gun_sayisi(range_key: str, kaynak_interval: str) -> int:
+    """Grafik icin depodan istenecek gun sayisi.
+
+    Gorunen araligin `HISTORY_SCROLL_FACTOR` kati (sola kaydirma payi), kaynak
+    serinin asgari tamponunun altina inmeden, arsiv sinirini asmadan:
+
+        1m / 1h  -> max(60, 120)  = 120   (eskiden 730)
+        3m / 1h  -> max(180, 120) = 180   (eskiden 730)
+        1y / 1h  -> min(730, 730) = 730   (degismedi - tam arsiv)
+        1d / 5m  -> max(2, 60)    = 60    (degismedi)
+    """
+    gorunen = RANGE_DAYS[range_key]
+    return min(
+        HISTORY_ARCHIVE_DAYS,
+        max(gorunen * HISTORY_SCROLL_FACTOR, HISTORY_BUFFER_DAYS[kaynak_interval]),
+    )
 
 
 def _kaynak_mum_araligi(interval: str, range_key: str) -> str:
@@ -103,8 +135,9 @@ async def mumlar_getir(symbol: str, interval: str, range_key: str) -> CandlesRes
     repository = get_market_repository()
     kaynak_interval = _kaynak_mum_araligi(interval, range_key)
     # Tarih secimi ilk gorunen pencereyi belirler. Daha eski mumlari da
-    # yukleyerek grafigin sola kaydirilabilmesini saglariz.
-    days = max(RANGE_DAYS[range_key], HISTORY_BUFFER_DAYS[kaynak_interval])
+    # yukleyerek grafigin sola kaydirilabilmesini saglariz - ama gorunen
+    # aralikla orantili olarak (bkz. `_gecmis_gun_sayisi`).
+    days = _gecmis_gun_sayisi(range_key, kaynak_interval)
     ohlcv_rows = await repository.get_candles(symbol, interval=kaynak_interval, days=days)
     if ohlcv_rows:
         if interval == "1h" and kaynak_interval == "1h":

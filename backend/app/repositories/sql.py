@@ -59,8 +59,8 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, password_hash,
-                   risk_tolerance, monthly_income, onboarding_completed, role,
-                   tckn_last4, birth_date, phone_number
+                   risk_tolerance, monthly_income, onboarding_completed, has_seen_tour,
+                   role, tckn_last4, birth_date, phone_number
             FROM users WHERE lower(email) = lower(:email)
             """,
             {"email": email},
@@ -70,16 +70,11 @@ class SqlUserRepository(_SqlRepository):
         return await self._row(
             """
             SELECT id, first_name, last_name, email, risk_tolerance, monthly_income,
-                   onboarding_completed, role, tckn_last4, birth_date, phone_number
+                   onboarding_completed, has_seen_tour, role, tckn_last4, birth_date,
+                   phone_number
             FROM users WHERE id = :user_id
             """,
             {"user_id": user_id},
-        )
-
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        return await self._row(
-            "SELECT id, email FROM users WHERE tckn_hash = :tckn_hash",
-            {"tckn_hash": tckn_hash},
         )
 
     async def create(
@@ -88,10 +83,7 @@ class SqlUserRepository(_SqlRepository):
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         async with self._session_factory() as session:
             result = await session.execute(
@@ -99,11 +91,12 @@ class SqlUserRepository(_SqlRepository):
                     """
                     INSERT INTO users
                         (first_name, last_name, email, password_hash, onboarding_completed,
-                         tckn_hash, tckn_last4, birth_date, phone_number)
+                         has_seen_tour, account_number)
                     VALUES (:first_name, :last_name, :email, :password_hash, false,
-                            :tckn_hash, :tckn_last4, :birth_date, :phone_number)
+                            false, :account_number)
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed, tckn_last4, birth_date, phone_number
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
                     """
                 ),
                 {
@@ -111,10 +104,7 @@ class SqlUserRepository(_SqlRepository):
                     "last_name": last_name,
                     "email": email,
                     "password_hash": password_hash,
-                    "tckn_hash": tckn_hash,
-                    "tckn_last4": tckn_last4,
-                    "birth_date": birth_date,
-                    "phone_number": phone_number,
+                    "account_number": account_number,
                 },
             )
             row = result.mappings().one()
@@ -130,10 +120,30 @@ class SqlUserRepository(_SqlRepository):
                     SET risk_tolerance = :risk_tolerance, onboarding_completed = true
                     WHERE id = :user_id
                     RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
-                              onboarding_completed, tckn_last4, birth_date, phone_number
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
                     """
                 ),
                 {"user_id": user_id, "risk_tolerance": risk_tolerance},
+            )
+            row = result.mappings().first()
+            await session.commit()
+            return dict(row) if row else None
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET has_seen_tour = true
+                    WHERE id = :user_id
+                    RETURNING id, first_name, last_name, email, risk_tolerance, monthly_income,
+                              onboarding_completed, has_seen_tour, tckn_last4, birth_date,
+                              phone_number
+                    """
+                ),
+                {"user_id": user_id},
             )
             row = result.mappings().first()
             await session.commit()
@@ -340,6 +350,106 @@ class SqlPortfolioRepository(_SqlRepository):
                 "valid_from": settings.portfolio_performance_valid_from,
             },
         )
+
+    async def write_value_snapshots(self) -> int:
+        """Her portfoy icin tek, standart 5 dakikalik anlik goruntu yazar.
+
+        Ayni kovada scheduler birden fazla kez calisirsa satir cogaltmak yerine
+        en son dogrulanmis degeri gunceller. Nakit, rezerve bakiye dahil edilerek
+        snapshot anindaki toplamdan hesaplanir; frontend sonradan bugunun
+        nakdini eski noktalara eklemez.
+        """
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    WITH holdings AS (
+                        SELECT p.id AS portfolio_id,
+                               COALESCE(SUM(h.market_value_try), 0) AS holdings_value_try
+                        FROM portfolios p
+                        LEFT JOIN v_holdings_valued h ON h.portfolio_id = p.id
+                        GROUP BY p.id
+                    ), cash AS (
+                        SELECT p.id AS portfolio_id,
+                               COALESCE(SUM(
+                                   (ca.available_balance + ca.reserved_balance)
+                                   * CASE WHEN ca.currency = 'TRY' THEN 1
+                                          ELSE COALESCE(fx.try_rate, 0) END
+                               ), 0) AS cash_value_try
+                        FROM portfolios p
+                        LEFT JOIN cash_accounts ca ON ca.portfolio_id = p.id
+                        LEFT JOIN v_fx_rates fx ON fx.currency = ca.currency
+                        GROUP BY p.id
+                    ), written AS (
+                        INSERT INTO portfolio_value_snapshots (
+                            portfolio_id, ts, holdings_value_try,
+                            cash_value_try, total_value_try, source
+                        )
+                        SELECT h.portfolio_id,
+                               date_bin(
+                                   INTERVAL '5 minutes', now(),
+                                   TIMESTAMPTZ '1970-01-01 00:00:00+00'
+                               ),
+                               h.holdings_value_try,
+                               c.cash_value_try,
+                               h.holdings_value_try + c.cash_value_try,
+                               'scheduler'
+                        FROM holdings h
+                        JOIN cash c ON c.portfolio_id = h.portfolio_id
+                        ON CONFLICT (portfolio_id, ts) DO UPDATE SET
+                            holdings_value_try = EXCLUDED.holdings_value_try,
+                            cash_value_try = EXCLUDED.cash_value_try,
+                            total_value_try = EXCLUDED.total_value_try,
+                            source = EXCLUDED.source,
+                            updated_at = now()
+                        RETURNING 1
+                    )
+                    SELECT COUNT(*) AS written_count FROM written
+                    """
+                )
+            )
+            count = int(result.scalar_one())
+            await session.commit()
+            return count
+
+    async def get_value_snapshots(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        return await self._rows(
+            """
+            SELECT s.ts, s.holdings_value_try, s.cash_value_try, s.total_value_try
+            FROM portfolio_value_snapshots s
+            JOIN portfolios p ON p.id = s.portfolio_id
+            WHERE p.user_id = :user_id
+              AND s.portfolio_id = COALESCE(
+                    CAST(:portfolio_id AS INT),
+                    (
+                        SELECT id FROM portfolios
+                        WHERE user_id = :user_id
+                        ORDER BY is_default DESC, id
+                        LIMIT 1
+                    )
+                  )
+              AND s.ts >= now() - make_interval(hours => :hours)
+            ORDER BY s.ts
+            """,
+            {"user_id": user_id, "portfolio_id": portfolio_id, "hours": hours},
+        )
+
+    async def prune_value_snapshots(self, keep_days: int = 30) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                text(
+                    """
+                    DELETE FROM portfolio_value_snapshots
+                    WHERE ts < now() - make_interval(days => :keep_days)
+                    """
+                ),
+                {"keep_days": keep_days},
+            )
+            deleted = int(result.rowcount or 0)
+            await session.commit()
+            return deleted
 
 
 class SqlMarketRepository(_SqlRepository):
@@ -2251,6 +2361,7 @@ class SqlRagRepository(_SqlRepository):
             SELECT c.id AS chunk_id, d.external_id AS doc_id, d.baslik, d.sirket,
                    a.symbol,
                    to_char(d.tarih, 'YYYY-MM-DD') AS tarih, d.tip,
+                   d.kaynak_url,
                    c.content,
                    ts_rank_cd(c.content_tsv, q.tsq) AS score
             FROM rag.chunks c
@@ -2339,6 +2450,9 @@ class SqlRagRepository(_SqlRepository):
             """
             SELECT hs.chunk_id, d.external_id AS doc_id, hs.baslik, hs.sirket,
                    a.symbol, to_char(hs.tarih, 'YYYY-MM-DD') AS tarih, hs.tip,
+                   -- `kaynak_url` `hybrid_search()`'un donus tipinde YOKTUR;
+                   -- zaten var olan `rag.documents` join'inden alinir.
+                   d.kaynak_url,
                    hs.content, hs.score, hs.cos_sim
             FROM rag.hybrid_search(
                      p_query     => CAST(:query AS TEXT),
@@ -2478,6 +2592,18 @@ class SqlChatRepository(_SqlRepository):
             )
             await session.commit()
             return dict(result.mappings().one())
+
+    async def message_owner_id(self, message_id: int) -> int | None:
+        satir = await self._row(
+            """
+            SELECT s.user_id
+            FROM chat_messages m
+            JOIN chat_sessions s ON s.id = m.session_id
+            WHERE m.id = :message_id
+            """,
+            {"message_id": message_id},
+        )
+        return int(satir["user_id"]) if satir else None
 
 
 class SqlAuditRepository(_SqlRepository):

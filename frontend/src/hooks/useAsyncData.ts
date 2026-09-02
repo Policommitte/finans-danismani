@@ -10,9 +10,36 @@ type AsyncState<T> = {
   refresh: () => Promise<void>;
 };
 
-export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []): AsyncState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+// Sayfalar arasi gecislerde yasayan, oturum boyunca kalan veri onbellegi.
+//
+// NEDEN VAR: her sayfa mount'unda `data=null, loading=true` ile basliyorduk;
+// dashboard'a besinci gidis de ilki kadar suruyordu ve gecis perdesi
+// (PageTransition) `loading` bitene kadar kapali kaliyordu. Onbellek
+// "stale-while-revalidate" calisir: anahtar daha once dolduysa ilk render'da
+// o veriyle ve loading=false ile baslanir, perde hemen acilir; taze veri
+// arka planda cekilip yerine yazilir.
+//
+// Anahtar VERMEYEN cagrilar eski davranisi birebir korur - onbellek yalnizca
+// gecis kapisindaki hook'lara acikca verilir.
+//
+// Oturum degisince (login/logout) `clearAsyncDataCache` cagrilir: baska
+// kullanicinin portfoyu bir an bile ekrana gelmemeli.
+const cache = new Map<string, unknown>();
+
+export function clearAsyncDataCache() {
+  cache.clear();
+}
+
+export function useAsyncData<T>(
+  loader: () => Promise<T>,
+  deps: unknown[] = [],
+  cacheKey?: string,
+): AsyncState<T> {
+  const cachedInitially = cacheKey !== undefined && cache.has(cacheKey);
+  const [data, setData] = useState<T | null>(() =>
+    cachedInitially ? (cache.get(cacheKey as string) as T) : null,
+  );
+  const [loading, setLoading] = useState(!cachedInitially);
   const [error, setError] = useState<string | null>(null);
   const latestRequest = useRef(0);
 
@@ -26,6 +53,9 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []):
       const nextData = await loader();
       if (requestId === latestRequest.current) {
         setData(nextData);
+        if (cacheKey !== undefined) {
+          cache.set(cacheKey, nextData);
+        }
       }
     } catch (exc) {
       if (requestId === latestRequest.current) {
@@ -36,9 +66,19 @@ export function useAsyncData<T>(loader: () => Promise<T>, deps: unknown[] = []):
         setLoading(false);
       }
     }
-  }, deps);
+  }, [...deps, cacheKey]);
 
-  const refetch = useCallback(() => load(true), [load]);
+  // Anahtar doluysa "yukleniyor" gostermeden onbellekten basla, arka planda
+  // tazele. Bagimliliklar degistiginde de (ornegin market'te sembol degisince)
+  // ayni yol calisir: daha once bakilan sembol aninda acilir.
+  const refetch = useCallback(() => {
+    if (cacheKey !== undefined && cache.has(cacheKey)) {
+      setData(cache.get(cacheKey) as T);
+      setLoading(false);
+      return load(false);
+    }
+    return load(true);
+  }, [load, cacheKey]);
   const refresh = useCallback(() => load(false), [load]);
 
   useEffect(() => {

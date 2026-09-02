@@ -115,6 +115,30 @@ async def test_saatlik_ve_dort_saatlik_grafik_iki_yillik_saatlik_arsivi_kullanir
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "range_key, beklenen_gun",
+    [
+        # Market sayfasinin VARSAYILAN gorunumu. Eskiden 730 gundu: 1 aylik
+        # grafik icin iki yillik saatlik arsivin tamami cekiliyor ve gecis
+        # perdesi bunu bekliyordu. Tampon artik gorunen aralikla olcekli.
+        ("1m", 120),
+        ("5d", 120),
+        ("3m", 180),
+        # Yillik gorunum tam arsivi almaya devam eder (ustteki test).
+        ("1y", 730),
+    ],
+)
+async def test_saatlik_arsiv_gorunen_aralikla_olceklenir(monkeypatch, range_key, beklenen_gun):
+    repository = OhlcvRepository()
+    monkeypatch.setattr(market, "get_market_repository", lambda: repository)
+
+    await market.mumlar_getir("THYAO", interval="1h", range_key=range_key)
+
+    assert repository.requested_interval == "1h"
+    assert repository.requested_days == beklenen_gun
+
+
+@pytest.mark.asyncio
 async def test_saatlik_grafik_kaynagin_yarim_saat_zamanini_korur(monkeypatch):
     class HalfHourRepository(OhlcvRepository):
         async def get_candles(self, symbol: str, interval: str, days: int) -> list[dict]:

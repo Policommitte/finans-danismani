@@ -22,6 +22,13 @@ const REVEAL_DELAY_MS = 40;
 // sonra sayfa yine acilir; serit kendi iskeletiyle sonradan dolar -
 // islevsel bir kayip yok, yalnizca kotu gunun tavani dusuyor.
 const TICKER_READY_TIMEOUT_MS = 2500;
+// Yardimci sayfalardaki veri bekleyisinin tavani. Dashboard, market/islemler
+// ve bulten bu tavani BILINCLI olarak kullanmaz: bu sayfalarin ilk acilisinda
+// asil veri hazir olmadan perdeyi kaldirmak, kullaniciya once bos bir
+// "yukleniyor" karti sonra gercek sayfayi gosteriyordu. Bu uc sayfa kendi
+// READY event'ini gonderene kadar logo + spinner gorunur kalir. Oneriler
+// sayfasinda ise mevcut guvenlik tavani korunur.
+const PAGE_READY_TIMEOUT_MS = 4000;
 
 type TransitionPhase = "idle" | "covering" | "covered" | "revealing";
 
@@ -41,6 +48,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
   useEffect(() => {
     let revealStarted = false;
     let tickerWaitExpired = false;
+    let pageWaitExpired = false;
 
     function revealPage() {
       if (revealStarted) {
@@ -72,7 +80,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
         (!pageNeedsDashboard || dashboardIsReady) &&
         (!pageNeedsMarket || marketPageIsReady) &&
         (!pageNeedsBulletin || bulletinPageIsReady) &&
-        (!pageNeedsAutonomousActions || autonomousActionsIsReady)
+        (!pageNeedsAutonomousActions || autonomousActionsIsReady || pageWaitExpired)
       );
     }
 
@@ -83,6 +91,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
     }
 
     let tickerReadyTimeout: number | null = null;
+    let pageReadyTimeout: number | null = null;
 
     if (!requiredDataIsReady()) {
       window.addEventListener(MARKET_TICKER_READY_EVENT, handleDataReady);
@@ -94,6 +103,10 @@ export function PageTransition({ children }: { children: ReactNode }) {
         tickerWaitExpired = true;
         handleDataReady();
       }, TICKER_READY_TIMEOUT_MS);
+      pageReadyTimeout = window.setTimeout(() => {
+        pageWaitExpired = true;
+        handleDataReady();
+      }, PAGE_READY_TIMEOUT_MS);
     } else {
       revealPage();
     }
@@ -106,6 +119,9 @@ export function PageTransition({ children }: { children: ReactNode }) {
       window.removeEventListener(AUTONOMOUS_ACTIONS_READY_EVENT, handleDataReady);
       if (tickerReadyTimeout !== null) {
         window.clearTimeout(tickerReadyTimeout);
+      }
+      if (pageReadyTimeout !== null) {
+        window.clearTimeout(pageReadyTimeout);
       }
       if (revealTimerRef.current !== null) {
         window.clearTimeout(revealTimerRef.current);
