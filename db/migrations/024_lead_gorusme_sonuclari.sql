@@ -1,4 +1,4 @@
--- 018_lead_gorusme_sonuclari.sql
+-- 024_lead_gorusme_sonuclari.sql
 -- Danismanin telefon gorusmesinden sonra ELLE isaretledigi sonuc.
 --
 -- Neden AYRI tablo: `lead_queue_entries` ve `lead_contacts` tarama
