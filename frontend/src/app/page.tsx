@@ -385,7 +385,7 @@ function LandingSideMenu({
           onAuthPopoverClose();
         }
       }}
-      className="fixed bottom-0 left-0 top-0 z-50 flex w-24 flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
+      className="fixed bottom-0 left-0 top-0 z-50 flex w-[var(--sidebar-width)] flex-col overflow-visible bg-[var(--color-market-bar)] px-6 py-6 shadow-2xl"
     >
       <div aria-hidden="true" className="h-20 shrink-0" />
 
@@ -1380,7 +1380,13 @@ export default function HomePage() {
           />
         )}
 
-        <div className={auth.user ? "ml-24 w-[calc(100%-6rem)] pt-20" : "w-full pt-20"}>
+        <div
+          className={
+            auth.user
+              ? "ml-[var(--sidebar-width)] w-[calc(100%-var(--sidebar-width))] pt-20"
+              : "w-full pt-20"
+          }
+        >
           <HeroSlider language={language} />
 
           <QuickAccessCards

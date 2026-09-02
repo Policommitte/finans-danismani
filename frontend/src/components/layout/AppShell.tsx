@@ -203,7 +203,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
         shouldSkipLandingContent ? null : (
           <>
             {children}
-            <SiteFooter className={auth.user ? "ml-24 w-[calc(100%-6rem)]" : "w-full"} />
+            <SiteFooter
+              className={
+                auth.user
+                  ? "ml-[var(--sidebar-width)] w-[calc(100%-var(--sidebar-width))]"
+                  : "w-full"
+              }
+            />
           </>
         )
       ) : (
@@ -219,7 +225,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
               isFocusedGame
                 ? "flex min-h-screen w-full flex-col pt-4"
                 : auth.user
-                  ? `ml-24 flex min-h-screen w-[calc(100%-6rem)] flex-col ${isGame ? "pt-8" : "pt-20"}`
+                  ? `ml-[var(--sidebar-width)] flex min-h-screen w-[calc(100%-var(--sidebar-width))] flex-col ${isGame ? "pt-8" : "pt-20"}`
                   : `flex min-h-screen w-full flex-col ${isGame ? "pt-8" : "pt-20"}`
             }
           >

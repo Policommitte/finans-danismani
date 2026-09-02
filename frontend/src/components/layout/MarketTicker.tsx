@@ -220,20 +220,40 @@ export function MarketTicker({
   }, [items.length]);
 
   return (
-    <section
-      className={`fixed right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)] ${
-        isAuthenticated ? "left-24" : "left-0"
-      }`}
-    >
-      <Link href="/" className="absolute left-0 top-1/2 hidden -translate-y-1/2 2xl:flex">
-        <span
-          aria-hidden="true"
-          className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
-        />
-        <span className="sr-only">Polifin</span>
-      </Link>
+    <>
+      {/* Giris yapmis kullanicida logo, sidebar'in TAM UZERINDE ayri bir
+          "baslik kutusu" olarak durur - genisligi sidebar'la AYNI degiskeni
+          (`--sidebar-width`, bkz. index.css) kullanir, boylece ikisi hep
+          hizali kalir. Misafirde sidebar hic yok, logo eskisi gibi ticker
+          seridinin kendi icinde (asagida) kalir. */}
+      {isAuthenticated && (
+        <div className="fixed left-0 top-0 z-[80] flex h-20 w-[var(--sidebar-width)] shrink-0 items-center justify-center border-r border-white/10 bg-[var(--color-market-bar)]">
+          <Link href="/">
+            <span
+              aria-hidden="true"
+              className="block h-8 w-16 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+            />
+            <span className="sr-only">Polifin</span>
+          </Link>
+        </div>
+      )}
 
-      <div className="flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 2xl:pl-52 2xl:pr-8">
+      <section
+        className={`fixed right-0 top-0 z-[80] bg-[var(--color-market-bar)] text-[var(--color-market-text)] ${
+          isAuthenticated ? "left-[var(--sidebar-width)]" : "left-0"
+        }`}
+      >
+        {!isAuthenticated && (
+          <Link href="/" className="absolute left-0 top-1/2 hidden -translate-y-1/2 2xl:flex">
+            <span
+              aria-hidden="true"
+              className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+            />
+            <span className="sr-only">Polifin</span>
+          </Link>
+        )}
+
+      <div className={`flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 ${isAuthenticated ? "" : "2xl:pl-52 2xl:pr-8"}`}>
         <div className="hidden shrink-0 items-center gap-2 text-sm font-semibold text-[var(--color-market-muted)] md:flex">
           <span className="h-2 w-2 rotate-45 bg-[var(--color-accent)]" />
           {language === "tr" ? "PİYASA VERİLERİ" : "MARKET DATA"}
@@ -306,6 +326,7 @@ export function MarketTicker({
           </button>
         </div>
       </div>
-    </section>
+      </section>
+    </>
   );
 }

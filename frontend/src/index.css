@@ -4,6 +4,12 @@
 @tailwind utilities;
 
 :root {
+  /* Sol sidebar'in kapali genisligi (bkz. components/ui/sidebar.tsx,
+     components/layout/MarketTicker.tsx, AppShell.tsx, app/page.tsx). Tema-
+     bagimsiz TEK bir duzen sabiti - sidebar genisligi degisirse yalnizca
+     burasi guncellenir, tum bagimli yerler otomatik senkron kalir. */
+  --sidebar-width: 6rem;
+
   --color-bg: #f5f7fb;
   --color-surface: #ffffff;
   --color-surface-muted: #f8fafc;

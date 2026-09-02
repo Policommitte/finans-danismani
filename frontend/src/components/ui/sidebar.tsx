@@ -96,13 +96,16 @@ export const DesktopSidebar = ({
         // modda oldugunda tuketicinin (layout/Sidebar.tsx) verdigi arkaplan
         // rengini EZERDI - canli olarak tam bu sekilde yakalandi. Arkaplan
         // rengi HER ZAMAN tuketicinin className'inden gelir.
-        "h-full px-4 py-4 hidden md:flex md:flex-col w-24 flex-shrink-0",
+        "h-full px-4 py-4 hidden md:flex md:flex-col w-[var(--sidebar-width)] flex-shrink-0",
         className
       )}
       animate={{
-        // Kapali genislik (96px) projenin AppShell/MarketTicker'daki mevcut
-        // `w-24`/`left-24`/`ml-24` sabitiyle (6rem) BIREBIR eslesir - boylece
+        // Kapali genislik `index.css`'teki `--sidebar-width` (6rem) duzen
+        // sabitiyle BIREBIR eslesir (bkz. o dosyadaki aciklama) - boylece
         // bu bilesen icin AppShell/MarketTicker'a HIC dokunmaya gerek kalmaz.
+        // framer-motion `animate` bir CSS degiskenini duzgun interpolate
+        // edemeyebilecegi icin burada literal "96px" birakildi - sidebar
+        // genisligi degisirse bu deger de elle guncellenmeli.
         width: animate ? (open ? "300px" : "96px") : "300px",
       }}
       onMouseEnter={() => setOpen(true)}
