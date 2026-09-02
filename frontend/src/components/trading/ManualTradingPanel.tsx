@@ -13,6 +13,49 @@ import { useAuth } from "../../hooks/useAuth";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { useMarket } from "../../hooks/useMarket";
 import { useTrading } from "../../hooks/useTrading";
+import type { Forecast } from "../../models/market";
+import { getForecast } from "../../services/marketService";
+
+/**
+ * Secili varligin tahminini ceker.
+ *
+ * `useMarket`'e EKLENMEDI: o hook fiyat/mum/emir akisini yonetiyor ve
+ * tahmin OPSIYONEL bir sustur - basarisiz olursa panelin geri kalani
+ * etkilenmemeli. Ayri tutmak, hatayi da ayri tutar.
+ */
+function useForecast(symbol: string | undefined): Forecast | null {
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+
+  useEffect(() => {
+    if (!symbol) {
+      setForecast(null);
+      return;
+    }
+
+    // Sembol degisince ESKI tahmin gorunmeye devam etmemeli: yeni istek
+    // donene kadar temizlenir, aksi halde THYAO'nun tahmini bir an AAPL
+    // grafiginin uzerinde durur.
+    setForecast(null);
+    let iptal = false;
+
+    getForecast(symbol)
+      .then((sonuc) => {
+        if (!iptal) setForecast(sonuc);
+      })
+      .catch(() => {
+        // Tahmin ozelligi kapali ya da uc hata verdi - SESSIZ gecilir,
+        // grafik tahminsiz cizilir. Kullaniciya hata gostermek gereksiz:
+        // istemedigi bir sus icin uyari almamali.
+        if (!iptal) setForecast(null);
+      });
+
+    return () => {
+      iptal = true;
+    };
+  }, [symbol]);
+
+  return forecast;
+}
 
 //: Sekme sirasi bilerek sabit: kullanicinin en cok ilgilendigi tipler
 //: (hisse/kripto/doviz/altin) once gelsin. Projede tanimli OLMAYAN bir tip
@@ -40,6 +83,7 @@ export function ManualTradingPanel({ onReady }: { onReady?: () => void }) {
   const auth = useAuth();
   const market = useMarket();
   const trading = useTrading();
+  const forecast = useForecast(market.symbol);
   // Sayfa acilir acilmaz hicbir varligin grafigi/islem ekrani otomatik
   // gorunmesin diye baslangic durumu HER ZAMAN "liste" - `market.symbol`in
   // varsayilan degeri (bkz. useMarket.ts) yalnizca arka planda mum verisi
@@ -141,6 +185,7 @@ export function ManualTradingPanel({ onReady }: { onReady?: () => void }) {
 
           <PriceHistoryChart
             data={market.data.candles}
+            forecast={forecast}
             assetClass={selectedAsset.asset_class}
             currency={selectedAsset.currency}
             interval={market.chartInterval}

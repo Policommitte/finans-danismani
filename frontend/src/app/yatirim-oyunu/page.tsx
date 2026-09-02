@@ -353,6 +353,13 @@ export default function YatirimOyunuPage() {
                   playSound={play}
                   onStartError={(message) => {
                     window.alert(message);
+                    // `contestState` yenilenmezse `already_participated_today`
+                    // eski (henuz basarisiz denemeden ONCEKI) degerinde kalir -
+                    // kayit ekranindaki kapi bunu gormeden "Yarismaya kaydol"
+                    // dugmesini GOSTERMEYE devam eder, kullanici ayni hatayi
+                    // alip tekrar tekrar denemeye "kilitlenir" (bkz. Issue #65,
+                    // "Oyunda Kayit Loop'a Giriyor"). Yenileme bu dongüyü kirar.
+                    void contestState.refresh();
                     goScreen("register");
                   }}
                   onWin={(result) => {

@@ -330,7 +330,8 @@ class RagRepository(Protocol):
         tip: str | None = None,
     ) -> list[dict]:
         """Haber/rapor arama - yalnizca BM25 (tam eslesme). Kaynak metadata'si
-        YAPILANDIRILMIS doner (FR-RAG-04)."""
+        YAPILANDIRILMIS doner (FR-RAG-04); alan listesi icin `hybrid_search()`
+        docstring'ine bakiniz - iki yolun donus sekli AYNI olmak zorundadir."""
         ...
 
     async def hybrid_search(
@@ -352,8 +353,8 @@ class RagRepository(Protocol):
 
         Donus seklinin `search()` ile AYNI olmasi zorunludur (FR-RAG-04):
         `chunk_id`, `doc_id`, `baslik`, `sirket`, `symbol`, `tarih`, `tip`,
-        `content`, `score` - `mcp/server.py::_chunk_payload` ikisini de
-        ayirt etmeden isler.
+        `kaynak_url`, `content`, `score` - `mcp/server.py::_chunk_payload`
+        ikisini de ayirt etmeden isler.
 
         Bu yol ayrica `cos_sim` (gercek kosinus benzerligi) dondurebilir;
         `score` RRF oldugu ve rank tabanli calistigi icin alaka esigi
@@ -391,6 +392,16 @@ class ChatRepository(Protocol):
         ...
 
     async def list_messages(self, session_id: int, limit: int = 200) -> list[dict]: ...
+
+    async def message_owner_id(self, message_id: int) -> int | None:
+        """Bir mesajin ait oldugu oturumun sahibi (`chat_sessions.user_id`).
+
+        Mesaj yoksa `None`. Belge rapor indirme ucu (`GET
+        /api/chat/reports/{message_id}`) bunu kullanir: `message_id`
+        sirali bir tam sayidir, sahiplik kontrolu OLMADAN kullanicilar
+        birbirinin raporunu tahmin edip indirebilirdi.
+        """
+        ...
 
     async def add_message(
         self,

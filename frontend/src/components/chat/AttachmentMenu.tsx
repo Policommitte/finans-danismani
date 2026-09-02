@@ -13,9 +13,18 @@ export type PendingAttachment = {
   dataUrl: string;
 };
 
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif";
-const FILE_ACCEPT = ".pdf,.txt,.csv,.md,.json,application/pdf,text/plain,text/csv,text/markdown,application/json";
+// ⚠️ backend/app/config.py::document_max_upload_mb ile AYNI TUTULMALI -
+// burada erken (kullanici bekletilmeden) uyari gostermek icin var, GERCEK
+// sinir backend'de (routes/chat.py -> services/chat.py::decode_attachment).
+const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+// Backend'in kabul ettigi kumeyle BIREBIR (app/documents/parser.py):
+// GIF ve eski .xls burada acik gorunup sunucuda 422 aliyordu.
+const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
+// Urun karari: belge ekleri SADECE PDF ve Excel (app/documents/parser.py
+// ile AYNI kapsam) - txt/csv/md/json bilincli olarak DISARIDA, backend'in
+// `parser.belge_turu()` zaten reddediyor, frontend secici de ayni sinirdan
+// baska bir sey ONERMEMELI.
+const FILE_ACCEPT = ".pdf,.xlsx,.xlsm,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function PlusIcon() {
   return (
@@ -97,7 +106,7 @@ export function AttachmentMenu({
 
   function checkSize(dataUrl: string): boolean {
     if (dataUrlByteLength(dataUrl) > MAX_ATTACHMENT_BYTES) {
-      onError("Dosya 10MB sınırını aşıyor, lütfen daha küçük bir dosya deneyin.");
+      onError("Dosya 15MB sınırını aşıyor, lütfen daha küçük bir dosya deneyin.");
       return false;
     }
     return true;
