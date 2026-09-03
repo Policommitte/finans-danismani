@@ -4,6 +4,12 @@
 @tailwind utilities;
 
 :root {
+  /* Sol sidebar'in kapali genisligi (bkz. components/ui/sidebar.tsx,
+     components/layout/MarketTicker.tsx, AppShell.tsx, app/page.tsx). Tema-
+     bagimsiz TEK bir duzen sabiti - sidebar genisligi degisirse yalnizca
+     burasi guncellenir, tum bagimli yerler otomatik senkron kalir. */
+  --sidebar-width: 6rem;
+
   --color-bg: #f5f7fb;
   --color-surface: #ffffff;
   --color-surface-muted: #f8fafc;
@@ -263,6 +269,20 @@ body {
 
 .page-transition[data-phase="revealing"] .page-transition__tile:nth-of-type(5) {
   transition-delay: 0ms;
+}
+
+/* Karolar `left:0` sabit kenardan buyuyup kuculuyor - bu, "revealing"
+   (acilma) sirasinda karonun SOLDAN degil SAGDAN daralmasi anlamina gelir:
+   width 100%'ten 0'a inerken sol kenar HEP kapali kalir, sadece sag ucu
+   geri ceker. Sonuc: ekranin SOL kenarinda, gecis tamamlanana kadar duran
+   koyu bir serit - ozellikle anasayfadaki hero'nun sol sutunundaki metnin
+   uzerine biniyordu. Duzeltme: revealing sirasinda ankoru saga (`right:0`)
+   cevirmek - width 100%'ken gorsel olarak HICBIR SEY degismez (ayni kutu),
+   ama kuculurken artik SOLDAN aciliyor, SAGA dogru kayboluyor - dogal bir
+   "perde acilma" yonu ve sol kenarda kalici artik kalmiyor. */
+.page-transition[data-phase="revealing"] .page-transition__tile {
+  left: auto;
+  right: 0;
 }
 
 .page-transition__brand {
@@ -637,7 +657,10 @@ body {
   .app-news-card:hover {
     height: 100%;
     min-height: 0;
-    transform: scale(1.025) translateY(-3px);
+    /* Kart buyumesin/yerinden oynamasin - `.app-hover-card:hover`'in
+       border-color/background/box-shadow (cerceve aydinlatmasi) YINE
+       uygulanir, burada SADECE transform iptal edilir. */
+    transform: none;
     z-index: 30;
   }
 

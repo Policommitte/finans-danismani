@@ -3,6 +3,7 @@ import type {
   HoldingsResponse,
   PerformanceRange,
   PortfolioPerformanceResponse,
+  PortfolioSnapshotPerformanceResponse,
   PortfolioSummary,
   TransactionsResponse,
 } from "../models/portfolio";
@@ -28,4 +29,12 @@ export function getPortfolioPerformance(
   range: PerformanceRange = "1G",
 ): Promise<PortfolioPerformanceResponse> {
   return apiRequest<PortfolioPerformanceResponse>(`/api/portfolio/performance?range=${range}`);
+}
+
+export function getPortfolioSnapshotPerformance(
+  hours = 24,
+): Promise<PortfolioSnapshotPerformanceResponse> {
+  return apiRequest<PortfolioSnapshotPerformanceResponse>(
+    `/api/portfolio/performance-v2?hours=${hours}`,
+  );
 }

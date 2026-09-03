@@ -159,3 +159,93 @@ def test_news_response_preserves_existing_title():
     )
 
     assert article.baslik == "Mevcut haber başlığı"
+
+
+# ---------------------------------------------------------------------------
+# Gorsel cozumlemesi istek DISINDA
+#
+# Eskiden gorseli olmayan her haber icin `_haber` Pexels'i istek icinde
+# bekliyordu (5'lik semafor, 6 sn timeout, sonra UPDATE); soguk tabloda
+# GET /api/market/news onlarca saniye suruyor ve bulten perdesi asili
+# kaliyordu. Artik yanit aninda doner, arama arka plana birakilir.
+# ---------------------------------------------------------------------------
+
+
+def test_news_without_image_does_not_wait_for_pexels(monkeypatch):
+    import app.services.news as news_modulu
+
+    async def slow_pexels(*_args, **_kwargs):
+        await asyncio.sleep(5)
+        return "https://pexels.example/asla-gelmez.jpg"
+
+    baslatilan: list[int] = []
+
+    def fake_background(document_id, kategori, baslik):
+        baslatilan.append(document_id)
+
+    monkeypatch.setattr(news_modulu, "search_photo", slow_pexels)
+    monkeypatch.setattr(news_modulu, "resolve_image_in_background", fake_background)
+
+    async def run():
+        return await asyncio.wait_for(
+            _haber(
+                {
+                    "id": 7,
+                    "baslik": "Bütçe uygulama sonuçları açıklandı",
+                    "raw_text": "Metin.",
+                    "kategori": "ekonomi",
+                    "image_url": None,
+                },
+                {},
+            ),
+            timeout=1.0,
+        )
+
+    article = asyncio.run(run())
+
+    assert article.image_url  # kategori/yerel gorsel HEMEN dondu
+    assert "pexels" not in article.image_url
+    assert baslatilan == [7]  # arama arka plana birakildi
+
+
+def test_background_resolution_not_restarted_for_same_document(monkeypatch):
+    import app.services.news as news_modulu
+
+    cagri = 0
+
+    async def fake_resolve(document_id, kategori, baslik):
+        nonlocal cagri
+        cagri += 1
+        await asyncio.sleep(0.05)
+        return "x"
+
+    monkeypatch.setattr(news_modulu, "resolve_image", fake_resolve)
+    news_modulu._devam_eden_cozumlemeler.clear()
+
+    async def scenario():
+        news_modulu.resolve_image_in_background(99, "hisse", "Deneme")
+        news_modulu.resolve_image_in_background(99, "hisse", "Deneme")  # surerken: yok sayilir
+        await asyncio.sleep(0.2)
+        news_modulu.resolve_image_in_background(99, "hisse", "Deneme")  # bitti: yeniden baslar
+        await asyncio.sleep(0.2)
+
+    asyncio.run(scenario())
+
+    assert cagri == 2
+    assert news_modulu._devam_eden_cozumlemeler == set()
+
+
+def test_no_background_task_for_news_with_local_image():
+    import app.services.news as news_modulu
+
+    news_modulu._devam_eden_cozumlemeler.clear()
+
+    baslik = "THY yeni uçak siparişi verdi"
+    # On kosul: baslik gercekten yerel gorsele dusuyor (Pexels gerekmez).
+    assert news_modulu._local_keyword_image(baslik)
+
+    async def scenario():
+        news_modulu.resolve_image_in_background(5, "hisse", baslik)
+        return set(news_modulu._devam_eden_cozumlemeler)
+
+    assert asyncio.run(scenario()) == set()

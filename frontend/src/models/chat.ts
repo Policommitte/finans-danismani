@@ -5,6 +5,17 @@ export type Source = {
   tarih: string | null;
   tip: string | null;
   score: number | null;
+  /**
+   * Haberin yayindaki adresi (`rag.documents.kaynak_url`).
+   *
+   * Sohbete haberin tam metni BASILMAZ - uzun metin pencereyi bogar; kaynak
+   * kartinda baslik/kaynak/tarih durur ve devamini okumak isteyen bu adrese
+   * gider.
+   *
+   * `undefined` DE olabilir, `null` da: bu ozellikten ONCE kaydedilmis
+   * mesajlar gecmisten `meta.sources` icinde bu alan HIC olmadan doner.
+   */
+  kaynak_url?: string | null;
 };
 
 export type AgentError = {
@@ -50,8 +61,69 @@ export type ChatMessage = {
   agent_errors?: AgentError[];
   message_id?: number;
   attachment?: ChatMessageAttachment;
+  /**
+   * Belge analiz ajaninin urettigi PDF rapor - varsa indirme baglantisi
+   * gosterilir. SSE `done` olayindaki `rapor` alanindan gelir (bkz.
+   * `Orchestrator.stream_request` - `app/engine/orchestrator.py`).
+   */
+  rapor?: ChatRaporMeta;
   /** Cevapta bahsedilen (katalogla dogrulanmis) varlik sembolleri - orn. ["TUPRS"]. */
   mentioned_assets?: string[];
+  /**
+   * Guided "I want to invest" flow (see useInvestmentPackageFlow.ts). These
+   * messages are produced locally and never sent to the backend.
+   */
+  local?: boolean;
+  /** Tappable answers shown under an assistant message; cleared once answered. */
+  quickReplies?: ChatQuickReply[];
+  /** Ready-made package rendered as a card with a one-tap purchase button. */
+  investmentPackage?: InvestmentPackage;
+};
+
+export type ChatQuickReply = {
+  id: string;
+  label: string;
+  /** Optional secondary line under the label. */
+  hint?: string;
+  /** Text echoed into the conversation as the user's message when tapped. */
+  message: string;
+};
+
+export type InvestmentHorizon = "SHORT" | "MEDIUM" | "LONG";
+export type InvestmentRiskProfile = "LOW" | "MEDIUM" | "HIGH";
+export type InvestmentGoal = IdleCashSuggestion["goal"];
+
+export type InvestmentPackageRequest = {
+  amount: number;
+  horizon: InvestmentHorizon;
+  risk_profile: InvestmentRiskProfile;
+  goal: InvestmentGoal;
+};
+
+/** Response of `POST /api/oneriler/paket` (backend/app/schemas/investment_package.py). */
+export type InvestmentPackage = {
+  title: string;
+  summary: string;
+  horizon: InvestmentHorizon;
+  horizon_label: string;
+  risk_profile: InvestmentRiskProfile;
+  goal: InvestmentGoal;
+  goal_label: string;
+  requested_amount: number;
+  available_balance: number;
+  exceeds_balance: boolean;
+  strategy_key: IdleCashBasketOption["strategy_key"];
+  strategy_label: string;
+  metrics: IdleCashBasketOption["metrics"];
+  suggestion: IdleCashSuggestion;
+  disclaimer: string;
+};
+
+/** PDF rapor teslimati meta verisi - baytlar SSE'den GECMEZ, yalnizca
+ * dosya adi/boyutu. Gercek dosya ayri bir indirme ucundan alinir. */
+export type ChatRaporMeta = {
+  dosya_adi: string;
+  boyut: number;
 };
 
 export type ChatRequest = {
@@ -154,4 +226,10 @@ export type ChatEvent =
   | { type: "token"; content: string }
   | { type: "agent_error"; agent: string; error_type: AgentError["error_type"]; message?: string }
   | { type: "error"; code: string; message: string }
-  | { type: "done"; message_id?: number; latency_ms: number; mentioned_assets?: string[] };
+  | {
+      type: "done";
+      message_id?: number;
+      latency_ms: number;
+      rapor?: ChatRaporMeta;
+      mentioned_assets?: string[];
+    };

@@ -7,14 +7,15 @@ import { useLanguage } from "../../contexts/LanguageContext";
 import { RegisterScreen } from "../../components/oyun/RegisterScreen";
 import { RulesModal } from "../../components/oyun/RulesModal";
 import { WaitingScreen } from "../../components/oyun/WaitingScreen";
-import { CheatSheetScreen } from "../../components/oyun/CheatSheetScreen";
+import { CheatSheetScreen, WAITING_TOPIC_ICONS, WAITING_TOPIC_COLORS } from "../../components/oyun/CheatSheetScreen";
+import { FlipCard } from "../../components/oyun/FlipCard";
 import { QuizScreen } from "../../components/oyun/QuizScreen";
 import { EliminatedScreen } from "../../components/oyun/EliminatedScreen";
 import { WinnerScreen } from "../../components/oyun/WinnerScreen";
 import type { Powerups } from "../../hooks/useQuiz";
 import { useGameFlow, type GameScreen, type GameTab } from "../../hooks/useGameFlow";
 import { CampaignsTab } from "../../components/oyun/CampaignsTab";
-import { CONFIG, type GameResult, type PowerupKind, type DonationItem } from "../../models/oyun";
+import { WAITING_NOTES, CONFIG, type GameResult, type PowerupKind, type DonationItem } from "../../models/oyun";
 import { WalletTab } from "../../components/oyun/WalletTab";
 import { useSoundEffects } from "../../hooks/useSoundEffects";
 import { IntroSidebar } from "../../components/oyun/IntroSidebar";
@@ -22,7 +23,12 @@ import { LeaderboardPanel } from "../../components/oyun/LeaderboardPanel";
 import { setGameFocus } from "../../components/layout/gameFocusEvents";
 import { useContestState } from "../../hooks/useContestState";
 import { useContestWallet } from "../../hooks/useContestWallet";
-import { acceptContestAgreement, consumePowerupApi, resetContestToday } from "../../services/contestService";
+import {
+  acceptContestAgreement,
+  consumePowerupApi,
+  resetContestToday,
+  resetShopPurchases,
+} from "../../services/contestService";
 
 const TABS: { id: GameTab; label: { tr: string; en: string } }[] = [
   { id: "oyun", label: { tr: "Oyun", en: "Game" } },
@@ -58,6 +64,11 @@ const PAGE_TEXT = {
   reset: { tr: "Sıfırla", en: "Reset" },
   resetToday: { tr: "Bugünkü katılımı sıfırla", en: "Reset today's entry" },
   resetTodayFailed: {
+    tr: "Sıfırlanamadı (bu işlem sadece geliştirme ortamında çalışır).",
+    en: "Couldn't reset (this only works in the development environment).",
+  },
+  resetShop: { tr: "Mağaza satın alımlarını sıfırla", en: "Reset shop purchases" },
+  resetShopFailed: {
     tr: "Sıfırlanamadı (bu işlem sadece geliştirme ortamında çalışır).",
     en: "Couldn't reset (this only works in the development environment).",
   },
@@ -199,6 +210,11 @@ export default function YatirimOyunuPage() {
   function handleLeaveContest() {
     const ok = window.confirm(PAGE_TEXT.leaveConfirm[language]);
     if (!ok) return;
+    // Yarışmaya kaydolduğun an (startParticipation) günlük hakkın backend'de
+    // zaten tükenmiş olur - `contestState` yenilenmezse bu bilgi bayat kalır
+    // ve "zaten katıldın" kapısı (çalışma notu kartlarıyla) yerine boş kayıt
+    // ekranı görünür (bkz. Issue #65'teki aynı desen).
+    void contestState.refresh();
     goScreen("register");
   }
 
@@ -213,6 +229,17 @@ export default function YatirimOyunuPage() {
       goScreen("register");
     } catch (exc) {
       window.alert(exc instanceof Error ? exc.message : PAGE_TEXT.resetTodayFailed[language]);
+    }
+  }
+
+  // DEMO/GELİŞTİRME: tüm mağaza satın almalarını (joker + bağış) siler,
+  // harcanan puanlar iade edilmiş gibi bakiyeye geri döner.
+  async function handleResetShop() {
+    try {
+      await resetShopPurchases();
+      await wallet.refresh();
+    } catch (exc) {
+      window.alert(exc instanceof Error ? exc.message : PAGE_TEXT.resetShopFailed[language]);
     }
   }
 
@@ -294,9 +321,13 @@ export default function YatirimOyunuPage() {
           <button
             type="button"
             onClick={handleLeaveContest}
-            className="rounded-lg border px-4 py-2 text-xs font-semibold transition"
-            style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold text-white transition hover:scale-[1.03] hover:shadow-lg active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(135deg, var(--color-danger) 0%, color-mix(in srgb, var(--color-danger) 70%, black) 100%)",
+              boxShadow: "0 4px 14px color-mix(in srgb, var(--color-danger) 40%, transparent)",
+            }}
           >
+            <span aria-hidden="true">🚪</span>
             {PAGE_TEXT.leaveContest[language]}
           </button>
         </div>
@@ -313,14 +344,18 @@ export default function YatirimOyunuPage() {
           >
             {!isFocused && (
               <div className="hidden lg:block">
-                <IntroSidebar registered={registered} taken={registeredCount} />
+                <IntroSidebar
+                  registered={registered}
+                  taken={registeredCount}
+                  alreadyPlayedToday={contestState.data?.already_participated_today ?? false}
+                />
               </div>
             )}
 
             <div className="min-w-0">
               {screen === "register" && contestState.data?.already_participated_today ? (
                 <Card>
-                  <div className="space-y-2 py-10 text-center">
+                  <div className="space-y-1 py-8 text-center">
                     <p className="app-heading text-lg font-semibold">
                       {language === "tr"
                         ? "Bugünkü katılım hakkını kullandın"
@@ -328,9 +363,24 @@ export default function YatirimOyunuPage() {
                     </p>
                     <p className="app-muted text-sm">
                       {language === "tr"
-                        ? "Yarın akşam tekrar yarışabilirsin."
-                        : "You can compete again tomorrow evening."}
+                        ? "Yarın akşam tekrar yarışabilirsin. O zamana kadar çalışma notuna göz atabilirsin, bir dahaki sefere işine yarayabilir 👇"
+                        : "You can compete again tomorrow evening. Until then, feel free to browse the study notes — might come in handy next time 👇"}
                     </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 border-t pt-6 sm:grid-cols-3" style={{ borderColor: "var(--color-border)" }}>
+                    {WAITING_NOTES.map((t, i) => {
+                      const TopicIcon = WAITING_TOPIC_ICONS[i] ?? WAITING_TOPIC_ICONS[0];
+                      return (
+                        <FlipCard
+                          key={t.title.tr}
+                          icon={<TopicIcon />}
+                          title={t.title[language]}
+                          body={t.body[language]}
+                          color={WAITING_TOPIC_COLORS[i] ?? "var(--color-primary)"}
+                        />
+                      );
+                    })}
                   </div>
                 </Card>
               ) : screen === "register" ? (
@@ -353,27 +403,42 @@ export default function YatirimOyunuPage() {
                   playSound={play}
                   onStartError={(message) => {
                     window.alert(message);
+                    // `contestState` yenilenmezse `already_participated_today`
+                    // eski (henuz basarisiz denemeden ONCEKI) degerinde kalir -
+                    // kayit ekranindaki kapi bunu gormeden "Yarismaya kaydol"
+                    // dugmesini GOSTERMEYE devam eder, kullanici ayni hatayi
+                    // alip tekrar tekrar denemeye "kilitlenir" (bkz. Issue #65,
+                    // "Oyunda Kayit Loop'a Giriyor"). Yenileme bu dongüyü kirar.
+                    void contestState.refresh();
                     goScreen("register");
                   }}
                   onWin={(result) => {
                     setLastResult(result);
                     // Skor/ödül zaten backend'de kaydedildi (finishParticipation
                     // içinde) - burada yalnızca cüzdanı tazeliyoruz, ikinci bir
-                    // yerel hesap YOK.
+                    // yerel hesap YOK. `contestState` de yenilenir ki "zaten
+                    // katıldın" kapısı (bkz. asağıdaki EliminatedScreen.onReview)
+                    // bayat bilgiyle açılmasın.
                     void wallet.refresh();
+                    void contestState.refresh();
                     play("win");
                     goScreen("victory");
                   }}
                   onLose={(result) => {
                     setLastResult(result);
                     void wallet.refresh();
+                    void contestState.refresh();
                     goScreen("eliminated");
                   }}
                 />
               ) : screen === "eliminated" && lastResult ? (
                 <EliminatedScreen
                   result={lastResult}
-                  onReview={() => goScreen("cheatsheet")}
+                  // Yarışma artık bitti - "cheatsheet" (hazırlık, saatli, yeni
+                  // katılım başlatan) ekrana DEĞİL, "register" kapısına gider:
+                  // günlük hak zaten tükendiği için orada otomatik olarak
+                  // WAITING_NOTES (sonraki günü beklerken) kartları açılır.
+                  onReview={() => goScreen("register")}
                   onGoPoints={() => goTab("puanlar")}
                 />
               ) : screen === "victory" && lastResult ? (
@@ -475,6 +540,18 @@ export default function YatirimOyunuPage() {
                   }
                 >
                   {PAGE_TEXT.resetToday[language]}
+                </button>
+                <button
+                  onClick={() => void handleResetShop()}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold transition"
+                  style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+                  title={
+                    language === "tr"
+                      ? "Backend'deki tüm mağaza satın almalarını siler, puanlar iade edilir (sunum için)"
+                      : "Deletes all real backend shop purchases and refunds the points (for demos)"
+                  }
+                >
+                  {PAGE_TEXT.resetShop[language]}
                 </button>
               </div>
             </Card>

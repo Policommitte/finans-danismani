@@ -90,7 +90,7 @@ BOSTA_DURUMLAR = {"idle", "idle in transaction", "idle in transaction (aborted)"
 BACKEND_KOK = Path(__file__).resolve().parent.parent
 
 
-def _kok_ekle() -> None:
+def _add_backend_root() -> None:
     """`app` paketini import edebilmek icin backend kokunu sys.path'e ekler.
 
     `python scripts/db_baglantilari.py` calistirildiginda sys.path[0] betigin
@@ -103,7 +103,7 @@ def _kok_ekle() -> None:
         sys.path.insert(0, kok)
 
 
-def _env_dosyasindan_dsn() -> str:
+def _dsn_from_env_file() -> str:
     """`backend/.env` icinden DATABASE_URL'i dogrudan okur (yedek yol).
 
     `Settings(env_file=".env")` dosyayi CALISMA DIZININE gore arar; betik
@@ -121,7 +121,7 @@ def _env_dosyasindan_dsn() -> str:
     return ""
 
 
-def dsn_hazirla(url: str) -> str:
+def prepare_dsn(url: str) -> str:
     for surucu in ("postgresql+psycopg", "postgresql+asyncpg", "postgres"):
         if url.startswith(surucu + "://"):
             return "postgresql://" + url.split("://", 1)[1]
@@ -131,9 +131,9 @@ def dsn_hazirla(url: str) -> str:
 def dsn_bul(verilen: str | None) -> str:
     """Baglanti dizesini bulur: --dsn > app.config > backend/.env."""
     if verilen:
-        return dsn_hazirla(verilen)
+        return prepare_dsn(verilen)
 
-    _kok_ekle()
+    _add_backend_root()
     url = ""
     try:
         from app.config import settings
@@ -146,7 +146,7 @@ def dsn_bul(verilen: str | None) -> str:
         print(f"[i] app.config okunamadi ({type(hata).__name__}: {hata}); .env'e bakiliyor.")
 
     if not url:
-        url = _env_dosyasindan_dsn()
+        url = _dsn_from_env_file()
 
     if not url:
         print(
@@ -156,10 +156,10 @@ def dsn_bul(verilen: str | None) -> str:
             '    python scripts/db_baglanti_kes.py --dsn "postgresql://kullanici:sifre@host:5432/postgres"'
         )
         raise SystemExit(2)
-    return dsn_hazirla(url)
+    return prepare_dsn(url)
 
 
-def pooler_uyarisi(dsn: str) -> str | None:
+def pooler_warning(dsn: str) -> str | None:
     """Pooler arkasindayken KESMEK SORUNU COZMEZ.
 
     Supavisor (`*.pooler.supabase.com`) kendi sunucu baglantilarini yonetir:
@@ -182,7 +182,7 @@ def pooler_uyarisi(dsn: str) -> str | None:
     return None
 
 
-def sure(saniye: Any) -> str:
+def format_duration(saniye: Any) -> str:
     if saniye is None:
         return "-"
     saniye = int(saniye)
@@ -193,7 +193,7 @@ def sure(saniye: Any) -> str:
     return f"{saniye // 3600}sa{(saniye % 3600) // 60:02d}"
 
 
-def elenme_sebebi(satir: dict[str, Any], argumanlar: argparse.Namespace) -> str | None:
+def exclusion_reason(satir: dict[str, Any], argumanlar: argparse.Namespace) -> str | None:
     """Bu baglanti neden KESILMEYECEK? None donerse aday demektir."""
     if not argumanlar.korumasiz and satir["kullanici"] in KORUNAN_ROLLER:
         return "korunan Supabase rolu"
@@ -248,7 +248,7 @@ def main() -> int:
     argumanlar = ayristirici.parse_args()
 
     dsn = dsn_bul(argumanlar.dsn)
-    uyari = pooler_uyarisi(dsn)
+    uyari = pooler_warning(dsn)
     if uyari:
         print("\n[!] " + uyari + "\n")
 
@@ -262,7 +262,7 @@ def main() -> int:
             adaylar = []
             elenenler = []
             for satir in satirlar:
-                sebep = elenme_sebebi(satir, argumanlar)
+                sebep = exclusion_reason(satir, argumanlar)
                 (elenenler if sebep else adaylar).append((satir, sebep))
 
             print(f"Toplam istemci baglantisi : {len(satirlar)}")
@@ -286,7 +286,7 @@ def main() -> int:
                 print(
                     f"  pid {satir['pid']:<8} {satir['kullanici']:<16}"
                     f" {satir['uygulama'][:24]:<24} {satir['durum']:<26}"
-                    f" {sure(satir['durum_sn']):>7}  {satir['sorgu'][:40]}"
+                    f" {format_duration(satir['durum_sn']):>7}  {satir['sorgu'][:40]}"
                 )
 
             if not argumanlar.onayla:

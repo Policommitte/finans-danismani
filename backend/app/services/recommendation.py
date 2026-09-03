@@ -11,7 +11,7 @@ IKI FILTRE SUNUCU TARAFINDADIR
     denetim kaydinda durur.
 
 KARAR MANTIGI SAF FONKSIYONDADIR
-    `kisisellestir()` I/O yapmaz; ayni girdi her zaman ayni ciktiyi verir.
+    `personalize()` I/O yapmaz; ayni girdi her zaman ayni ciktiyi verir.
     Boylece FR-AUT-012 ("neden bana geldi?") gercek bir cevap dondurebilir ve
     kurallar testle sabitlenebilir.
 """
@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import settings
 from app.core.errors import BusinessRuleError, NotFoundError
-from app.core.quantity import adet_yuvarla
+from app.core.quantity import round_quantity
 from app.repositories.deps import get_recommendation_repository
 from app.schemas.recommendation import (
     RET_GEREKCELERI,
@@ -32,7 +32,7 @@ from app.schemas.recommendation import (
     RecommendationListResponse,
 )
 from app.services import trading as trading_service
-from app.signals import kural_adi, sinyal_uret
+from app.signals import generate_signals, rule_name
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ PROFIL_KURALLARI: dict[str, dict] = {
 VARSAYILAN_PROFIL = "MEDIUM"
 
 
-def sessiz_saat_mi(now: datetime) -> bool:
+def is_quiet_hour(now: datetime) -> bool:
     """FR-AUT-010: sessiz saatlerde oneri URETILMEZ.
 
     Uretmemek, uretip bildirimi kuyruga almaktan bilincli olarak tercih
@@ -71,7 +71,7 @@ def sessiz_saat_mi(now: datetime) -> bool:
     return yerel.hour >= bas or yerel.hour < bit
 
 
-def kisisellestir(
+def personalize(
     signal: dict,
     user: dict,
     holdings: dict[int, float],
@@ -125,7 +125,7 @@ def kisisellestir(
             return None, "kullanicinin bu varlikta pozisyonu yok"
         # Pozisyonun bir bolumu onerilir; tamamini kapatmak otonom bir
         # akisin tek basina verecegi karar degildir.
-        adet = adet_yuvarla(elde * 0.30, sinif)
+        adet = round_quantity(elde * 0.30, sinif)
         if adet <= 0:
             return None, "onerilebilecek anlamli bir satis adedi yok"
         tutar = adet * fiyat
@@ -142,7 +142,7 @@ def kisisellestir(
         )
         if tavan <= 0:
             return None, "kullanilabilir nakit ya da limit yetersiz"
-        adet = adet_yuvarla(tavan / fiyat, sinif)
+        adet = round_quantity(tavan / fiyat, sinif)
         if adet <= 0:
             # Bolunmez bir enstrumanda tek adedin fiyati butceyi asiyor
             # (orn. tek islem limiti 5.000 TL iken LLY 57.222 TL). Kusuratli
@@ -165,12 +165,12 @@ def kisisellestir(
             "estimated_amount": round(tutar, 2),
             "confidence": float(signal["confidence"]),
             "rationale": list(signal["rationale"])[:5],
-            "risk_note": _risk_notu(signal, profil),
-            "sources": _kaynaklar(signal),
+            "risk_note": _risk_note(signal, profil),
+            "sources": _sources(signal),
             "personalization": {
                 "risk_profile": profil,
                 "rule_code": signal["rule_code"],
-                "rule_name": kural_adi(signal["rule_code"]),
+                "rule_name": rule_name(signal["rule_code"]),
                 "engine_version": signal.get("engine_version"),
                 "holding_quantity": elde,
                 "available_balance": float(user["available_balance"]),
@@ -183,16 +183,16 @@ def kisisellestir(
     )
 
 
-def _risk_notu(signal: dict, profil: str) -> str:
+def _risk_note(signal: dict, profil: str) -> str:
     yon = "alim" if signal["direction"] == "BUY" else "satis"
     return (
-        f"Bu {yon} onerisi \"{kural_adi(signal['rule_code'])}\" kuralindan uretildi ve "
+        f"Bu {yon} onerisi \"{rule_name(signal['rule_code'])}\" kuralindan uretildi ve "
         f"{profil} risk profiline gore filtrelendi. Gecmis fiyat hareketi "
         f"gelecegi garanti etmez; fiyat ters yonde hareket edebilir."
     )
 
 
-def _yuzde_metni(value) -> str:
+def _percent_text(value) -> str:
     try:
         sayi = float(value)
     except (TypeError, ValueError):
@@ -200,12 +200,12 @@ def _yuzde_metni(value) -> str:
     return f"%{sayi:+.1f}".replace(".", ",")
 
 
-def _kaynaklar(signal: dict) -> list[dict]:
+def _sources(signal: dict) -> list[dict]:
     """BR-AUT-01: kaynaksiz oneri gosterilemez."""
     kanit = signal.get("evidence") or {}
     return [
         {
-            "label": f"Kural: {kural_adi(signal['rule_code'])}",
+            "label": f"Kural: {rule_name(signal['rule_code'])}",
             "kind": "rule",
             "url": None,
         },
@@ -214,9 +214,9 @@ def _kaynaklar(signal: dict) -> list[dict]:
             # kaynak satirini okunmaz yapiyordu.
             "label": (
                 "Piyasa verisi — "
-                f"gunluk {_yuzde_metni(kanit.get('daily_change_pct'))}, "
-                f"haftalik {_yuzde_metni(kanit.get('weekly_change_pct'))}, "
-                f"yillik {_yuzde_metni(kanit.get('yearly_change_pct'))}"
+                f"gunluk {_percent_text(kanit.get('daily_change_pct'))}, "
+                f"haftalik {_percent_text(kanit.get('weekly_change_pct'))}, "
+                f"yillik {_percent_text(kanit.get('yearly_change_pct'))}"
                 f" (veri: {str(kanit.get('price_as_of', ''))[:16].replace('T', ' ')})"
             ),
             "kind": "market",
@@ -230,7 +230,7 @@ def _kaynaklar(signal: dict) -> list[dict]:
 # =====================================================================
 
 
-async def oneri_uret(now: datetime | None = None) -> dict:
+async def generate_recommendations(now: datetime | None = None) -> dict:
     """Tam tur: tarama -> sinyal -> kisisellestirme -> oneri.
 
     Fiyat tick'inden cagrilir. Sayaclari doner; hicbir kosulda istisna
@@ -255,11 +255,11 @@ async def oneri_uret(now: datetime | None = None) -> dict:
             )
         return {**sayac, "halted": durdurulan, "reason": "kill-switch"}
 
-    if sessiz_saat_mi(an):
+    if is_quiet_hour(an):
         return {**sayac, "reason": "sessiz saat"}
 
     assets = await repo.assets_for_scan()
-    ham_sinyaller = sinyal_uret(
+    ham_sinyaller = generate_signals(
         assets,
         now=an,
         threshold=settings.signal_confidence_threshold,
@@ -303,7 +303,7 @@ async def oneri_uret(now: datetime | None = None) -> dict:
         # Guveni yuksek sinyal once degerlendirilir: gunluk kota dolarken
         # kullaniciya en guclu sinyaller ulassin.
         for signal in sorted(yayinlanan, key=lambda s: -float(s["confidence"])):
-            yuk, gerekce = kisisellestir(
+            yuk, gerekce = personalize(
                 {**signal, "asset_class": sinif_haritasi.get(int(signal["asset_id"]))},
                 user,
                 holdings,
@@ -339,12 +339,14 @@ async def oneri_uret(now: datetime | None = None) -> dict:
     return sayac
 
 
-async def suresi_dolanlari_kapat() -> int:
+async def expire_due_recommendations() -> int:
     """BR-AUT-04: TTL dolan acik onerileri kapatir."""
     return await get_recommendation_repository().expire_due(datetime.now(timezone.utc))
 
 
-async def onerileri_getir(user_id: int, status: str | None = None) -> RecommendationListResponse:
+async def list_recommendations(
+    user_id: int, status: str | None = None
+) -> RecommendationListResponse:
     repo = get_recommendation_repository()
     # TTL kapanisi OKUMADA da yapilir. Yalnizca fiyat tick'ine birakilsaydi -
     # ve gecmiste oldugu gibi backend bir sure kapali kalsaydi - suresi dolmus
@@ -352,12 +354,12 @@ async def onerileri_getir(user_id: int, status: str | None = None) -> Recommenda
     await repo.expire_due(datetime.now(timezone.utc))
     rows = await repo.list_recommendations(user_id, status)
     return RecommendationListResponse(
-        items=[_kart(r) for r in rows],
+        items=[_to_card(r) for r in rows],
         counts=await repo.counts_by_status(user_id),
     )
 
 
-async def oneri_getir(user_id: int, recommendation_id: int) -> Recommendation:
+async def get_recommendation(user_id: int, recommendation_id: int) -> Recommendation:
     """Kart acildiginda durum Goruntulendi'ye gecer (D-07)."""
     repo = get_recommendation_repository()
     await repo.expire_due(datetime.now(timezone.utc))
@@ -365,10 +367,12 @@ async def oneri_getir(user_id: int, recommendation_id: int) -> Recommendation:
     if row is None:
         raise NotFoundError("Bu oneri artik mevcut degil.")
     guncel = await repo.mark_viewed(user_id, recommendation_id)
-    return _kart(guncel or row)
+    return _to_card(guncel or row)
 
 
-async def oneri_reddet(user_id: int, recommendation_id: int, reason: str) -> Recommendation:
+async def reject_recommendation(
+    user_id: int, recommendation_id: int, reason: str
+) -> Recommendation:
     if reason not in RET_GEREKCELERI:
         raise BusinessRuleError("Gecersiz ret gerekcesi.")
     repo = get_recommendation_repository()
@@ -388,10 +392,12 @@ async def oneri_reddet(user_id: int, recommendation_id: int, reason: str) -> Rec
             "reason": reason,
         }
     )
-    return _kart(row)
+    return _to_card(row)
 
 
-async def oneri_onayla(user_id: int, recommendation_id: int, quantity: float | None = None) -> dict:
+async def approve_recommendation(
+    user_id: int, recommendation_id: int, quantity: float | None = None
+) -> dict:
     """Onay -> emir. Emir olusturma MEVCUT trading servisine devredilir.
 
     BR-AUT-08 iki katmanda korunur: idempotency anahtari oneri kimligine
@@ -406,7 +412,7 @@ async def oneri_onayla(user_id: int, recommendation_id: int, quantity: float | N
         raise BusinessRuleError("Bu oneri zaten bir emre donusmus.")
     if row["status"] not in {"PUBLISHED", "VIEWED"}:
         raise BusinessRuleError("Bu onerinin gecerlilik suresi doldu ya da durduruldu.")
-    if _gecmis_mi(row["expires_at"]):
+    if _is_past(row["expires_at"]):
         raise BusinessRuleError("Bu onerinin gecerlilik suresi doldu.")
 
     adet = float(quantity) if quantity else float(row["quantity"])
@@ -432,10 +438,10 @@ async def oneri_onayla(user_id: int, recommendation_id: int, quantity: float | N
             "detail": {"order_id": int(emir.id), "quantity": adet},
         }
     )
-    return {"recommendation": _kart(guncel), "order": emir}
+    return {"recommendation": _to_card(guncel), "order": emir}
 
 
-async def kill_switch_ayarla(active: bool, reason: str | None, actor: str) -> dict:
+async def set_kill_switch(active: bool, reason: str | None, actor: str) -> dict:
     repo = get_recommendation_repository()
     sonuc = await repo.set_kill_switch(active, reason, actor)
     durdurulan = await repo.halt_open(reason or "") if active else 0
@@ -450,7 +456,7 @@ async def kill_switch_ayarla(active: bool, reason: str | None, actor: str) -> di
     return {**sonuc, "halted": durdurulan}
 
 
-def _gecmis_mi(value) -> bool:
+def _is_past(value) -> bool:
     an = value
     if isinstance(an, str):
         try:
@@ -462,7 +468,7 @@ def _gecmis_mi(value) -> bool:
     return an <= datetime.now(timezone.utc)
 
 
-def _kart(row: dict) -> Recommendation:
+def _to_card(row: dict) -> Recommendation:
     return Recommendation(
         id=int(row["id"]),
         asset_symbol=row["asset_symbol"],

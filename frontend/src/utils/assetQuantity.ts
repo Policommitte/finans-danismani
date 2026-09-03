@@ -26,38 +26,38 @@ export const CEYREK_ADIM = 0.25;
 /** Yalnizca kripto serbest ondalik alir. */
 export const SERBEST_SINIFLAR = new Set(["CRYPTO"]);
 
-function sinif(assetClass: string | undefined | null): string {
+function normalizeAssetClass(assetClass: string | undefined | null): string {
   return (assetClass ?? "").toUpperCase();
 }
 
-export function bolunmezMi(assetClass: string | undefined | null): boolean {
-  return BOLUNMEZ_SINIFLAR.has(sinif(assetClass));
+export function isIndivisible(assetClass: string | undefined | null): boolean {
+  return BOLUNMEZ_SINIFLAR.has(normalizeAssetClass(assetClass));
 }
 
-export function ceyrekAdimliMi(assetClass: string | undefined | null): boolean {
-  return CEYREK_ADIMLI_SINIFLAR.has(sinif(assetClass));
+export function isQuarterStep(assetClass: string | undefined | null): boolean {
+  return CEYREK_ADIMLI_SINIFLAR.has(normalizeAssetClass(assetClass));
 }
 
-export function adetAdimi(assetClass: string | undefined | null): string {
-  if (ceyrekAdimliMi(assetClass)) return "0.25";
-  if (SERBEST_SINIFLAR.has(sinif(assetClass))) return "any";
+export function quantityStep(assetClass: string | undefined | null): string {
+  if (isQuarterStep(assetClass)) return "0.25";
+  if (SERBEST_SINIFLAR.has(normalizeAssetClass(assetClass))) return "any";
   return "1";
 }
 
-export function adetGecerliMi(adet: number, assetClass: string | undefined | null): boolean {
+export function isValidQuantity(adet: number, assetClass: string | undefined | null): boolean {
   if (!Number.isFinite(adet) || adet <= 0) return false;
-  if (ceyrekAdimliMi(assetClass)) {
+  if (isQuarterStep(assetClass)) {
     return Math.abs(adet / CEYREK_ADIM - Math.round(adet / CEYREK_ADIM)) < 1e-6;
   }
-  if (SERBEST_SINIFLAR.has(sinif(assetClass))) return true;
+  if (SERBEST_SINIFLAR.has(normalizeAssetClass(assetClass))) return true;
   return Number.isInteger(adet);
 }
 
-export function gecersizAdetMesaji(
+export function invalidQuantityMessage(
   assetClass: string | undefined | null,
   language: string,
 ): string {
-  if (ceyrekAdimliMi(assetClass)) {
+  if (isQuarterStep(assetClass)) {
     return language === "tr"
       ? "Döviz emirleri 0,25'in katları olmalıdır."
       : "Currency orders must be in multiples of 0.25.";

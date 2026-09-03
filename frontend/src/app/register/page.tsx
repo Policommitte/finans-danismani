@@ -2,40 +2,20 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { requestPageTransition } from "../../components/layout/transitionEvents";
-import { IdCardScanner, type IdCardExtraction } from "../../components/register/IdCardScanner";
 import { useAuth } from "../../hooks/useAuth";
 
-const allowedNextPaths = new Set([
-  "/dashboard",
-  "/market",
-  "/risk",
-  "/reports",
-  "/bulten",
-  "/islemler",
-  "/yatirim-oyunu",
-  "/destek",
-  "/profile",
-  "/settings",
-]);
-
-function getSafeNextPath() {
-  if (typeof window === "undefined") {
-    return "/dashboard";
-  }
-  const next = new URLSearchParams(window.location.search).get("next");
-  return next && allowedNextPaths.has(next) ? next : "/dashboard";
-}
-
-const networkNodes = [
-  { x: 40, y: 420 }, { x: 110, y: 470 }, { x: 60, y: 520 }, { x: 150, y: 400 },
-  { x: 190, y: 500 }, { x: 20, y: 560 }, { x: 130, y: 560 }, { x: 230, y: 440 },
-  { x: 660, y: 210 }, { x: 720, y: 160 }, { x: 780, y: 220 }, { x: 700, y: 270 },
-  { x: 830, y: 180 }, { x: 760, y: 300 }, { x: 880, y: 260 }, { x: 820, y: 330 },
-];
-const networkLinks: [number, number][] = [
-  [0, 1], [1, 2], [1, 3], [3, 4], [2, 5], [2, 6], [4, 6], [3, 7],
-  [8, 9], [9, 10], [8, 11], [10, 11], [9, 12], [10, 13], [12, 14], [13, 14], [11, 13], [14, 15],
-];
+/**
+ * Kayit akisi (TCKN/NVI dogrulamali eski akis KALDIRILDI):
+ *
+ *   1. Banka hesabi baglama - SIMULASYON. Gercek bir banka API'sine
+ *      baglanilmaz; secilen banka rozeti ve girilen hesap numarasi
+ *      dogrulanmadan bilgi amacli backend'e iletilir.
+ *   2. E-posta + sifre - kaydi tamamlar, backend otomatik giris icin
+ *      token doner (bkz. useAuth.register).
+ *
+ * Basarili kayittan sonra kullanici HER ZAMAN /portfolio'ya yonlendirilir -
+ * /login'e asla geri donulmez.
+ */
 
 function EyeIcon({ off }: { off: boolean }) {
   return (
@@ -55,48 +35,94 @@ function EyeIcon({ off }: { off: boolean }) {
   );
 }
 
+const networkNodes = [
+  { x: 40, y: 420 }, { x: 110, y: 470 }, { x: 60, y: 520 }, { x: 150, y: 400 },
+  { x: 190, y: 500 }, { x: 20, y: 560 }, { x: 130, y: 560 }, { x: 230, y: 440 },
+  { x: 660, y: 210 }, { x: 720, y: 160 }, { x: 780, y: 220 }, { x: 700, y: 270 },
+  { x: 830, y: 180 }, { x: 760, y: 300 }, { x: 880, y: 260 }, { x: 820, y: 330 },
+];
+const networkLinks: [number, number][] = [
+  [0, 1], [1, 2], [1, 3], [3, 4], [2, 5], [2, 6], [4, 6], [3, 7],
+  [8, 9], [9, 10], [8, 11], [10, 11], [9, 12], [10, 13], [12, 14], [13, 14], [11, 13], [14, 15],
+];
+
 const inputClassName =
   "mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] px-3.5 py-2.5 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]";
 
+/**
+ * Yalnizca gorsel secim icin banka rozetleri - gercek bir kuruma BAGLANMAZ.
+ * Logolar Wikimedia Commons'taki resmi/serbest dosyalardan alindi (basit
+ * metin/geometrik logolar coğu ulkede telif esigi altinda sayildigi icin
+ * Commons'ta serbestce barindiriliyor) - `/public/bank-logos/*.svg`.
+ */
+const BANKS = [
+  { name: "Ziraat Bankası", logo: "/bank-logos/ziraat.svg" },
+  { name: "İş Bankası", logo: "/bank-logos/isbankasi.svg" },
+  { name: "Garanti BBVA", logo: "/bank-logos/garanti.svg" },
+  { name: "Akbank", logo: "/bank-logos/akbank.svg" },
+  { name: "DenizBank", logo: "/bank-logos/denizbank.svg" },
+  { name: "VakıfBank", logo: "/bank-logos/vakifbank.svg" },
+];
+
+type Step = "bank" | "credentials";
+
 function RegisterPageContent() {
   const auth = useAuth();
+  const [step, setStep] = useState<Step>("bank");
+
+  // Adim 1: banka hesabi baglama (simulasyon)
+  const [selectedBank, setSelectedBank] = useState<string | null>(null);
+  const [accountNumber, setAccountNumber] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [bankError, setBankError] = useState<string | null>(null);
+
+  // Adim 2: e-posta + sifre
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [tckn, setTckn] = useState("");
-  const [birthDate, setBirthDate] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.loading && auth.user) {
-      requestPageTransition(getSafeNextPath(), true);
+      requestPageTransition("/portfolio", true);
     }
   }, [auth.loading, auth.user]);
 
-  function handleIdCardExtracted(data: IdCardExtraction) {
-    if (data.firstName) setFirstName(data.firstName);
-    if (data.lastName) setLastName(data.lastName);
-    if (data.tckn) setTckn(data.tckn);
-    if (data.birthDate) setBirthDate(data.birthDate);
+  function submitBankStep(event: FormEvent) {
+    event.preventDefault();
+    setBankError(null);
+
+    if (!selectedBank) {
+      setBankError("Lütfen bir banka seçin.");
+      return;
+    }
+    if (!/^\d{9}$/.test(accountNumber)) {
+      setBankError("Hesap numarası 9 haneli olmalıdır.");
+      return;
+    }
+
+    setConnecting(true);
+    // Gercek bir banka API'sine baglanilmiyor - yalnizca akisin gerceklik
+    // hissi vermesi icin kisa bir "getiriliyor" bekleme simulasyonu.
+    window.setTimeout(() => {
+      setConnecting(false);
+      setStep("credentials");
+    }, 1500);
   }
 
-  async function submit(event: FormEvent) {
+  async function submitCredentialsStep(event: FormEvent) {
     event.preventDefault();
     setError(null);
+
+    if (password !== confirmPassword) {
+      setError("Şifreler eşleşmiyor.");
+      return;
+    }
+
     try {
-      await auth.register({
-        email,
-        password,
-        first_name: firstName,
-        last_name: lastName,
-        tckn,
-        birth_date: birthDate,
-        phone_number: phoneNumber,
-      });
-      requestPageTransition(getSafeNextPath(), true);
+      await auth.register({ email, password, account_number: accountNumber });
+      requestPageTransition("/portfolio", true);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "Kayıt oluşturulamadı.");
     }
@@ -149,130 +175,155 @@ function RegisterPageContent() {
         <span className="sr-only">POLIFIN</span>
 
         <div className="w-full rounded-2xl bg-[var(--color-surface-elevated)] p-7 shadow-2xl">
-          <h1 className="text-xl font-bold text-[var(--color-heading)]">Kayıt Ol</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Kimlik bilginiz NVI ile doğrulandıktan sonra hesabınız açılır
-          </p>
+          <h1 className="text-center text-xl font-bold text-[var(--color-heading)]">Kayıt Ol</h1>
 
-          <div className="mt-6">
-            <IdCardScanner onExtracted={handleIdCardExtracted} />
-          </div>
+          {step === "bank" ? (
+            <>
+              <p className="mt-5 text-center text-sm font-semibold text-[var(--color-heading)]">
+                İş Ortağı Bankalarımız
+              </p>
+              <p className="mt-1 text-center text-sm text-[var(--color-muted)]">
+                Portföy bilgilerini taşı
+              </p>
 
-          <form className="mt-4 space-y-4" onSubmit={submit}>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-sm">
-                <span className="font-medium text-[var(--color-text)]">Ad</span>
-                <input
-                  className={inputClassName}
-                  value={firstName}
-                  onChange={(event) => setFirstName(event.target.value)}
-                  type="text"
-                  autoComplete="given-name"
-                  required
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-medium text-[var(--color-text)]">Soyad</span>
-                <input
-                  className={inputClassName}
-                  value={lastName}
-                  onChange={(event) => setLastName(event.target.value)}
-                  type="text"
-                  autoComplete="family-name"
-                  required
-                />
-              </label>
-            </div>
+              <form className="mt-4 space-y-4" onSubmit={submitBankStep}>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {BANKS.map((bank) => {
+                    const active = selectedBank === bank.name;
+                    return (
+                      <button
+                        key={bank.name}
+                        type="button"
+                        onClick={() => setSelectedBank(bank.name)}
+                        aria-pressed={active}
+                        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-xs font-medium transition ${
+                          active
+                            ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
+                            : "border-[var(--color-border)] bg-[var(--color-input-bg)] text-[var(--color-text)] hover:border-[var(--color-primary)]/60"
+                        }`}
+                      >
+                        <span className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-white p-1">
+                          <img src={bank.logo} alt="" aria-hidden="true" className="h-full w-full object-contain" />
+                        </span>
+                        <span className="truncate">{bank.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
 
-            <label className="block text-sm">
-              <span className="font-medium text-[var(--color-text)]">TC Kimlik Numarası</span>
-              <input
-                className={inputClassName}
-                value={tckn}
-                onChange={(event) => setTckn(event.target.value.replace(/\D/g, "").slice(0, 11))}
-                type="text"
-                inputMode="numeric"
-                maxLength={11}
-                placeholder="11 haneli TC Kimlik No"
-                required
-              />
-            </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-[var(--color-text)]">Hesap Numarası</span>
+                  <input
+                    className={inputClassName}
+                    value={accountNumber}
+                    onChange={(event) => setAccountNumber(event.target.value.replace(/\D/g, "").slice(0, 9))}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={9}
+                    placeholder="9 haneli hesap numarası"
+                    disabled={connecting}
+                    required
+                  />
+                </label>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block text-sm">
-                <span className="font-medium text-[var(--color-text)]">Doğum Tarihi</span>
-                <input
-                  className={inputClassName}
-                  value={birthDate}
-                  onChange={(event) => setBirthDate(event.target.value)}
-                  type="date"
-                  required
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="font-medium text-[var(--color-text)]">Telefon Numarası</span>
-                <input
-                  className={inputClassName}
-                  value={phoneNumber}
-                  onChange={(event) => setPhoneNumber(event.target.value)}
-                  type="tel"
-                  placeholder="05XX XXX XX XX"
-                  autoComplete="tel"
-                  required
-                />
-              </label>
-            </div>
+                {bankError && (
+                  <div className="rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger-text)]">
+                    {bankError}
+                  </div>
+                )}
 
-            <label className="block text-sm">
-              <span className="font-medium text-[var(--color-text)]">E-mail</span>
-              <input
-                className={inputClassName}
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                type="email"
-                placeholder="mehmet@example.com"
-                autoComplete="username"
-                required
-              />
-            </label>
+                <button
+                  type="submit"
+                  disabled={connecting}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {connecting ? (
+                    <>
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      Hesap bilgileri getiriliyor…
+                    </>
+                  ) : (
+                    "Hesabı Bağla"
+                  )}
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <form className="mt-5 space-y-4" onSubmit={submitCredentialsStep}>
+                <label className="block text-sm">
+                  <span className="font-medium text-[var(--color-text)]">E-mail</span>
+                  <input
+                    className={inputClassName}
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    type="email"
+                    placeholder="mehmet@example.com"
+                    autoComplete="username"
+                    required
+                  />
+                </label>
 
-            <label className="block text-sm">
-              <span className="font-medium text-[var(--color-text)]">Şifre</span>
-              <div className="relative mt-1.5">
-                <input
-                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] px-3.5 py-2.5 pr-10 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  minLength={8}
-                  required
-                />
+                <label className="block text-sm">
+                  <span className="font-medium text-[var(--color-text)]">Şifre</span>
+                  <div className="relative mt-1.5">
+                    <input
+                      className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-bg)] px-3.5 py-2.5 pr-10 text-sm text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-muted)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary-soft)]"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] transition hover:text-[var(--color-text)]"
+                    >
+                      <EyeIcon off={!showPassword} />
+                    </button>
+                  </div>
+                </label>
+
+                <label className="block text-sm">
+                  <span className="font-medium text-[var(--color-text)]">Şifre (Tekrar)</span>
+                  <input
+                    className={inputClassName}
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+
+                {error && (
+                  <div className="rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger-text)]">
+                    {error}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={auth.loading}
+                  className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {auth.loading ? "Kontrol ediliyor…" : "Kayıt ol"}
+                </button>
+
                 <button
                   type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? "Şifreyi gizle" : "Şifreyi göster"}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] transition hover:text-[var(--color-text)]"
+                  onClick={() => setStep("bank")}
+                  className="w-full text-center text-xs font-medium text-[var(--color-muted)] transition hover:text-[var(--color-text)]"
                 >
-                  <EyeIcon off={!showPassword} />
+                  ← Banka hesabı adımına dön
                 </button>
-              </div>
-            </label>
-
-            {error && (
-              <div className="rounded-lg border border-[var(--color-danger-border)] bg-[var(--color-danger-bg)] p-3 text-sm text-[var(--color-danger-text)]">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={auth.loading}
-              className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {auth.loading ? "Kontrol ediliyor…" : "Kayıt ol"}
-            </button>
-          </form>
+              </form>
+            </>
+          )}
 
           <div className="mt-6 text-center">
             <Link

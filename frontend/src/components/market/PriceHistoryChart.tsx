@@ -7,6 +7,7 @@ import {
   CrosshairMode,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   TickMarkType,
   createChart,
   type Time,
@@ -16,6 +17,7 @@ import type {
   CandlesResponse,
   ChartInterval,
   ChartRange,
+  Forecast,
 } from "../../models/market";
 import Card from "../ui/Card";
 import { useLanguage } from "../../contexts/LanguageContext";
@@ -119,8 +121,55 @@ export function visibleRangeStart(
     ?? candles[0].time;
 }
 
+/**
+ * Tahmin bu grafige cizilebilir mi?
+ *
+ * SADECE GUNLUK (`1d`) grafikte. Tahmin gunluk mumdan uretilir ve 21 IS GUNU
+ * ilerisini gosterir; 5dk'lik bir grafige eklenirse zaman ekseni 21 gunluk
+ * bir bosluga yayilir ve gercek veri okunamaz hale gelir.
+ */
+const FORECAST_UP_COLOR = "#26a69a";
+const FORECAST_DOWN_COLOR = "#ef5350";
+
+/**
+ * Colors every forecast point by its direction relative to the previous
+ * point, so rising stretches render green and falling stretches red.
+ */
+export function colorForecastByDirection<T extends { value: number }>(
+  points: T[],
+): Array<T & { color: string }> {
+  return points.map((point, index) => {
+    const previous = index > 0 ? points[index - 1].value : point.value;
+    return {
+      ...point,
+      color: point.value >= previous ? FORECAST_UP_COLOR : FORECAST_DOWN_COLOR,
+    };
+  });
+}
+
+function forecastCizilebilir(
+  forecast: Forecast | null | undefined,
+  interval: ChartInterval,
+): forecast is Forecast {
+  return Boolean(forecast && forecast.noktalar.length > 0 && interval === "1d");
+}
+
+/** `YYYY-AA-GG` -> lightweight-charts UTC saniye damgasi. */
+function tariheDamga(tarih: string): UTCTimestamp {
+  return (Date.parse(`${tarih}T00:00:00Z`) / 1000) as UTCTimestamp;
+}
+
 type Props = {
   data: CandlesResponse;
+  /**
+   * Ileriye donuk tahmin. `null`/`undefined` ise kesikli cizgi HIC cizilmez -
+   * ozellik backend'de kapali olabilir (bkz. `marketService.getForecast`).
+   *
+   * ⚠️ YALNIZCA GUNLUK grafikte anlamlidir: tahmin gunluk mumla uretilir,
+   * 5dk'lik bir grafige 21 GUNLUK tahmin cizmek olcegi tamamen bozar.
+   * Bu kontrol `forecastCizilebilir()` icinde yapilir.
+   */
+  forecast?: Forecast | null;
   assetClass?: string;
   currency?: string;
   interval: ChartInterval;
@@ -136,6 +185,7 @@ type Props = {
 
 export function PriceHistoryChart({
   data,
+  forecast,
   assetClass,
   currency,
   interval,
@@ -254,6 +304,74 @@ export function PriceHistoryChart({
       updateLineColor = (color: string) => series.applyOptions({ color });
     }
 
+    // --- TAHMIN: gri kesikli cizgi + belirsizlik bandi ---
+    //
+    // Bant, cizgiden ONCE eklenir: lightweight-charts serileri ekleme
+    // sirasina gore ust uste cizer, sonra eklenen ustte kalir. Bant once
+    // gelmezse dolgu, kesikli cizgiyi orter.
+    if (forecastCizilebilir(forecast, data.interval)) {
+      const sonGercek = data.candles.at(-1);
+
+      // Bant SINIRLARI: iki ince kesikli cizgi.
+      //
+      // DOLGULU bant DENENDI VE VAZGECILDI: lightweight-charts'ta hazir bir
+      // "band" serisi yok, taklidi ancak alt siniri ARKA PLAN RENGIYLE
+      // doldurarak yapiliyor - ama bu grafigin arka plani `transparent`
+      // (tema degisiminde saydam kalsin diye). Saydam zeminde o numara
+      // calismaz, alt dolgu grafigin altindaki her seyi de orterdi.
+      // Iki ince cizgi hem calisir hem kullanicinin istedigi "gri kesikli"
+      // gorunumle tutarlidir.
+      // Ust bant (yukselis senaryosu) yesil, alt bant (dusus senaryosu)
+      // kirmizi; ikisi de kalin noktali cizgi - eski gri cizgiler cok silikti.
+      const bantCizgisi = (color: string) =>
+        chart.addSeries(LineSeries, {
+          color,
+          lineWidth: 2,
+          lineStyle: LineStyle.Dotted,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          priceFormat: { type: "price", precision, minMove },
+        });
+      const bantUst = bantCizgisi(FORECAST_UP_COLOR);
+      const bantAlt = bantCizgisi(FORECAST_DOWN_COLOR);
+
+      // Bant ve cizgi SON GERCEK NOKTADAN baslar - aksi halde gercek seri
+      // ile tahmin arasinda gorsel bir kopukluk olusur.
+      const kopru = sonGercek
+        ? [{ time: sonGercek.time as UTCTimestamp, value: sonGercek.close }]
+        : [];
+
+      bantUst.setData([
+        ...kopru,
+        ...forecast.noktalar.map((n) => ({ time: tariheDamga(n.tarih), value: n.ust })),
+      ]);
+      bantAlt.setData([
+        ...kopru,
+        ...forecast.noktalar.map((n) => ({ time: tariheDamga(n.tarih), value: n.alt })),
+      ]);
+
+      // Tahmin cizgisi yon renkli NOKTALI cizgi: yukselen parcalar yesil,
+      // dusen parcalar kirmizi (mum renkleriyle ayni). lightweight-charts'ta
+      // bir noktanin `color`'u, ONCEKI noktadan o noktaya cizilen parcayi
+      // boyar; bu yuzden her nokta bir onceki degerle karsilastirilir.
+      const forecastLine = chart.addSeries(LineSeries, {
+        color: FORECAST_UP_COLOR,
+        lineWidth: 3,
+        lineStyle: LineStyle.Dotted,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        priceFormat: { type: "price", precision, minMove },
+      });
+      forecastLine.setData(
+        colorForecastByDirection([
+          ...kopru,
+          ...forecast.noktalar.map((n) => ({ time: tariheDamga(n.tarih), value: n.deger })),
+        ]),
+      );
+    }
+
     if (hasVolume) {
       const volumeSeries = chart.addSeries(HistogramSeries, {
         priceFormat: { type: "volume" },
@@ -298,7 +416,16 @@ export function PriceHistoryChart({
     });
 
     const firstTime = data.candles[0].time;
-    const lastTime = data.candles[data.candles.length - 1].time;
+    // ⚠️ GORUNUR ARALIK TAHMINI DE KAPSAMALI. Eskiden `to` son GERCEK
+    // muma sabitleniyordu; tahmin serisi eklenince noktalari o sinirin
+    // SAGINDA kaliyor ve kesikli cizgi hic gorunmuyordu (canli testte
+    // birebir yasandi: istek 200 donuyor, veri geliyor, ekranda hicbir
+    // sey yok). Tahmin varsa aralik onun son gunune kadar uzatilir.
+    const sonGercekZaman = data.candles[data.candles.length - 1].time;
+    const tahminSonZaman = forecastCizilebilir(forecast, data.interval)
+      ? tariheDamga(forecast.noktalar[forecast.noktalar.length - 1].tarih)
+      : sonGercekZaman;
+    const lastTime = Math.max(sonGercekZaman, tahminSonZaman);
     const visibleFrom = Math.max(firstTime, visibleRangeStart(data.candles, data.range));
     if (visibleFrom < lastTime) {
       chart.timeScale().setVisibleRange({
@@ -352,7 +479,10 @@ export function PriceHistoryChart({
       observer.disconnect();
       chart.remove();
     };
-  }, [chartFormatters, data.candles, data.interval, data.range, hasVolume, kind, locale, onRangePresetExit, precision, rangePresetRevision]);
+    // `forecast` bagimliligi ZORUNLU: tahmin sonradan (ayri bir istekle)
+    // gelir; listede olmazsa grafik yeniden cizilmez ve kesikli cizgi
+    // ancak bir sonraki aralik/sembol degisiminde belirir.
+  }, [chartFormatters, data.candles, data.interval, data.range, forecast, hasVolume, kind, locale, onRangePresetExit, precision, rangePresetRevision]);
 
   const latestPrice = latest?.close.toLocaleString(locale, {
     minimumFractionDigits: precision,

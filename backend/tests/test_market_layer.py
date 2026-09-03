@@ -60,12 +60,12 @@ class SahteKotaDeposu:
 
 
 def _yahoo_taklit(monkeypatch, fiyatlar=None, hata: Exception | None = None):
-    """`canli_kotasyonlar` yerine sahte bir uygulama koyar; cagriyi kaydeder."""
+    """`canli_kotasyonlar` yerine fake bir uygulama koyar; cagriyi kaydeder."""
     from app.market import yahoo
 
     cagrilar: list[list[str]] = []
 
-    async def sahte(db_symbols):
+    async def fake(db_symbols):
         cagrilar.append(list(db_symbols))
         if hata is not None:
             raise hata
@@ -74,7 +74,7 @@ def _yahoo_taklit(monkeypatch, fiyatlar=None, hata: Exception | None = None):
             for symbol, price in (fiyatlar or {}).items()
         }
 
-    monkeypatch.setattr(yahoo, "canli_kotasyonlar", sahte)
+    monkeypatch.setattr(yahoo, "canli_kotasyonlar", fake)
     return cagrilar
 
 
@@ -94,10 +94,10 @@ async def test_api_saglayici_yahoo_fiyatlarini_dondurur(monkeypatch):
 async def test_api_saglayici_onceki_kapanisi_repository_guncellemesine_tasir(monkeypatch):
     from app.market import yahoo
 
-    async def sahte(_symbols):
+    async def fake(_symbols):
         return {"THYAO": {"price": 301.25, "previous_close": 298.0}}
 
-    monkeypatch.setattr(yahoo, "canli_kotasyonlar", sahte)
+    monkeypatch.setattr(yahoo, "canli_kotasyonlar", fake)
     sonuc = await ApiMarketProvider(kota_deposu=SahteKotaDeposu()).next_prices(VARLIKLAR)
 
     assert sonuc == [{"asset_id": 1, "price": 301.25, "previous_close": 298.0}]
@@ -192,12 +192,12 @@ async def test_saatlik_uzlastirma_dogrudan_1h_veriyi_ister_ve_kotaya_isler(
 
     calls = []
 
-    async def sahte(symbols, **kwargs):
+    async def fake(symbols, **kwargs):
         calls.append((symbols, kwargs))
         return [{"symbol": "THYAO", "interval": "1h", "ts": "2026-08-25T06:30:00Z"}]
 
-    monkeypatch.setattr(yahoo, "gecmis_mumlari_indir", sahte)
-    monkeypatch.setattr(yahoo, "tamamlanmis_saatlik_mumlar", lambda rows: rows)
+    monkeypatch.setattr(yahoo, "gecmis_mumlari_indir", fake)
+    monkeypatch.setattr(yahoo, "completed_hourly_candles", lambda rows: rows)
     depo = SahteKotaDeposu()
 
     sonuc = await ApiMarketProvider(kota_deposu=depo).reconcile_hourly_candles(VARLIKLAR)
@@ -274,13 +274,13 @@ async def test_kota_sayaci_okunamazsa_cagri_yine_de_yapilir(monkeypatch):
 
 
 @pytest.mark.db
-async def test_fiyat_tick_i_fiyatlari_gunceller():
+async def test_price_tick_updates_prices():
     """Fiyat yazimi DESTRUKTIFTIR; test kendi degisikligini geri alir.
 
     Alinmasaydi bu testten sonra calisan tum toplam/dagilim testleri seed
     degerini degil uretilmis fiyati gorurdu.
     """
-    async with _fiyatlari_koru():
+    async with _preserve_prices():
         from app.repositories.deps import get_market_repository
 
         repository = get_market_repository()
@@ -293,9 +293,9 @@ async def test_fiyat_tick_i_fiyatlari_gunceller():
 
 
 @pytest.mark.db
-async def test_fiyat_tick_i_gunluk_degisimi_yeniden_hesaplar():
+async def test_price_tick_recomputes_daily_change():
     """Yoksa yuzde seed degerinde donar (mimari v4 bolum 8.2)."""
-    async with _fiyatlari_koru():
+    async with _preserve_prices():
         from app.repositories.deps import get_market_repository
 
         repository = get_market_repository()
@@ -307,9 +307,9 @@ async def test_fiyat_tick_i_gunluk_degisimi_yeniden_hesaplar():
 
 
 @pytest.mark.db
-async def test_yahoo_cokunce_hicbir_fiyat_yazilmaz(monkeypatch):
+async def test_no_price_written_when_yahoo_fails(monkeypatch):
     """Yahoo cokunce `assets` son dogrulanmis fiyatta kalmali."""
-    async with _fiyatlari_koru():
+    async with _preserve_prices():
         from app.repositories.deps import get_market_repository
 
         _yahoo_taklit(monkeypatch, hata=TimeoutError("yahoo yanit vermedi"))
@@ -324,7 +324,7 @@ async def test_yahoo_cokunce_hicbir_fiyat_yazilmaz(monkeypatch):
         assert (await repository.get_quote("THYAO"))["price"] == onceki
 
 
-def test_yazilabilir_kaynaklar_simulated_icermez():
+def test_writable_sources_exclude_simulated():
     """Beyaz listenin kazara genisletilmesini yakalar."""
     from app.market.scheduler import YAZILABILIR_KAYNAKLAR
 
@@ -334,7 +334,7 @@ def test_yazilabilir_kaynaklar_simulated_icermez():
 
 
 @asynccontextmanager
-async def _fiyatlari_koru():
+async def _preserve_prices():
     """`assets` fiyat kolonlarini test sonrasi eski haline dondurur."""
     from sqlalchemy import text
 
@@ -377,14 +377,14 @@ async def _fiyatlari_koru():
 
 
 @pytest.mark.db
-def test_health_veri_kaynagini_bildirir(client):
+def test_health_reports_data_source(client):
     govde = client.get("/health").json()
 
     assert govde["status"] == "ok"
     assert govde["data_source"] == "postgresql"
 
 
-def test_health_db_url_yoksa_disabled_doner(client, override_settings):
+def test_health_returns_disabled_without_db_url(client, override_settings):
     """'DB yok' ile 'DB var ama erisilemiyor' ayirt edilebilmeli."""
     override_settings(database_url="")
 
@@ -393,11 +393,11 @@ def test_health_db_url_yoksa_disabled_doner(client, override_settings):
     assert govde["status"] == "disabled"
 
 
-def test_health_kimlik_dogrulama_istemez(client):
+def test_health_requires_no_authentication(client):
     assert client.get("/health").status_code == 200
 
 
-def test_baglanti_kurulamazsa_bellek_ici_veriye_dusulur(override_settings):
+def test_falls_back_to_in_memory_data_when_connection_fails(override_settings):
     """Yedek plan: erisilemeyen bir DB tanimliysa sistem hata vermez, duser.
 
     Ayarin DOLU olmasi yetmez; `deps.py` gercekten baglanabiliyor mu diye
@@ -412,7 +412,7 @@ def test_baglanti_kurulamazsa_bellek_ici_veriye_dusulur(override_settings):
     assert describe_backend() == "in-memory"
 
 
-def test_database_url_yoksa_bellek_ici_veriye_dusulur(override_settings):
+def test_falls_back_to_in_memory_data_without_database_url(override_settings):
     from app.repositories.deps import reset_repositories
 
     override_settings(database_url="")

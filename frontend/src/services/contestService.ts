@@ -28,6 +28,13 @@ export function resetContestToday(): Promise<void> {
   return apiRequest<void>("/api/contest/reset", { method: "POST" });
 }
 
+/** DEMO/GELİŞTİRME için: tüm mağaza satın almalarını (joker + bağış) siler,
+ * harcanan puanlar bakiyeye geri döner - sanki iade edilmiş gibi. Backend
+ * üretimde bunu 422 ile reddeder. */
+export function resetShopPurchases(): Promise<void> {
+  return apiRequest<void>("/api/contest/shop/reset", { method: "POST" });
+}
+
 export function getContestTopics(contestId: number): Promise<ContestTopicApi[]> {
   return apiRequest<ContestTopicApi[]>(`/api/contest/${contestId}/topics`);
 }

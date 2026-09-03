@@ -8,11 +8,14 @@ onu ARAMA degil, duz bir liste olarak bultene sunar (bkz. repositories/base.py
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 
 from app.repositories.deps import get_market_repository, get_rag_repository
 from app.schemas.market import NewsArticle, NewsListResponse
 from app.services.pexels import search_photo
+
+logger = logging.getLogger(__name__)
 
 #: Ozette gonderilen metin uzunlugu (kart arayuzunde tam metin gerekmez).
 EXCERPT_LENGTH = 240
@@ -455,6 +458,61 @@ async def resolve_image(document_id: int, kategori: str | None, baslik: str | No
     return _CATEGORY_FALLBACK_IMAGE.get(kategori or "", _DEFAULT_IMAGE)
 
 
+# --- Gorsel cozumlemesi ISTEK DISINA alindi --------------------------------
+#
+# NEDEN: `haberler_getir` 50 haberi `asyncio.gather` ile isliyor ve gorseli
+# olmayan HER haber icin `resolve_image` istek icinde Pexels'e gidiyordu -
+# 5'lik semafor, 6 sn timeout, sonra DB'ye UPDATE. Soguk bir `rag.documents`
+# tablosunda bu, tek bir GET /api/market/news istegini onlarca saniyeye
+# cikariyordu; bulten sayfasinin gecis perdesi de tam olarak bu istegi
+# bekliyordu. Pexels'in sonucu icerigin dogrulugunu degil yalnizca kapak
+# fotografini etkiler - kullaniciyi onun icin bekletmek yanlis takas.
+#
+# YENI AKIS: istek aninda yerel/kategori gorseli HEMEN doner; Pexels aramasi
+# ve DB yazimi arka plan gorevine birakilir. Bir sonraki istekte satirin
+# `image_url`u dolu gelir ve Pexels'e hic gidilmez - kalici onbellek ayni.
+# Ayni belge icin es zamanli isteklerin ayni aramayi tekrarlamamasi icin
+# devam eden cozumlemeler kimlikle izlenir.
+
+_devam_eden_cozumlemeler: set[int] = set()
+#: `create_task` donen nesneye referans tutulmazsa gorev toplanabilir;
+#: bitene kadar burada yasar (asyncio dokumantasyonunun onerdigi desen).
+_arka_plan_gorevleri: set[asyncio.Task] = set()
+
+
+def _instant_image(kategori: str | None, baslik: str | None) -> str:
+    """Dis cagri YAPMADAN aninda donebilecek gorsel."""
+    return _local_keyword_image(baslik) or _CATEGORY_FALLBACK_IMAGE.get(
+        kategori or "", _DEFAULT_IMAGE
+    )
+
+
+async def _resolve_in_background(
+    document_id: int, kategori: str | None, baslik: str | None
+) -> None:
+    try:
+        await resolve_image(document_id, kategori, baslik)
+    except Exception:  # noqa: BLE001 - kapak gorseli icin istek akisini bozma
+        logger.warning("haber gorseli arka planda cozulemedi", extra={"document_id": document_id})
+    finally:
+        _devam_eden_cozumlemeler.discard(document_id)
+
+
+def resolve_image_in_background(document_id: int, kategori: str | None, baslik: str | None) -> None:
+    """Pexels aramasini ve DB yazimini istekten bagimsiz bir goreve birakir.
+
+    Yerel anahtar kelime gorseli olan haberler icin hicbir sey yapilmaz -
+    `resolve_image` de onlar icin Pexels'e gitmezdi. Ayni belge icin bir
+    cozumleme zaten suruyorsa ikincisi baslatilmaz.
+    """
+    if document_id in _devam_eden_cozumlemeler or _local_keyword_image(baslik):
+        return
+    _devam_eden_cozumlemeler.add(document_id)
+    gorev = asyncio.create_task(_resolve_in_background(document_id, kategori, baslik))
+    _arka_plan_gorevleri.add(gorev)
+    gorev.add_done_callback(_arka_plan_gorevleri.discard)
+
+
 async def haberler_getir(limit: int = 20, kategori: str | None = None) -> NewsListResponse:
     rows = await get_rag_repository().list_news(limit=limit, kategori=kategori)
 
@@ -477,7 +535,12 @@ async def _haber(row: dict, change_by_symbol: dict[str, float | None]) -> NewsAr
         [raw_text] if raw_text else []
     )
 
-    image_url = row.get("image_url") or await resolve_image(document_id, kategori, stored_baslik)
+    image_url = row.get("image_url")
+    if not image_url:
+        # Istegi Pexels'e bekletme: aninda yerel/kategori gorseli, arama
+        # arka planda (bkz. `resolve_image_in_background`).
+        image_url = _instant_image(kategori, stored_baslik)
+        resolve_image_in_background(document_id, kategori, stored_baslik)
 
     related_symbol = _related_symbol(kategori, stored_baslik)
     related_change_pct = change_by_symbol.get(related_symbol) if related_symbol else None

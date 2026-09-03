@@ -12,7 +12,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # env_file_encoding ACIKCA utf-8: verilmezse pydantic-settings dosyayi
+    # isletim sisteminin yerel kodlamasiyla acar - Windows'ta cp1254. Turkce
+    # karakter tasiyan bir deger (FORECAST_DRIFT_CATEGORIES="Döviz (Fiat),...")
+    # orada "DÃ¶viz" diye okunur ve kategori eslesmesi SESSIZCE bozulur.
+    # .env dosyalari zaten UTF-8 (yorumlardaki ⚠️ ve em-dash bunu gerektirir).
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "development"
     log_level: str = "INFO"
@@ -61,14 +66,13 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     embedding_api_key: str = ""
 
-    # --- Kimlik dogrulama (TCKN / NVI) ------------------------------------
-    # NVI'nin ucretsiz, herkese acik SOAP servisi (anahtar gerektirmez).
-    # False yapilirsa NVI'ye HIC istek atilmaz, dogrulama otomatik basarili
-    # sayilir - bu bir eksiklik degil, gercek TC Kimlik No olmadan US15
-    # akisini test edebilmek icin bilincli bir kacis kapisi (bkz.
-    # app/services/nvi.py). Uretimde MUTLAKA True/tanimsiz birakilir.
-    nvi_verification_enabled: bool = True
-    nvi_timeout_seconds: float = 8.0
+    # --- Kimlik dogrulama (TCKN) -------------------------------------------
+    # NVI/TCKN dogrulamali kayit akisi kaldirildi (bkz. app/api/routes/auth.py)
+    # - `nvi_verification_enabled`/`nvi_timeout_seconds` ayarlari bu yuzden
+    # SILINDI (artik hicbir yerden okunmuyorlardi). `tckn_hash_pepper` KALDI:
+    # `app/core/tckn.py::hash_tckn` hala chatbot'un PII guvenlik koruyucusu
+    # tarafindan (app/agents/security_agent.py) kullaniliyor.
+    #
     #: TCKN'i saklama icin tek yonlu ozetlerken (HMAC-SHA256) kullanilan
     #: anahtar. Bos birakilirsa JWT_SECRET'a duser - ayri bir sir yonetmek
     #: istemeyen kucuk ekipler icin (bkz. app/core/tckn.py::hash_tckn).
@@ -226,7 +230,7 @@ class Settings(BaseSettings):
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     #: OpenRouter (OpenAI uyumlu ucuncu saglayici). Model adi `openrouter:`
     #: onekiyle ya da `:free` gibi bir OpenRouter rota son ekiyle yazilir -
-    #: bkz. `app.core.llm.model_coz`.
+    #: bkz. `app.core.llm.resolve_model`.
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     #: Otomatik saglayici tespitini elle ezmek icin:
@@ -253,6 +257,92 @@ class Settings(BaseSettings):
     risk_model: str = ""
     synthesizer_model: str = ""  # en guclu model burada
     security_model: str = ""  # en kucuk/hizli model burada
+    #: Yuklenen PDF/Excel'in METIN analizi. Bos birakilirsa `default_model`
+    #: kullanilir - yani belge ajani da diger ajanlarla AYNI beyne baglanir.
+    document_model: str = ""
+
+    # --- Belge/gorsel analizi (rapor ajani) -------------------------------
+    #: GORSEL okuma modeli. AYRI OLMAK ZORUNDA: `nemotron-3-super-120b-a12b`
+    #: SALT METINDIR (NVIDIA model karti: "Input Type(s): Text"), gorsel girdi
+    #: kabul etmez. Bos birakilirsa gorsel yolu KAPALI kalir ve kullaniciya
+    #: "gorsel analizi yapilandirilmamis" denir - sessizce bos rapor uretilmez.
+    #: Onerilen: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning (NIM, native
+    #: text+image, NVIDIA ilk-taraf). `moonshotai/kimi-k3` ONCE denendi ama
+    #: GERCEK cagriyla olculdu: soguk baslangicta ~5-6 dakika suruyordu ve
+    #: ikinci denemede timeout'a dusuyordu - urun icin kabul edilemez.
+    document_vision_model: str = ""
+
+    #: LLM'e gonderilecek belge metninin ust siniri (karakter). 300 sayfalik
+    #: bir faaliyet raporunun tamami baglam penceresini asar ve istek 400
+    #: doner; bu sinir asilirsa metin bastan kirpilir (bkz.
+    #: `AyristirilmisBelge.ozet_girdi`).
+    document_max_input_chars: int = 24000
+
+    #: Yuklenebilecek azami dosya boyutu (MB). Ayristirma BELLEKTE yapilir;
+    #: sinirsiz birakmak tek bir istekle sunucuyu sisirebilir.
+    document_max_upload_mb: int = 15
+
+    #: Belge analizi ajaninin ust siniri (saniye). Diger ajanlardan UZUN:
+    #: ayristirma + coklu LLM cagrisi + grafik + PDF derleme tek bir ajan
+    #: icinde olur, `agent_timeout_seconds` (varsayilan ~27sn) yetmez.
+    #:
+    #: ⚠️ 180 OLCULEREK SECILDI. Ilk denemede `moonshotai/kimi-k3` secilmisti
+    #: ve GERCEK cagriyla soguk baslangicta ~5-6 dakika surdugu, ikinci
+    #: denemede timeout'a dustugu olculunce `nvidia/nemotron-3-nano-omni-
+    #: 30b-a3b-reasoning`'e gecildi (31 Agustos 2026): iki gercek cagride
+    #: 57.6sn'de basarili, 5.1sn'de temiz bir kapasite hatasiyla (503)
+    #: basarisiz oldu. 180sn bu basarili sureyi + olasi bir yeniden denemeyi
+    #: rahatca kapsar. PDF/Excel yolu bundan cok daha hizli biter.
+    document_timeout_seconds: int = 180
+
+    # --- Zaman serisi tahmini (1 aylik fiyat ongorusu) -------------------
+    #
+    # ⚠️ MODEL SECIMI OLCUME DAYANIR, TERCIHE DEGIL. 42 varlik / 2 yillik
+    # gercek veriyle, sizintisiz walk-forward backtest ile 6 yaklasim
+    # denendi (naive, ARIMA+izgara, SARIMA, Prophet, Gradient Boosting,
+    # Chronos-Bolt, TimesFM). SONUC: HICBIRI naive'i (fiyat sabit kalir)
+    # ANLAMLI SEKILDE YENEMEDI - finansal serilerin rassal yuruyus
+    # dogasindan kaynaklanir, kod eksikligi degildir.
+    #
+    # Kurulan yapi bu gercegi kabul eder:
+    #   nokta tahmini = SHRINK*TimesFM + (1-SHRINK)*referans
+    #   referans = son fiyat (TL disi) | drift (TL bazli varliklar)
+    #   band     = TimesFM q10/q90, nokta tahmine KAYDIRILMIS
+    #
+    # Asil deger NOKTA tahminde degil, KALIBRE EDILMIS BANTTA: olculen
+    # %80 aralik kapsami ~%77 (hedef %80).
+
+    #: Bos birakilirsa tahmin ozelligi TAMAMEN KAPALI kalir (LLM'de oldugu
+    #: gibi) - uygulama sorunsuz calisir, yalnizca grafiklerde kesikli
+    #: tahmin cizgisi cizilmez. `torch`+`timesfm` KURULU DEGILSE de ayni
+    #: sekilde sessizce kapanir (agir bagimliliklar zorunlu tutulmaz).
+    forecast_model: str = ""
+
+    #: Kac IS GUNU ileri tahmin edilecek. 21 ~ 1 takvim ayi.
+    forecast_horizon_days: int = 21
+
+    #: Model agirligi (0-1). Kalani referans degere (son fiyat/drift) gider.
+    #:
+    #: 0.30 OLCULEREK secildi: ham TimesFM %7,49 MAPE verirken bu shrinkage
+    #: %7,06'ya indirdi ve naive (%7,07) ile ESITLENDI. Modeli tam guvenle
+    #: kullanmak (1.0) hatayi BUYUTUR - dusuk sinyalli finansal seride
+    #: modelin urettigi sapma cogunlukla gurultudur.
+    forecast_model_weight: float = 0.30
+
+    #: TL bazli varliklarda referans "son fiyat" yerine DRIFT olur.
+    #: Gerekce olculdu: TL'nin kalici deger kaybi trendi GERCEK bir
+    #: sinyaldir - dovizde drift naive'in hatasini YARIYA indirdi
+    #: (%1,54 -> %0,72) ve yon isabetini %58,5'e cikardi.
+    forecast_drift_categories: str = "Döviz (Fiat),Tahvil & Bono,BIST Hisse Senedi"
+
+    #: Modele verilecek gecmis pencere (is gunu). TimesFM 2.5 baglami 512'ye
+    #: kadar destekler; daha uzun gecmis marjinal fayda saglar.
+    forecast_context_days: int = 512
+
+    #: Uretilen tahminin gecerlilik suresi (saat). Gunluk mumla calistigi
+    #: icin gun ici tekrar hesaplamak ANLAMSIZ - ayni gun ayni sonucu verir
+    #: ama her istekte ~250ms CPU yakar.
+    forecast_cache_hours: int = 12
 
     # --- LLM kapsam suzgeci (kapsam.py kurallarinin arkasindaki agiz) ----
     # Kural merdiveni yalnizca LISTEDEKI yasak konulari yakalar; listede
@@ -513,7 +603,14 @@ class Settings(BaseSettings):
             "risk": self.risk_model,
             "synthesizer": self.synthesizer_model,
             "security": self.security_model,
+            "document": self.document_model,
         }
+        # "document_vision" DEFAULT_MODEL'E DUSMEZ: varsayilan model salt
+        # metindir, ona gorsel gondermek 400/sessiz sacmalama uretir. Model
+        # acikca tanimlanmadiysa gorsel yolu kapali kalmalidir.
+        if agent == "document_vision":
+            return self.document_vision_model.strip()
+
         return overrides.get(agent) or self.default_model
 
 

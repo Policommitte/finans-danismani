@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import type { PendingAttachment } from "../components/chat/AttachmentMenu";
-import type {
-  AgentError,
-  ChatAttachment,
-  ChatMessage,
-  Source,
-} from "../models/chat";
+import type { AgentError, ChatAttachment, ChatMessage, Source } from "../models/chat";
 import { streamChat } from "../services/chatService";
 
 //: Ek varsa ama mesaj kutusu bosbiraktilarsa, dosya turune gore makul bir
@@ -115,6 +110,11 @@ export function useChatStream() {
                     sources,
                     agent_errors: agentErrors,
                     message_id: event.message_id,
+                    // Belge analiz ajani PDF urettiyse (bkz.
+                    // DocumentAnalysisAgent) indirme baglantisi icin gerekli
+                    // meta veri - gercek dosya SSE'den GECMEZ, ayri bir
+                    // uctan (`/api/chat/reports/{message_id}`) cekilir.
+                    rapor: event.rapor,
                     mentioned_assets: mentionedAssets,
                   }
                 : message,
@@ -130,11 +130,29 @@ export function useChatStream() {
     }
   }
 
+  /**
+   * Adds a message that lives only in the widget (guided flows, local
+   * confirmations). Returns the generated id so the caller can patch it later.
+   */
+  function appendLocalMessage(message: Omit<ChatMessage, "id" | "local">): string {
+    const id = crypto.randomUUID();
+    setMessages((current) => [...current, { ...message, id, local: true }]);
+    return id;
+  }
+
+  function updateMessage(id: string, patch: Partial<ChatMessage>) {
+    setMessages((current) =>
+      current.map((message) => (message.id === id ? { ...message, ...patch } : message)),
+    );
+  }
+
   return {
     messages,
     status,
     isStreaming,
     error,
     sendMessage,
+    appendLocalMessage,
+    updateMessage,
   };
 }

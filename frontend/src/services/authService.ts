@@ -38,6 +38,12 @@ export async function completeOnboarding(payload: OnboardingCompleteRequest): Pr
   });
 }
 
+/** Urun turu (ProductTour) kapandiginda cagrilir - `has_seen_tour`'u kalici
+ * olarak true yapar, boylece tur bir sonraki girişte otomatik acilmaz. */
+export async function markTourSeen(): Promise<User> {
+  return apiRequest<User>("/api/auth/tour-seen", { method: "POST" });
+}
+
 export function logout(): void {
   clearAccessToken();
 }

@@ -40,36 +40,33 @@ class UserRepository(Protocol):
         """Profil bilgisi - `password_hash`/`tckn_hash` ICERMEZ, `role` alani vardir."""
         ...
 
-    async def get_by_tckn_hash(self, tckn_hash: str) -> dict | None:
-        """Ayni TCKN ile ikinci bir hesap acilip acilmadigini kontrol icin.
-
-        `hash_tckn` DETERMINISTIK oldugundan (bkz. app/core/tckn.py) ayni
-        TCKN her zaman ayni hash'i uretir - bu yuzden esitlik sorgusu
-        anlamlidir (bcrypt'in aksine).
-        """
-        ...
-
     async def create(
         self,
         first_name: str,
         last_name: str,
         email: str,
         password_hash: str,
-        tckn_hash: str,
-        tckn_last4: str,
-        birth_date: date,
-        phone_number: str,
+        account_number: str | None = None,
     ) -> dict:
         """Yeni kullanici olusturur; `onboarding_completed=false` ile baslar.
 
-        `tckn_hash`/`tckn_last4` cagiran taraftan (route katmani, `password_hash`
-        ile AYNI desen) ZATEN islenmis gelir - bu katman hash mantigi bilmez,
-        yalnizca yazar. Donen sozlukte `password_hash`/`tckn_hash` YOKTUR.
+        TCKN/NVI dogrulamali eski akis kaldirildiktan sonra bu metot artik
+        TCKN ile ilgili hicbir alan almaz (DB kolonlari halen mevcut -
+        eski kayitlar icin - ama yeni kayitta yazilmaz). `account_number`
+        banka hesabi baglama SIMULASYONUNDA girilen, dogrulanmayan bilgi
+        amacli bir alandir. Donen sozlukte `password_hash` YOKTUR.
         """
         ...
 
     async def complete_onboarding(self, user_id: int, risk_tolerance: str) -> dict | None:
         """`risk_tolerance` yazar ve `onboarding_completed`'i tek islemde true yapar."""
+        ...
+
+    async def mark_tour_seen(self, user_id: int) -> dict | None:
+        """`has_seen_tour`'u true yapar - urun turu (ProductTour) bir daha
+        otomatik acilmaz. Tur ilk kez KAPANDIGINDA (bitirilsin ya da
+        gecilsin, fark etmez) cagrilir - bkz. app/api/routes/auth.py
+        `/tour-seen`."""
         ...
 
 
@@ -135,6 +132,20 @@ class PortfolioRepository(Protocol):
         `Holding.pnl_try`'dan FARKLIDIR: o, alim gununden bugune toplam
         kar/zarardir ve donemden bagimsizdir.
         """
+        ...
+
+    async def write_value_snapshots(self) -> int:
+        """Tum portfoylerin o anki toplam degerini 5 dakikalik kovaya yazar."""
+        ...
+
+    async def get_value_snapshots(
+        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+    ) -> list[dict]:
+        """Daha once kaydedilmis portfoy degeri snapshot'larini okur."""
+        ...
+
+    async def prune_value_snapshots(self, keep_days: int = 30) -> int:
+        """Saklama penceresinden eski portfoy snapshot'larini siler."""
         ...
 
 
@@ -372,7 +383,8 @@ class RagRepository(Protocol):
         tip: str | None = None,
     ) -> list[dict]:
         """Haber/rapor arama - yalnizca BM25 (tam eslesme). Kaynak metadata'si
-        YAPILANDIRILMIS doner (FR-RAG-04)."""
+        YAPILANDIRILMIS doner (FR-RAG-04); alan listesi icin `hybrid_search()`
+        docstring'ine bakiniz - iki yolun donus sekli AYNI olmak zorundadir."""
         ...
 
     async def hybrid_search(
@@ -394,8 +406,8 @@ class RagRepository(Protocol):
 
         Donus seklinin `search()` ile AYNI olmasi zorunludur (FR-RAG-04):
         `chunk_id`, `doc_id`, `baslik`, `sirket`, `symbol`, `tarih`, `tip`,
-        `content`, `score` - `mcp/server.py::_chunk_payload` ikisini de
-        ayirt etmeden isler.
+        `kaynak_url`, `content`, `score` - `mcp/server.py::_chunk_payload`
+        ikisini de ayirt etmeden isler.
 
         Bu yol ayrica `cos_sim` (gercek kosinus benzerligi) dondurebilir;
         `score` RRF oldugu ve rank tabanli calistigi icin alaka esigi
@@ -433,6 +445,16 @@ class ChatRepository(Protocol):
         ...
 
     async def list_messages(self, session_id: int, limit: int = 200) -> list[dict]: ...
+
+    async def message_owner_id(self, message_id: int) -> int | None:
+        """Bir mesajin ait oldugu oturumun sahibi (`chat_sessions.user_id`).
+
+        Mesaj yoksa `None`. Belge rapor indirme ucu (`GET
+        /api/chat/reports/{message_id}`) bunu kullanir: `message_id`
+        sirali bir tam sayidir, sahiplik kontrolu OLMADAN kullanicilar
+        birbirinin raporunu tahmin edip indirebilirdi.
+        """
+        ...
 
     async def add_message(
         self,
@@ -648,6 +670,15 @@ class ContestRepository(Protocol):
         + odulu, cascade ile) siler - gunluk hak yeniden kullanilabilir olur.
         Servis katmani bunu `settings.app_env == "production"` iken REDDEDER;
         bu metot kendisi bir kontrol yapmaz, cagrildiginda kosulsuz siler."""
+        ...
+
+    async def reset_shop_purchases(self, user_id: int) -> None:
+        """DEMO/GELISTIRME icin: kullanicinin TUM magaza gecmisini (joker
+        satin almalari + envanteri + bagislari/rozetleri) siler - harcanan
+        puanlar `get_points_balance` formulu geregi (earned - spent) otomatik
+        GERI IADE edilmis olur. `reset_todays_participation` ile AYNI ilke:
+        servis katmani `settings.app_env == "production"` iken REDDEDER, bu
+        metot kosulsuz siler."""
         ...
 
     async def submit_answer(

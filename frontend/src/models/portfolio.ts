@@ -86,3 +86,16 @@ export type PortfolioPerformanceResponse = {
   change_pct: number | null;
   symbol_pnl: SymbolPeriodPnl[];
 };
+
+export type PortfolioValueSnapshotPoint = {
+  ts: string;
+  holdings_value_try: number;
+  cash_value_try: number;
+  total_value_try: number;
+};
+
+export type PortfolioSnapshotPerformanceResponse = {
+  points: PortfolioValueSnapshotPoint[];
+  hours: number;
+  interval_minutes: number;
+};

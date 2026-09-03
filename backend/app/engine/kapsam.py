@@ -16,7 +16,7 @@ YAPILMADAN sonlandirilir (bkz. `orchestrator.NODE_SMALL_TALK`).
 
 SIRA ONEMLIDIR
 --------------
-`kapsam_belirle` icindeki kontrol sirasi bilinclidir; degistirmeden once
+`classify_scope` icindeki kontrol sirasi bilinclidir; degistirmeden once
 asagidaki ornekleri okuyun:
 
     "Merhaba, portfoyum nasil?"   -> FINANS   (selamlama ONCE bakilsa sohbet
@@ -271,7 +271,7 @@ _FINANS_KONU_DESENI = re.compile(
 _FINANS_NITELIK_DESENI = re.compile("|".join(rf"\b(?:{kok})\w*" for kok in _FINANS_NITELIK_KOKLERI))
 
 #: Geriye donuk uyum: "herhangi bir finans kelimesi geciyor mu" sorusu.
-#: Kapsam KARARINDA artik kullanilmaz - karar `_finans_sinyali_var` icinde.
+#: Kapsam KARARINDA artik kullanilmaz - karar `_has_finance_signal` icinde.
 _FINANS_DESENI = re.compile(_FINANS_KONU_DESENI.pattern + "|" + _FINANS_NITELIK_DESENI.pattern)
 
 #: 1. TEKIL SAHIS IYELIK EKI - NITELIK'e destek olan uc sinyalden biri.
@@ -292,7 +292,7 @@ _IYELIK_DESENI = re.compile(r"\b[a-z]{3,}(?:im|um)\b")
 _NITELIK_KOK_KELIMELERI = frozenset(_FINANS_NITELIK_KOKLERI)
 
 
-def _iyelik_destegi_var_mi(normalized: str) -> bool:
+def _has_possessive_support(normalized: str) -> bool:
     """Cumlede 1. tekil sahis iyelik eki tasiyan (nitelik kokU OLMAYAN) kelime var mi?"""
     return any(
         kelime not in _NITELIK_KOK_KELIMELERI for kelime in _IYELIK_DESENI.findall(normalized)
@@ -306,7 +306,7 @@ def _iyelik_destegi_var_mi(normalized: str) -> bool:
 #: Bu sezgi bilincli olarak EN SONDA degerlendirilir: "SELAM" da bes harfli
 #: buyuk bir kelimedir ve once sohbet kaliplarina bakilmazsa sembol sanilir.
 #:
-#: Router da kullaniyor (`orchestrator._piyasa_sinyali_var`), bu yuzden ACIK
+#: Router da kullaniyor (`orchestrator._has_market_signal`), bu yuzden ACIK
 #: adla disari veriliyor.
 #:
 #: NOT: kucuk harfli sembol/sirket adlari bu desenle DEGIL, asagidaki
@@ -501,7 +501,7 @@ _SUC_KORUNMA_NIYETI = re.compile(
 )
 
 
-def _finansal_suc_talebi_var_mi(normalized: str) -> bool:
+def _has_financial_crime_request(normalized: str) -> bool:
     """Suc terimi + YONTEM istegi var mi (ve korunma sorusu DEGIL mi)?"""
     if not _SUC_TERIMI.search(normalized):
         return False
@@ -523,12 +523,12 @@ def _finansal_suc_talebi_var_mi(normalized: str) -> bool:
 # ⚠️ `re.IGNORECASE` KULLANILMAZ. Python'da IGNORECASE `i`, `I` ve `ı`
 # harflerini birbirine katlar (hepsi `I`ya cikar) - bayrak acikken
 # "canım sıkıldı" hakaret olarak yakalaniyordu (olculdu). Buyuk harf
-# `_turkce_kucult` ile, Turkce kurallarina gore cozulur.
+# `_turkish_lower` ile, Turkce kurallarina gore cozulur.
 
 
 #: Turkce'ye UYGUN kucultme: `İ`->`i`, `I`->`ı`. Python'un `.lower()` metodu
 #: `I` harfini `i` yapar ve noktali/noktasiz ayrimini bozar.
-def _turkce_kucult(text: str) -> str:
+def _turkish_lower(text: str) -> str:
     return text.replace("İ", "i").replace("I", "ı").lower()
 
 
@@ -541,9 +541,9 @@ def _turkce_kucult(text: str) -> str:
 _KUFUR_HAM = re.compile(r"\bsik(?:il|ik|im|is)\w*")
 
 
-def kufur_ham_metinde_mi(sorgu: str) -> bool:
+def profanity_in_raw_text(sorgu: str) -> bool:
     """Normalize edilmeden once yakalanmasi gereken hakaret var mi?"""
-    return bool(_KUFUR_HAM.search(_turkce_kucult(sorgu)))
+    return bool(_KUFUR_HAM.search(_turkish_lower(sorgu)))
 
 
 # --- Kufur: A kademesi (kesin) -------------------------------------------
@@ -831,7 +831,7 @@ KAPSAM_YANITLARI: dict[str, str] = {
 }
 
 
-def _finans_sinyali_var(normalized: str, ham: str) -> bool:
+def _has_finance_signal(normalized: str, ham: str) -> bool:
     """Cumle gercekten bir finans sorusu mu?
 
     KONU koku tek basina yeter. Yalnizca NITELIK varsa (fiyat/yatirim/risk
@@ -855,11 +855,11 @@ def _finans_sinyali_var(normalized: str, ham: str) -> bool:
     return (
         varlik_adi_geciyor_mu(normalized)
         or bool(_SEMBOL_DESENI.search(ham))
-        or _iyelik_destegi_var_mi(normalized)
+        or _has_possessive_support(normalized)
     )
 
 
-def kapsam_belirle(sorgu: str, *, devam_turu: bool = False) -> str:
+def classify_scope(sorgu: str, *, devam_turu: bool = False) -> str:
     """Sorguyu kapsam sinifina ayirir.
 
     Args:
@@ -884,13 +884,13 @@ def kapsam_belirle(sorgu: str, *, devam_turu: bool = False) -> str:
 
     # 0b) Finansal suc YONTEMI istegi. Ayri bir kural cunku bu cumleler KONU
     #     olarak finanstir; kelime listesiyle degil NIYETLE ayrilirlar.
-    if _finansal_suc_talebi_var_mi(n):
+    if _has_financial_crime_request(n):
         return KAPSAM_YASAK
 
     # 1) Dogrudan hakaret: finans sinyalinden ONCE, kosulsuz.
     #    HAM metin kontrolu de burada: `normalize` i/ı ayrimini yok ettigi
     #    icin bazi cekimler ancak normalize ONCESI ayirt edilebiliyor.
-    if _KUFUR_A.search(n) or kufur_ham_metinde_mi(sorgu):
+    if _KUFUR_A.search(n) or profanity_in_raw_text(sorgu):
         return KAPSAM_KUFUR
 
     # 2) Baska birinin kisisel verisi: FINANS SINYALINDEN ONCE bakilir.
@@ -911,7 +911,7 @@ def kapsam_belirle(sorgu: str, *, devam_turu: bool = False) -> str:
     # 3) Finans sinyali: bundan sonrasi yalnizca finans DISI metinleri gorur.
     #    Selamlama/kapsam-disi kaliplari bu adimdan SONRA gelir; "merhaba,
     #    portfoyum nasil?" sorusunun sohbete dusmemesi buna bagli.
-    if _finans_sinyali_var(n, sorgu):
+    if _has_finance_signal(n, sorgu):
         return KAPSAM_FINANS
 
     # 3) Dolgu kufru. `PROFANITY_CANCELS_FINANCE=true` iken bu kontrol
@@ -954,6 +954,6 @@ def kapsam_belirle(sorgu: str, *, devam_turu: bool = False) -> str:
     return KAPSAM_BELIRSIZ
 
 
-def kisa_yanit(kapsam: str) -> str:
+def short_reply(kapsam: str) -> str:
     """Kapsam etiketine karsilik gelen sabit yaniti doner."""
     return KAPSAM_YANITLARI.get(kapsam, KAPSAM_YANITLARI[KAPSAM_BELIRSIZ])

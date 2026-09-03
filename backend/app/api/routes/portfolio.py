@@ -8,6 +8,7 @@ from app.schemas.portfolio import (
     HoldingsResponse,
     PerformanceRange,
     PortfolioPerformanceResponse,
+    PortfolioSnapshotPerformanceResponse,
     PortfolioSummary,
     TransactionsResponse,
 )
@@ -57,3 +58,12 @@ async def performance(
     rakamlari birbiriyle tutarlidir.
     """
     return await service.performans_getir(user["id"], range_key=range_key)
+
+
+@router.get("/performance-v2", response_model=PortfolioSnapshotPerformanceResponse)
+async def snapshot_performance(
+    user: CurrentUser,
+    hours: int = Query(default=24, ge=1, le=720, description="Kac saatlik snapshot donsun"),
+) -> PortfolioSnapshotPerformanceResponse:
+    """Bes dakikada bir kaydedilen gercek portfoy toplamlarini dondurur."""
+    return await service.snapshot_performansi_getir(user["id"], hours=hours)

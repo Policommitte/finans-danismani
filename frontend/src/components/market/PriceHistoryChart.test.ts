@@ -32,3 +32,16 @@ describe("visibleRangeStart", () => {
     expect(visibleRangeStart(monthlyCandles, "1m")).toBe(candle("2026-07-25").time);
   });
 });
+
+describe("colorForecastByDirection", () => {
+  it("paints rising segments green and falling segments red", async () => {
+    const { colorForecastByDirection } = await import("./PriceHistoryChart");
+    const colored = colorForecastByDirection([
+      { time: 1, value: 100 },
+      { time: 2, value: 105 },
+      { time: 3, value: 102 },
+      { time: 4, value: 102 },
+    ]);
+    expect(colored.map((p) => p.color)).toEqual(["#26a69a", "#26a69a", "#ef5350", "#26a69a"]);
+  });
+});

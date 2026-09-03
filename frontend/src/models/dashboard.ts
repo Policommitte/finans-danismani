@@ -10,5 +10,5 @@ export type DashboardSummaryResponse = {
   cash_account: TradingAccount | null;
   risk: RiskProfileResponse;
   movers: Asset[];
-  filled_orders: PaperOrder[];
+  orders: PaperOrder[];
 };

@@ -18,7 +18,7 @@ import { RecommendationList } from "../../components/risk/RecommendationList";
 import { RiskScoreCard } from "../../components/risk/RiskScoreCard";
 import { useAuth } from "../../hooks/useAuth";
 import { useDashboard } from "../../hooks/useDashboard";
-import { usePortfolioPerformance } from "../../hooks/usePortfolio";
+import { usePortfolioPerformance, usePortfolioSnapshots } from "../../hooks/usePortfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { DASHBOARD_READY_EVENT } from "../../components/layout/transitionEvents";
 import { getPublicMarketTicker } from "../../services/marketService";
@@ -43,6 +43,26 @@ export default function DashboardPage() {
   //: farkli donemlere ait rakam gorunmesi mumkun degil.
   const [range, setRange] = useState<PerformanceRange>("1G");
   const performance = usePortfolioPerformance(range);
+  //: 1G'de grafik scheduler'in OLCTUGU snapshot'lari cizer: nakit dahil,
+  //: emirler islendikten sonra alindigi icin yeniden hesaplanan seriden
+  //: dogru. Ama snapshot 30 gun saklanip 720 saatle sinirli oldugundan
+  //: 1H/1A/1Y'yi besleyemez - orada yeniden kurulan seriye duseriz.
+  const gunIci = range === "1G";
+  const snapshots = usePortfolioSnapshots(gunIci);
+
+  //: Grafik tek bir bicim bekler; uzun aralik serisi snapshot bicimine
+  //: cevrilir. Nakit ayrimi yalnizca snapshot'ta var, digerinde toplam
+  //: dogrudan varlik degeridir.
+  const grafikNoktalari = gunIci
+    ? (snapshots.data?.points ?? [])
+    : (performance.data?.points ?? []).map((nokta) => ({
+        ts: nokta.ts,
+        holdings_value_try: nokta.total_value_try,
+        cash_value_try: 0,
+        total_value_try: nokta.total_value_try,
+      }));
+  const grafikYukleniyor = gunIci ? snapshots.loading : performance.loading;
+  const grafikHatasi = gunIci ? snapshots.error : performance.error;
   const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
 
   useEffect(() => {
@@ -74,7 +94,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (dashboard.loading || performance.loading) {
+    if (dashboard.loading || performance.loading || snapshots.loading) {
       return;
     }
 
@@ -84,7 +104,7 @@ export default function DashboardPage() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboard.loading, performance.loading]);
+  }, [dashboard.loading, performance.loading, snapshots.loading]);
 
   if (dashboard.loading && !dashboard.data) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
@@ -173,9 +193,9 @@ export default function DashboardPage() {
           range={range}
           periodChangeTry={performance.data?.change_try ?? null}
           periodChangePct={performance.data?.change_pct ?? null}
-          performancePoints={performance.data?.points ?? []}
-          performanceLoading={performance.loading}
-          performanceError={performance.error}
+          performancePoints={grafikNoktalari}
+          performanceLoading={grafikYukleniyor}
+          performanceError={grafikHatasi}
           mode={portfolioViewMode}
           onModeChange={setPortfolioViewMode}
           displayCurrency={displayCurrency}
@@ -200,7 +220,7 @@ export default function DashboardPage() {
         <RecommendationList risk={data.risk} />
       </div>
 
-      <CompletedTrades items={data.filled_orders} />
+      <CompletedTrades items={data.orders} />
     </div>
   );
 }

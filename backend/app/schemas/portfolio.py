@@ -124,3 +124,23 @@ class PortfolioPerformanceResponse(BaseModel):
     symbol_pnl: list[SymbolPeriodPnl] = Field(
         default_factory=list, description="Varlik bazinda donem kar/zarari"
     )
+
+
+class PortfolioValueSnapshotPoint(BaseModel):
+    """Scheduler'in 5 dakikada bir OLCTUGU portfoy toplami.
+
+    `PortfolioPerformancePoint`'ten farki: o, fiyat gecmisinden yeniden
+    hesaplanir ve geriye dogru yillarca gider; bu ise anlik olcumdur,
+    nakdi de icerir ama yalnizca 30 gun saklanir.
+    """
+
+    ts: str
+    holdings_value_try: float
+    cash_value_try: float
+    total_value_try: float
+
+
+class PortfolioSnapshotPerformanceResponse(BaseModel):
+    points: list[PortfolioValueSnapshotPoint]
+    hours: int
+    interval_minutes: int = 5
