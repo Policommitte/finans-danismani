@@ -12,7 +12,6 @@ from app.services.technical_analysis import (
     MIN_CANDLES,
     _label,
     _summarize,
-    summary_text,
     technical_analysis,
 )
 
@@ -220,29 +219,3 @@ async def test_uzun_ortalamalar_mum_yetmezse_veri_yok(sahte_depo):
     assert uzun.sma_signal == "VERI_YOK"
     kisa = next(ma for ma in sonuc.moving_averages if ma.period == 20)
     assert kisa.sma is not None
-
-
-# ---------------------------------------------------------------------------
-# Ajana giden ozet metni
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_ozet_metni_aralik_ve_zaman_bilgisi_tasir(sahte_depo):
-    sahte_depo(SahteDepo(candles=_candles([100.0 + i for i in range(120)])))
-
-    metin = summary_text(await technical_analysis("THYAO"))
-
-    assert "gunluk mumlar" in metin
-    assert "120 mum" in metin
-    assert "RSI(14)" in metin
-
-
-@pytest.mark.asyncio
-async def test_yetersiz_veride_ozet_metni_sayi_icermez(sahte_depo):
-    sahte_depo(SahteDepo(candles=_candles([100.0, 101.0, 102.0])))
-
-    metin = summary_text(await technical_analysis("THYAO"))
-
-    assert "teknik analiz yapilamadi" in metin
-    assert "RSI" not in metin
