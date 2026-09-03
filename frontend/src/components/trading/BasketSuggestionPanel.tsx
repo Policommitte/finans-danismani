@@ -259,10 +259,7 @@ export function BasketSuggestionPanel({ onReady }: { onReady?: () => void }) {
       <IdleCashSuggestionModal
         suggestion={selectedBasket?.suggestion ?? null}
         title={selectedBasket ? optionTitle(selectedBasket, language) : undefined}
-        subtitle={selectedBasket ? STRATEGY_COPY[selectedBasket.strategy_key][language].description : undefined}
         strategyLabel={selectedBasket ? STRATEGY_COPY[selectedBasket.strategy_key][language].label : undefined}
-        metrics={selectedBasket?.metrics}
-        backtest={selectedBasket?.backtest}
         onClose={() => setSelectedBasket(null)}
       />
     </section>
