@@ -1456,7 +1456,14 @@ class Orchestrator:
             if toplanan_kaynaklar and not kaynaklar_yayinlandi:
                 kaynaklar_yayinlandi = True
                 yield _kaynak_olayi()
-            yield {"type": "token", "content": son_yanit}
+            # TC018-US12: bu yol LLM CALISTIRMADI (small_talk/reject/
+            # safe_response/LLM'siz sentez) - metin bastan tamamen belli.
+            # Yine de `_sahte_akis` ile kucuk parcalara bolup gecikmeli
+            # yayinlaniyor, boylece kullanici acisindan TUM yanitlar ayni
+            # "kelime kelime beliren" deneyimi verir (bkz. o metodun
+            # docstring'i).
+            async for parca in self._sahte_akis(son_yanit):
+                yield {"type": "token", "content": parca}
         elif son_yanit and token_yayinlandi:
             # AKIS YARIM KALDIYSA KUYRUGU GONDER.
             #
@@ -1562,6 +1569,40 @@ class Orchestrator:
                 return None
 
         return NODE_STATUS_MESSAGES.get(node_name)
+
+    #: `_sahte_akis` parca uzunlugu (karakter). Kucuk tutulur: TC018-US12
+    #: issue'sunda bildirildigi gibi small_talk/reject/safe_response gibi
+    #: LLM CALISTIRMAYAN yollar metni tek parca gonderiyordu - gercek
+    #: akan yanitlarin yaninda "donmus, sonra birden beliren" bir metin
+    #: gorsel tutarsizlik yaratiyordu. Bu sabitler o metni YAPAY olarak
+    #: bolup gecikmeli yayinlar; amac gercekci bir LLM hizi TAKLIT ETMEK
+    #: degil (zaten uretim yoktur, metin bastan tamamen belli), sadece
+    #: ayni "kelime kelime beliren" gorsel deneyimi vermektir.
+    _SAHTE_AKIS_PARCA_UZUNLUGU = 3
+    #: Parcalar arasi gecikme (saniye). 3 karakter / 20ms ~ 150 krkt/sn -
+    #: gercek LLM akislarindan (olculen ~300 krkt/sn, bkz. llm-secimi
+    #: notlari) daha YAVAS: canli konusuyormus hissi versin, gozden
+    #: kacacak kadar hizli gecmesin. Kisa cumlelerde (small_talk/reject
+    #: mesajlari genelde 1-2 cumle) toplam gecikme ~200-500ms'yi gecmez.
+    _SAHTE_AKIS_GECIKME_SANIYE = 0.02
+
+    @classmethod
+    async def _sahte_akis(cls, metin: str) -> AsyncGenerator[str, None]:
+        """Hazir/sabit bir yaniti kucuk parcalara bolup gecikmeli yayinlar.
+
+        `small_talk_response`/`safe_response`/`reject_response` gibi
+        dugumlerde HICBIR LLM CALISMAZ (bkz. o metotlarin docstring'i) -
+        metin `app.engine.kapsam` icindeki sabit bir tablodan ya da
+        guvenlik katmanindan gelir. Yine de kullaniciya giden TUM
+        yanitlar ayni gorsel deneyimi (kelime kelime beliren metin)
+        versin diye burada karakter bazinda bolunup yayinlanir. Frontend
+        tarafinda HICBIR degisiklik gerekmez: zaten `token` olaylarini
+        sirayla ekliyor (bkz. `useChatStream.ts`).
+        """
+        parca_uzunlugu = cls._SAHTE_AKIS_PARCA_UZUNLUGU
+        for i in range(0, len(metin), parca_uzunlugu):
+            yield metin[i : i + parca_uzunlugu]
+            await asyncio.sleep(cls._SAHTE_AKIS_GECIKME_SANIYE)
 
     @staticmethod
     def _extract_token(chunk) -> str:
