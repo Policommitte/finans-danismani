@@ -246,6 +246,7 @@ _FINANS_NITELIK_KOKLERI: tuple[str, ...] = (
 #: Doviz KURU sorusu zaten "doviz/dolar/euro" kokleriyle yakalandigi icin
 #: ciplak "kur" koke listesinden cikarilmistir.
 _FINANS_KELIMELERI: tuple[str, ...] = (
+    r"para(?:m|n|yi|ya|yla|nin|si|mi|ma|mla|min|miz|lar|lari|larim|larimi)?",
     r"kur",
     r"kuru",
     r"kurlar",
@@ -646,10 +647,35 @@ _KAPSAM_DISI = re.compile(
 #: Kisiye ait finansal veri isimleri. Yalnizca bir INSAN icin anlamlidirlar:
 #: "Bitcoin'in degeri" mesru bir sorudur ama "Bitcoin'in portfoyu" degildir.
 #: Liste bu yuzden dar tutulur - varlik adlarini yanlislikla yakalamasin.
-_KISISEL_VERI = (
-    r"portfoy\w*|portf\w*|bakiye\w*|hesab\w*|hesap\w*|varlik\w*|"
-    r"yatirim\w*|pozisyon\w*|kazanc\w*|zarar\w*|risk\w*|butce\w*|gelir\w*"
+#:
+#: SIRA ONEMLI: "portfoy" daha kisa olan "portf"ten ONCE gelir, yoksa
+#: alternasyon kelimeyi erken kesip yanlis govdeyi yakalar.
+_KISISEL_VERI_KOKLERI: tuple[str, ...] = (
+    "portfoy",
+    "portf",
+    "bakiye",
+    "hesab",
+    "hesap",
+    "varlik",
+    "yatirim",
+    "pozisyon",
+    "kazanc",
+    "zarar",
+    "risk",
+    "butce",
+    "gelir",
 )
+
+_KISISEL_VERI = "|".join(rf"{kok}\w*" for kok in _KISISEL_VERI_KOKLERI)
+
+#: Kisisel veri kelimesinin 1. TEKIL SAHIS iyelik eki tasiyan hali:
+#: "portfoyumde", "varliklarim", "pozisyonum", "kazancim", "bakiyem".
+#:
+#: Bu ekin varligi cumlenin KENDI verisi hakkinda oldugunu soyler - baska
+#: birinin verisi istenirken "Ayse'nin portfoyum" denmez. Tamlama benzeri
+#: bir kelime cumlenin basinda olsa bile (bkz. `_KISI_OLMAYAN_KELIME`
+#: notu) hedef bu eki tasiyorsa soru REFLEKSIFTIR.
+_KENDI_VERISI_HEDEFI = re.compile(rf"^(?:{'|'.join(_KISISEL_VERI_KOKLERI)})(?:lar|ler)?(?:im|um|m)")
 
 #: "<Isim>'in <kisisel veri>" kalibi - NORMALIZE EDILMIS (ASCII+kucuk harf)
 #: metin uzerinde calisir.
@@ -667,35 +693,142 @@ _KISISEL_VERI = (
 #: Bu yuzden "nın/nin" ve "nun/nün" ayrimi normalize sonrasi zaten tek forma
 #: (nin/nun) duser - ayri varyant yazmaya gerek yok.
 #:
-#: ⚠️ GRUP TEMBEL (`{2,}?`), ACGOZLU DEGIL. Turkcede unluyle biten kok +
-#: tamlama eki arada bir "n" tamponu alir ("sasa" + "nin" = "sasanin").
-#: Acgozlu grup EN UZUN govdeyi once dener ve "sasan" + "in" gibi (grameri
-#: BOZUK ama regex icin gecerli) bir ayrima once ulasip orada durur - "sasa"
-#: KOK listesindeyken "sasan" degil, bu yuzden SASA bir kisi saniliyordu
-#: (olculdu). Tembel grup EN KISA govdeyi once dener, boylece doğru ayrima
-#: ("sasa"+"nin") acgozlu versiyondan ONCE ulasir.
+#: ⚠️ AYRIM NOKTASI DESENE BIRAKILMAZ. Turkcede unluyle biten kok + tamlama
+#: eki arada bir "n" tamponu alir ("sasa"+"nin" = "sasanin"), unsuzle biten
+#: kok almaz ("fon"+"un" = "fonun") - ve iki durum yuzeysel olarak AYNI
+#: gorunur. Desen hangi ayrimi sectiyse onunla calisilirsa yanlis govde
+#: elde edilir: acgozlu grup "sasan"+"in", tembel grup "fo"+"nun" der;
+#: ikisi de KOK listesini isaskirtir (ikisi de olculdu - once SASA, sonra
+#: "fonun riski nedir" bir KISI sorusu sanildi). Bu yuzden desen yalnizca
+#: KELIMENIN TAMAMINI yakalar; olasi butun ayrimlar `_tamlama_govdeleri`
+#: icinde tek tek denenir.
 _BASKA_KISI = re.compile(
-    r"\b([a-z]{2,}?)['’]?" r"(?:nin|nun|in|un)\b" r"(?:\s+\w+){0,2}\s+" rf"(?:{_KISISEL_VERI})"
+    r"\b(?P<tam>[a-z]{2,}['’]?(?:nin|nun|in|un))\b"
+    r"(?:\s+\w+){0,2}\s+"
+    rf"(?P<hedef>(?:{_KISISEL_VERI}))"
 )
+
+#: Tamlama eki GIBI biten ama ozel ad OLMAYAN gundelik kelimeler.
+#:
+#: ⚠️ CANLIDA YAKALANAN GERCEK HATA (2 Eylul 2026): "Bugün portföyümde ne
+#: oldu?" sorusu "baska kisinin verisi" sayilip reddedildi. Sebep yapisal:
+#: tamlama eki ("-in/-un") ile SIRADAN bir kelimenin son harfleri yuzeysel
+#: olarak ayirt edilemez - desen "bugun"u "bug" + "un" diye ayirip "Bug"
+#: adinda birini gordugunu sanir. Ayni hata olculdu: "uzun vadeli yatirim"
+#: ("uz"+"un"), "butun pozisyonlarim" ("but"+"un"), "bunun riski" ("bu"+
+#: "nun"), "gunun portfoy etkisi" ("gu"+"nun"), "yarin varliklarim"
+#: ("yar"+"in").
+#:
+#: `_KISI_DEGIL_KOK` bunlari YAKALAYAMAZ: oradaki girdiler tamlamadan ONCEKI
+#: KOK'tur, buradakiler ise kelimenin TAMAMI.
+#:
+#: Kisi adi cakismasi bilincli kabul edildi: "Gün", "Ay", "Yarın" Turkce'de
+#: ad olarak da vardir ama sohbette "gunun/ayin/yarin" neredeyse her zaman
+#: zaman bildirir - ters karar (her "bugün ..." sorusunun reddi) cok daha
+#: pahali.
+_KISI_OLMAYAN_KELIME = frozenset(
+    {
+        # Zaman
+        "bugun",
+        "gunun",
+        "dunun",
+        "yarin",
+        "yarinin",
+        "ayin",
+        "yilin",
+        "haftanin",
+        "sabahin",
+        "aksamin",
+        "donemin",
+        "ceyregin",
+        "gelecegin",
+        # Nicelik / nitelik
+        "uzun",
+        "butun",
+        "toplamin",
+        "tumunun",
+        "hepsinin",
+        "ikisinin",
+        # Isaret / soru sozcukleri - bir SEYI gosterirler, kisiyi degil
+        # ("bunun riski nedir"). "onun" BILEREK YOK: o, bir kisiyi
+        # gosterebilir ve "onun portfoyu" gercek bir baska-kisi sorusudur.
+        "bunun",
+        "sunun",
+        "hangisinin",
+        "digerinin",
+    }
+)
+
+
+def _tamlama_govdeleri(kelime: str) -> tuple[str, ...]:
+    """Kelimenin tamlama ekinden arindirilmis OLASI butun govdeleri.
+
+    "fonun" hem "fo"+"nun" hem "fon"+"un" diye ayrilabilir; hangisinin
+    dogru oldugu yuzeysel olarak bilinemez (bkz. `_BASKA_KISI` notu). Iki
+    aday da dondurulur, cagiran taraf hepsini KOK listesinden gecirir.
+    """
+    govdeler = []
+    for ek in ("nin", "nun", "in", "un"):
+        if kelime.endswith(ek) and len(kelime) - len(ek) >= 2:
+            govdeler.append(kelime[: -len(ek)])
+    return tuple(govdeler)
+
+
+def _kok_adaylari(kelime: str) -> tuple[str, ...]:
+    """Kelimenin KOK listesiyle karsilastirilacak butun halleri.
+
+    Turkcede ekler ustuste biner ("varlik-lar-im-in"); desen yalnizca SON
+    eki (tamlama) ayirdigi icin geriye hala cogul ve/veya iyelik eki tasiyan
+    bir govde kalir ve KOK listesindeki ciplak kelimeyle eslesmez. Bu yuzden
+    once iyelik (-im/-um), sonra cogul (-lar/-ler) kirpilarak her ara hal
+    denenir: "varliklarim" -> "varliklar" -> "varlik".
+    """
+    adaylar = [kelime]
+    if kelime.endswith(("im", "um")) and len(kelime) > 4:
+        adaylar.append(kelime[:-2])
+    for aday in tuple(adaylar):
+        if aday.endswith(("lar", "ler")) and len(aday) > 5:
+            adaylar.append(aday[:-3])
+    return tuple(adaylar)
 
 
 def _govde_dislaniyor_mu(govde: str) -> bool:
     """Yakalanan govde bilinen bir varlik/kurum/kisisel-veri kokune mi denk geliyor?
 
-    Iki katman aranir - govdenin kendisi VE govde 1. tekil sahis iyelik
-    ekiyle (-im/-um) bitiyorsa o ek cikarilmis hali. IKINCI katman sart:
-    Turkcede iyelik + tamlama USTUSTE biner ("portfoy-um-un" = "benim
-    portfoyumun"), regex yalnizca SON eki (tamlama, "-un") ayirir - kalan
-    "portfoyum" hala iyelik ekini tasir ve KOK listesindeki cikpiplak
-    "portfoy" ile birebir eslesmez. Bu katman olmadan "Portfoyumun riski
-    nedir?" gibi tamamen masum, kendi-hakkinda sorular BASKA KISI saniliyordu
-    (dort testte olculdu).
+    Govdenin kendisi VE eklerinden arindirilmis halleri aranir (bkz.
+    `_kok_adaylari`). Ek kirpma SART: Turkcede iyelik + tamlama USTUSTE biner
+    ("portfoy-um-un" = "benim portfoyumun"), regex yalnizca SON eki (tamlama,
+    "-un") ayirir - kalan "portfoyum" hala iyelik ekini tasir ve KOK
+    listesindeki ciplak "portfoy" ile birebir eslesmez. Bu katman olmadan
+    "Portfoyumun riski nedir?" gibi tamamen masum, kendi-hakkinda sorular
+    BASKA KISI saniliyordu (dort testte olculdu).
     """
-    if govde in _KISI_DEGIL_KOK:
+    return any(aday in _KISI_DEGIL_KOK for aday in _kok_adaylari(govde))
+
+
+def _eslesme_dislaniyor_mu(eslesme: re.Match[str]) -> bool:
+    """Tek bir `_BASKA_KISI` eslesmesi masum mu?
+
+    Uc bagimsiz kapi - herhangi biri yeterlidir:
+
+      1. HEDEF kendi verisi: "portfoyumde", "varliklarim" gibi 1. tekil sahis
+         iyelik eki tasiyan bir kelime cumlenin REFLEKSIF oldugunu soyler.
+      2. TAM kelime gundelik bir sozcuk ("bugun", "uzun", "bunun") - hic
+         tamlama yoktur, benzerlik tesadufidir.
+      3. GOVDELERDEN biri bilinen bir varlik/kurum/kisisel-veri koku
+         ("sasanin", "fonun", "sirketin"). Kelimenin kendisi de ayni
+         listeden gecirilir: "altin" govdelerine ("alt") bakmak yetmez,
+         kelimenin KENDISI bir varlik adidir.
+    """
+    if _KENDI_VERISI_HEDEFI.search(eslesme.group("hedef")):
         return True
-    if govde.endswith(("im", "um")) and len(govde) > 4:
-        return govde[:-2] in _KISI_DEGIL_KOK
-    return False
+
+    kelime = eslesme.group("tam").replace("'", "").replace("’", "")
+    if kelime in _KISI_OLMAYAN_KELIME:
+        return True
+    if _govde_dislaniyor_mu(kelime):
+        return True
+    return any(_govde_dislaniyor_mu(govde) for govde in _tamlama_govdeleri(kelime))
 
 
 #: Govdesi bu listede olan bir kelime asla KISI ADI sayilmaz. Uc kaynaktan
@@ -758,6 +891,7 @@ _KISI_DEGIL_KOK = frozenset(
         "hisse",
         "endeks",
         "bist",
+        "fon",
         # (3) kurum/piyasa - insan degil
         "sirket",
         "sirketin",
@@ -782,15 +916,14 @@ _BIRINCI_SAHIS = re.compile(r"\b(benim|kendi|bana|banim)\b")
 def baska_kisi_sorusu_mu(sorgu: str) -> bool:
     """Sorgu BASKA birinin kisisel finans verisini mi istiyor?
 
-    Ayrim govde-dislama listesine dayanir - `_BASKA_KISI` ve
-    `_KISI_DEGIL_KOK` docstring'lerine bakin. Eslesen HER aday govde
-    dislama listesinde ise `False` doner; ilk domain-disi govde bulunduysa
-    `True` doner.
+    Ayrim eslesme basina yapilir - `_eslesme_dislaniyor_mu` docstring'ine
+    bakin. Eslesen HER aday masum sayilirsa `False` doner; ilk gercek kisi
+    eslesmesinde `True` doner.
     """
     n = normalize(sorgu)
     if _BIRINCI_SAHIS.search(n):
         return False
-    return any(not _govde_dislaniyor_mu(m.group(1)) for m in _BASKA_KISI.finditer(n))
+    return any(not _eslesme_dislaniyor_mu(m) for m in _BASKA_KISI.finditer(n))
 
 
 # --- Sabit yanitlar -------------------------------------------------------

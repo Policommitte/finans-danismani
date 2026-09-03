@@ -126,6 +126,11 @@ async def portfolio_get_holdings() -> dict[str, Any]:
                     "market_value_try": _f(h["market_value_try"]),
                     "pnl_try": _f(h["pnl_try"]),
                     "pnl_pct": _f(h["pnl_pct"]),
+                    # GUNLUK degisim: `pnl_pct` acilistan beri degil TUM
+                    # zamanin kar/zarari - ajan "bugun en cok kazandiran"
+                    # diye onu yaziyordu (canlida yanlis rapor edildi).
+                    "daily_change_pct": _f(h.get("daily_change_pct")),
+                    "daily_change_try": _f(h.get("daily_change_try")),
                 }
                 for h in holdings
             ]

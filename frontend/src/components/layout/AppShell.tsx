@@ -2,11 +2,13 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { ChatProvider } from "../../contexts/ChatContext";
 import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { markTourSeen } from "../../services/authService";
 import { ChatWidget } from "../chat/ChatWidget";
 import { AssetSummaryModal } from "../market/AssetSummaryModal";
+import { ASSET_MODAL_CLOSED_EVENT } from "./GlobalSearch";
 import { OnboardingFlow } from "../onboarding/OnboardingFlow";
 import { ProductTour } from "../tour/ProductTour";
 import { MarketTicker } from "./MarketTicker";
@@ -271,7 +273,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {selectedSymbol ? (
         <AssetSummaryModal
           symbol={selectedSymbol}
-          onClose={() => setSelectedSymbol(null)}
+          onClose={() => {
+            setSelectedSymbol(null);
+            //: Kart aramadan acildiysa palet geri gelsin. GlobalSearch bu
+            //: olayi dinler ve YALNIZCA karti kendisi actiysa acilir.
+            window.dispatchEvent(new Event(ASSET_MODAL_CLOSED_EVENT));
+          }}
+          onNavigate={() => setSelectedSymbol(null)}
           isAuthenticated={Boolean(auth.user)}
         />
       ) : null}
@@ -314,7 +322,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <LanguageProvider>
-      <AppShellContent>{children}</AppShellContent>
+      <ChatProvider>
+        <AppShellContent>{children}</AppShellContent>
+      </ChatProvider>
     </LanguageProvider>
   );
 }

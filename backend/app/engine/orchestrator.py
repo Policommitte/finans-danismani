@@ -60,6 +60,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
+from app.agents.portfolio import gunun_hareketlileri
 from app.agents.security_agent import PII_FLAG
 from app.config import settings
 from app.core.llm import _is_transient_error
@@ -302,7 +303,7 @@ KISMI_YANIT_ASGARI_KARAKTER = 120
 #: Yarim kalan sentezin sonuna eklenen aciklama.
 KISMI_YANIT_NOTU = "(Yanıtın devamı teknik bir nedenle üretilemedi.)"
 
-#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 13. madde ile AYNI metin.
+#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 14. madde ile AYNI metin.
 YATIRIM_TAVSIYESI_IBARESI = "Bu bilgiler yatırım tavsiyesi değildir."
 
 #: Cikti guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
@@ -363,6 +364,9 @@ Türkçe yanıta dönüştür.
 
 KISA TUT
 4. En fazla 150 kelime. Cevap net olduğunda 2-3 cümlede bitir.
+   İSTİSNA: Kullanıcı açıkça birden fazla konuyu kapsayan bir özet istediyse
+   (örn. günlük portföy brifingi) istediği bölümlerin HEPSİNİ yaz ve
+   belirttiği kelime sınırına kadar çık.
 5. Madde listesi yalnızca gerçekten liste olan şeyler için (örn. birkaç yıllık
    getiri). Üç maddeyi geçme.
 6. Aynı sayıyı iki kez yazma; tekrar eden cümle kurma.
@@ -373,11 +377,15 @@ DÜRÜSTLÜK
 8. Veri az ya da yetersizse bunu tek cümleyle açıkça söyle; uzmanın "yeterli
    değildir" uyarısını YUTMA.
 9. Bir uzmandan veri gelmediyse dürüstçe belirt.
-10. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
+10. Bir uzman bilgiyi "doğrudan X hakkında" ve "aynı sektörden bağlam" diye
+    AYIRMIŞSA bu ayrımı KORU: bağlam bilgisini X hakkındaymış gibi yazma,
+    kısaltmak için iki grubu birleştirme. Doğrudan bilgi yoksa bunu ilk
+    cümlede söyle ama bağlam bilgisini ATMA - özetlemeye devam et.
+11. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
     bile maskele.
-11. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
-12. Sade dil kullan; gereksiz teknik jargondan kaçın.
-13. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
+12. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
+13. Sade dil kullan; gereksiz teknik jargondan kaçın.
+14. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
     ekle."""
 
 
@@ -401,10 +409,28 @@ def _normalize(text: str) -> str:
 
 
 #: Sentez akisi ILK TOKEN'DAN ONCE gecici hatayla duserse kac kez daha
-#: denenecegi. Dusuk tutuldu: sentezin dis zaman asimi 45 sn ve basarisizlik
-#: zaten deterministik ozete duserek guvenli sonlanir.
-_SENTEZ_YENIDEN_DENEME = 1
-_SENTEZ_BEKLEME_SANIYE = 1.5
+#: denenecegi. Toplam deneme = 1 + bu sayi.
+#:
+#: 1 -> 2 (2 Eylul 2026, canlida olculdu): saglayici arka arkaya iki kez
+#: `503 Service temporarily overloaded` dondugunde tek yeniden deneme
+#: yetmedi ve yanit deterministik ozete dustu - kullanici ajan bolumlerini
+#: (`Piyasa arastirmasi: ... Portfoy analizi: ...`) alt alta gordu. Ajan
+#: tarafindaki hak zaten 2 (`app/core/llm.py::_YENIDEN_DENEME`); sentez
+#: ondan daha kirilgan olmamali.
+#:
+#: UST SINIR VAR: her deneme once ILK TOKEN'i beklemek zorunda
+#: (`synthesizer_stall_seconds`) ve beklemeler `synthesizer_timeout_seconds`
+#: butcesinden yenir. Hak daha da artirilirsa dis zaman asimi tetiklenir -
+#: sonuc yine deterministik ozet olur ama kullanici cok daha uzun bekler.
+#: `done` olayinda gonderilen en fazla varlik karti sayisi.
+KART_SEMBOL_SINIRI = 3
+
+_SENTEZ_YENIDEN_DENEME = 2
+
+#: Denemeler arasi bekleme - kademeli. Sabit bekleme yogunluk aninda ikinci
+#: denemeyi de ayni dalgaya sokuyordu; ajan tarafindaki kademelendirmeyle
+#: (`app/core/llm.py::_BEKLEME_SANIYE`) ayni mantik.
+_SENTEZ_BEKLEME_SANIYELERI = (1.5, 3.0)
 
 
 class Orchestrator:
@@ -1016,7 +1042,7 @@ class Orchestrator:
             kismi = kismi[: son_sinir + 1].rstrip()
 
         satirlar = [kismi, "", KISMI_YANIT_NOTU]
-        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 13. madde);
+        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 14. madde);
         # sentez yarim kaldigi icin model onu yazmaya firsat bulamamis olabilir.
         if YATIRIM_TAVSIYESI_IBARESI not in kismi:
             satirlar.append(YATIRIM_TAVSIYESI_IBARESI)
@@ -1076,13 +1102,25 @@ class Orchestrator:
                 # yeniden denemek GORUNMEZ olur.
                 if parts or _yeniden_deneme_hakki[0] <= 0 or not _is_transient_error(hata):
                     raise
+                # Kacinci deneme oldugumuza gore bekle: hak azaldikca
+                # kademede ilerleriz (2 hak -> 1.5 sn, 1 hak -> 3.0 sn).
+                bekleme = _SENTEZ_BEKLEME_SANIYELERI[
+                    min(
+                        _SENTEZ_YENIDEN_DENEME - _yeniden_deneme_hakki[0],
+                        len(_SENTEZ_BEKLEME_SANIYELERI) - 1,
+                    )
+                ]
                 _yeniden_deneme_hakki[0] -= 1
                 logger.warning(
                     "sentez akisi gecici hatayla dustu; yeniden deneniyor",
-                    extra={"kalan": _yeniden_deneme_hakki[0], "hata": str(hata)[:200]},
+                    extra={
+                        "kalan": _yeniden_deneme_hakki[0],
+                        "bekleme_sn": bekleme,
+                        "hata": str(hata)[:200],
+                    },
                 )
                 await akis.aclose()
-                await asyncio.sleep(_SENTEZ_BEKLEME_SANIYE)
+                await asyncio.sleep(bekleme)
                 akis = self.synthesizer_llm.astream(messages, config=config)
                 continue
             except asyncio.TimeoutError as exc:
@@ -1363,6 +1401,10 @@ class Orchestrator:
         #: ilk token'dan once gitme zorunlulugu yok, cunku frontend karti
         #: cevap TAMAMLANDIKTAN sonra gosterir.
         bahsedilen_semboller: list[str] = []
+        #: Portfoy ajani calistiysa gunun en hareketli pozisyonlari - piyasa
+        #: ajaninin sembolu TEK bir varlik veriyor, portfoy sorularinda ise
+        #: cevap birden fazla pozisyondan bahsediyor.
+        hareketli_semboller: list[str] = []
         son_yanit: str | None = None
         #: Kullaniciya GERCEKTEN gonderilmis token'lar. Nihai metin bundan
         #: uzunsa aradaki fark sonda ek token olarak yollanir (bkz. asagisi).
@@ -1414,6 +1456,14 @@ class Orchestrator:
                         piyasa_verisi = update.get("market_data")
                         if isinstance(piyasa_verisi, dict) and piyasa_verisi.get("symbol"):
                             bahsedilen_semboller = [piyasa_verisi["symbol"]]
+
+                        portfoy_verisi = update.get("portfolio_data")
+                        if isinstance(portfoy_verisi, dict):
+                            hareketli_semboller = [
+                                h["symbol"]
+                                for h in gunun_hareketlileri(portfoy_verisi)
+                                if h.get("symbol")
+                            ]
 
                         # Kismi basarisizlik: tek ajan coktu, sohbet DEVAM
                         # ediyor. Frontend bunu uyari olarak gosterir, akisi
@@ -1487,7 +1537,11 @@ class Orchestrator:
         bitis_olayi: dict = {
             "type": "done",
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
-            "mentioned_assets": bahsedilen_semboller,
+            # Sorulan varlik once, ardindan gunun hareketlileri; tekrarlar
+            # elenir ve kart sayisi sinirlanir.
+            "mentioned_assets": list(dict.fromkeys([*bahsedilen_semboller, *hareketli_semboller]))[
+                :KART_SEMBOL_SINIRI
+            ],
         }
         if uretilen_rapor:
             # `rapor`: yalnizca META veri (dosya adi/boyut) - SSE'ye JSON

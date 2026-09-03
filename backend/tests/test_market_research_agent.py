@@ -11,7 +11,14 @@ HIC gidilmez, boylece model bosluktan icerik uretemez.
 
 import pytest
 
-from app.agents.market_research import NO_RETRIEVAL_MESSAGE, MarketResearchAgent
+from app.agents.market_research import (
+    _ALAN_SOZLUGU,
+    _ALAN_TERS,
+    NO_RETRIEVAL_MESSAGE,
+    MarketResearchAgent,
+    _alandan_coz,
+    _arama_metni,
+)
 from app.mcp.client import MCPClient, MCPServer
 from app.mcp.server import build_servers
 from app.orchestration.models import AgentState, Source
@@ -373,3 +380,242 @@ def test_source_falls_back_to_legacy_topic_mapping_without_type():
     )
 
     assert kaynak.tip == "analist_raporu"
+
+
+# ---------------------------------------------------------------------------
+# Arama metni damitma (`_arama_metni`) ve sembolun filtre OLMAMASI
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen",
+    [
+        # Yatirim cercevesi tamamen atilir, geriye varlik adi kalir.
+        ("Türk Hava Yolları hissesini etkileyebilecek gelişmeler neler", "Türk Hava Yolları"),
+        ("genel olarak aselsan hissesini etkileyebilecek olan haber yok mu", "aselsan"),
+        # Sektor sorusunda konu kelimeleri KORUNUR - damitma konuyu silmez.
+        ("savunma sanayi nasıl gidiyor", "savunma sanayi"),
+    ],
+)
+def test_arama_metni_yatirim_cercevesini_atar(sorgu, beklenen):
+    assert _arama_metni(sorgu) == beklenen
+
+
+def test_arama_metni_turkce_karakterleri_korur():
+    """Eslesme normalize metinde yapilir ama KESME orijinalde - diakritik kalmali.
+
+    Normalize edilmis metni gommek gomme kalitesini dusururdu: korpusta
+    "Türk Hava Yolları" diakritikli yaziliyor.
+    """
+    assert _arama_metni("Türk Hava Yolları hissesi") == "Türk Hava Yolları"
+
+
+def test_arama_metni_varlik_adini_basa_ekler():
+    """Kullanici kodu yazar ("THYAO"), korpusta unvan gecer."""
+    sonuc = _arama_metni("THYAO bugün neden yükseldi", "Türk Hava Yolları")
+
+    assert sonuc.startswith("Türk Hava Yolları")
+    assert "THYAO" in sonuc
+
+
+def test_arama_metni_ad_zaten_varsa_tekrarlamaz():
+    assert _arama_metni("Aselsan hissesi", "Aselsan") == "Aselsan"
+
+
+def test_arama_metni_her_sey_silinirse_ham_sorguya_doner():
+    """Bos metni gommek her chunk'a esit uzaklikta anlamsiz bir vektor uretir."""
+    assert _arama_metni("neler oluyor") == "neler oluyor"
+
+
+async def test_sembol_rag_filtresi_olarak_GONDERILMEZ():
+    """A: sembol filtresi `rag.hybrid_search` icinde havuzu tamamen bosaltiyordu.
+
+    Filtre `assets.symbol`/`assets.name`/`documents.baslik` uzerinden eslesiyor
+    ama `rag.documents.asset_id` uretimde hic doldurulmamis ve basliklarda ham
+    kod gecmiyor - yani sembol DOGRU cozuldugunde bile sonuc her zaman bos
+    donuyordu. Sembol artik arama metnine gider.
+    """
+    cagrilar: list[dict] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append({"query": query, "filters": filters or {}})
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan.run(_state("THYAO hissesini etkileyebilecek gelişmeler neler"))
+
+    assert cagrilar, "rag_search hic cagrilmadi"
+    assert "symbol" not in cagrilar[0]["filters"]
+    assert "sirket" not in cagrilar[0]["filters"]
+    # Sembol kaybolmaz - arama metnine tasinir.
+    assert "THYAO" in cagrilar[0]["query"]
+
+
+async def test_tarih_filtreleri_korunur():
+    """Tarih `documents.tarih` uzerinden calisir; eksik metadataya bagli degil."""
+    cagrilar: list[dict] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append(filters or {})
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan.run(
+        _state("piyasa ozeti", **_gorev(mode="rag", date_from="2026-08-01", date_to="2026-08-17"))
+    )
+
+    assert cagrilar[0]["date_from"] == "2026-08-01"
+    assert cagrilar[0]["date_to"] == "2026-08-17"
+
+
+# ---------------------------------------------------------------------------
+# Alan sozlugu (`_ALAN_SOZLUGU`) - ileri ve geri yon
+# ---------------------------------------------------------------------------
+
+
+def test_alan_sozlugunde_capraz_alt_dize_yok():
+    """Bir ifade, BASKA bir sembolun ifadesinin alt dizesi olmamali.
+
+    Olsaydi geri yon sessizce belirsizlesir ve `_alandan_coz` "birden cok
+    eslesme" sayip sembolu HIC cozemezdi - hata vermeden, yalnizca ozellik
+    calismayarak. Tablo elle buyutuldugu icin bu denetim gerekli.
+    """
+    cakisan = [
+        (a, _ALAN_TERS[a], b, _ALAN_TERS[b])
+        for a in _ALAN_TERS
+        for b in _ALAN_TERS
+        if a != b and a in b and _ALAN_TERS[a] != _ALAN_TERS[b]
+    ]
+
+    assert not cakisan, f"capraz alt dize: {cakisan}"
+
+
+def test_alan_ifadeleri_katalog_sembolu_kullanir():
+    """Tablo, gercek sembol kodlarina baglanmali (yazim hatasi erken yakalansin)."""
+    assert "ASELS" in _ALAN_SOZLUGU
+    assert "savunma sanayi" in _ALAN_SOZLUGU["ASELS"]
+
+
+@pytest.mark.parametrize(
+    "sorgu, beklenen",
+    [
+        ("savunma sanayi nasıl gidiyor", "ASELS"),
+        ("havacılık sektörü nasıl", "THYAO"),
+        ("bankacılık sektöründe durum ne", "GARAN"),
+    ],
+)
+def test_alandan_coz_sektor_sorusunu_sembole_baglar(sorgu, beklenen):
+    assert _alandan_coz(sorgu, {"ASELS", "THYAO", "GARAN"}) == beklenen
+
+
+def test_alandan_coz_birden_cok_eslesmede_sembol_uretmez():
+    """`task` TEKIL sembol tasir; yanlis birini secmektense sembolsuz devam."""
+    sorgu = "yapay zeka çipi ve bulut bilişim hisseleri nasıl"
+
+    assert _alandan_coz(sorgu, {"NVDA", "MSFT"}) is None
+
+
+def test_alandan_coz_jenerik_kelimeye_takilmaz():
+    assert _alandan_coz("teknoloji hisseleri nasıl", {"NVDA", "MSFT"}) is None
+    assert _alandan_coz("sanayi nasıl", {"ASELS"}) is None
+
+
+def test_alandan_coz_katalogda_olmayan_sembolu_uretmez():
+    """`_takma_addan_coz` ile ayni kural: varlik silinirse tablo yanlis donmesin."""
+    assert _alandan_coz("savunma sanayi nasıl gidiyor", {"THYAO"}) is None
+
+
+def test_arama_metni_alan_kelimelerini_sona_ekler():
+    """Sorunun konusu basta kalir, alan kelimeleri arkadan agirlik verir."""
+    sonuc = _arama_metni("THYAO hissesi", "Türk Hava Yolları", ("havacılık", "uçuş ağı"))
+
+    assert sonuc.startswith("Türk Hava Yolları")
+    assert sonuc.endswith("havacılık uçuş ağı")
+
+
+def test_arama_metni_ad_metinde_varsa_alan_yine_eklenir():
+    """ "aselsan hissesi" -> ad zaten geciyor, tekrarlanmaz; alan yine de eklenir."""
+    sonuc = _arama_metni("aselsan hissesi", "Aselsan", ("savunma sanayi",))
+
+    assert sonuc == "aselsan savunma sanayi"
+
+
+def test_arama_metni_zaten_gecen_alan_kelimesini_tekrarlamaz():
+    sonuc = _arama_metni("savunma sanayi nasıl gidiyor", None, ("savunma sanayi",))
+
+    assert sonuc.count("savunma sanayi") == 1
+
+
+async def test_alandan_cozulen_sembol_rag_i_kapatmaz():
+    """Alan sembolu tek basina "live"a dusmemeli - sektor sorusunun konusu haber.
+
+    Dusseydi alan sozlugu kendi amacini baltalardi: "savunma sanayi hisseleri
+    ne kadar yukseldi" salt fiyat dondururdu.
+    """
+    ajan = _ajan(mcp_client=build_mcp_client())
+    gorev = {"query": "savunma sanayi hisseleri ne kadar yükseldi"}
+    await ajan._resolve_symbol_from_catalog(gorev)
+
+    assert gorev.get("symbol") == "ASELS"
+    assert gorev.get("symbol_alandan") is True
+    # Fiyat ipucu ("ne kadar yukseldi") olmasina RAGMEN canli yol acilmaz.
+    assert ajan._resolve_mode(gorev, gorev["query"]) == "rag"
+
+
+async def test_alandan_cozulen_sembol_arama_metnine_enjekte_edilmez():
+    """Alandan CIKARILAN sembol arama metnine hicbir sey eklemez.
+
+    Sorulan sirket katalogdakinden baskasi olabilir ve genisletme onun
+    haberlerini eziyor - olculdu:
+
+        "Baykar savunma sanayinde"                     -> 4/5 sonuc Baykar
+        "Baykar savunma sanayinde savunma elektronigi"  -> 0/5 sonuc Baykar
+
+    Ad enjekte edilmese bile duser; sucu tasiyan alan kelimeleri.
+    """
+    cagrilar: list[str] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append(query)
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan._run_rag(
+        {"query": "savunma sanayi nasıl gidiyor", "symbol": "ASELS", "symbol_alandan": True},
+        "savunma sanayi nasıl gidiyor",
+    )
+
+    # Yalnizca damitma - ne ad ne alan kelimesi.
+    assert cagrilar == ["savunma sanayi"]
+
+
+async def test_sorguda_adiyla_gecen_sembol_alan_kelimelerini_alir():
+    """Kullanici sirketi ADIYLA yazdiysa belirsizlik YOK - takviye uygulanir.
+
+    Olculdu: "aselsan" -> savunma haberi 3. siradan 1. siraya (0.345 -> 0.426).
+    """
+    cagrilar: list[str] = []
+
+    async def kaydeden_rag_search(query, top_k=5, filters=None):
+        cagrilar.append(query)
+        return {"chunks": []}
+
+    sunucu = MCPServer(name="rag")
+    sunucu.register_tool("rag_search", kaydeden_rag_search)
+    ajan = _ajan(mcp_client=MCPClient({"rag": sunucu}))
+
+    await ajan._run_rag(
+        {"query": "aselsan hissesi haberleri", "symbol": "ASELS"},
+        "aselsan hissesi haberleri",
+    )
+
+    assert "savunma sanayi" in cagrilar[0]

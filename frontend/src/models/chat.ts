@@ -233,3 +233,26 @@ export type ChatEvent =
       rapor?: ChatRaporMeta;
       mentioned_assets?: string[];
     };
+
+/** `GET /api/conversations` row (backend/app/schemas/chat.py `Conversation`). */
+export type Conversation = {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count?: number | null;
+};
+
+/** `GET /api/conversations/{id}/messages` row - persisted message with its JSONB meta. */
+export type StoredMessage = {
+  id: number;
+  sender_role: "user" | "assistant" | string;
+  message_content: string;
+  meta: {
+    sources?: Source[];
+    agent_errors?: AgentError[];
+    mentioned_assets?: string[];
+    [key: string]: unknown;
+  };
+  created_at: string;
+};

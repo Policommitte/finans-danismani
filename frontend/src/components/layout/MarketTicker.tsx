@@ -6,6 +6,7 @@ import { useLanguage } from "../../contexts/LanguageContext";
 import type { PublicMarketTickerItem } from "../../models/market";
 import { getPublicMarketTicker } from "../../services/marketService";
 import { ThemeToggle } from "../ui/ThemeToggle";
+import { GlobalSearch } from "./GlobalSearch";
 import { MARKET_TICKER_READY_EVENT } from "./transitionEvents";
 
 let cachedTickerItems: PublicMarketTickerItem[] = [];
@@ -244,21 +245,23 @@ export function MarketTicker({
         }`}
       >
         {!isAuthenticated && (
+          // Misafirde logo seridin kendi icinde. `w-28` + `left_center`:
+          // SVG 2.27:1 oraninda, `w-48` kutuda maske ortalaninca solunda
+          // ~42px gorunmez bosluk kaliyor ve logo kenardan kopuk duruyordu.
           <Link href="/" className="absolute left-0 top-1/2 hidden -translate-y-1/2 2xl:flex">
             <span
               aria-hidden="true"
-              className="block h-12 w-48 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:center] [mask-repeat:no-repeat] [mask-size:contain]"
+              className="block h-12 w-28 bg-[var(--color-market-text)] [mask-image:url('/polifin-logo-clean.svg')] [mask-position:left_center] [mask-repeat:no-repeat] [mask-size:contain]"
             />
             <span className="sr-only">Polifin</span>
           </Link>
         )}
 
-      <div className={`flex min-h-20 w-full items-center gap-4 px-4 md:gap-6 ${isAuthenticated ? "" : "2xl:pl-52 2xl:pr-8"}`}>
-        <div className="hidden shrink-0 items-center gap-2 text-sm font-semibold text-[var(--color-market-muted)] md:flex">
-          <span className="h-2 w-2 rotate-45 bg-[var(--color-accent)]" />
-          {language === "tr" ? "PİYASA VERİLERİ" : "MARKET DATA"}
-        </div>
-
+      <div
+        className={`flex min-h-20 w-full items-center gap-3 px-4 md:gap-4 ${
+          isAuthenticated ? "" : "2xl:pl-36 2xl:pr-6"
+        }`}
+      >
         <div className="relative min-w-0 flex-1 overflow-hidden py-3" data-tour="market-stream">
           <div
             ref={trackRef}
@@ -298,13 +301,43 @@ export function MarketTicker({
           </div>
         </div>
 
+        <GlobalSearch onSelectSymbol={onSelect} isAuthenticated={isAuthenticated} />
+
+        <div className="flex shrink-0 items-center gap-3" data-tour="appearance-controls">
+          <button
+            type="button"
+            aria-label={language === "tr" ? "Dili İngilizce yap" : "Switch language to Turkish"}
+            onClick={toggleLanguage}
+            className="flex h-10 w-12 items-center justify-center rounded-md border app-border app-surface text-sm font-black app-heading transition hover:opacity-80"
+          >
+            {language === "tr" ? "EN" : "TR"}
+          </button>
+          <ThemeToggle className="rounded-md" />
+        </div>
+
         {isAuthenticated ? (
           <button
             type="button"
             onClick={onLogout}
-            className="flex h-11 w-20 shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/[0.06] text-sm font-semibold text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white md:w-24"
+            aria-label={language === "tr" ? "Çıkış" : "Logout"}
+            title={language === "tr" ? "Çıkış" : "Logout"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/[0.06] text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white"
           >
-            {language === "tr" ? "Çıkış" : "Logout"}
+            <svg
+              width="19"
+              height="19"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
+              <path d="M15 17l5-5-5-5" />
+              <path d="M20 12H9" />
+            </svg>
           </button>
         ) : (
           <Link
@@ -314,17 +347,6 @@ export function MarketTicker({
             {language === "tr" ? "Giriş" : "Login"}
           </Link>
         )}
-        <div className="flex shrink-0 items-center gap-3" data-tour="appearance-controls">
-          <ThemeToggle className="rounded-md" />
-          <button
-            type="button"
-            aria-label={language === "tr" ? "Dili İngilizce yap" : "Switch language to Turkish"}
-            onClick={toggleLanguage}
-            className="flex h-10 w-12 items-center justify-center rounded-md border app-border app-surface text-sm font-black app-heading transition hover:opacity-80"
-          >
-            {language === "tr" ? "EN" : "TR"}
-          </button>
-        </div>
       </div>
       </section>
     </>
