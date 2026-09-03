@@ -32,13 +32,12 @@ const RANGE_SUBTITLES: Record<PerformanceRange, { tr: string; en: string }> = {
   "1Y": { tr: "Son 1 yıl", en: "Last year" },
 };
 
-//: Mum grafiginin kova boyu. 1G/1H'de yarim saatlik kovalar anlamli;
-//: 1A/1Y'de backend zaten GUNDE TEK nokta donduugu icin her mum bir gundur.
+//: Mum grafiginin kova boyu secilen doneme gore degisir.
 const CANDLE_SUBTITLES: Record<PerformanceRange, { tr: string; en: string }> = {
   "1G": { tr: "30 dakikalık", en: "30-minute" },
   "1H": { tr: "Günlük", en: "Daily" },
   "1A": { tr: "Günlük", en: "Daily" },
-  "1Y": { tr: "Günlük", en: "Daily" },
+  "1Y": { tr: "Haftalık", en: "Weekly" },
 };
 
 export type PortfolioViewMode = "line" | "candlestick" | "pie";
@@ -82,7 +81,7 @@ const TIME_FORMATS: Record<PerformanceRange, Intl.DateTimeFormatOptions> = {
   // nokta basina bir gun dustugu icin saat gostermek yaniltici olurdu.
   "1H": { day: "2-digit", month: "2-digit" },
   "1A": { day: "2-digit", month: "2-digit" },
-  "1Y": { month: "short", year: "2-digit" },
+  "1Y": { day: "2-digit", month: "short" },
 };
 
 function formatTime(value: string, language: "tr" | "en", range: PerformanceRange): string {
@@ -92,42 +91,136 @@ function formatTime(value: string, language: "tr" | "en", range: PerformanceRang
   ).format(new Date(value));
 }
 
-export function buildCompletedHalfHourlyCandles(
+const ISTANBUL_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Istanbul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function istanbulDateKey(timestamp: number): string {
+  const parts = Object.fromEntries(
+    ISTANBUL_DATE_FORMATTER.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/**
+ * Uzun donem cizgisinin tarih araligini korurken bugunun yeniden hesaplanan
+ * noktasini en yeni gercek snapshot ile degistirir.
+ */
+export function mergeLatestSnapshotIntoDailyHistory(
+  history: PortfolioValueSnapshotPoint[],
+  latestSnapshot: PortfolioValueSnapshotPoint | undefined,
+): PortfolioValueSnapshotPoint[] {
+  if (!latestSnapshot) {
+    return history;
+  }
+
+  const latestTimestamp = new Date(latestSnapshot.ts).getTime();
+  if (!Number.isFinite(latestTimestamp)) {
+    return history;
+  }
+
+  const latestDay = istanbulDateKey(latestTimestamp);
+  return [
+    ...history.filter((point) => {
+      const timestamp = new Date(point.ts).getTime();
+      return !Number.isFinite(timestamp) || istanbulDateKey(timestamp) !== latestDay;
+    }),
+    latestSnapshot,
+  ];
+}
+
+/** Yillik seride icinde bulunulan haftayi tek canli snapshot ile temsil eder. */
+export function mergeLatestSnapshotIntoWeeklyHistory(
+  history: PortfolioValueSnapshotPoint[],
+  latestSnapshot: PortfolioValueSnapshotPoint | undefined,
+): PortfolioValueSnapshotPoint[] {
+  if (!latestSnapshot) {
+    return history;
+  }
+
+  const latestTimestamp = new Date(latestSnapshot.ts).getTime();
+  if (!Number.isFinite(latestTimestamp)) {
+    return history;
+  }
+
+  const latestWeek = weekStartKey(istanbulDateKey(latestTimestamp));
+  return [
+    ...history.filter((point) => {
+      const timestamp = new Date(point.ts).getTime();
+      return !Number.isFinite(timestamp)
+        || weekStartKey(istanbulDateKey(timestamp)) !== latestWeek;
+    }),
+    latestSnapshot,
+  ];
+}
+
+function weekStartKey(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Doneme uygun, yalnizca TAMAMLANMIS portfoy mumlarini uretir.
+ *
+ * 1G: 5 dakikalik snapshot'lardan 30 dakikalik mum.
+ * 1H/1A: ayni snapshot'lardan gunluk mum.
+ * 1Y: backend'in gunluk toplamlarindan haftalik mum.
+ */
+export function buildCompletedPortfolioCandles(
   points: PortfolioValueSnapshotPoint[],
+  range: PerformanceRange,
+  now = Date.now(),
 ): CandlePoint[] {
-  const fiveMinutes = 5 * 60 * 1_000;
   const halfHour = 30 * 60 * 1_000;
-  const buckets = new Map<number, Map<number, number>>();
+  const todayKey = istanbulDateKey(now);
+  const currentWeekKey = weekStartKey(todayKey);
+  const buckets = new Map<string, Array<{ timestamp: number; value: number }>>();
 
   points.forEach((point) => {
     const timestamp = new Date(point.ts).getTime();
-    if (!Number.isFinite(timestamp) || timestamp % fiveMinutes !== 0) {
+    if (!Number.isFinite(timestamp)) {
       return;
     }
 
-    const bucketTimestamp = Math.floor(timestamp / halfHour) * halfHour;
-    const bucket = buckets.get(bucketTimestamp) ?? new Map<number, number>();
-    bucket.set(timestamp, point.total_value_try);
-    buckets.set(bucketTimestamp, bucket);
+    const dateKey = istanbulDateKey(timestamp);
+    const bucketKey = range === "1G"
+      ? String(Math.floor(timestamp / halfHour) * halfHour)
+      : range === "1Y"
+        ? weekStartKey(dateKey)
+        : dateKey;
+    const bucket = buckets.get(bucketKey) ?? [];
+    bucket.push({ timestamp, value: point.total_value_try });
+    buckets.set(bucketKey, bucket);
   });
 
   return [...buckets.entries()]
-    .sort(([left], [right]) => left - right)
-    .flatMap(([bucketTimestamp, values]) => {
-      const expectedValues = Array.from({ length: 6 }, (_, index) =>
-        values.get(bucketTimestamp + index * fiveMinutes),
-      );
-      if (expectedValues.some((value) => value == null)) {
+    .sort(([left], [right]) => left.localeCompare(right, "en"))
+    .flatMap(([bucketKey, values]) => {
+      const complete = range === "1G"
+        ? Number(bucketKey) + halfHour <= now
+        : range === "1Y"
+          ? bucketKey < currentWeekKey
+          : bucketKey < todayKey;
+      if (!complete || values.length === 0) {
         return [];
       }
 
-      const completedValues = expectedValues as number[];
+      const completedValues = values
+        .sort((left, right) => left.timestamp - right.timestamp)
+        .map((item) => item.value);
       const open = completedValues[0];
       const close = completedValues.at(-1) ?? open;
       const high = Math.max(...completedValues);
       const low = Math.min(...completedValues);
       return [{
-        ts: new Date(bucketTimestamp).toISOString(),
+        ts: range === "1G"
+          ? new Date(Number(bucketKey)).toISOString()
+          : `${bucketKey}T00:00:00+03:00`,
         open,
         high,
         low,
@@ -137,10 +230,31 @@ export function buildCompletedHalfHourlyCandles(
     });
 }
 
+export function buildCompletedHalfHourlyCandles(
+  points: PortfolioValueSnapshotPoint[],
+): CandlePoint[] {
+  return buildCompletedPortfolioCandles(points, "1G");
+}
+
 function paddedDomain(minimum: number, maximum: number): [number, number] {
   const spread = maximum - minimum;
   const padding = Math.max(spread * 0.12, Math.abs(maximum) * 0.0005, 1);
   return [minimum - padding, maximum + padding];
+}
+
+export function buildChronologicalPortfolioPoints(
+  points: PortfolioValueSnapshotPoint[],
+  conversionDivisor: number,
+): PortfolioValueSnapshotPoint[] {
+  return [...points]
+    .filter((point) => !Number.isNaN(new Date(point.ts).getTime()))
+    .sort((left, right) => new Date(left.ts).getTime() - new Date(right.ts).getTime())
+    .map((point) => ({
+      ...point,
+      holdings_value_try: point.holdings_value_try / conversionDivisor,
+      cash_value_try: point.cash_value_try / conversionDivisor,
+      total_value_try: point.total_value_try / conversionDivisor,
+    }));
 }
 
 function CandlestickShape({ x = 0, y = 0, width = 0, height = 0, payload }: CandlestickShapeProps) {
@@ -317,6 +431,8 @@ export function PortfolioVisualization({
   periodChangeTry,
   periodChangePct,
   performancePoints,
+  candleSourcePoints,
+  currentTotalTry,
   performanceLoading = false,
   performanceError = null,
   mode,
@@ -331,9 +447,13 @@ export function PortfolioVisualization({
   /** Donem kar/zarari - grafigin ustundeki yuzde bundan turetilir. */
   periodChangeTry: number | null;
   periodChangePct: number | null;
-  //: 1G'de scheduler'in olctugu gercek snapshot'lar, diger araliklarda
-  //: yeniden kurulan seri ayni bicime cevrilerek gelir (bkz. dashboard).
+  //: 1G/1H/1A'da scheduler'in olctugu gercek snapshot'lar, 1Y'de yeniden
+  //: kurulan seri ayni bicime cevrilerek gelir (bkz. dashboard).
   performancePoints: PortfolioValueSnapshotPoint[];
+  /** Mum icin ham kaynak: 1G/1H/1A snapshot, 1Y gunluk performans serisi. */
+  candleSourcePoints: PortfolioValueSnapshotPoint[];
+  /** Tum donemlerde kartlarla ortak kullanilan son snapshot toplami. */
+  currentTotalTry: number | null;
   performanceLoading?: boolean;
   performanceError?: string | null;
   mode: PortfolioViewMode;
@@ -375,15 +495,12 @@ export function PortfolioVisualization({
       : compactCurrency.format(value);
   const quantityFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 4 });
   const chartPoints = useMemo(
-    () => performancePoints
-      .filter((point) => !Number.isNaN(new Date(point.ts).getTime()))
-      .map((point) => ({
-        ...point,
-        holdings_value_try: point.holdings_value_try / conversionDivisor,
-        cash_value_try: point.cash_value_try / conversionDivisor,
-        total_value_try: point.total_value_try / conversionDivisor,
-      })),
+    () => buildChronologicalPortfolioPoints(performancePoints, conversionDivisor),
     [conversionDivisor, performancePoints],
+  );
+  const convertedCandleSource = useMemo(
+    () => buildChronologicalPortfolioPoints(candleSourcePoints, conversionDivisor),
+    [candleSourcePoints, conversionDivisor],
   );
   const totalValueTry = holdings.reduce((sum, item) => sum + item.market_value_try, 0) + cashTotalTry;
   const totalValue = totalValueTry / conversionDivisor;
@@ -414,7 +531,9 @@ export function PortfolioVisualization({
     }));
 
   const first = chartPoints[0]?.total_value_try ?? 0;
-  const current = chartPoints.at(-1)?.total_value_try ?? totalValue;
+  const current = currentTotalTry != null
+    ? currentTotalTry / conversionDivisor
+    : chartPoints.at(-1)?.total_value_try ?? totalValue;
   // Yuzde, ILK/SON NOKTA FARKINDAN degil backend'in donem kar/zararindan
   // gelir. Ikisi ayni degildir: donem icinde alim yapildiysa portfoy degeri
   // artar ama bu KAR degil, yatirilan paradir - ham fark "+%36" gibi
@@ -453,8 +572,8 @@ export function PortfolioVisualization({
     return stops;
   }, [chartPoints]);
   const candlePoints = useMemo(
-    () => buildCompletedHalfHourlyCandles(chartPoints),
-    [chartPoints],
+    () => buildCompletedPortfolioCandles(convertedCandleSource, range),
+    [convertedCandleSource, range],
   );
   const candleMinimum = candlePoints.length > 0 ? Math.min(...candlePoints.map((point) => point.low)) : current;
   const candleMaximum = candlePoints.length > 0 ? Math.max(...candlePoints.map((point) => point.high)) : current;
@@ -495,7 +614,7 @@ export function PortfolioVisualization({
   }
 
   return (
-    <Card className={mode === "pie" ? "min-h-[560px]" : "h-full"}>
+    <Card className="h-full">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold app-heading">
@@ -527,10 +646,10 @@ export function PortfolioVisualization({
       <div
         key={mode}
         data-mode={mode}
-        className={`portfolio-chart-content ${mode === "pie" ? "mt-5 min-h-[460px]" : "mt-3 h-[420px] overflow-y-auto pr-1"}`}
+        className={`portfolio-chart-content mt-3 h-[420px] overflow-y-auto pr-1 ${mode === "pie" ? "lg:overflow-hidden" : ""}`}
       >
         {mode === "pie" ? (
-          <div className="grid min-h-[450px] items-center gap-8 lg:grid-cols-[minmax(280px,.78fr)_minmax(0,1.35fr)]">
+          <div className="grid min-h-full items-center gap-8 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(280px,.78fr)_minmax(0,1.35fr)]">
             <div className="relative mx-auto aspect-square w-full max-w-[360px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -576,11 +695,11 @@ export function PortfolioVisualization({
               </div>
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
               <h3 className="mb-2 text-sm font-semibold app-heading">
                 {language === "tr" ? "Varlıklar" : "Assets"}
               </h3>
-              <div className="divide-y rounded-md border app-border app-border-soft">
+              <div className="divide-y rounded-md border app-border app-border-soft lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain">
                 {pieData.map((item, index) => (
                   <div
                     key={item.symbol}
@@ -632,15 +751,17 @@ export function PortfolioVisualization({
           </div>
         ) : mode === "candlestick" && candlePoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center px-6 text-center text-sm app-muted">
-            {/* Mum yalnizca 1G'de kurulabiliyor: snapshot'lar 5 dakikalik
-                izgarada, uzun araliklarda gunde tek nokta var. */}
             {range === "1G"
               ? language === "tr"
-                ? "Tamamlanmış bir 30 dakikalık mum için henüz altı adet 5 dakikalık değer oluşmadı."
-                : "Six 5-minute values have not yet formed a completed 30-minute candle."
-              : language === "tr"
-                ? "Mum grafiği yalnızca günlük görünümde kullanılabilir. 1G'yi seçin ya da çizgi grafiğe geçin."
-                : "The candlestick view is only available for the daily range. Pick 1G or switch to the line chart."}
+                ? "Henüz tamamlanmış bir 30 dakikalık portföy aralığı oluşmadı."
+                : "A completed 30-minute portfolio interval is not available yet."
+              : range === "1Y"
+                ? language === "tr"
+                  ? "Henüz tamamlanmış bir haftalık portföy aralığı oluşmadı."
+                  : "A completed weekly portfolio interval is not available yet."
+                : language === "tr"
+                  ? "Henüz tamamlanmış bir günlük portföy aralığı oluşmadı."
+                  : "A completed daily portfolio interval is not available yet."}
           </div>
         ) : mode === "candlestick" ? (
           <>

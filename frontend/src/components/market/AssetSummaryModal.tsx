@@ -258,12 +258,15 @@ export function AssetSummaryModal({
   const sparklinePoints = (history?.points ?? []).slice(-20);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 px-4 pb-4 pt-24"
+      onClick={onClose}
+    >
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border app-card shadow-2xl"
+        className="max-h-[calc(100dvh-7rem)] w-full max-w-lg overflow-y-auto rounded-2xl border app-card shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b app-border px-5 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b app-border app-card px-5 py-4">
           <div className="flex items-center gap-3">
             <div
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold"

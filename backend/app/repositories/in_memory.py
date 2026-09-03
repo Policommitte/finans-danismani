@@ -745,8 +745,7 @@ class InMemoryPortfolioRepository:
         return []
 
     async def write_value_snapshots(self) -> int:
-        now = _now().astimezone(timezone.utc)
-        bucket = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
+        timestamp = _now().astimezone(timezone.utc)
         written = 0
         for portfolio in _PORTFOLIOS:
             holdings = sum(
@@ -760,23 +759,12 @@ class InMemoryPortfolioRepository:
             )
             snapshot = {
                 "portfolio_id": portfolio["id"],
-                "ts": bucket,
+                "ts": timestamp,
                 "holdings_value_try": holdings,
                 "cash_value_try": cash,
                 "total_value_try": holdings + cash,
             }
-            existing = next(
-                (
-                    row
-                    for row in _PORTFOLIO_VALUE_SNAPSHOTS
-                    if row["portfolio_id"] == portfolio["id"] and row["ts"] == bucket
-                ),
-                None,
-            )
-            if existing is None:
-                _PORTFOLIO_VALUE_SNAPSHOTS.append(snapshot)
-            else:
-                existing.update(snapshot)
+            _PORTFOLIO_VALUE_SNAPSHOTS.append(snapshot)
             written += 1
         return written
 
