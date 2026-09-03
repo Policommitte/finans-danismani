@@ -9,10 +9,42 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["tests"]
 # Orkestrasyon katmani bastan sona async oldugu icin async testler
 # ayrica isaretlenmeden calissin diye auto mod kullaniliyor.
 asyncio_mode = "auto"
-# Gercek bir PostgreSQL baglantisi gerektiren testler (bkz. tests/conftest.py).
+# `-q` gurultuyu keser; `--strict-markers` yazim hatasi olan bir isaretin
+# sessizce yok sayilmasini engeller (o test hic filtrelenmezdi).
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = [
+    "ignore::DeprecationWarning:cohere.*",
+    "ignore::DeprecationWarning:google.*",
+    # Starlette kendi DeprecationWarning alt sinifini kullanir; kategori
+    # yerine MESAJA gore susturulur.
+    "ignore:.*HTTP_422_UNPROCESSABLE_ENTITY.*",
+    "ignore:.*asyncio.iscoroutinefunction.*",
+    "ignore:.*_UnionGenericAlias.*",
+]
 markers = [
-    "db: gercek bir veritabani baglantisi gerektirir (TEST_DATABASE_URL / DATABASE_URL)",
+    "db: gercek bir PostgreSQL baglantisi gerektirir (TEST_DATABASE_URL)",
+    "slow: 100 ms uzeri surer; `-m 'not slow'` ile atlanabilir",
+]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    # Agir/opsiyonel bagimliliklarin ARDINDAKI kod. Paket kurulu degilse
+    # ozellik sessizce kapanir (bkz. app/forecast/model.py docstring'i);
+    # bu satirlari kapsam hedefine katmak yaniltici olurdu.
+    "app/db/session.py",
+]
+
+[tool.coverage.report]
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
 ]

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # --- users ------------------------------------------------------------------
 # password_hash degerleri SQL seed'inden birebir alinmistir; hepsinin sifresi
 # "demo1234" (bcrypt, cost 10). Gercek bir sir degildir - dummy data.
-_USERS: list[dict] = [
+_SEED_USERS: list[dict] = [
     {
         "id": 1,
         "first_name": "Mehmet",
@@ -92,6 +92,11 @@ _USERS: list[dict] = [
         "role": "customer",
     },
 ]
+#: ⚠️ `_USERS` TOHUMDAN TURETILIR ve `reset_data()` onu tohuma dondurur.
+#: Kayit ucu bu listeye YAZAR (`create`); tohumun kendisi yazilsaydi bir
+#: testin olusturdugu kullanici tum oturum boyunca kalir ve ayni e-posta
+#: ile kayit deneyen bir sonraki test 409 alirdi.
+_USERS: list[dict] = [dict(row) for row in _SEED_USERS]
 
 # --- assets -----------------------------------------------------------------
 #: Varliklarin BASLANGIC degerleri. `_ASSETS` bunun kopyasidir; fiyat gorevi
@@ -249,6 +254,8 @@ def reset_data() -> None:
     _SIGNALS.clear()
     _RECOMMENDATIONS.clear()
     _REC_AUDIT.clear()
+    _USERS.clear()
+    _USERS.extend(dict(row) for row in _SEED_USERS)
     _USER_LIMITS.clear()
     _BASKET_STATES.clear()
     _KILL_SWITCH.update({"active": False, "reason": None, "activated_by": None})

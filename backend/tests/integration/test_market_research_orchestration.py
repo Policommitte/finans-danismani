@@ -17,7 +17,7 @@ from app.agents.security_agent import SecurityAgent
 from app.engine.factory import build_orchestrator
 from app.engine.orchestrator import AGENT_MARKET_RESEARCH, REJECT_MESSAGE, Orchestrator
 from app.mcp.client import MCPClient
-from tests.test_market_research_agent import RAG_SORGUSU, build_mcp_client
+from tests.integration.test_market_research_agent import RAG_SORGUSU, build_mcp_client
 
 pytestmark = pytest.mark.db
 

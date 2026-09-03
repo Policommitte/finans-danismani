@@ -83,3 +83,54 @@ def test_relevance_threshold_does_not_filter_without_score(monkeypatch):
 
     chunks = [{"text": "skor alani yok"}, {"text": "yine yok"}]
     assert mr._drop_irrelevant_sources(chunks) == chunks
+
+
+# ---------------------------------------------------------------------------
+# Kalibrasyon log satiri
+# ---------------------------------------------------------------------------
+
+
+def test_alaka_skorlari_log_satiri_skorlari_ve_filtreyi_yazar(caplog):
+    """Esik kalibrasyonunun TEK gorunur kaynagi bu satirdir.
+
+    ⚠️ `caplog.set_level` SART: fonksiyon `logger.isEnabledFor(INFO)` ile
+    erken doner. Ortam log seviyesine guvenen bir test, seviye INFO'nun
+    ustune cikinca govdeyi hic calistirmadan yesil kalirdi - migrasyon
+    sirasinda olculdu: 5 satir sessizce kapsamsiz kaldi.
+    """
+    import logging
+
+    from app.agents.market_research import _alaka_skorlarini_logla
+
+    caplog.set_level(logging.INFO, logger="app.agents.market_research")
+    _alaka_skorlarini_logla(
+        "aselsan haberleri",
+        [
+            {"cos_sim": 0.4213, "baslik": "Aselsan bilanco"},
+            {"cos_sim": None, "source": "BM25 kaydi"},
+        ],
+        {"symbol": "ASELS"},
+        arama="aselsan savunma sanayi",
+    )
+
+    (kayit,) = [k for k in caplog.records if "rag alaka skorlari" in k.getMessage()]
+    metin = kayit.getMessage()
+    assert "0.421 Aselsan bilanco" in metin
+    # `cos_sim` yoksa (BM25 yolu) skor yerine "-" yazilir.
+    assert "- BM25 kaydi" in metin
+    # Filtre ve damitilmis arama metni de gorunmeli - "sonuc yok" un sebebi
+    # esik mi yoksa daraltilmis filtre mi, ayirt edilebilsin.
+    assert "'symbol': 'ASELS'" in metin
+    assert "aselsan savunma sanayi" in metin
+
+
+def test_alaka_skorlari_log_satiri_INFO_kapaliyken_calismaz(caplog):
+    """Erken donus: INFO kapaliysa bicimleme maliyeti odenmemeli."""
+    import logging
+
+    from app.agents.market_research import _alaka_skorlarini_logla
+
+    caplog.set_level(logging.WARNING, logger="app.agents.market_research")
+    _alaka_skorlarini_logla("x", [{"cos_sim": 0.5, "baslik": "y"}])
+
+    assert not [k for k in caplog.records if "rag alaka skorlari" in k.getMessage()]

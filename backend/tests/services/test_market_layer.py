@@ -7,7 +7,7 @@ import pytest
 from app.market.provider import ApiMarketProvider, build_provider
 from app.market.scheduler import price_tick
 from app.repositories.deps import describe_backend
-from tests.conftest import SahteApiSaglayici
+from tests.helpers.fakes import SahtePiyasaSaglayici
 
 VARLIKLAR = [
     {"asset_id": 1, "symbol": "THYAO", "current_price": 315.50},
@@ -286,7 +286,7 @@ async def test_price_tick_updates_prices():
         repository = get_market_repository()
         onceki = (await repository.get_quote("THYAO"))["price"]
 
-        sayi = await price_tick(SahteApiSaglayici(), write_live=False)
+        sayi = await price_tick(SahtePiyasaSaglayici(), write_live=False)
 
         assert sayi > 0
         assert (await repository.get_quote("THYAO"))["price"] != onceki
@@ -301,7 +301,7 @@ async def test_price_tick_recomputes_daily_change():
         repository = get_market_repository()
         onceki = (await repository.get_quote("BTC"))["daily_change_pct"]
 
-        await price_tick(SahteApiSaglayici(carpan=1.03), write_live=False)
+        await price_tick(SahtePiyasaSaglayici(carpan=1.03), write_live=False)
 
         assert (await repository.get_quote("BTC"))["daily_change_pct"] != onceki
 
@@ -384,9 +384,9 @@ def test_health_reports_data_source(client):
     assert govde["data_source"] == "postgresql"
 
 
-def test_health_returns_disabled_without_db_url(client, override_settings):
+def test_health_returns_disabled_without_db_url(client, ayar):
     """'DB yok' ile 'DB var ama erisilemiyor' ayirt edilebilmeli."""
-    override_settings(database_url="")
+    ayar(database_url="")
 
     govde = client.get("/health/db").json()
 
@@ -397,7 +397,7 @@ def test_health_requires_no_authentication(client):
     assert client.get("/health").status_code == 200
 
 
-def test_falls_back_to_in_memory_data_when_connection_fails(override_settings):
+def test_falls_back_to_in_memory_data_when_connection_fails(ayar):
     """Yedek plan: erisilemeyen bir DB tanimliysa sistem hata vermez, duser.
 
     Ayarin DOLU olmasi yetmez; `deps.py` gercekten baglanabiliyor mu diye
@@ -406,16 +406,16 @@ def test_falls_back_to_in_memory_data_when_connection_fails(override_settings):
     from app.repositories.deps import reset_repositories
 
     # Kapali port: baglanti aninda reddedilir.
-    override_settings(database_url="postgresql+psycopg://yok:yok@127.0.0.1:1/yok")
+    ayar(database_url="postgresql+psycopg://yok:yok@127.0.0.1:1/yok")
     reset_repositories()
 
     assert describe_backend() == "in-memory"
 
 
-def test_falls_back_to_in_memory_data_without_database_url(override_settings):
+def test_falls_back_to_in_memory_data_without_database_url(ayar):
     from app.repositories.deps import reset_repositories
 
-    override_settings(database_url="")
+    ayar(database_url="")
     reset_repositories()
 
     assert describe_backend() == "in-memory"
