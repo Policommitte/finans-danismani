@@ -694,6 +694,21 @@ async def test_haber_odakli_soruda_teknik_analize_otomatik_gecilmez():
     assert "onay" in ozet.lower()
 
 
+async def test_katalogda_olmayan_sembol_icin_teknik_analiz_teklif_edilmez():
+    """Yapamayacagimiz analizi vaat etmeyiz: sembol katalogda yoksa teklif yok."""
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _rag_bos(ajan)
+    cagrilar = _teknik_izle(ajan)
+
+    sonuc = await ajan.run(
+        _state("bilinmeyen sirket haberi", **_gorev(mode="rag", symbol="YOKYOK"))
+    )
+
+    assert cagrilar == []
+    assert sonuc["market_data"]["summary"] == NO_RETRIEVAL_MESSAGE
+
+
 async def test_genel_soruda_haber_yoksa_teknik_analize_dusulur():
     ajan = _ajan()
     _katalog_sabitle(ajan)

@@ -1256,7 +1256,7 @@ class MarketResearchAgent(BaseAgent):
                 if not rag_bos and rag_ozet:
                     teknik_ozet = f"Destekleyici teknik veri: {teknik_ozet}"
                 ozet_parcalari.append(teknik_ozet)
-        elif sembol and niyet == "news_only" and rag_bos:
+        elif sembol and niyet == "news_only" and rag_bos and await self._symbol_in_catalog(sembol):
             ozet_parcalari.append(technical_offer(sembol))
 
         ozet = "\n\n".join(ozet_parcalari) if ozet_parcalari else NO_RETRIEVAL_MESSAGE
@@ -1344,6 +1344,18 @@ class MarketResearchAgent(BaseAgent):
                 continue
             return TECHNICAL_OFFER_MARKER in _normalize(icerik)
         return False
+
+    async def _symbol_in_catalog(self, sembol: str) -> bool:
+        """Sembol katalogda gercekten var mi?
+
+        Teknik analiz TEKLIFI bununla sinirlanir: router'in verdigi sembol
+        dogrulanmamis olabilir ("YOKYOK") ve olmayan bir varlik icin analiz
+        vaat etmek yanlis bir soz olur. Katalog okunamazsa teklif edilmez.
+        """
+        katalog = await self._symbol_catalog()
+        if not katalog:
+            return False
+        return sembol.upper() in {str(k.get("symbol") or "").upper() for k in katalog}
 
     async def _symbol_from_history(self, state: AgentState) -> str | None:
         """Onceki mesajlarda gecen ilk katalog sembolu (en yeniden eskiye)."""
