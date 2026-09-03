@@ -29,6 +29,12 @@ yeni tablo). Yerine, yanit bagimsiz, salt zaman pencereli bir sogutma
 kullanilir: `lead_contacts` tablosundaki en son temastan bu yana
 `COOLDOWN_DAYS` gecmediyse kullanici atlanir.
 
+GUNCELLEME: "ilgilenmiyorum" akisi ARTIK VAR. Danisman telefon
+gorusmesinden sonra sonucu elle isaretler (`lead_call_outcomes`); KABUL
+ve ISTEMIYOR isaretlenenler `advisor_closed` ile dislanir. Yukaridaki
+zaman pencereli sogutma bunun YERINE degil YANINDA calisir - hic
+aranmamis kisiler icin hala tek koruma odur.
+
 Esik degerleri Tablo 3.1 (SEG-01..SEG-10) ile hizalidir; sayilar
 `app/config.py` uzerinden .env ile override edilebilir.
 """
@@ -84,17 +90,25 @@ def uygunluk_degerlendir(
     Args:
         signal: `v_lead_user_signals` satiri (ya da bellek ici karsiligi) -
             `marketing_consent`, `email`, `monthly_income`, `likit_para`,
-            `total_value_try`, `days_since_activity` alanlarini tasir.
+            `total_value_try`, `days_since_activity`, `advisor_outcome`
+            alanlarini tasir.
         last_contact_at: Bu kullaniciya en son ne zaman temas edildigi
             (`lead_contacts.created_at`); hic temas yoksa None.
         cooldown_days: Soğutma penceresi (gun) - test/override icin.
 
     Returns:
-        Uygunsa None. Degilse: "consent_missing" | "email_missing" |
-        "income_below_threshold" | "already_invested" |
+        Uygunsa None. Degilse: "advisor_closed" | "consent_missing" |
+        "email_missing" | "income_below_threshold" | "already_invested" |
         "balance_below_threshold" | "above_upper_limit" |
         "recently_active" | "cooldown_active".
     """
+    # EN BASTA: danisman bu kisiyle konusup dosyayi kapattiysa (musteri
+    # oldu ya da istemedi) baska hicbir kural onemli degil. ULASILAMADI ve
+    # ACIK burada DISLAMAZ - ilkinde tekrar aranmasi gerekiyor, ikincisi
+    # zaten "isaretlenmemis" demek.
+    if signal.get("advisor_outcome") in ("KABUL", "ISTEMIYOR"):
+        return "advisor_closed"
+
     if not signal.get("marketing_consent"):
         return "consent_missing"
 

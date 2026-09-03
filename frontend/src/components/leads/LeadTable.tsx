@@ -1,19 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { LeadQueueItem } from "../../models/leads";
+import type { CallOutcomeInput, LeadQueueItem } from "../../models/leads";
 import Badge from "../ui/Badge";
 import Card from "../ui/Card";
+import { CallOutcomeMenu } from "./CallOutcomeMenu";
 import { ScoreReasonsPopover } from "./ScoreReasonsPopover";
 import {
-  DURUM_ETIKETLERI,
-  PANEL_YUKSEKLIGI,
-  telefonFormat,
-  dislamaNedeni,
-  durumBelirle,
-  paraFormat,
-  tarihFormat,
-  yasHesapla,
+  STATUS_LABELS,
+  STATUS_CLASSES,
+  OUTCOME_EDITABLE_STATUSES,
+  PANEL_HEIGHT,
+  formatPhone,
+  exclusionReasonLabel,
+  resolveStatus,
+  moneyFormat,
+  dateFormat,
+  calculateAge,
 } from "./leadFields";
 
 /**
@@ -23,84 +26,75 @@ import {
  *
  * `!pb-1`: kaydirma cubugunun altinda ince bir nefes payi birakir.
  */
-const KART_SINIFI = `flex h-[34rem] ${PANEL_YUKSEKLIGI} flex-col overflow-hidden !px-0 !pt-0 !pb-1`;
-const KAYDIRMA_SINIFI = "flex-1 overflow-auto";
+const CARD_CLASS = `flex h-[34rem] ${PANEL_HEIGHT} flex-col overflow-hidden !px-0 !pt-0 !pb-1`;
+const SCROLL_CLASS = "flex-1 overflow-auto";
 
-type SiraAlani = "ad" | "durum" | "yas" | "gelir" | "bakiye" | "skor";
-type SiraYonu = "asc" | "desc";
+//: Siralanabilen sutunlar, danismanin kuyrugu onceliklendirirken baktigi
+//: olculer: atil bakiye, sisteme eklenme tarihi ve skor. Ad/durum/dogum
+//: tarihi/gelir tanitici bilgidir, basliklarinda ok gosterilmez.
+type SortField = "balance" | "registered" | "score";
+type SortDirection = "asc" | "desc";
 
-const SUTUNLAR: Array<{ alan: SiraAlani | null; baslik: string; sagaYasli?: boolean }> = [
-  { alan: "ad", baslik: "Lead adı" },
-  { alan: "durum", baslik: "Durum" },
-  { alan: null, baslik: "Telefon" },
-  { alan: null, baslik: "E-posta" },
-  { alan: "yas", baslik: "Doğum tarihi" },
-  { alan: "gelir", baslik: "Gelir", sagaYasli: true },
-  { alan: "bakiye", baslik: "Atıl bakiye", sagaYasli: true },
-  { alan: null, baslik: "TCKN" },
-  { alan: "skor", baslik: "Skor", sagaYasli: true },
+const COLUMNS: Array<{ field: SortField | null; title: string; alignRight?: boolean }> = [
+  { field: null, title: "Lead adı" },
+  { field: null, title: "Durum" },
+  { field: null, title: "Telefon" },
+  { field: null, title: "E-posta" },
+  { field: null, title: "Doğum tarihi" },
+  { field: null, title: "Gelir", alignRight: true },
+  { field: "balance", title: "Atıl bakiye", alignRight: true },
+  { field: null, title: "TCKN" },
+  { field: "registered", title: "Eklenme tarihi" },
+  { field: "score", title: "Skor", alignRight: true },
 ];
 
-/** Durum rozetinin rengi: aksiyon bekleyenler dikkat cekici, digerleri sakin. */
-const DURUM_SINIFLARI: Record<string, string> = {
-  bsd: "app-warning-box border",
-  mail_bekliyor: "app-warning-box border",
-  mail_gonderildi: "app-primary-soft",
-  dislandi: "app-card-muted app-muted",
-};
-
-function siralamaDegeri(item: LeadQueueItem, alan: SiraAlani): number | string {
-  switch (alan) {
-    case "ad":
-      return `${item.first_name} ${item.last_name}`.toLocaleLowerCase("tr");
-    case "durum":
-      return DURUM_ETIKETLERI[durumBelirle(item)];
-    case "yas":
-      // Dogum tarihi bilinmeyenler her zaman sona dussun.
-      return yasHesapla(item.birth_date) ?? -1;
-    case "gelir":
-      return item.monthly_income;
-    case "bakiye":
-      return item.likit_para;
-    case "skor":
-      return item.score;
-  }
+function sortValue(item: LeadQueueItem, field: SortField): number {
+  if (field === "balance") return item.likit_para;
+  if (field === "score") return item.score;
+  // Tarihi bilinmeyenler her zaman sona dussun (hangi yonde siralanirsa
+  // siralansin degil - `desc`'te en kucuk, `asc`'te en buyuk olmalari
+  // gerekirdi; basitlik icin 0 kabul edip en eski gibi davraniyoruz).
+  return item.registered_at ? Date.parse(item.registered_at) : 0;
 }
 
-export function LeadTable({ items }: { items: LeadQueueItem[] }) {
-  const [sira, setSira] = useState<{ alan: SiraAlani; yon: SiraYonu }>({
-    alan: "skor",
-    yon: "desc",
+export function LeadTable({
+  items,
+  onOutcomeSelect,
+  savingUserId,
+}: {
+  items: LeadQueueItem[];
+  onOutcomeSelect: (userId: number, outcome: CallOutcomeInput) => void;
+  /** Su an kaydedilmekte olan satir; menu o sure boyunca kilitlenir. */
+  savingUserId: number | null;
+}) {
+  const [sort, setSort] = useState<{ field: SortField; direction: SortDirection }>({
+    field: "score",
+    direction: "desc",
   });
 
-  const sirali = useMemo(() => {
-    const kopya = [...items];
-    kopya.sort((a, b) => {
-      const av = siralamaDegeri(a, sira.alan);
-      const bv = siralamaDegeri(b, sira.alan);
-      const fark =
-        typeof av === "string" && typeof bv === "string"
-          ? av.localeCompare(bv, "tr")
-          : Number(av) - Number(bv);
-      return sira.yon === "asc" ? fark : -fark;
+  const sortedItems = useMemo(() => {
+    const copy = [...items];
+    copy.sort((a, b) => {
+      const diff = sortValue(a, sort.field) - sortValue(b, sort.field);
+      return sort.direction === "asc" ? diff : -diff;
     });
-    return kopya;
-  }, [items, sira]);
+    return copy;
+  }, [items, sort]);
 
-  function basligaTikla(alan: SiraAlani) {
-    setSira((mevcut) =>
-      mevcut.alan === alan
-        ? { alan, yon: mevcut.yon === "asc" ? "desc" : "asc" }
-        : // Yeni sutuna gecince sayisal alanlar buyukten kucuge daha
-          // anlamli; metin alani alfabetik baslasin.
-          { alan, yon: alan === "ad" ? "asc" : "desc" },
+  function handleHeaderClick(field: SortField) {
+    setSort((current) =>
+      current.field === field
+        ? { field, direction: current.direction === "asc" ? "desc" : "asc" }
+        : // Iki sutun da sayisal; yeni sutuna gecince buyukten kucuge
+          // baslamak daha anlamli.
+          { field, direction: "desc" },
     );
   }
 
   if (items.length === 0) {
     return (
-      <Card className={KART_SINIFI}>
-        <div className={`${KAYDIRMA_SINIFI} flex items-center justify-center`}>
+      <Card className={CARD_CLASS}>
+        <div className={`${SCROLL_CLASS} flex items-center justify-center`}>
           <p className="text-sm app-muted">Bu filtrelerle eşleşen kimse yok.</p>
         </div>
       </Card>
@@ -108,29 +102,29 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
   }
 
   return (
-    <Card className={KART_SINIFI}>
-      <div className={KAYDIRMA_SINIFI}>
+    <Card className={CARD_CLASS}>
+      <div className={SCROLL_CLASS}>
         <table className="min-w-full text-left text-sm">
           <thead className="sticky top-0 z-10 app-card-muted text-xs uppercase app-muted shadow-[0_1px_0_var(--color-border)]">
             <tr>
-              {SUTUNLAR.map((sutun) => (
+              {COLUMNS.map((column) => (
                 <th
-                  key={sutun.baslik}
-                  className={`px-3 py-3 font-semibold ${sutun.sagaYasli ? "text-right" : ""}`}
+                  key={column.title}
+                  className={`px-3 py-3 font-semibold ${column.alignRight ? "text-right" : ""}`}
                 >
-                  {sutun.alan ? (
+                  {column.field ? (
                     <button
                       type="button"
-                      onClick={() => basligaTikla(sutun.alan as SiraAlani)}
+                      onClick={() => handleHeaderClick(column.field as SortField)}
                       className="inline-flex items-center gap-1 uppercase transition hover:opacity-80"
                     >
-                      {sutun.baslik}
+                      {column.title}
                       <span aria-hidden="true" className="text-[10px]">
-                        {sira.alan === sutun.alan ? (sira.yon === "asc" ? "▲" : "▼") : "↕"}
+                        {sort.field === column.field ? (sort.direction === "asc" ? "▲" : "▼") : "↕"}
                       </span>
                     </button>
                   ) : (
-                    sutun.baslik
+                    column.title
                   )}
                 </th>
               ))}
@@ -138,10 +132,10 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
           </thead>
 
           <tbody className="divide-y app-border-soft">
-            {sirali.map((item) => {
-              const durum = durumBelirle(item);
-              const neden = dislamaNedeni(item);
-              const yas = yasHesapla(item.birth_date);
+            {sortedItems.map((item) => {
+              const status = resolveStatus(item);
+              const reason = exclusionReasonLabel(item);
+              const age = calculateAge(item.birth_date);
 
               return (
                 <tr key={item.user_id} className="app-subtle-hover">
@@ -150,12 +144,21 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
                   </td>
 
                   <td className="px-3 py-3">
-                    <Badge className={DURUM_SINIFLARI[durum]}>{DURUM_ETIKETLERI[durum]}</Badge>
-                    {neden && <p className="mt-1 text-xs app-muted">{neden}</p>}
+                    {OUTCOME_EDITABLE_STATUSES.has(status) ? (
+                      <CallOutcomeMenu
+                        status={status}
+                        currentOutcome={item.call_outcome}
+                        saving={savingUserId === item.user_id}
+                        onSelect={(outcome) => onOutcomeSelect(item.user_id, outcome)}
+                      />
+                    ) : (
+                      <Badge className={STATUS_CLASSES[status]}>{STATUS_LABELS[status]}</Badge>
+                    )}
+                    {reason && <p className="mt-1 text-xs app-muted">{reason}</p>}
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-3 app-heading">
-                    {telefonFormat(item.phone_number)}
+                    {formatPhone(item.phone_number)}
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-3 app-muted">{item.email}</td>
@@ -164,9 +167,9 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
                     {item.birth_date ? (
                       <>
                         <p className="app-heading">
-                          {tarihFormat.format(new Date(item.birth_date))}
+                          {dateFormat.format(new Date(item.birth_date))}
                         </p>
-                        {yas !== null && <p className="mt-0.5 text-xs app-muted">{yas} yaş</p>}
+                        {age !== null && <p className="mt-0.5 text-xs app-muted">{age} yaş</p>}
                       </>
                     ) : (
                       <span className="app-muted">—</span>
@@ -174,15 +177,21 @@ export function LeadTable({ items }: { items: LeadQueueItem[] }) {
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-3 text-right app-heading">
-                    {paraFormat.format(item.monthly_income)}
+                    {moneyFormat.format(item.monthly_income)}
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-3 text-right font-semibold app-heading">
-                    {paraFormat.format(item.likit_para)}
+                    {moneyFormat.format(item.likit_para)}
                   </td>
 
                   <td className="whitespace-nowrap px-3 py-3 app-muted">
                     {item.tckn_last4 ? `•••• ${item.tckn_last4}` : "—"}
+                  </td>
+
+                  <td className="whitespace-nowrap px-3 py-3 app-heading">
+                    {item.registered_at
+                      ? dateFormat.format(new Date(item.registered_at))
+                      : <span className="app-muted">—</span>}
                   </td>
 
                   <td className="px-3 py-3">

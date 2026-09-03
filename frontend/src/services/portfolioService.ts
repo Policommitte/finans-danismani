@@ -1,6 +1,7 @@
 import type {
   AllocationResponse,
   HoldingsResponse,
+  PerformanceRange,
   PortfolioPerformanceResponse,
   PortfolioSnapshotPerformanceResponse,
   PortfolioSummary,
@@ -24,8 +25,10 @@ export function getPortfolioTransactions(limit = 20): Promise<TransactionsRespon
   return apiRequest<TransactionsResponse>(`/api/portfolio/transactions?limit=${limit}`);
 }
 
-export function getPortfolioPerformance(hours = 24): Promise<PortfolioPerformanceResponse> {
-  return apiRequest<PortfolioPerformanceResponse>(`/api/portfolio/performance?hours=${hours}`);
+export function getPortfolioPerformance(
+  range: PerformanceRange = "1G",
+): Promise<PortfolioPerformanceResponse> {
+  return apiRequest<PortfolioPerformanceResponse>(`/api/portfolio/performance?range=${range}`);
 }
 
 export function getPortfolioSnapshotPerformance(

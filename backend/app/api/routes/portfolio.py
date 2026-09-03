@@ -6,6 +6,7 @@ from app.auth.deps import CurrentUser
 from app.schemas.portfolio import (
     AllocationResponse,
     HoldingsResponse,
+    PerformanceRange,
     PortfolioPerformanceResponse,
     PortfolioSnapshotPerformanceResponse,
     PortfolioSummary,
@@ -46,10 +47,17 @@ async def transactions(
 @router.get("/performance", response_model=PortfolioPerformanceResponse)
 async def performance(
     user: CurrentUser,
-    hours: int = Query(default=24, ge=1, le=168, description="Kac saatlik performans donsun"),
+    range_key: PerformanceRange = Query(
+        default="1G", alias="range", description="1G | 1H | 1A | 1Y"
+    ),
 ) -> PortfolioPerformanceResponse:
-    """Mevcut portfoyun gercek fiyat gecmisiyle TL bazli performansi."""
-    return await service.performans_getir(user["id"], hours=hours)
+    """Secilen donem icin portfoy performansi + donem kar/zarari.
+
+    Deger serisi her gecmis noktada O TARIHTEKI adetle hesaplanir
+    (`transactions`'tan turetilir), bu yuzden grafik ile donen kar/zarar
+    rakamlari birbiriyle tutarlidir.
+    """
+    return await service.performans_getir(user["id"], range_key=range_key)
 
 
 @router.get("/performance-v2", response_model=PortfolioSnapshotPerformanceResponse)

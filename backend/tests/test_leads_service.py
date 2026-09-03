@@ -46,6 +46,7 @@ def bellek_ici(monkeypatch):
         in_memory._LEAD_SCANS,
         in_memory._LEAD_QUEUE_ENTRIES,
         in_memory._LEAD_CONTACTS,
+        in_memory._LEAD_CALL_OUTCOMES,
     ):
         depo.clear()
     yield
@@ -53,6 +54,7 @@ def bellek_ici(monkeypatch):
         in_memory._LEAD_SCANS,
         in_memory._LEAD_QUEUE_ENTRIES,
         in_memory._LEAD_CONTACTS,
+        in_memory._LEAD_CALL_OUTCOMES,
     ):
         depo.clear()
     reset_repositories()
@@ -252,6 +254,118 @@ async def test_ardisik_hata_sonrasi_gonderim_durur(bellek_ici, mail_sonucu, monk
 
     assert sonuc["autonomous_count"] == 10
     assert len(_temaslar("EMAIL")) == 3  # 3 hatadan sonra pes eder
+
+
+# --- yarim kalan tarama -----------------------------------------------------
+
+
+async def test_iptal_edilen_tarama_HATA_olarak_kaydedilir(
+    bellek_ici, otonom_kullanici, mail_sonucu, monkeypatch
+):
+    # Regresyon: `asyncio.CancelledError` BaseException'dan turer, bu yuzden
+    # `except Exception` onu yakalamiyordu - `hata` None kalir ve `finally`
+    # yarim taramayi "bitmis ve hatasiz" diye kapatirdi. `uvicorn --reload`
+    # acilis taramasinin ortasinda yeniden baslayinca tam olarak bu olur.
+    import asyncio
+
+    async def _iptal_et(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(in_memory.InMemoryLeadRepository, "record_decision", _iptal_et)
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.tarama_calistir(trigger="test", force=True)
+
+    assert in_memory._LEAD_SCANS[-1]["error"] is not None
+
+
+async def test_yarim_kalan_tarama_kuyrugu_BOSALTMAZ(bellek_ici, mail_sonucu, monkeypatch):
+    # Once saglam bir tarama, sonra yarida kesilen bir tarama. Ekran son
+    # SAGLAM taramayi gostermeye devam etmeli - yoksa danisman listesi
+    # bir yeniden baslatmada aniden bosalirdi.
+    import asyncio
+
+    monkeypatch.setattr(in_memory, "_USERS", [_kullanici(102, 700_000.0)])
+    await service.tarama_calistir(trigger="test", force=True)
+    assert (await service.bsd_kuyrugu_getir())["count"] == 1
+
+    async def _iptal_et(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(in_memory.InMemoryLeadRepository, "record_decision", _iptal_et)
+    with pytest.raises(asyncio.CancelledError):
+        await service.tarama_calistir(trigger="test", force=True)
+
+    assert (await service.bsd_kuyrugu_getir())["count"] == 1
+
+
+# --- danisman gorusme sonuclari ---------------------------------------------
+
+
+async def test_gorusme_sonucu_kuyruk_satirina_tasinir(bellek_ici, otonom_kullanici, mail_sonucu):
+    await service.tarama_calistir(trigger="test", force=True)
+    await service.gorusme_sonucu_kaydet(101, advisor_id=999, outcome="ULASILAMADI")
+
+    liste = await service.otonom_kuyruk_getir()
+
+    assert liste["items"][0]["call_outcome"] == "ULASILAMADI"
+    assert liste["items"][0]["call_outcome_at"] is not None
+
+
+async def test_ulasilamadi_kullaniciyi_kuyrukta_BIRAKIR(bellek_ici, mail_sonucu, monkeypatch):
+    # "Ulasilamadi" bir kapanis degil: kisi tekrar aranmali, dolayisiyla
+    # sonraki taramada da BSD kuyrugunda olmali.
+    monkeypatch.setattr(in_memory, "_USERS", [_kullanici(102, 700_000.0)])
+    await service.tarama_calistir(trigger="test", force=True)
+
+    await service.gorusme_sonucu_kaydet(102, advisor_id=999, outcome="ULASILAMADI")
+    ikinci = await service.tarama_calistir(trigger="test", force=True)
+
+    assert ikinci["bsd_count"] == 1
+
+
+async def test_kabul_edilen_kullanici_sonraki_taramada_dislanir(
+    bellek_ici, mail_sonucu, monkeypatch
+):
+    monkeypatch.setattr(in_memory, "_USERS", [_kullanici(102, 700_000.0)])
+    await service.tarama_calistir(trigger="test", force=True)
+
+    await service.gorusme_sonucu_kaydet(102, advisor_id=999, outcome="KABUL")
+    ikinci = await service.tarama_calistir(trigger="test", force=True)
+
+    assert ikinci["bsd_count"] == 0
+    assert ikinci["excluded_count"] == 1
+    dislananlar = await service.dislananlar_getir()
+    assert dislananlar["items"][0]["exclusion_reason"] == "advisor_closed"
+
+
+async def test_istemiyor_isaretlenene_bir_daha_mail_GITMEZ(
+    bellek_ici, otonom_kullanici, mail_sonucu
+):
+    # Regresyon: sonuc yalnizca bir etiket olsaydi, "istemiyorum" diyen
+    # kisiye sogutma bitince tekrar mail giderdi.
+    await service.gorusme_sonucu_kaydet(101, advisor_id=999, outcome="ISTEMIYOR")
+
+    sonuc = await service.tarama_calistir(trigger="test", force=True)
+
+    assert sonuc["emailed_count"] == 0
+    assert sonuc["excluded_count"] == 1
+    assert _temaslar() == []
+
+
+async def test_ACIK_isaretlemeyi_geri_alir(bellek_ici, mail_sonucu, monkeypatch):
+    # Yanlis isaretlemeyi geri almanin tek yolu; tablo ekleme-only oldugu
+    # icin satir SILINMEZ, ustune yenisi yazilir ve en son satir kazanir.
+    monkeypatch.setattr(in_memory, "_USERS", [_kullanici(102, 700_000.0)])
+    await service.gorusme_sonucu_kaydet(102, advisor_id=999, outcome="ISTEMIYOR")
+    await service.gorusme_sonucu_kaydet(102, advisor_id=999, outcome="ACIK")
+
+    sonuc = await service.tarama_calistir(trigger="test", force=True)
+
+    assert sonuc["bsd_count"] == 1
+    assert len(in_memory._LEAD_CALL_OUTCOMES) == 2  # gecmis korunur
+    liste = await service.bsd_kuyrugu_getir()
+    assert liste["items"][0]["call_outcome"] is None
 
 
 # --- rol filtresi -----------------------------------------------------------
