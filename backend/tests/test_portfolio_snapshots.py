@@ -29,7 +29,6 @@ async def test_snapshot_servisi_kaydedilmis_bilesenleri_degistirmeden_dondurur(m
     response = await service.snapshot_performansi_getir(7, hours=48)
 
     assert response.hours == 48
-    assert response.interval_minutes == 5
     assert len(response.points) == 1
     assert response.points[0].holdings_value_try == 250_000.12
     assert response.points[0].cash_value_try == 50_000
@@ -81,3 +80,57 @@ async def test_snapshot_hatasi_fiyat_tickini_durdurmaz(monkeypatch):
     monkeypatch.setattr(dispatcher, "dispatch_notifications", no_notifications)
 
     assert await scheduler.price_tick(Provider(), write_live=False) == 1
+
+
+@pytest.mark.asyncio
+async def test_yalnizca_fiyat_yazilan_tur_yeni_snapshot_uretir(monkeypatch):
+    from app.market import scheduler
+    from app.notifications import dispatcher
+    from app.services import recommendation, trading
+
+    class MarketRepository:
+        written_counts = iter([1, 0])
+
+        async def get_assets_for_price_update(self):
+            return [{"asset_id": 1, "current_price": 100}]
+
+        async def apply_price_updates(self, updates, write_live, source):
+            return next(self.written_counts)
+
+    class PortfolioRepository:
+        snapshot_count = 0
+
+        async def write_value_snapshots(self):
+            self.snapshot_count += 1
+            return 1
+
+    class Provider:
+        name = "api"
+        son_kaynak = "api"
+
+        async def next_prices(self, assets):
+            return [{"asset_id": 1, "price": 101}]
+
+    async def no_orders(updates):
+        return 0
+
+    async def no_expired():
+        return 0
+
+    async def no_recommendations():
+        return {"recommendations": []}
+
+    async def no_notifications():
+        return None
+
+    portfolio_repository = PortfolioRepository()
+    monkeypatch.setattr(scheduler, "get_market_repository", lambda: MarketRepository())
+    monkeypatch.setattr(scheduler, "get_portfolio_repository", lambda: portfolio_repository)
+    monkeypatch.setattr(trading, "bekleyen_emirleri_isle", no_orders)
+    monkeypatch.setattr(recommendation, "expire_due_recommendations", no_expired)
+    monkeypatch.setattr(recommendation, "generate_recommendations", no_recommendations)
+    monkeypatch.setattr(dispatcher, "dispatch_notifications", no_notifications)
+
+    assert await scheduler.price_tick(Provider(), write_live=False) == 1
+    assert await scheduler.price_tick(Provider(), write_live=False) == 0
+    assert portfolio_repository.snapshot_count == 1

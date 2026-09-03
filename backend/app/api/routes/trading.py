@@ -9,6 +9,8 @@ from app.schemas.trading import (
     OrderPreviewRequest,
     OrdersResponse,
     PaperOrder,
+    PercentageBasketPreview,
+    PercentageBasketPreviewRequest,
     TradingAccount,
 )
 from app.services import trading as service
@@ -48,6 +50,14 @@ async def create_order(user: CurrentUser, payload: CreateOrderRequest) -> PaperO
         payload.validity,
         payload.stop_loss_price,
     )
+
+
+@router.post("/basket/preview", response_model=PercentageBasketPreview)
+async def preview_percentage_basket(
+    user: CurrentUser,
+    payload: PercentageBasketPreviewRequest,
+) -> PercentageBasketPreview:
+    return await service.yuzdesel_sepet_onizle(user["id"], payload.allocations)
 
 
 @router.get("/orders", response_model=OrdersResponse)

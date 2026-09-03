@@ -31,7 +31,7 @@ export function usePortfolioPerformance(range: PerformanceRange = "1G") {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void performance.refresh();
-    }, 60_000);
+    }, 15_000);
 
     return () => window.clearInterval(timer);
   }, [performance.refresh]);
@@ -51,10 +51,8 @@ const EMPTY_SNAPSHOT: PortfolioSnapshotPerformanceResponse = {
  * Scheduler'in 5 dakikada bir OLCTUGU portfoy toplamlari.
  *
  * Yeniden hesaplanan seriden daha dogrudur (nakit dahil, emirler
- * islendikten sonra alinir), ama YALNIZCA gun ici icin kullanilabilir:
- * tablo 30 gunluk kayan pencerede tutuluyor ve uc nokta 720 saatle sinirli.
- * Bu yuzden 1H/1A/1Y'de `enabled=false` gecilir ve grafik yeniden kurulan
- * seriye duser.
+ * islendikten sonra alinir). Tablo 30 gunluk kayan pencerede tutulur;
+ * bu nedenle 1G/1H/1A mumlarini besler, 1Y ise gunluk seriye duser.
  */
 export function usePortfolioSnapshots(enabled: boolean, hours = 24) {
   const loader = useCallback(
@@ -73,7 +71,7 @@ export function usePortfolioSnapshots(enabled: boolean, hours = 24) {
     }
     const timer = window.setInterval(() => {
       void snapshots.refresh();
-    }, 60_000);
+    }, 15_000);
 
     return () => window.clearInterval(timer);
   }, [enabled, snapshots.refresh]);
