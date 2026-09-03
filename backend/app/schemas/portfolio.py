@@ -4,7 +4,13 @@ Tum parasal alanlar TRY'ye normalize edilmistir ve `_try` ile biter; cevrim
 DB view'inda (`v_holdings_valued`) yapilir, frontend cevrim yapmaz.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+#: Performans grafiginin donem secenekleri. Saate cevrimi TEK yerde,
+#: `app/services/portfolio.py::PERFORMANS_ARALIKLARI` icinde yapilir.
+PerformanceRange = Literal["1G", "1H", "1A", "1Y"]
 
 
 class PortfolioSummary(BaseModel):
@@ -91,12 +97,43 @@ class PortfolioPerformancePoint(BaseModel):
     bist100_value_try: float | None = None
 
 
+class SymbolPeriodPnl(BaseModel):
+    """Tek bir varligin SECILEN DONEMDEKI kar/zarari.
+
+    `Holding.pnl_try`'dan farki: o, alim gununden bugune TOPLAM kar/zarardir
+    ve donemden bagimsizdir. Buradaki rakam yalnizca donem icindeki degeri
+    olcer ve donem icinde yapilan alim/satimi da hesaba katar.
+    """
+
+    symbol: str
+    pnl_try: float
+    pnl_pct: float | None = Field(
+        default=None,
+        description="Donem basindaki deger + donem ici alim maliyetine oranla",
+    )
+
+
 class PortfolioPerformanceResponse(BaseModel):
     points: list[PortfolioPerformancePoint]
     hours: int
+    range_key: PerformanceRange = Field(default="1G", description="1G | 1H | 1A | 1Y")
+    change_try: float = Field(default=0.0, description="Donem boyunca portfoyun kar/zarari")
+    change_pct: float | None = Field(
+        default=None, description="`change_try`'in donem basi sermayeye orani"
+    )
+    symbol_pnl: list[SymbolPeriodPnl] = Field(
+        default_factory=list, description="Varlik bazinda donem kar/zarari"
+    )
 
 
 class PortfolioValueSnapshotPoint(BaseModel):
+    """Scheduler'in 5 dakikada bir OLCTUGU portfoy toplami.
+
+    `PortfolioPerformancePoint`'ten farki: o, fiyat gecmisinden yeniden
+    hesaplanir ve geriye dogru yillarca gider; bu ise anlik olcumdur,
+    nakdi de icerir ama yalnizca 30 gun saklanir.
+    """
+
     ts: str
     holdings_value_try: float
     cash_value_try: float
@@ -106,3 +143,4 @@ class PortfolioValueSnapshotPoint(BaseModel):
 class PortfolioSnapshotPerformanceResponse(BaseModel):
     points: list[PortfolioValueSnapshotPoint]
     hours: int
+    interval_minutes: int = 5

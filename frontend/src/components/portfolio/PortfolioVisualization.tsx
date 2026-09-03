@@ -16,8 +16,29 @@ import {
   YAxis,
 } from "recharts";
 import { useLanguage } from "../../contexts/LanguageContext";
-import type { Holding, PortfolioValueSnapshotPoint } from "../../models/portfolio";
+import type {
+  Holding,
+  PerformanceRange,
+  PortfolioValueSnapshotPoint,
+} from "../../models/portfolio";
 import Card from "../ui/Card";
+
+//: Grafik altbasligi secilen donemi soyler - "Bugün" yazip yillik seri
+//: cizmek kullaniciyi yaniltirdi.
+const RANGE_SUBTITLES: Record<PerformanceRange, { tr: string; en: string }> = {
+  "1G": { tr: "Bugün", en: "Today" },
+  "1H": { tr: "Son 1 hafta", en: "Last week" },
+  "1A": { tr: "Son 1 ay", en: "Last month" },
+  "1Y": { tr: "Son 1 yıl", en: "Last year" },
+};
+
+//: Mum grafiginin kova boyu secilen doneme gore degisir.
+const CANDLE_SUBTITLES: Record<PerformanceRange, { tr: string; en: string }> = {
+  "1G": { tr: "30 dakikalık", en: "30-minute" },
+  "1H": { tr: "Günlük", en: "Daily" },
+  "1A": { tr: "Günlük", en: "Daily" },
+  "1Y": { tr: "Haftalık", en: "Weekly" },
+};
 
 export type PortfolioViewMode = "line" | "candlestick" | "pie";
 export type DisplayCurrency = "TRY" | "USD" | "EUR";
@@ -49,18 +70,116 @@ const colors = [
   "var(--color-chart-cyan)",
 ];
 
-function formatTime(value: string, language: "tr" | "en"): string {
-  return new Intl.DateTimeFormat(language === "tr" ? "tr-TR" : "en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+/**
+ * X ekseni ve ipucu etiketi. Bicim SECILEN DONEME baglidir: tek gunluk
+ * grafikte saat anlamlidir, aylik/yillik grafikte her nokta ayri bir gun
+ * oldugu icin saat gostermek tum etiketleri ayni ("00:00") yapardi.
+ */
+const TIME_FORMATS: Record<PerformanceRange, Intl.DateTimeFormatOptions> = {
+  "1G": { hour: "2-digit", minute: "2-digit" },
+  // 1H de backend'de gunluk kovaya indi (bkz. _GUNLUK_KOVA_SINIR_SAAT):
+  // nokta basina bir gun dustugu icin saat gostermek yaniltici olurdu.
+  "1H": { day: "2-digit", month: "2-digit" },
+  "1A": { day: "2-digit", month: "2-digit" },
+  "1Y": { day: "2-digit", month: "short" },
+};
+
+function formatTime(value: string, language: "tr" | "en", range: PerformanceRange): string {
+  return new Intl.DateTimeFormat(
+    language === "tr" ? "tr-TR" : "en-US",
+    TIME_FORMATS[range],
+  ).format(new Date(value));
 }
 
-export function buildCompletedHalfHourlyCandles(
+const ISTANBUL_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Istanbul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function istanbulDateKey(timestamp: number): string {
+  const parts = Object.fromEntries(
+    ISTANBUL_DATE_FORMATTER.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/**
+ * Uzun donem cizgisinin tarih araligini korurken bugunun yeniden hesaplanan
+ * noktasini en yeni gercek snapshot ile degistirir.
+ */
+export function mergeLatestSnapshotIntoDailyHistory(
+  history: PortfolioValueSnapshotPoint[],
+  latestSnapshot: PortfolioValueSnapshotPoint | undefined,
+): PortfolioValueSnapshotPoint[] {
+  if (!latestSnapshot) {
+    return history;
+  }
+
+  const latestTimestamp = new Date(latestSnapshot.ts).getTime();
+  if (!Number.isFinite(latestTimestamp)) {
+    return history;
+  }
+
+  const latestDay = istanbulDateKey(latestTimestamp);
+  return [
+    ...history.filter((point) => {
+      const timestamp = new Date(point.ts).getTime();
+      return !Number.isFinite(timestamp) || istanbulDateKey(timestamp) !== latestDay;
+    }),
+    latestSnapshot,
+  ];
+}
+
+/** Yillik seride icinde bulunulan haftayi tek canli snapshot ile temsil eder. */
+export function mergeLatestSnapshotIntoWeeklyHistory(
+  history: PortfolioValueSnapshotPoint[],
+  latestSnapshot: PortfolioValueSnapshotPoint | undefined,
+): PortfolioValueSnapshotPoint[] {
+  if (!latestSnapshot) {
+    return history;
+  }
+
+  const latestTimestamp = new Date(latestSnapshot.ts).getTime();
+  if (!Number.isFinite(latestTimestamp)) {
+    return history;
+  }
+
+  const latestWeek = weekStartKey(istanbulDateKey(latestTimestamp));
+  return [
+    ...history.filter((point) => {
+      const timestamp = new Date(point.ts).getTime();
+      return !Number.isFinite(timestamp)
+        || weekStartKey(istanbulDateKey(timestamp)) !== latestWeek;
+    }),
+    latestSnapshot,
+  ];
+}
+
+function weekStartKey(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Doneme uygun, yalnizca TAMAMLANMIS portfoy mumlarini uretir.
+ *
+ * 1G: 5 dakikalik snapshot'lardan 30 dakikalik mum.
+ * 1H/1A: ayni snapshot'lardan gunluk mum.
+ * 1Y: backend'in gunluk toplamlarindan haftalik mum.
+ */
+export function buildCompletedPortfolioCandles(
   points: PortfolioValueSnapshotPoint[],
+  range: PerformanceRange,
+  now = Date.now(),
 ): CandlePoint[] {
   const halfHour = 30 * 60 * 1_000;
-  const buckets = new Map<number, Array<{ timestamp: number; value: number }>>();
+  const todayKey = istanbulDateKey(now);
+  const currentWeekKey = weekStartKey(todayKey);
+  const buckets = new Map<string, Array<{ timestamp: number; value: number }>>();
 
   points.forEach((point) => {
     const timestamp = new Date(point.ts).getTime();
@@ -68,16 +187,26 @@ export function buildCompletedHalfHourlyCandles(
       return;
     }
 
-    const bucketTimestamp = Math.floor(timestamp / halfHour) * halfHour;
-    const bucket = buckets.get(bucketTimestamp) ?? [];
+    const dateKey = istanbulDateKey(timestamp);
+    const bucketKey = range === "1G"
+      ? String(Math.floor(timestamp / halfHour) * halfHour)
+      : range === "1Y"
+        ? weekStartKey(dateKey)
+        : dateKey;
+    const bucket = buckets.get(bucketKey) ?? [];
     bucket.push({ timestamp, value: point.total_value_try });
-    buckets.set(bucketTimestamp, bucket);
+    buckets.set(bucketKey, bucket);
   });
 
   return [...buckets.entries()]
-    .sort(([left], [right]) => left - right)
-    .flatMap(([bucketTimestamp, values]) => {
-      if (bucketTimestamp + halfHour > Date.now() || values.length === 0) {
+    .sort(([left], [right]) => left.localeCompare(right, "en"))
+    .flatMap(([bucketKey, values]) => {
+      const complete = range === "1G"
+        ? Number(bucketKey) + halfHour <= now
+        : range === "1Y"
+          ? bucketKey < currentWeekKey
+          : bucketKey < todayKey;
+      if (!complete || values.length === 0) {
         return [];
       }
 
@@ -89,7 +218,9 @@ export function buildCompletedHalfHourlyCandles(
       const high = Math.max(...completedValues);
       const low = Math.min(...completedValues);
       return [{
-        ts: new Date(bucketTimestamp).toISOString(),
+        ts: range === "1G"
+          ? new Date(Number(bucketKey)).toISOString()
+          : `${bucketKey}T00:00:00+03:00`,
         open,
         high,
         low,
@@ -97,6 +228,12 @@ export function buildCompletedHalfHourlyCandles(
         range: [low, high] as [number, number],
       }];
     });
+}
+
+export function buildCompletedHalfHourlyCandles(
+  points: PortfolioValueSnapshotPoint[],
+): CandlePoint[] {
+  return buildCompletedPortfolioCandles(points, "1G");
 }
 
 function paddedDomain(minimum: number, maximum: number): [number, number] {
@@ -290,7 +427,12 @@ function CurrencyToggle({
 export function PortfolioVisualization({
   holdings,
   cashTotalTry = 0,
+  range,
+  periodChangeTry,
+  periodChangePct,
   performancePoints,
+  candleSourcePoints,
+  currentTotalTry,
   performanceLoading = false,
   performanceError = null,
   mode,
@@ -301,7 +443,17 @@ export function PortfolioVisualization({
 }: {
   holdings: Holding[];
   cashTotalTry?: number;
+  range: PerformanceRange;
+  /** Donem kar/zarari - grafigin ustundeki yuzde bundan turetilir. */
+  periodChangeTry: number | null;
+  periodChangePct: number | null;
+  //: 1G/1H/1A'da scheduler'in olctugu gercek snapshot'lar, 1Y'de yeniden
+  //: kurulan seri ayni bicime cevrilerek gelir (bkz. dashboard).
   performancePoints: PortfolioValueSnapshotPoint[];
+  /** Mum icin ham kaynak: 1G/1H/1A snapshot, 1Y gunluk performans serisi. */
+  candleSourcePoints: PortfolioValueSnapshotPoint[];
+  /** Tum donemlerde kartlarla ortak kullanilan son snapshot toplami. */
+  currentTotalTry: number | null;
   performanceLoading?: boolean;
   performanceError?: string | null;
   mode: PortfolioViewMode;
@@ -346,6 +498,10 @@ export function PortfolioVisualization({
     () => buildChronologicalPortfolioPoints(performancePoints, conversionDivisor),
     [conversionDivisor, performancePoints],
   );
+  const convertedCandleSource = useMemo(
+    () => buildChronologicalPortfolioPoints(candleSourcePoints, conversionDivisor),
+    [candleSourcePoints, conversionDivisor],
+  );
   const totalValueTry = holdings.reduce((sum, item) => sum + item.market_value_try, 0) + cashTotalTry;
   const totalValue = totalValueTry / conversionDivisor;
   const pieData = [
@@ -375,9 +531,16 @@ export function PortfolioVisualization({
     }));
 
   const first = chartPoints[0]?.total_value_try ?? 0;
-  const current = chartPoints.at(-1)?.total_value_try ?? totalValue;
-  const change = current - first;
-  const changePct = first > 0 ? (change / first) * 100 : 0;
+  const current = currentTotalTry != null
+    ? currentTotalTry / conversionDivisor
+    : chartPoints.at(-1)?.total_value_try ?? totalValue;
+  // Yuzde, ILK/SON NOKTA FARKINDAN degil backend'in donem kar/zararindan
+  // gelir. Ikisi ayni degildir: donem icinde alim yapildiysa portfoy degeri
+  // artar ama bu KAR degil, yatirilan paradir - ham fark "+%36" gibi
+  // gercek disi bir getiri gosterirdi. Backend alim maliyetini dusuyor.
+  // Donem verisi henuz gelmediyse ham farka duseriz (grafik bos kalmasin).
+  const change = periodChangeTry ?? current - first;
+  const changePct = periodChangePct ?? (first > 0 ? ((current - first) / first) * 100 : 0);
   const positive = change >= 0;
   const performanceValues = chartPoints.map((point) => point.total_value_try);
   const minimum = performanceValues.length > 0 ? Math.min(...performanceValues) : current;
@@ -409,8 +572,8 @@ export function PortfolioVisualization({
     return stops;
   }, [chartPoints]);
   const candlePoints = useMemo(
-    () => buildCompletedHalfHourlyCandles(chartPoints),
-    [chartPoints],
+    () => buildCompletedPortfolioCandles(convertedCandleSource, range),
+    [convertedCandleSource, range],
   );
   const candleMinimum = candlePoints.length > 0 ? Math.min(...candlePoints.map((point) => point.low)) : current;
   const candleMaximum = candlePoints.length > 0 ? Math.max(...candlePoints.map((point) => point.high)) : current;
@@ -451,7 +614,7 @@ export function PortfolioVisualization({
   }
 
   return (
-    <Card className={mode === "pie" ? "min-h-[560px]" : "h-full"}>
+    <Card className="h-full">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold app-heading">
@@ -463,9 +626,9 @@ export function PortfolioVisualization({
           </h2>
           <p className="mt-1 text-xs app-muted">
             {mode === "line"
-              ? language === "tr" ? `Son 24 saat · ${displayCurrencyLabel} bazlı` : `Last 24 hours · ${displayCurrencyLabel} based`
+              ? `${RANGE_SUBTITLES[range][language]} · ${displayCurrencyLabel} ${language === "tr" ? "bazlı" : "based"}`
               : mode === "candlestick"
-                ? language === "tr" ? `30 dakikalık · ${displayCurrencyLabel} bazlı` : `30-minute · ${displayCurrencyLabel} based`
+                ? `${CANDLE_SUBTITLES[range][language]} · ${displayCurrencyLabel} ${language === "tr" ? "bazlı" : "based"}`
               : language === "tr" ? "Portföydeki varlık oranları ve değerleri" : "Portfolio asset weights and values"}
           </p>
         </div>
@@ -483,10 +646,10 @@ export function PortfolioVisualization({
       <div
         key={mode}
         data-mode={mode}
-        className={`portfolio-chart-content ${mode === "pie" ? "mt-5 min-h-[460px]" : "mt-3 h-[420px] overflow-y-auto pr-1"}`}
+        className={`portfolio-chart-content mt-3 h-[420px] overflow-y-auto pr-1 ${mode === "pie" ? "lg:overflow-hidden" : ""}`}
       >
         {mode === "pie" ? (
-          <div className="grid min-h-[450px] items-center gap-8 lg:grid-cols-[minmax(280px,.78fr)_minmax(0,1.35fr)]">
+          <div className="grid min-h-full items-center gap-8 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(280px,.78fr)_minmax(0,1.35fr)]">
             <div className="relative mx-auto aspect-square w-full max-w-[360px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -532,11 +695,11 @@ export function PortfolioVisualization({
               </div>
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
               <h3 className="mb-2 text-sm font-semibold app-heading">
                 {language === "tr" ? "Varlıklar" : "Assets"}
               </h3>
-              <div className="divide-y rounded-md border app-border app-border-soft">
+              <div className="divide-y rounded-md border app-border app-border-soft lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain">
                 {pieData.map((item, index) => (
                   <div
                     key={item.symbol}
@@ -582,13 +745,23 @@ export function PortfolioVisualization({
           </div>
         ) : chartPoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center text-center text-sm app-muted">
-            {language === "tr" ? "Henüz portföy snapshot verisi oluşmadı." : "No portfolio snapshot data is available yet."}
+            {language === "tr"
+              ? `${RANGE_SUBTITLES[range].tr} için henüz yeterli gerçek fiyat geçmişi oluşmadı.`
+              : `There is not enough real price history for ${RANGE_SUBTITLES[range].en.toLowerCase()} yet.`}
           </div>
         ) : mode === "candlestick" && candlePoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center px-6 text-center text-sm app-muted">
-            {language === "tr"
-              ? "Henüz tamamlanmış bir 30 dakikalık portföy aralığı oluşmadı."
-              : "A completed 30-minute portfolio interval is not available yet."}
+            {range === "1G"
+              ? language === "tr"
+                ? "Henüz tamamlanmış bir 30 dakikalık portföy aralığı oluşmadı."
+                : "A completed 30-minute portfolio interval is not available yet."
+              : range === "1Y"
+                ? language === "tr"
+                  ? "Henüz tamamlanmış bir haftalık portföy aralığı oluşmadı."
+                  : "A completed weekly portfolio interval is not available yet."
+                : language === "tr"
+                  ? "Henüz tamamlanmış bir günlük portföy aralığı oluşmadı."
+                  : "A completed daily portfolio interval is not available yet."}
           </div>
         ) : mode === "candlestick" ? (
           <>
@@ -604,7 +777,7 @@ export function PortfolioVisualization({
                   <CartesianGrid vertical={false} stroke="var(--color-chart-grid)" strokeDasharray="3 3" />
                   <XAxis
                     dataKey="ts"
-                    tickFormatter={(value) => formatTime(value, language)}
+                    tickFormatter={(value) => formatTime(value, language, range)}
                     axisLine={false}
                     tickLine={false}
                     minTickGap={36}
@@ -634,7 +807,7 @@ export function PortfolioVisualization({
                       return (
                         <div className="rounded-md border app-border bg-[var(--color-panel-dark)] p-3 text-xs text-[var(--color-market-text)] shadow-xl">
                           <div className="mb-2 font-semibold text-[var(--color-on-primary-muted)]">
-                            {formatTime(String(label), language)}
+                            {formatTime(String(label), language, range)}
                           </div>
                           <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-1">
                             {labels.map((item, index) => (
@@ -700,7 +873,7 @@ export function PortfolioVisualization({
                   <CartesianGrid vertical={false} stroke="var(--color-chart-grid)" strokeDasharray="3 3" />
                   <XAxis
                     dataKey="ts"
-                    tickFormatter={(value) => formatTime(value, language)}
+                    tickFormatter={(value) => formatTime(value, language, range)}
                     axisLine={false}
                     tickLine={false}
                     minTickGap={36}
@@ -715,7 +888,7 @@ export function PortfolioVisualization({
                     tick={{ fill: "var(--color-muted)", fontSize: 12 }}
                   />
                   <Tooltip
-                    labelFormatter={(label) => formatTime(String(label), language)}
+                    labelFormatter={(label) => formatTime(String(label), language, range)}
                     formatter={(value) => [
                       currency.format(Number(value)),
                       language === "tr" ? "Portföy" : "Portfolio",

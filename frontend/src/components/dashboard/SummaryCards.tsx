@@ -1,4 +1,5 @@
 import type { DashboardSummaryResponse } from "../../models/dashboard";
+import type { PerformanceRange } from "../../models/portfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { getRiskTone } from "../risk/riskTone";
 import type { DisplayCurrency } from "../portfolio/PortfolioVisualization";
@@ -39,14 +40,35 @@ function RiskGauge({ score, color }: { score: number; color: string }) {
   );
 }
 
+//: Kart basligi secilen doneme gore degisir - "Gunluk Degisim" yazip
+//: yillik rakam gostermek en kotu secenek olurdu.
+const DONEM_BASLIGI: Record<PerformanceRange, { tr: string; en: string }> = {
+  "1G": { tr: "Günlük Değişim", en: "Daily Change" },
+  "1H": { tr: "Haftalık Değişim", en: "Weekly Change" },
+  "1A": { tr: "Aylık Değişim", en: "Monthly Change" },
+  "1Y": { tr: "Yıllık Değişim", en: "Yearly Change" },
+};
+
 export function SummaryCards({
   data,
   displayCurrency,
   conversionDivisor,
+  range,
+  periodChangeTry,
+  periodChangePct,
+  periodLoading,
+  currentTotalTry,
 }: {
   data: DashboardSummaryResponse;
   displayCurrency: DisplayCurrency;
   conversionDivisor: number;
+  range: PerformanceRange;
+  /** Donem kar/zarari; veri henuz gelmediyse null. */
+  periodChangeTry: number | null;
+  periodChangePct: number | null;
+  periodLoading: boolean;
+  /** Grafikle ortak, son basarili snapshot'taki nakit dahil toplam. */
+  currentTotalTry: number | null;
 }) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
@@ -58,11 +80,14 @@ export function SummaryCards({
   const reservedCash = data.cash_account?.reserved_balance ?? 0;
   const totalCash = availableCash + reservedCash;
   const investedValue = summary?.total_value_try ?? 0;
-  const netWorth = investedValue + totalCash;
+  const netWorth = currentTotalTry ?? investedValue + totalCash;
+  const displayedInvestedValue = Math.max(0, netWorth - totalCash);
 
-  const dailyChangeTry = summary?.daily_change_try ?? 0;
-  const dailyChangePct = summary?.daily_change_pct ?? null;
-  const dailyUp = dailyChangeTry >= 0;
+  // Donem verisi gelene kadar ozetteki gunluk rakama duseriz: kart bos
+  // yanip sonmesin, secim degistiginde yalnizca solar.
+  const changeTry = periodChangeTry ?? summary?.daily_change_try ?? 0;
+  const changePct = periodChangePct ?? summary?.daily_change_pct ?? null;
+  const changeUp = changeTry >= 0;
 
   const levelKey = data.risk.risk_level.toLowerCase();
   const englishRiskLabels: Record<string, string> = {
@@ -96,7 +121,7 @@ export function SummaryCards({
         </div>
         {(summary || data.cash_account) && (
           <p className="relative mt-1 text-xs text-white/65">
-            {language === "tr" ? "Varlıklar" : "Assets"}: {currency.format(investedValue / conversionDivisor)} · {language === "tr" ? "Nakit" : "Cash"}: {currency.format(totalCash / conversionDivisor)}
+            {language === "tr" ? "Varlıklar" : "Assets"}: {currency.format(displayedInvestedValue / conversionDivisor)} · {language === "tr" ? "Nakit" : "Cash"}: {currency.format(totalCash / conversionDivisor)}
           </p>
         )}
         {summary && (
@@ -120,15 +145,19 @@ export function SummaryCards({
               <path d="M15 13v2" />
             </svg>
           </span>
-          {language === "tr" ? "Günlük Değişim" : "Daily Change"}
+          {DONEM_BASLIGI[range][language]}
         </div>
-        <div className="mt-3 text-2xl font-semibold app-heading">
-          {summary ? `${dailyUp ? "+" : ""}${currency.format(dailyChangeTry / conversionDivisor)}` : "—"}
+        <div
+          className={`mt-3 text-2xl font-semibold app-heading transition-opacity ${
+            periodLoading ? "opacity-50" : ""
+          }`}
+        >
+          {summary ? `${changeUp ? "+" : ""}${currency.format(changeTry / conversionDivisor)}` : "—"}
         </div>
-        <span className={`mt-3 inline-flex items-center gap-1 text-sm font-semibold ${dailyUp ? "app-success" : "app-danger"}`}>
-          {dailyChangePct == null
+        <span className={`mt-3 inline-flex items-center gap-1 text-sm font-semibold ${changeUp ? "app-success" : "app-danger"}`}>
+          {changePct == null
             ? language === "tr" ? "Veri yok" : "No data"
-            : `${dailyUp ? "▲" : "▼"} %${pct.format(Math.abs(dailyChangePct))}`}
+            : `${changeUp ? "▲" : "▼"} %${pct.format(Math.abs(changePct))}`}
         </span>
       </div>
 

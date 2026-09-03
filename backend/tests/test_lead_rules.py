@@ -33,6 +33,36 @@ def test_tum_kurallardan_gecen_kullanici_uygundur():
     assert rules.uygunluk_degerlendir(_signal(), None) is None
 
 
+def test_danisman_kabul_isaretlediyse_dislanir():
+    # Musteri oldu; kampanya onu tekrar hedeflememeli.
+    assert rules.uygunluk_degerlendir(_signal(advisor_outcome="KABUL"), None) == "advisor_closed"
+
+
+def test_danisman_istemiyor_isaretlediyse_dislanir():
+    assert (
+        rules.uygunluk_degerlendir(_signal(advisor_outcome="ISTEMIYOR"), None) == "advisor_closed"
+    )
+
+
+def test_ulasilamadi_DISLAMAZ():
+    # Regresyon: "ulasilamadi" bir kapanis DEGIL - kisi tekrar aranmali,
+    # yani kuyrukta kalmali.
+    assert rules.uygunluk_degerlendir(_signal(advisor_outcome="ULASILAMADI"), None) is None
+
+
+def test_temizlenmis_sonuc_DISLAMAZ():
+    # `ACIK` = "sonucu temizle"; kullanici hic isaretlenmemis sayilir.
+    assert rules.uygunluk_degerlendir(_signal(advisor_outcome="ACIK"), None) is None
+
+
+def test_danisman_karari_diger_tum_kurallardan_ONCE_gelir():
+    # Rizasi da olmayan, geliri de olmayan biri "advisor_closed" doner:
+    # danisman dosyayi kapattiysa daha spesifik olan neden odur.
+    signal = _signal(advisor_outcome="ISTEMIYOR", marketing_consent=False, monthly_income=0)
+
+    assert rules.uygunluk_degerlendir(signal, None) == "advisor_closed"
+
+
 def test_riza_yoksa_dislanir():
     assert rules.uygunluk_degerlendir(_signal(marketing_consent=False), None) == "consent_missing"
 

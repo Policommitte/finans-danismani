@@ -609,6 +609,15 @@ body {
     color: var(--color-warning-text);
   }
 
+  /* danger/warning kutularinin olumlu esi. Ayri --color-success-bg/-border
+     token'lari yok; renk color-mix ile --color-success'ten turetilir, bu
+     sayede acik/koyu temada otomatik uyum saglar. */
+  .app-success-box {
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+    background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+    color: var(--color-success);
+  }
+
   .app-chart-grid {
     stroke: var(--color-chart-grid);
   }

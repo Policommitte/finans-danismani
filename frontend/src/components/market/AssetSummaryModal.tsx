@@ -96,11 +96,19 @@ export function AssetSummaryModal({
   symbol,
   isAuthenticated,
   onClose,
+  onNavigate,
 }: {
   symbol: string;
   isAuthenticated: boolean;
+  /** Kartin KAPATILMASI: carpi, arka plan tiklamasi, "Şimdilik Kapat". */
   onClose: () => void;
+  //: Kart icinden BASKA BIR SAYFAYA gidilmesi. Kapatmadan ayri tutulur:
+  //: aramadan acilan kart kapaninca arama paleti geri gelir, ama
+  //: "İşlem Ekranına Git" ile gidilirken gelMEMELIdir. Verilmezse
+  //: `onClose` gibi davranir.
+  onNavigate?: () => void;
 }) {
+  const closeAndNavigate = onNavigate ?? onClose;
   const [asset, setAsset] = useState<Asset | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
@@ -365,7 +373,7 @@ export function AssetSummaryModal({
           <div className="mt-5 flex gap-3">
             <Link
               href="/market"
-              onClick={onClose}
+              onClick={closeAndNavigate}
               className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
             >
               İşlem Ekranına Git

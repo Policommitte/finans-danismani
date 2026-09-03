@@ -8,15 +8,19 @@ import { LoadingState } from "../../components/feedback/LoadingState";
 import { AssetTable } from "../../components/portfolio/AssetTable";
 import {
   PortfolioVisualization,
+  mergeLatestSnapshotIntoDailyHistory,
+  mergeLatestSnapshotIntoWeeklyHistory,
   type DisplayCurrency,
   type PortfolioFxRates,
   type PortfolioViewMode,
 } from "../../components/portfolio/PortfolioVisualization";
+import { PeriodSelector } from "../../components/dashboard/PeriodSelector";
+import type { PerformanceRange } from "../../models/portfolio";
 import { RecommendationList } from "../../components/risk/RecommendationList";
 import { RiskScoreCard } from "../../components/risk/RiskScoreCard";
 import { useAuth } from "../../hooks/useAuth";
 import { useDashboard } from "../../hooks/useDashboard";
-import { usePortfolioPerformance } from "../../hooks/usePortfolio";
+import { usePortfolioPerformance, usePortfolioSnapshots } from "../../hooks/usePortfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { DASHBOARD_READY_EVENT } from "../../components/layout/transitionEvents";
 import { getPublicMarketTicker } from "../../services/marketService";
@@ -36,7 +40,52 @@ export default function DashboardPage() {
   const [fxRates, setFxRates] = useState<PortfolioFxRates>({ USD: null, EUR: null });
   const auth = useAuth();
   const dashboard = useDashboard();
-  const performance = usePortfolioPerformance(24);
+  //: Donem TEK yerde tutulur: grafik, "Donem Degisimi" karti ve varlik
+  //: tablosunun kar/zarar sutunu ayni istekten beslenir, boylece uc yerde
+  //: farkli donemlere ait rakam gorunmesi mumkun degil.
+  const [range, setRange] = useState<PerformanceRange>("1G");
+  const performance = usePortfolioPerformance(range);
+  //: Snapshot'lar en fazla 30 gun saklanir. 1G/1H/1A mumlari bu olculmus
+  //: degerlerden kurulur; 1Y'de ise gunluk performans serisi haftalanir.
+  const snapshotHours = range === "1A" ? 720 : range === "1H" ? 168 : 24;
+  // Guncel toplam donemden bagimsiz TEK 24 saatlik snapshot sorgusundan
+  // gelir. Boylece donem degisince farkli sureli sorgularin ayri onbellekleri
+  // kart ve grafik basliginda gecici olarak farkli rakamlar gostermez.
+  const currentSnapshots = usePortfolioSnapshots(true, 24);
+  const rangeNeedsSnapshots = range === "1H" || range === "1A";
+  const rangeSnapshots = usePortfolioSnapshots(rangeNeedsSnapshots, snapshotHours);
+  const snapshotSeries = rangeNeedsSnapshots ? rangeSnapshots : currentSnapshots;
+
+  //: 1G cizgisi anlik snapshot'lari kullanir. 1H/1A tarih araligini
+  //: performans gecmisinden korur ve bugunun noktasini son snapshot ile
+  //: degistirir. 1Y gecmis haftalari korur, icinde bulunulan haftayi son
+  //: snapshot ile temsil eder. Mumlarda 1G/1H/1A snapshot, 1Y ise yeniden
+  //: kurulan gunluk seri kullanir.
+  const reconstructedPoints = (performance.data?.points ?? []).map((point) => ({
+    ts: point.ts,
+    holdings_value_try: point.total_value_try,
+    cash_value_try: 0,
+    total_value_try: point.total_value_try,
+  }));
+  const latestSnapshot = currentSnapshots.data?.points.at(-1);
+  const hybridPerformancePoints = rangeNeedsSnapshots
+    ? mergeLatestSnapshotIntoDailyHistory(reconstructedPoints, latestSnapshot)
+    : range === "1Y"
+      ? mergeLatestSnapshotIntoWeeklyHistory(reconstructedPoints, latestSnapshot)
+      : reconstructedPoints;
+  const lineUsesSnapshots = range === "1G";
+  const chartPoints = lineUsesSnapshots
+    ? (currentSnapshots.data?.points ?? [])
+    : hybridPerformancePoints;
+  const candleSourcePoints = range === "1Y"
+    ? reconstructedPoints
+    : (snapshotSeries.data?.points ?? []);
+  const visualizationUsesSnapshots = portfolioViewMode === "candlestick"
+    ? range !== "1Y"
+    : portfolioViewMode === "line" && lineUsesSnapshots;
+  const chartLoading = visualizationUsesSnapshots ? snapshotSeries.loading : performance.loading;
+  const chartError = visualizationUsesSnapshots ? snapshotSeries.error : performance.error;
+  const currentPortfolioTotalTry = latestSnapshot?.total_value_try ?? null;
   const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
 
   useEffect(() => {
@@ -68,7 +117,12 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (dashboard.loading || performance.loading) {
+    if (
+      dashboard.loading
+      || performance.loading
+      || currentSnapshots.loading
+      || (rangeNeedsSnapshots && rangeSnapshots.loading)
+    ) {
       return;
     }
 
@@ -78,7 +132,13 @@ export default function DashboardPage() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboard.loading, performance.loading]);
+  }, [
+    dashboard.loading,
+    performance.loading,
+    currentSnapshots.loading,
+    rangeNeedsSnapshots,
+    rangeSnapshots.loading,
+  ]);
 
   if (dashboard.loading && !dashboard.data) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
@@ -138,19 +198,41 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Donem secici kartlarin USTUNDE ve saga yasli: sag ustteki Risk
+          Skoru kartinin hemen ustune denk gelir, dort kartin da ustunde
+          durdugu icin "bu ekran su donemi gosteriyor" mesajini verir. */}
+      <div className="flex justify-end">
+        <PeriodSelector
+          value={range}
+          onChange={setRange}
+          loading={performance.loading}
+          language={language}
+        />
+      </div>
+
       <SummaryCards
         data={data}
         displayCurrency={displayCurrency}
         conversionDivisor={conversionDivisor}
+        range={range}
+        periodChangeTry={performance.data?.change_try ?? null}
+        periodChangePct={performance.data?.change_pct ?? null}
+        periodLoading={performance.loading}
+        currentTotalTry={currentPortfolioTotalTry}
       />
 
       <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
         <PortfolioVisualization
           holdings={data.holdings}
           cashTotalTry={(data.cash_account?.available_balance ?? 0) + (data.cash_account?.reserved_balance ?? 0)}
-          performancePoints={performance.data?.points ?? []}
-          performanceLoading={performance.loading}
-          performanceError={performance.error}
+          range={range}
+          periodChangeTry={performance.data?.change_try ?? null}
+          periodChangePct={performance.data?.change_pct ?? null}
+          performancePoints={chartPoints}
+          candleSourcePoints={candleSourcePoints}
+          currentTotalTry={currentPortfolioTotalTry}
+          performanceLoading={chartLoading}
+          performanceError={chartError}
           mode={portfolioViewMode}
           onModeChange={setPortfolioViewMode}
           displayCurrency={displayCurrency}
@@ -163,6 +245,9 @@ export default function DashboardPage() {
             cashAccount={data.cash_account}
             displayCurrency={displayCurrency}
             conversionDivisor={conversionDivisor}
+            range={range}
+            symbolPnl={performance.data?.symbol_pnl ?? []}
+            periodLoading={performance.loading}
           />
         </div>
       </div>

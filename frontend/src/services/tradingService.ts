@@ -5,6 +5,8 @@ import type {
   OrderValidity,
   OrdersResponse,
   PaperOrder,
+  PercentageBasketAllocation,
+  PercentageBasketPreview,
   TradingAccount,
 } from "../models/trading";
 import { apiRequest } from "./apiClient";
@@ -15,6 +17,15 @@ export function getTradingAccount(): Promise<TradingAccount> {
 
 export function getPaperOrders(limit = 20): Promise<OrdersResponse> {
   return apiRequest<OrdersResponse>(`/api/trading/orders?limit=${limit}`);
+}
+
+export function previewPercentageBasket(
+  allocations: PercentageBasketAllocation[],
+): Promise<PercentageBasketPreview> {
+  return apiRequest<PercentageBasketPreview>("/api/trading/basket/preview", {
+    method: "POST",
+    body: JSON.stringify({ allocations }),
+  });
 }
 
 export function previewPaperOrder(

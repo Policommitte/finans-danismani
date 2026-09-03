@@ -1,4 +1,4 @@
-import type { Holding } from "../../models/portfolio";
+import type { Holding, PerformanceRange, SymbolPeriodPnl } from "../../models/portfolio";
 import Card from "../ui/Card";
 import { useLanguage } from "../../contexts/LanguageContext";
 import type { DisplayCurrency } from "./PortfolioVisualization";
@@ -22,18 +22,33 @@ function getAssetClassLabel(assetClass: string, language: "tr" | "en"): string {
   return language === "tr" ? ASSET_CLASS_LABELS[assetClass.toUpperCase()] ?? assetClass : assetClass.replaceAll("_", " ");
 }
 
+const PERIOD_LABELS: Record<PerformanceRange, { tr: string; en: string }> = {
+  "1G": { tr: "Günlük", en: "Daily" },
+  "1H": { tr: "Haftalık", en: "Weekly" },
+  "1A": { tr: "Aylık", en: "Monthly" },
+  "1Y": { tr: "Yıllık", en: "Yearly" },
+};
+
 export function AssetTable({
   items,
   cashAccount,
   displayCurrency,
   conversionDivisor,
+  range,
+  symbolPnl,
+  periodLoading,
 }: {
   items: Holding[];
   cashAccount?: TradingAccount | null;
   displayCurrency: DisplayCurrency;
   conversionDivisor: number;
+  range: PerformanceRange;
+  /** Sembol -> donem kar/zarari. Bos gelirse sutun "—" gosterir. */
+  symbolPnl: SymbolPeriodPnl[];
+  periodLoading: boolean;
 }) {
   const { language } = useLanguage();
+  const periodPnlBySymbol = new Map(symbolPnl.map((s) => [s.symbol, s]));
   const money = new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
     style: "currency",
     currency: displayCurrency,
@@ -52,7 +67,10 @@ export function AssetTable({
               <th className="py-2 pr-4">{language === "tr" ? "Tür" : "Type"}</th>
               <th className="py-2 pr-4">{language === "tr" ? "Adet" : "Quantity"}</th>
               <th className="py-2 pr-4">{language === "tr" ? "Değer" : "Value"}</th>
-              <th className="py-2 pr-4">{language === "tr" ? "Kar/Zarar" : "P/L"}</th>
+              <th className="py-2 pr-4">
+                {language === "tr" ? "Kar/Zarar" : "P/L"}
+                <span className="ml-1 normal-case app-muted">({PERIOD_LABELS[range][language]})</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y app-border-soft">
@@ -67,17 +85,26 @@ export function AssetTable({
                 <td className="py-3 pr-4 app-muted">—</td>
               </tr>
             )}
-            {items.map((item) => (
-              <tr key={item.symbol}>
-                <td className="py-3 pr-4 font-medium app-heading">{item.symbol}</td>
-                <td className="py-3 pr-4 app-muted">{getAssetClassLabel(item.asset_class, language)}</td>
-                <td className="py-3 pr-4 app-muted">{item.quantity}</td>
-                <td className="py-3 pr-4 app-heading">{money.format(item.market_value_try / conversionDivisor)}</td>
-                <td className={`py-3 pr-4 ${item.pnl_try < 0 ? "app-danger" : "app-success"}`}>
-                  {money.format(item.pnl_try / conversionDivisor)}
-                </td>
-              </tr>
-            ))}
+            {items.map((item) => {
+              // Donem verisi gelmediyse (bellek ici yedek, ya da varlik
+              // donem boyunca hic tutulmamis) uydurma rakam yerine "—".
+              const pnl = periodPnlBySymbol.get(item.symbol);
+              return (
+                <tr key={item.symbol}>
+                  <td className="py-3 pr-4 font-medium app-heading">{item.symbol}</td>
+                  <td className="py-3 pr-4 app-muted">{getAssetClassLabel(item.asset_class, language)}</td>
+                  <td className="py-3 pr-4 app-muted">{item.quantity}</td>
+                  <td className="py-3 pr-4 app-heading">{money.format(item.market_value_try / conversionDivisor)}</td>
+                  <td
+                    className={`py-3 pr-4 transition-opacity ${periodLoading ? "opacity-50" : ""} ${
+                      pnl == null ? "app-muted" : pnl.pnl_try < 0 ? "app-danger" : "app-success"
+                    }`}
+                  >
+                    {pnl == null ? "—" : money.format(pnl.pnl_try / conversionDivisor)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
