@@ -350,10 +350,7 @@ export function ChatWidget({
               <span className="h-8 w-8">
                 <ChatAvatar />
               </span>
-              <div>
-                <div className="font-semibold">Yatırım Asistanı</div>
-                <div className="text-xs opacity-80">{chat.status ?? "Hazır"}</div>
-              </div>
+              <div className="font-semibold">Yatırım Asistanı</div>
             </div>
             <button
               type="button"
@@ -367,6 +364,7 @@ export function ChatWidget({
           {chat.error && <div className="app-danger-box px-4 py-2 text-xs">{chat.error}</div>}
           <MessageList
             messages={messages}
+            statusText={chat.status}
             onSelectAsset={onSelectAsset}
             leading={
               canSend && messages.length === 0 ? (
