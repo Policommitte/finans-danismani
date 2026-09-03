@@ -347,7 +347,7 @@ async def test_yavas_tool_timeout_uretir(sorgu):
 # ---------------------------------------------------------------------------
 
 
-def test_source_dokuman_kimligini_kullanir():
+def test_source_uses_document_id():
     """`Source.doc_id` DOKUMAN kimligidir; chunk numarasi kullaniciya yaramaz."""
     kaynak = MarketResearchAgent._to_source(
         {
@@ -364,7 +364,7 @@ def test_source_dokuman_kimligini_kullanir():
     assert kaynak.doc_id == "DOC-001"
 
 
-def test_source_tool_un_verdigi_tipi_korur():
+def test_source_keeps_type_given_by_tool():
     """Esleme tablosuna korukorune guvenilseydi bilanco 'haber' olurdu."""
     kaynak = MarketResearchAgent._to_source(
         {"chunk_id": "1", "doc_id": "DOC-001", "title": "x", "tip": "bilanco", "metadata": {}}
@@ -373,7 +373,7 @@ def test_source_tool_un_verdigi_tipi_korur():
     assert kaynak.tip == "bilanco"
 
 
-def test_source_tip_yoksa_eski_topic_eslemesine_duser():
+def test_source_falls_back_to_legacy_topic_mapping_without_type():
     """Zarf oncesi yazilmis sunucular yalnizca `metadata.topic` donuyor."""
     kaynak = MarketResearchAgent._to_source(
         {"chunk_id": "1", "title": "x", "metadata": {"topic": "analyst"}}
@@ -560,7 +560,7 @@ async def test_alandan_cozulen_sembol_rag_i_kapatmaz():
     """
     ajan = _ajan(mcp_client=build_mcp_client())
     gorev = {"query": "savunma sanayi hisseleri ne kadar yükseldi"}
-    await ajan._sembolu_katalogdan_coz(gorev)
+    await ajan._resolve_symbol_from_catalog(gorev)
 
     assert gorev.get("symbol") == "ASELS"
     assert gorev.get("symbol_alandan") is True

@@ -538,7 +538,7 @@ async def gecmis_mumlari_indir(
     )
 
 
-def tamamlanmis_saatlik_mumlar(candles: list[dict], *, now: datetime | None = None) -> list[dict]:
+def completed_hourly_candles(candles: list[dict], *, now: datetime | None = None) -> list[dict]:
     """Devam eden saati uzlastirma paketinden cikarir.
 
     Yahoo son 1h satirini piyasa acikken guncelleyebilir. Gunluk uzlastirma

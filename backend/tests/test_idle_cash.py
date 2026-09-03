@@ -357,7 +357,7 @@ def test_low_volatility_catalog_filters_historical_risk_outliers():
         else:
             asset["yearly_change_pct"] = 40.0
             genlik = 6.0
-        asset["daily_returns_252d"] = _kademe_getirileri(index, genlik)
+        asset["daily_returns_252d"] = _tiered_returns(index, genlik)
 
     catalog = basket_catalog_build(_context(100_000, "HIGH"), assets, {}, "LOW_VOLATILITY", now=now)
     annualized = [
@@ -451,7 +451,7 @@ def _daily_returns(count: int, value_factory) -> dict[str, float]:
     }
 
 
-def _kademe_getirileri(varlik_indeksi: int, genlik: float) -> dict[str, float]:
+def _tiered_returns(varlik_indeksi: int, genlik: float) -> dict[str, float]:
     """Varliga ozel, tekrarlanabilir gunluk getiri serisi.
 
     Tohum varlik indeksinden turedigi icin ayni kademedeki varliklar

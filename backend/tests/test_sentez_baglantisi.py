@@ -28,7 +28,7 @@ from app.engine.orchestrator import (
     KISMI_YANIT_NOTU,
     YATIRIM_TAVSIYESI_IBARESI,
     Orchestrator,
-    _mesajlari_metne_cevir,
+    _messages_to_text,
 )
 from app.orchestration.models import AgentState
 
@@ -57,22 +57,22 @@ _ORIJINAL_AYARLAR = app.config.settings
 
 
 @pytest.fixture
-def ortam(monkeypatch):
-    """Model/anahtar ortam degiskenlerini kurar ve modulleri yeniden yukler.
+def environment(monkeypatch):
+    """Model/anahtar environment degiskenlerini kurar ve modulleri yeniden yukler.
 
     `Settings` ornegi modul yuklenirken bir kez okundugu icin `monkeypatch.setenv`
     tek basina yetmez - config ve llm modullerinin yeniden yuklenmesi gerekir.
 
-    ⚠️ DELENV YETMEZ, BOS STRING SART. `Settings` yalnizca ortam degiskenlerini
+    ⚠️ DELENV YETMEZ, BOS STRING SART. `Settings` yalnizca environment degiskenlerini
     degil `backend/.env` DOSYASINI da okur (`env_file=".env"`). Degiskeni
     silmek dosyadaki degeri ortaya cikarir: gercek bir NVIDIA anahtari ve
     `DEFAULT_MODEL` tanimlamis bir gelistiricide "model tanimli degilse None
-    doner" testleri PATLAR - kod dogru olsa bile. Bos string atamak ise ortam
+    doner" testleri PATLAR - kod dogru olsa bile. Bos string atamak ise environment
     degiskeni olarak .env'i EZER (pydantic-settings onceligi) ve testi
     gelistiricinin yerel kurulumundan bagimsiz kilar.
     """
 
-    def _kur(**degiskenler: str):
+    def _setup(**degiskenler: str):
         for anahtar in (
             "DEFAULT_MODEL",
             "SYNTHESIZER_MODEL",
@@ -92,7 +92,7 @@ def ortam(monkeypatch):
         importlib.reload(app.engine.factory)
         return app.core.llm, app.engine.factory
 
-    yield _kur
+    yield _setup
 
     # Diger test dosyalari ORIJINAL NESNEYLE devam etsin - yeni bir nesneyle
     # DEGIL. Gerekcesi icin `_ORIJINAL_AYARLAR` notuna bakin.
@@ -108,8 +108,8 @@ def ortam(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_nim_modeli_icin_akitan_istemci_kurulur(ortam):
-    llm, _ = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
+def test_streaming_client_built_for_nim_model(environment):
+    llm, _ = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
 
     model = llm.get_streaming_llm("synthesizer")
 
@@ -121,17 +121,17 @@ def test_nim_modeli_icin_akitan_istemci_kurulur(ortam):
     assert model.streaming is True
 
 
-def test_dusunme_kapali_gonderilir(ortam):
+def test_thinking_sent_disabled(environment):
     """Akil yurutme izi hem sentez suresini uzatir hem de guvenlik ajaninin
     'ilk sayiyi oku' ayristiricisini bozar."""
-    llm, _ = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
+    llm, _ = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
 
     model = llm.get_streaming_llm("synthesizer")
 
     assert model.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
 
 
-def test_dusunme_bayragi_top_level_GONDERILMEZ(ortam):
+def test_thinking_flag_NOT_sent_top_level(environment):
     """Canlida olculdu: top-level `enable_thinking` 400 aldiriyor.
 
     OpenAI uyumlu uc tanimadigi govde alanini yok saymiyor, istegi reddediyor.
@@ -139,14 +139,14 @@ def test_dusunme_bayragi_top_level_GONDERILMEZ(ortam):
     TUM LLM cagrilarinin patlamasi oldu (ajanlar `llm_error`, sentez
     deterministik ozet). Bu test o denemeyi geri gelmekten alikoyar.
     """
-    llm, _ = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
+    llm, _ = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
 
     assert "enable_thinking" not in llm.get_streaming_llm("synthesizer").extra_body
 
 
-def test_extra_body_kapatma_anahtari_calisir(ortam):
+def test_extra_body_kill_switch_works(environment):
     """Model ek alani tanimayip 400 donerse kacis kapisi olmali."""
-    llm, _ = ortam(
+    llm, _ = environment(
         SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra",
         NVIDIA_API_KEY="test",
         LLM_NVIDIA_EXTRA_BODY_OFF="1",
@@ -183,25 +183,25 @@ class _SahteYanit:
     choices = [type("S", (), {"message": _SahteMesaj()})()]
 
 
-def _nim_istemcisi(llm_modulu):
+def _nim_client(llm_modulu):
     return llm_modulu.NvidiaLLMClient(
         api_key="test", default_model="nvidia/nemotron-3-ultra", base_url="http://ornek/v1"
     )
 
 
-async def test_ek_govde_reddedilirse_bayraksiz_tekrar_denenir(ortam):
+async def test_retried_without_flag_when_extra_body_rejected(environment):
     """Tek bir govde alani yuzunden tum LLM katmani durmamali."""
-    llm, _ = ortam(NVIDIA_API_KEY="test")
-    istemci = _nim_istemcisi(llm)
+    llm, _ = environment(NVIDIA_API_KEY="test")
+    istemci = _nim_client(llm)
     cagrilar: list[dict] = []
 
-    async def sahte(model, prompt, ek):
+    async def fake(model, prompt, ek):
         cagrilar.append(ek)
         if ek:
             raise _Sahte400()
         return _SahteYanit()
 
-    istemci._cagir = sahte
+    istemci._call = fake
 
     assert await istemci.generate("selam") == "merhaba"
     assert len(cagrilar) == 2
@@ -209,61 +209,61 @@ async def test_ek_govde_reddedilirse_bayraksiz_tekrar_denenir(ortam):
     assert cagrilar[1] == {}
 
 
-async def test_400_disindaki_hata_tekrar_denenmez(ortam):
+async def test_non_400_error_not_retried(environment):
     """Gecersiz anahtari 'bayrak sorunu' sanip iki kez denemek yanlis olurdu."""
-    llm, _ = ortam(NVIDIA_API_KEY="test")
-    istemci = _nim_istemcisi(llm)
+    llm, _ = environment(NVIDIA_API_KEY="test")
+    istemci = _nim_client(llm)
     cagrilar: list[dict] = []
 
-    async def sahte(model, prompt, ek):
+    async def fake(model, prompt, ek):
         cagrilar.append(ek)
         raise _Sahte401()
 
-    istemci._cagir = sahte
+    istemci._call = fake
 
     with pytest.raises(_Sahte401):
         await istemci.generate("selam")
     assert len(cagrilar) == 1
 
 
-def test_ek_govde_reddi_yalnizca_400_de_dogru(ortam):
-    llm, _ = ortam()
+def test_extra_body_rejection_true_only_on_400(environment):
+    llm, _ = environment()
 
-    assert llm._ek_govde_reddedildi(_Sahte400()) is True
-    assert llm._ek_govde_reddedildi(_Sahte401()) is False
-    assert llm._ek_govde_reddedildi(RuntimeError("baglanti koptu")) is False
+    assert llm._extra_body_rejected(_Sahte400()) is True
+    assert llm._extra_body_rejected(_Sahte401()) is False
+    assert llm._extra_body_rejected(RuntimeError("baglanti koptu")) is False
 
 
-def test_gemini_modelinde_akitan_istemci_kurulmaz(ortam):
+def test_no_streaming_client_for_gemini_model(environment):
     """`langchain-google-genai` bagimliligi yok; cagiran taraf duse duse
     tek seferlik istemciye iner."""
-    llm, _ = ortam(SYNTHESIZER_MODEL="gemini-3.5-flash-lite", GEMINI_API_KEY="test")
+    llm, _ = environment(SYNTHESIZER_MODEL="gemini-3.5-flash-lite", GEMINI_API_KEY="test")
 
     assert llm.get_streaming_llm("synthesizer") is None
 
 
-def test_model_adi_yoksa_none_doner(ortam):
-    llm, _ = ortam(NVIDIA_API_KEY="test")
+def test_returns_none_without_model_name(environment):
+    llm, _ = environment(NVIDIA_API_KEY="test")
 
     assert llm.get_streaming_llm("synthesizer") is None
 
 
-def test_anahtar_yoksa_none_doner(ortam):
-    llm, _ = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra")
+def test_returns_none_without_api_key(environment):
+    llm, _ = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra")
 
     assert llm.get_streaming_llm("synthesizer") is None
 
 
-def test_slashsiz_model_adi_gemini_sanilir(ortam):
+def test_model_name_without_slash_assumed_gemini(environment):
     """`.env`'e 'nemotron-3-ultra' yazmak sessizce yanlis saglayiciya gider.
 
     Bu davranis BILINCLI (saglayici model adindan anlasiliyor) ama tuzak;
     test onu gorunur kiliyor.
     """
-    llm, _ = ortam()
+    llm, _ = environment()
 
-    assert llm.saglayici_belirle("nemotron-3-ultra") == "gemini"
-    assert llm.saglayici_belirle("nvidia/nemotron-3-ultra") == "nvidia"
+    assert llm.detect_provider("nemotron-3-ultra") == "gemini"
+    assert llm.detect_provider("nvidia/nemotron-3-ultra") == "nvidia"
 
 
 # ---------------------------------------------------------------------------
@@ -271,17 +271,17 @@ def test_slashsiz_model_adi_gemini_sanilir(ortam):
 # ---------------------------------------------------------------------------
 
 
-def test_factory_akitan_modeli_secer(ortam):
-    _, factory = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
+def test_factory_selects_streaming_model(environment):
+    _, factory = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
 
     model = factory.build_synthesizer_llm()
 
     assert model is not None and hasattr(model, "astream")
 
 
-def test_factory_akitan_kurulamazsa_tek_seferlige_duser(ortam):
+def test_factory_falls_back_to_one_shot_when_streaming_unavailable(environment):
     """Gemini sentezi: akis yok ama sentez YINE LLM ile yapilmali."""
-    _, factory = ortam(SYNTHESIZER_MODEL="gemini-3.5-flash-lite", GEMINI_API_KEY="test")
+    _, factory = environment(SYNTHESIZER_MODEL="gemini-3.5-flash-lite", GEMINI_API_KEY="test")
 
     model = factory.build_synthesizer_llm()
 
@@ -290,23 +290,23 @@ def test_factory_akitan_kurulamazsa_tek_seferlige_duser(ortam):
     assert not hasattr(model, "astream")
 
 
-def test_model_tanimli_degilse_deterministik_kalir(ortam):
-    _, factory = ortam()
+def test_stays_deterministic_when_model_undefined(environment):
+    _, factory = environment()
 
     assert factory.build_synthesizer_llm() is None
 
 
-def test_orchestrator_sentez_modelini_alir(ortam, monkeypatch):
+def test_orchestrator_receives_synthesis_model(environment, monkeypatch):
     """Asil regresyon: `build_orchestrator` bu alani bos birakiyordu."""
-    _, factory = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
+    _, factory = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
 
     orchestrator = factory.build_orchestrator()
 
     assert orchestrator.synthesizer_llm is not None
 
 
-def test_cagiran_taraf_sentez_modelini_ezebilir(ortam):
-    _, factory = ortam(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
+def test_caller_can_override_synthesis_model(environment):
+    _, factory = environment(SYNTHESIZER_MODEL="nvidia/nemotron-3-ultra", NVIDIA_API_KEY="test")
 
     orchestrator = factory.build_orchestrator(synthesizer_llm=None)
 
@@ -352,7 +352,7 @@ def _orchestrator(llm) -> Orchestrator:
     )
 
 
-async def test_astreamsiz_istemciyle_de_sentez_yapilir():
+async def test_synthesis_also_works_with_client_without_astream():
     """Deterministik ozete DUSMEMELI - LLM yine cagrilmali."""
     llm = TekSeferlikLLM()
 
@@ -365,7 +365,7 @@ async def test_astreamsiz_istemciyle_de_sentez_yapilir():
     assert state["final_response"].startswith("Sentezlenmis yanit")
 
 
-async def test_astreamsiz_yolda_ajan_verisi_prompta_girer():
+async def test_agent_data_enters_prompt_on_non_streaming_path():
     llm = TekSeferlikLLM()
 
     await _orchestrator(llm).graph.ainvoke(
@@ -376,7 +376,7 @@ async def test_astreamsiz_yolda_ajan_verisi_prompta_girer():
     assert "toplam 100.000 TL" in llm.gorulen_prompt
 
 
-async def test_astreamsiz_yanit_tek_token_olayi_olarak_gider():
+async def test_non_streaming_reply_sent_as_single_token_event():
     """Frontend'in tek render yolu korunur."""
     llm = TekSeferlikLLM()
     orchestrator = _orchestrator(llm)
@@ -388,11 +388,11 @@ async def test_astreamsiz_yanit_tek_token_olayi_olarak_gider():
     assert "".join(o["content"] for o in tokenlar).startswith("Sentezlenmis yanit")
 
 
-def test_mesajlar_rol_etiketiyle_duzlestirilir():
+def test_messages_flattened_with_role_labels():
     """Rol ayrimi kaybolursa uyum kurallari kullanici metnine karisir."""
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    metin = _mesajlari_metne_cevir([SystemMessage(content="kural"), HumanMessage(content="soru")])
+    metin = _messages_to_text([SystemMessage(content="kural"), HumanMessage(content="soru")])
 
     assert "[SISTEM]" in metin and "[KULLANICI]" in metin
     assert metin.index("[SISTEM]") < metin.index("[KULLANICI]")
@@ -416,8 +416,8 @@ def test_mesajlar_rol_etiketiyle_duzlestirilir():
         "deepseek-ai/deepseek-v4-flash-0731",
     ],
 )
-def test_nemotron_disi_modele_ek_govde_gonderilmez(ortam, model):
-    llm, _ = ortam(SYNTHESIZER_MODEL=model, NVIDIA_API_KEY="test")
+def test_no_extra_body_sent_to_non_nemotron_model(environment, model):
+    llm, _ = environment(SYNTHESIZER_MODEL=model, NVIDIA_API_KEY="test")
 
     assert not llm.get_streaming_llm("synthesizer").extra_body
 
@@ -426,26 +426,26 @@ def test_nemotron_disi_modele_ek_govde_gonderilmez(ortam, model):
     "model",
     ["nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-lightning-30b-a3b"],
 )
-def test_nemotron_modeline_ek_govde_gonderilir(ortam, model):
-    llm, _ = ortam(SYNTHESIZER_MODEL=model, NVIDIA_API_KEY="test")
+def test_extra_body_sent_to_nemotron_model(environment, model):
+    llm, _ = environment(SYNTHESIZER_MODEL=model, NVIDIA_API_KEY="test")
 
     ek = llm.get_streaming_llm("synthesizer").extra_body
     assert ek == {"chat_template_kwargs": {"enable_thinking": False}}
 
 
-async def test_tek_seferlik_yolda_da_modele_gore_karar_verilir(ortam):
+async def test_one_shot_path_also_decides_by_model(environment):
     """`generate()` ek govdeyi kendi model adina bakarak secmeli."""
-    llm, _ = ortam(NVIDIA_API_KEY="test")
+    llm, _ = environment(NVIDIA_API_KEY="test")
     gorulen: list[dict] = []
 
-    async def sahte(model, prompt, ek):
+    async def fake(model, prompt, ek):
         gorulen.append(ek)
         return _SahteYanit()
 
     gemma = llm.NvidiaLLMClient(
         api_key="test", default_model="google/gemma-4-31b-it", base_url="http://ornek/v1"
     )
-    gemma._cagir = sahte
+    gemma._call = fake
     await gemma.generate("selam")
 
     nemotron = llm.NvidiaLLMClient(
@@ -453,7 +453,7 @@ async def test_tek_seferlik_yolda_da_modele_gore_karar_verilir(ortam):
         default_model="nvidia/nemotron-3-super-120b-a12b",
         base_url="http://ornek/v1",
     )
-    nemotron._cagir = sahte
+    nemotron._call = fake
     await nemotron.generate("selam")
 
     assert gorulen[0] == {}, "gemma'ya ek govde gitmemeli"

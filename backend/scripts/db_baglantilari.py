@@ -75,7 +75,7 @@ SELECT
 BACKEND_KOK = Path(__file__).resolve().parent.parent
 
 
-def _kok_ekle() -> None:
+def _add_backend_root() -> None:
     """`app` paketini import edebilmek icin backend kokunu sys.path'e ekler.
 
     `python scripts/db_baglantilari.py` calistirildiginda sys.path[0] betigin
@@ -88,7 +88,7 @@ def _kok_ekle() -> None:
         sys.path.insert(0, kok)
 
 
-def _env_dosyasindan_dsn() -> str:
+def _dsn_from_env_file() -> str:
     """`backend/.env` icinden DATABASE_URL'i dogrudan okur (yedek yol).
 
     `Settings(env_file=".env")` dosyayi CALISMA DIZININE gore arar; betik
@@ -106,7 +106,7 @@ def _env_dosyasindan_dsn() -> str:
     return ""
 
 
-def dsn_hazirla(url: str) -> str:
+def prepare_dsn(url: str) -> str:
     """SQLAlchemy yazimini duz libpq DSN'ine cevirir.
 
     `.env`'deki DATABASE_URL `postgresql+psycopg://` ile yazilmis olabilir;
@@ -121,9 +121,9 @@ def dsn_hazirla(url: str) -> str:
 def dsn_bul(verilen: str | None) -> str:
     """Baglanti dizesini bulur: --dsn > app.config > backend/.env."""
     if verilen:
-        return dsn_hazirla(verilen)
+        return prepare_dsn(verilen)
 
-    _kok_ekle()
+    _add_backend_root()
     url = ""
     try:
         from app.config import settings
@@ -136,7 +136,7 @@ def dsn_bul(verilen: str | None) -> str:
         print(f"[i] app.config okunamadi ({type(hata).__name__}: {hata}); .env'e bakiliyor.")
 
     if not url:
-        url = _env_dosyasindan_dsn()
+        url = _dsn_from_env_file()
 
     if not url:
         print(
@@ -146,10 +146,10 @@ def dsn_bul(verilen: str | None) -> str:
             '    python scripts/db_baglantilari.py --dsn "postgresql://kullanici:sifre@host:5432/postgres"'
         )
         raise SystemExit(2)
-    return dsn_hazirla(url)
+    return prepare_dsn(url)
 
 
-def pooler_uyarisi(dsn: str) -> str | None:
+def pooler_warning(dsn: str) -> str | None:
     """Pooler uzerinden baglaniliyorsa ne gordugumuz DEGISIR.
 
     Supavisor (`*.pooler.supabase.com`) arkasindayken `pg_stat_activity`
@@ -171,7 +171,7 @@ def pooler_uyarisi(dsn: str) -> str | None:
     return None
 
 
-def sure(saniye: Any) -> str:
+def format_duration(saniye: Any) -> str:
     if saniye is None:
         return "-"
     saniye = int(saniye)
@@ -182,7 +182,7 @@ def sure(saniye: Any) -> str:
     return f"{saniye // 3600}sa{(saniye % 3600) // 60:02d}"
 
 
-def tablo_yaz(satirlar: list[dict[str, Any]]) -> None:
+def print_table(satirlar: list[dict[str, Any]]) -> None:
     basliklar = [
         ("pid", "PID", 7),
         ("kullanici", "KULLANICI", 16),
@@ -198,9 +198,9 @@ def tablo_yaz(satirlar: list[dict[str, Any]]) -> None:
     print("  ".join("-" * genislik for _, _, genislik in basliklar))
     for satir in satirlar:
         gorunum = dict(satir)
-        gorunum["_yas"] = sure(satir["yas_sn"])
-        gorunum["_durum_sn"] = sure(satir["durum_sn"])
-        gorunum["_islem_sn"] = sure(satir["islem_sn"])
+        gorunum["_yas"] = format_duration(satir["yas_sn"])
+        gorunum["_durum_sn"] = format_duration(satir["durum_sn"])
+        gorunum["_islem_sn"] = format_duration(satir["islem_sn"])
         if satir["ben"]:
             gorunum["uygulama"] = gorunum["uygulama"] + " (BEN)"
         hucreler = []
@@ -210,7 +210,7 @@ def tablo_yaz(satirlar: list[dict[str, Any]]) -> None:
         print("  ".join(hucreler))
 
 
-def grupla(satirlar: list[dict[str, Any]], anahtar: str, baslik: str) -> None:
+def group_rows(satirlar: list[dict[str, Any]], anahtar: str, baslik: str) -> None:
     sayac: dict[str, int] = {}
     for satir in satirlar:
         sayac[str(satir[anahtar])] = sayac.get(str(satir[anahtar]), 0) + 1
@@ -239,7 +239,7 @@ def main() -> int:
         print(json.dumps({"ozet": ozet, "baglantilar": satirlar}, default=str, indent=2))
         return 0
 
-    uyari = pooler_uyarisi(dsn)
+    uyari = pooler_warning(dsn)
     if uyari:
         print("\n[!] " + uyari + "\n")
 
@@ -253,10 +253,10 @@ def main() -> int:
     )
     print(f"Bu VT      : {ozet.get('bu_vt')} istemci baglantisi\n")
 
-    tablo_yaz(satirlar)
-    grupla(istemci, "uygulama", "UYGULAMAYA GORE")
-    grupla(istemci, "istemci", "ISTEMCI IP'SINE GORE")
-    grupla(istemci, "durum", "DURUMA GORE")
+    print_table(satirlar)
+    group_rows(istemci, "uygulama", "UYGULAMAYA GORE")
+    group_rows(istemci, "istemci", "ISTEMCI IP'SINE GORE")
+    group_rows(istemci, "durum", "DURUMA GORE")
 
     if bosta_islemde:
         print(

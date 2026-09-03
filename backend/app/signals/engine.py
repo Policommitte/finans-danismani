@@ -36,7 +36,7 @@ KURAL_ADLARI: dict[str, str] = {
 }
 
 
-def kural_adi(rule_code: str) -> str:
+def rule_name(rule_code: str) -> str:
     return KURAL_ADLARI.get(rule_code, rule_code)
 
 
@@ -44,7 +44,7 @@ def kural_adi(rule_code: str) -> str:
 ISLEM_DISI_SINIFLAR = frozenset({"INDEX", "BOND"})
 
 
-def _yuzde(value) -> float | None:
+def _percent(value) -> float | None:
     if value is None:
         return None
     try:
@@ -53,12 +53,12 @@ def _yuzde(value) -> float | None:
         return None
 
 
-def _guven(ham: float) -> float:
+def _confidence(ham: float) -> float:
     """Ham skoru 0..1 arasina sikistirir, 3 basamaga yuvarlar."""
     return round(max(0.0, min(1.0, ham)), 3)
 
 
-def _bayat_mi(price_updated_at, now: datetime, max_staleness_minutes: int) -> bool:
+def _is_stale(price_updated_at, now: datetime, max_staleness_minutes: int) -> bool:
     if price_updated_at is None:
         return True
     an = price_updated_at
@@ -72,7 +72,7 @@ def _bayat_mi(price_updated_at, now: datetime, max_staleness_minutes: int) -> bo
     return an < now - timedelta(minutes=max_staleness_minutes)
 
 
-def _kurallar(gunluk: float | None, haftalik: float | None, yillik: float | None):
+def _rules(gunluk: float | None, haftalik: float | None, yillik: float | None):
     """(rule_code, yon, ham_guven, gerekce_maddeleri) ureten kural tablosu.
 
     Kurallar BIRBIRINI DISLAR ve ilk eslesen kazanir: tek enstruman icin tek
@@ -136,7 +136,7 @@ def _kurallar(gunluk: float | None, haftalik: float | None, yillik: float | None
     return None
 
 
-def sinyal_uret(
+def generate_signals(
     assets: list[dict],
     *,
     now: datetime,
@@ -161,23 +161,23 @@ def sinyal_uret(
         if sinif in ISLEM_DISI_SINIFLAR:
             continue
 
-        fiyat = _yuzde(asset.get("current_price"))
+        fiyat = _percent(asset.get("current_price"))
         if not fiyat or fiyat <= 0:
             continue
 
-        if _bayat_mi(asset.get("price_updated_at"), now, max_staleness_minutes):
+        if _is_stale(asset.get("price_updated_at"), now, max_staleness_minutes):
             continue
 
-        sonuc = _kurallar(
-            _yuzde(asset.get("daily_change_pct")),
-            _yuzde(asset.get("weekly_change_pct")),
-            _yuzde(asset.get("yearly_change_pct")),
+        sonuc = _rules(
+            _percent(asset.get("daily_change_pct")),
+            _percent(asset.get("weekly_change_pct")),
+            _percent(asset.get("yearly_change_pct")),
         )
         if sonuc is None:
             continue
 
         rule_code, yon, ham_guven, gerekce = sonuc
-        guven = _guven(ham_guven)
+        guven = _confidence(ham_guven)
         esik_gecti = guven >= threshold
 
         sinyaller.append(
@@ -190,9 +190,9 @@ def sinyal_uret(
                 # FR-AUT-003: en cok 5 madde.
                 "rationale": gerekce[:5],
                 "evidence": {
-                    "daily_change_pct": _yuzde(asset.get("daily_change_pct")),
-                    "weekly_change_pct": _yuzde(asset.get("weekly_change_pct")),
-                    "yearly_change_pct": _yuzde(asset.get("yearly_change_pct")),
+                    "daily_change_pct": _percent(asset.get("daily_change_pct")),
+                    "weekly_change_pct": _percent(asset.get("weekly_change_pct")),
+                    "yearly_change_pct": _percent(asset.get("yearly_change_pct")),
                     "price_as_of": str(asset.get("price_updated_at") or ""),
                 },
                 "reference_price": fiyat,

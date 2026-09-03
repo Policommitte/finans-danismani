@@ -23,7 +23,7 @@ def mcp() -> MCPClient:
 
 
 @pytest.fixture(autouse=True)
-def kimlik():
+def identity():
     set_current_user_id(1)
     yield
     set_current_user_id(None)
@@ -40,7 +40,7 @@ def _state(**kwargs) -> AgentState:
 
 
 @pytest.mark.db
-async def test_portfoy_ajani_ozet_varlik_ve_dagilim_doner(mcp):
+async def test_portfolio_agent_returns_summary_holdings_and_allocation(mcp):
     sonuc = await PortfolioAgent(mcp_client=mcp).run(_state())
 
     veri = sonuc["portfolio_data"]
@@ -50,7 +50,7 @@ async def test_portfoy_ajani_ozet_varlik_ve_dagilim_doner(mcp):
 
 
 @pytest.mark.db
-async def test_portfoy_ajani_llmsiz_deterministik_ozet_uretir(mcp):
+async def test_portfolio_agent_produces_deterministic_summary_without_llm(mcp):
     sonuc = await PortfolioAgent(mcp_client=mcp).run(_state())
 
     metin = sonuc["portfolio_data"]["summary_text"]
@@ -59,7 +59,7 @@ async def test_portfoy_ajani_llmsiz_deterministik_ozet_uretir(mcp):
 
 
 @pytest.mark.db
-async def test_portfoy_ajani_islem_gecmisini_yalnizca_istenince_ceker(mcp):
+async def test_portfolio_agent_fetches_transactions_only_on_request(mcp):
     ajan = PortfolioAgent(mcp_client=mcp)
 
     normal = await ajan.run(_state())
@@ -69,14 +69,14 @@ async def test_portfoy_ajani_islem_gecmisini_yalnizca_istenince_ceker(mcp):
     assert istekli["portfolio_data"]["transactions"]
 
 
-async def test_portfoy_ajani_istenmediyse_calismaz(mcp):
+async def test_portfolio_agent_does_not_run_unless_requested(mcp):
     """Router baska ajan sectiyse ucuz no-op (tool cagrisi yapilmamali)."""
     sonuc = await PortfolioAgent(mcp_client=mcp).run(_state(requested_agents=["market_research"]))
 
     assert sonuc == {}
 
 
-async def test_portfoy_ajani_tool_hatasini_agent_error_a_cevirir():
+async def test_portfolio_agent_converts_tool_error_to_agent_error():
     """MCP cokerse akis DURMAZ; hata dogru kategoriyle raporlanir."""
 
     class BozukClient:
@@ -91,7 +91,7 @@ async def test_portfoy_ajani_tool_hatasini_agent_error_a_cevirir():
     assert sonuc["agent_errors"][0].error_type == "tool_error"
 
 
-async def test_portfoy_ajani_piyasa_ve_rag_toollarina_erisemez(mcp):
+async def test_portfolio_agent_cannot_access_market_and_rag_tools(mcp):
     """Yetki ayrimi (mimari v4 bolum 6.3)."""
     tools = {t["tool"] for t in await PortfolioAgent(mcp_client=mcp).get_tools()}
 
@@ -110,7 +110,7 @@ async def test_portfoy_ajani_piyasa_ve_rag_toollarina_erisemez(mcp):
 
 
 @pytest.mark.db
-async def test_risk_ajani_portfoy_verisi_olmadan_hata_dondurur(mcp):
+async def test_risk_agent_returns_error_without_portfolio_data(mcp):
     """SIRALI ajan: topoloji bozulursa sessizce yanlis skor uretmemeli."""
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(_state())
 
@@ -119,7 +119,7 @@ async def test_risk_ajani_portfoy_verisi_olmadan_hata_dondurur(mcp):
 
 
 @pytest.mark.db
-async def test_risk_ajani_skoru_servis_ile_ayni_hesaplar(mcp):
+async def test_risk_agent_score_matches_service(mcp):
     portfoy = await PortfolioAgent(mcp_client=mcp).run(_state())
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(
         _state(portfolio_data=portfoy["portfolio_data"])
@@ -131,7 +131,7 @@ async def test_risk_ajani_skoru_servis_ile_ayni_hesaplar(mcp):
 
 
 @pytest.mark.db
-async def test_risk_ajani_oynakligi_olcup_skora_katar(mcp):
+async def test_risk_agent_measures_volatility_into_score(mcp):
     portfoy = await PortfolioAgent(mcp_client=mcp).run(_state())
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(
         _state(portfolio_data=portfoy["portfolio_data"])
@@ -141,7 +141,7 @@ async def test_risk_ajani_oynakligi_olcup_skora_katar(mcp):
     assert sonuc["risk_data"]["components"]["volatility"] > 0
 
 
-async def test_risk_ajani_istenmediyse_calismaz(mcp):
+async def test_risk_agent_does_not_run_unless_requested(mcp):
     sonuc = await RiskStrategyAgent(mcp_client=mcp).run(
         _state(requested_agents=["portfolio"], portfolio_data={"holdings": []})
     )
@@ -149,7 +149,7 @@ async def test_risk_ajani_istenmediyse_calismaz(mcp):
     assert sonuc == {}
 
 
-async def test_risk_ajani_portfoy_toollarina_erisemez(mcp):
+async def test_risk_agent_cannot_access_portfolio_tools(mcp):
     """Risk ajani portfoy verisini state'ten alir, tekrar cekmez."""
     tools = {t["tool"] for t in await RiskStrategyAgent(mcp_client=mcp).get_tools()}
 

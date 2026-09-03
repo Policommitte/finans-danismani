@@ -152,7 +152,7 @@ def test_agent_state_varsayilanlari_ornekler_arasinda_paylasilmaz():
 
 
 @pytest.mark.parametrize("alan", ["sources", "agent_errors", "security_flags"])
-def test_paralel_yazilan_alanlar_add_or_reset_reducer_tasir(alan):
+def test_parallel_written_fields_carry_add_or_reset_reducer(alan):
     """Bu alanlara birden fazla node yazar; reducer olmazsa veri kaybolur.
 
     Reducer `operator.add` DEGIL `add_or_reset`: birikime ek olarak tur basi
@@ -175,7 +175,7 @@ def test_ajan_ciktilari_reducer_tasimaz(alan):
     assert operator.add not in get_args(annotation)
 
 
-def test_add_or_reset_listeleri_birlestirir():
+def test_add_or_reset_merges_lists():
     """Reducer davranisinin kendisi: iki paralel node'un ciktisi birikir."""
     market_ciktisi = [Source(doc_id="d1", baslik="Piyasa haberi")]
     portfolio_ciktisi = [Source(doc_id="d2", baslik="Portfoy raporu")]
@@ -187,7 +187,7 @@ def test_add_or_reset_listeleri_birlestirir():
     assert birlesik == operator.add(market_ciktisi, portfolio_ciktisi)
 
 
-def test_add_or_reset_sentinel_kanali_temizler():
+def test_add_or_reset_sentinel_clears_channel():
     """Tur basi sifirlama: `[]` yazmak yetmez, sentinel gerekir."""
     mevcut = [Source(doc_id="d1", baslik="Onceki turdan kalan")]
 
@@ -195,7 +195,7 @@ def test_add_or_reset_sentinel_kanali_temizler():
     assert add_or_reset(mevcut, [RESET]) == []
 
 
-def test_add_or_reset_sentinel_sonrasi_ayni_turda_yazabilir():
+def test_add_or_reset_can_write_in_same_turn_after_sentinel():
     """`[RESET, deger]`: once temizle, sonra bu turun degerini yaz."""
     mevcut = [Source(doc_id="eski", baslik="Onceki tur")]
     yeni = Source(doc_id="yeni", baslik="Bu tur")
@@ -203,25 +203,25 @@ def test_add_or_reset_sentinel_sonrasi_ayni_turda_yazabilir():
     assert add_or_reset(mevcut, [RESET, yeni]) == [yeni]
 
 
-def test_add_or_reset_none_guncellemeyi_yok_sayar():
+def test_add_or_reset_ignores_none_update():
     mevcut = ["prompt_injection"]
 
     assert add_or_reset(mevcut, None) == mevcut
 
 
-def test_router_decision_gecerli_niyet_kabul_eder():
+def test_router_decision_accepts_valid_intent():
     karar = RouterDecision(intent="karma", agents=["portfolio", "risk_strategy"], reasoning="test")
 
     assert karar.intent == "karma"
     assert karar.needs_clarification is False
 
 
-def test_router_decision_gecersiz_niyeti_reddeder():
+def test_router_decision_rejects_invalid_intent():
     with pytest.raises(ValidationError):
         RouterDecision(intent="bilinmeyen")
 
 
-def test_agent_state_yeni_alanlari():
+def test_agent_state_new_fields():
     """§14-7: request_id, portfolio_id ve intent state'te tasiniyor."""
     state = AgentState(
         user_query="soru", user_id=1, thread_id=2, request_id="abc", portfolio_id=7, intent="risk"
@@ -230,7 +230,7 @@ def test_agent_state_yeni_alanlari():
     assert (state.request_id, state.portfolio_id, state.intent) == ("abc", 7, "risk")
 
 
-def test_agent_state_user_id_ve_thread_id_int_olmali():
+def test_agent_state_user_id_and_thread_id_must_be_int():
     """DB'de users.id ve chat_sessions.id SERIAL; MCP yetkilendirmesi int karsilastirir."""
     with pytest.raises(ValidationError):
         AgentState(user_query="soru", user_id="kullanici", thread_id="oturum")

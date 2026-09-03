@@ -128,6 +128,25 @@ export function visibleRangeStart(
  * ilerisini gosterir; 5dk'lik bir grafige eklenirse zaman ekseni 21 gunluk
  * bir bosluga yayilir ve gercek veri okunamaz hale gelir.
  */
+const FORECAST_UP_COLOR = "#26a69a";
+const FORECAST_DOWN_COLOR = "#ef5350";
+
+/**
+ * Colors every forecast point by its direction relative to the previous
+ * point, so rising stretches render green and falling stretches red.
+ */
+export function colorForecastByDirection<T extends { value: number }>(
+  points: T[],
+): Array<T & { color: string }> {
+  return points.map((point, index) => {
+    const previous = index > 0 ? points[index - 1].value : point.value;
+    return {
+      ...point,
+      color: point.value >= previous ? FORECAST_UP_COLOR : FORECAST_DOWN_COLOR,
+    };
+  });
+}
+
 function forecastCizilebilir(
   forecast: Forecast | null | undefined,
   interval: ChartInterval,
@@ -302,18 +321,20 @@ export function PriceHistoryChart({
       // calismaz, alt dolgu grafigin altindaki her seyi de orterdi.
       // Iki ince cizgi hem calisir hem kullanicinin istedigi "gri kesikli"
       // gorunumle tutarlidir.
-      const bantCizgisi = () =>
+      // Ust bant (yukselis senaryosu) yesil, alt bant (dusus senaryosu)
+      // kirmizi; ikisi de kalin noktali cizgi - eski gri cizgiler cok silikti.
+      const bantCizgisi = (color: string) =>
         chart.addSeries(LineSeries, {
-          color: "rgba(148, 163, 184, 0.55)",
-          lineWidth: 1,
+          color,
+          lineWidth: 2,
           lineStyle: LineStyle.Dotted,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
           priceFormat: { type: "price", precision, minMove },
         });
-      const bantUst = bantCizgisi();
-      const bantAlt = bantCizgisi();
+      const bantUst = bantCizgisi(FORECAST_UP_COLOR);
+      const bantAlt = bantCizgisi(FORECAST_DOWN_COLOR);
 
       // Bant ve cizgi SON GERCEK NOKTADAN baslar - aksi halde gercek seri
       // ile tahmin arasinda gorsel bir kopukluk olusur.
@@ -330,19 +351,25 @@ export function PriceHistoryChart({
         ...forecast.noktalar.map((n) => ({ time: tariheDamga(n.tarih), value: n.alt })),
       ]);
 
-      const tahminCizgisi = chart.addSeries(LineSeries, {
-        color: "#94a3b8",
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
+      // Tahmin cizgisi yon renkli NOKTALI cizgi: yukselen parcalar yesil,
+      // dusen parcalar kirmizi (mum renkleriyle ayni). lightweight-charts'ta
+      // bir noktanin `color`'u, ONCEKI noktadan o noktaya cizilen parcayi
+      // boyar; bu yuzden her nokta bir onceki degerle karsilastirilir.
+      const forecastLine = chart.addSeries(LineSeries, {
+        color: FORECAST_UP_COLOR,
+        lineWidth: 3,
+        lineStyle: LineStyle.Dotted,
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: false,
         priceFormat: { type: "price", precision, minMove },
       });
-      tahminCizgisi.setData([
-        ...kopru,
-        ...forecast.noktalar.map((n) => ({ time: tariheDamga(n.tarih), value: n.deger })),
-      ]);
+      forecastLine.setData(
+        colorForecastByDirection([
+          ...kopru,
+          ...forecast.noktalar.map((n) => ({ time: tariheDamga(n.tarih), value: n.deger })),
+        ]),
+      );
     }
 
     if (hasVolume) {

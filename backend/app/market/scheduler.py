@@ -105,12 +105,12 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
     # Otonom oneri turu: sinyal uretimi ve TTL kapanisi. Fiyat yazildiktan
     # SONRA calisir - sinyaller bu tick'te dogrulanmis fiyatlari gorsun.
     try:
-        from app.services.recommendation import oneri_uret, suresi_dolanlari_kapat
+        from app.services.recommendation import expire_due_recommendations, generate_recommendations
 
-        dolan = await suresi_dolanlari_kapat()
+        dolan = await expire_due_recommendations()
         if dolan:
             logger.info("suresi dolan oneriler kapatildi", extra={"expired": dolan})
-        sonuc = await oneri_uret()
+        sonuc = await generate_recommendations()
         if sonuc.get("recommendations"):
             logger.info("otonom oneri uretildi", extra=sonuc)
     except Exception:  # noqa: BLE001 - oneri motoru fiyat akisini durdurmamali
@@ -120,9 +120,9 @@ async def price_tick(provider: MarketDataProvider, write_live: bool) -> int:
     # satirlari SKIPPED olarak kapatir - PENDING birikip, kanal aylar sonra
     # acildiginda gecmis bildirimlerin topluca gitmesini onler.
     try:
-        from app.notifications.dispatcher import bildirimleri_gonder
+        from app.notifications.dispatcher import dispatch_notifications
 
-        await bildirimleri_gonder()
+        await dispatch_notifications()
     except Exception:  # noqa: BLE001 - bildirim fiyat akisini durdurmamali
         logger.exception("bildirim outbox'i islenemedi")
 

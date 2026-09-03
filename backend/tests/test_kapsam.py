@@ -24,8 +24,8 @@ from app.engine.kapsam import (
     KAPSAM_VEDA,
     KAPSAM_YASAK,
     KISA_YANIT_KAPSAMLARI,
-    kapsam_belirle,
-    kisa_yanit,
+    classify_scope,
+    short_reply,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,13 +54,13 @@ from app.engine.kapsam import (
         "hangi fona yatırım yapmalıyım",
     ],
 )
-def test_finans_sorulari_ajanlara_gider(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+def test_finance_questions_go_to_agents(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
-def test_buyuk_harfli_sembol_finans_sayilir():
+def test_uppercase_symbol_counts_as_finance():
     """'THYAO ne kadar?' hicbir finans kokune dusmez ama sembol tasir."""
-    assert kapsam_belirle("THYAO ne kadar?") == KAPSAM_FINANS
+    assert classify_scope("THYAO ne kadar?") == KAPSAM_FINANS
 
 
 # ---------------------------------------------------------------------------
@@ -80,8 +80,8 @@ def test_buyuk_harfli_sembol_finans_sayilir():
         "bu ne saçmalık ya",
     ],
 )
-def test_hakaret_kisa_yanita_duser(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_KUFUR
+def test_insult_falls_to_short_reply(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_KUFUR
 
 
 @pytest.mark.parametrize(
@@ -91,7 +91,7 @@ def test_hakaret_kisa_yanita_duser(sorgu):
         "aq bu enflasyon ne zaman düşecek",
     ],
 )
-def test_dolgu_kufru_varsayilanda_finans_sorusunu_iptal_eder(sorgu):
+def test_filler_profanity_cancels_finance_question_by_default(sorgu):
     """URUN KARARI DEGISTI (1 Eylul 2026).
 
     Eski davranis: dolgu kufru gercek soruyu iptal ETMEZDI - "sinirli ama
@@ -102,7 +102,7 @@ def test_dolgu_kufru_varsayilanda_finans_sorusunu_iptal_eder(sorgu):
     Eski davranis silinmedi, `PROFANITY_CANCELS_FINANCE=false` ile geri
     gelir - bir alttaki test onu sabitliyor.
     """
-    assert kapsam_belirle(sorgu) == KAPSAM_KUFUR
+    assert classify_scope(sorgu) == KAPSAM_KUFUR
 
 
 @pytest.mark.parametrize(
@@ -112,12 +112,12 @@ def test_dolgu_kufru_varsayilanda_finans_sorusunu_iptal_eder(sorgu):
         "aq bu enflasyon ne zaman düşecek",
     ],
 )
-def test_ayar_kapaliyken_dolgu_kufru_soruyu_iptal_etmez(sorgu, monkeypatch):
+def test_filler_profanity_does_not_cancel_question_when_setting_off(sorgu, monkeypatch):
     """Eski davranisin hala erisilebilir oldugunu sabitler."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "profanity_cancels_finance", False)
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +134,9 @@ def test_ayar_kapaliyken_dolgu_kufru_soruyu_iptal_etmez(sorgu, monkeypatch):
         "SİKİLMİŞ piyasalar",
     ],
 )
-def test_ham_metin_kufru_yakalanir(sorgu):
+def test_profanity_in_raw_text_caught(sorgu):
     """`normalize()` i/ı ayrimini yok ettigi icin bu kontrol HAM metinde yapilir."""
-    assert kapsam_belirle(sorgu) == KAPSAM_KUFUR
+    assert classify_scope(sorgu) == KAPSAM_KUFUR
 
 
 @pytest.mark.parametrize(
@@ -152,13 +152,13 @@ def test_ham_metin_kufru_yakalanir(sorgu):
         "sıkılmış piyasalar hakkında yorumun nedir",
     ],
 )
-def test_sikil_fiili_hakaret_sayilmaz(sorgu):
+def test_verb_sikil_not_counted_as_insult(sorgu):
     """⚠️ `re.IGNORECASE` kullanilirsa BU TESTLER DUSER.
 
     Python'da IGNORECASE `i`, `I` ve `ı` harflerini birbirine katlar; bayrak
     acikken "canım sıkıldı" hakaret olarak yakalaniyordu (olculdu).
     """
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
 @pytest.mark.parametrize(
@@ -170,8 +170,8 @@ def test_sikil_fiili_hakaret_sayilmaz(sorgu):
         "piyasa sıkışık görünüyor",
     ],
 )
-def test_sikinti_kelimesi_hakaret_sayilmaz(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+def test_word_sikinti_not_counted_as_insult(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
 # ---------------------------------------------------------------------------
@@ -193,13 +193,13 @@ def test_sikinti_kelimesi_hakaret_sayilmaz(sorgu):
         ("hoşça kal", KAPSAM_VEDA),
     ],
 )
-def test_sohbet_kaliplari(sorgu, beklenen):
-    assert kapsam_belirle(sorgu) == beklenen
+def test_small_talk_patterns(sorgu, beklenen):
+    assert classify_scope(sorgu) == beklenen
 
 
-def test_buyuk_harfli_selam_sembol_sanilmaz():
+def test_uppercase_greeting_not_mistaken_for_symbol():
     """'SELAM' bes harfli buyuk bir kelimedir - sembol sezgisi yutmamali."""
-    assert kapsam_belirle("SELAM") == KAPSAM_SELAMLAMA
+    assert classify_scope("SELAM") == KAPSAM_SELAMLAMA
 
 
 @pytest.mark.parametrize(
@@ -210,9 +210,9 @@ def test_buyuk_harfli_selam_sembol_sanilmaz():
         "teşekkürler, peki dolar ne olur",
     ],
 )
-def test_selamlama_ile_baslayan_gercek_soru_finanstir(sorgu):
+def test_real_question_after_greeting_is_finance(sorgu):
     """Nezaket kelimesi sorunun kendisini gizlememeli."""
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
 # ---------------------------------------------------------------------------
@@ -233,14 +233,14 @@ def test_selamlama_ile_baslayan_gercek_soru_finanstir(sorgu):
         "python kod yaz",
     ],
 )
-def test_baska_alanlar_kapsam_disi(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_DISI
+def test_other_domains_out_of_scope(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_DISI
 
 
-def test_fenerbahce_hissesi_finans_maci_kapsam_disi():
+def test_fenerbahce_stock_is_finance_match_is_out_of_scope():
     """FENER gercekten BIST'te islem goruyor - kelime tek basina yetmez."""
-    assert kapsam_belirle("Fenerbahçe hissesi nasıl gidiyor") == KAPSAM_FINANS
-    assert kapsam_belirle("Fenerbahçe maç skoru neydi") == KAPSAM_DISI
+    assert classify_scope("Fenerbahçe hissesi nasıl gidiyor") == KAPSAM_FINANS
+    assert classify_scope("Fenerbahçe maç skoru neydi") == KAPSAM_DISI
 
 
 # ---------------------------------------------------------------------------
@@ -249,20 +249,20 @@ def test_fenerbahce_hissesi_finans_maci_kapsam_disi():
 
 
 @pytest.mark.parametrize("sorgu", ["peki şimdi?", "bunu bir daha anlat", "", "   "])
-def test_sinyalsiz_ilk_tur_netlestirme_ister(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_BELIRSIZ
+def test_signal_free_first_turn_asks_for_clarification(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_BELIRSIZ
 
 
 @pytest.mark.parametrize("sorgu", ["peki şimdi?", "bunu bir daha anlat", "neden?"])
-def test_devam_turunda_sinyalsiz_soru_ajanlara_gider(sorgu):
+def test_signal_free_question_goes_to_agents_on_follow_up_turn(sorgu):
     """Baglam onceki turda; cok turlu sohbet kirilmamali (FR-CHAT-03)."""
-    assert kapsam_belirle(sorgu, devam_turu=True) == KAPSAM_FINANS
+    assert classify_scope(sorgu, devam_turu=True) == KAPSAM_FINANS
 
 
-def test_devam_turu_hakareti_gecirmez():
+def test_follow_up_turn_does_not_let_insult_through():
     """Devam turu, kapsam kararini tamamen devre disi BIRAKMAZ."""
-    assert kapsam_belirle("ananı sikiyom", devam_turu=True) == KAPSAM_KUFUR
-    assert kapsam_belirle("merhaba", devam_turu=True) == KAPSAM_SELAMLAMA
+    assert classify_scope("ananı sikiyom", devam_turu=True) == KAPSAM_KUFUR
+    assert classify_scope("merhaba", devam_turu=True) == KAPSAM_SELAMLAMA
 
 
 # ---------------------------------------------------------------------------
@@ -271,24 +271,24 @@ def test_devam_turu_hakareti_gecirmez():
 
 
 @pytest.mark.parametrize("kapsam", sorted(KISA_YANIT_KAPSAMLARI))
-def test_her_kapsamin_bir_yaniti_var(kapsam):
-    metin = kisa_yanit(kapsam)
+def test_every_scope_has_a_reply(kapsam):
+    metin = short_reply(kapsam)
     assert metin and metin.strip()
 
 
-def test_bilinmeyen_kapsam_netlestirme_yanitina_duser():
-    assert kisa_yanit("boyle_bir_kapsam_yok") == kisa_yanit(KAPSAM_BELIRSIZ)
+def test_unknown_scope_falls_back_to_clarification_reply():
+    assert short_reply("boyle_bir_kapsam_yok") == short_reply(KAPSAM_BELIRSIZ)
 
 
-def test_kisa_yanitlar_yatirim_tavsiyesi_ibaresi_tasimaz():
+def test_short_replies_carry_no_investment_advice_phrase():
     """Ibare finansal BILGI iceren ciktilar icindir; burada bilgi yoktur."""
     for kapsam in KISA_YANIT_KAPSAMLARI:
-        assert "yatırım tavsiyesi değildir" not in kisa_yanit(kapsam)
+        assert "yatırım tavsiyesi değildir" not in short_reply(kapsam)
 
 
-def test_kufur_yaniti_hakarete_karsilik_vermez():
+def test_profanity_reply_does_not_retaliate():
     """Yanit sinir cizer; tartismaya girmez, kufru tekrarlamaz."""
-    metin = kisa_yanit(KAPSAM_KUFUR).lower()
+    metin = short_reply(KAPSAM_KUFUR).lower()
     assert "küfür" not in metin and "hakaret" not in metin
     assert len(metin) < 200
 
@@ -337,7 +337,7 @@ def test_kufur_yaniti_hakarete_karsilik_vermez():
     ],
 )
 def test_baska_kisinin_verisi_reddedilir(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_BASKA_KISI
+    assert classify_scope(sorgu) == KAPSAM_BASKA_KISI
 
 
 @pytest.mark.parametrize(
@@ -394,7 +394,7 @@ def test_baska_kisinin_verisi_reddedilir(sorgu):
     ],
 )
 def test_kendi_verisi_ve_hisse_kodlari_etkilenmez(sorgu):
-    assert kapsam_belirle(sorgu) != KAPSAM_BASKA_KISI
+    assert classify_scope(sorgu) != KAPSAM_BASKA_KISI
 
 
 def test_baska_kisi_kisa_yanit_kapsamlarinda():
@@ -403,7 +403,7 @@ def test_baska_kisi_kisa_yanit_kapsamlarinda():
 
 
 def test_baska_kisi_yaniti_ne_yapabildigini_soyler():
-    metin = kisa_yanit(KAPSAM_BASKA_KISI)
+    metin = short_reply(KAPSAM_BASKA_KISI)
     assert "getiremem" in metin
     assert "kendi" in metin.lower() or "giriş yapmış" in metin.lower()
 
@@ -435,7 +435,7 @@ def test_baska_kisi_yaniti_ne_yapabildigini_soyler():
     ],
 )
 def test_kucuk_harfli_varlik_adi_finans_sayilir(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
 @pytest.mark.parametrize(
@@ -451,7 +451,7 @@ def test_kucuk_harfli_varlik_adi_finans_sayilir(sorgu):
     ],
 )
 def test_varlik_sozlugu_sohbet_kararlarini_bozmaz(sorgu, beklenen):
-    assert kapsam_belirle(sorgu) == beklenen
+    assert classify_scope(sorgu) == beklenen
 
 
 def test_kisa_semboller_sozluge_girmez():
@@ -500,19 +500,19 @@ def test_kisa_semboller_sozluge_girmez():
         "gasp gelirleri vergiye tabi mi",
     ],
 )
-def test_yasak_konu_finans_kelimeleriyle_sarmalanamaz(sorgu):
+def test_forbidden_topic_cannot_be_wrapped_in_finance_words(sorgu):
     """Yasak konu, icine finans terimi serpistirilerek ajanlara ulasamamali.
 
     Kademe FINANS SINYALINDEN ONCE bakildigi icin gecerlidir; sonra bakilsaydi
     bu vakalarin hepsi KAPSAM_FINANS donerdi.
     """
-    assert kapsam_belirle(sorgu) == KAPSAM_YASAK
+    assert classify_scope(sorgu) == KAPSAM_YASAK
 
 
-def test_yasak_kapsami_kisa_yanit_yolunda():
+def test_forbidden_scope_on_short_reply_path():
     """Ajan fan-out'u ATLANMALI ve sabit bir metin donmeli."""
     assert KAPSAM_YASAK in KISA_YANIT_KAPSAMLARI
-    metin = kisa_yanit(KAPSAM_YASAK)
+    metin = short_reply(KAPSAM_YASAK)
     assert metin
     # Finansal BILGI icermeyen yanitlar tavsiye ibaresi tasimaz.
     assert "yatırım tavsiyesi değildir" not in metin
@@ -542,8 +542,8 @@ def test_yasak_kapsami_kisa_yanit_yolunda():
         "tetikleyici olaylar piyasayı nasıl etkiler",
     ],
 )
-def test_yasak_deseni_mesru_finans_sorusunu_engellemez(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+def test_forbidden_pattern_does_not_block_legitimate_finance_question(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
 # ---------------------------------------------------------------------------
@@ -561,13 +561,13 @@ def test_yasak_deseni_mesru_finans_sorusunu_engellemez(sorgu):
         "bisiklet fiyatları için öneri ister misin",
     ],
 )
-def test_nitelik_kokleri_tek_basina_finans_sayilmaz(sorgu):
+def test_qualifier_roots_alone_not_finance(sorgu):
     """`fiyat` gecen her cumle finans DEGILDIR.
 
     Eski tek listeli desende bu vakalarin hepsi KAPSAM_FINANS donuyordu ve
     sizintinin asil mekanizmasi buydu.
     """
-    assert kapsam_belirle(sorgu) == KAPSAM_BELIRSIZ
+    assert classify_scope(sorgu) == KAPSAM_BELIRSIZ
 
 
 @pytest.mark.parametrize(
@@ -584,17 +584,17 @@ def test_nitelik_kokleri_tek_basina_finans_sayilmaz(sorgu):
         "selam risk durumum ne alemde",
     ],
 )
-def test_nitelik_destek_bulunca_finans_sayilir(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+def test_qualifier_with_support_counts_as_finance(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_FINANS
 
 
-def test_bana_kelimesi_nitelige_destek_saymaz():
+def test_word_bana_does_not_count_as_qualifier_support():
     """`bana` 1. sahis eki DEGILDIR - sizan cumlede tam olarak o geciyordu.
 
     Destek `_BIRINCI_SAHIS` (benim/bana/kendi) uzerinden verilseydi kapi
     yeniden acilirdi.
     """
-    assert kapsam_belirle("bana yatırım için bir tavsiye ver") == KAPSAM_BELIRSIZ
+    assert classify_scope("bana yatırım için bir tavsiye ver") == KAPSAM_BELIRSIZ
 
 
 # ---------------------------------------------------------------------------
@@ -614,8 +614,8 @@ def test_bana_kelimesi_nitelige_destek_saymaz():
         "içeriden öğrenilen bilgiyle işlem yapmanın en iyi yolu",
     ],
 )
-def test_finansal_suc_yontemi_istegi_reddedilir(sorgu):
-    assert kapsam_belirle(sorgu) == KAPSAM_YASAK
+def test_financial_crime_method_request_rejected(sorgu):
+    assert classify_scope(sorgu) == KAPSAM_YASAK
 
 
 @pytest.mark.parametrize(
@@ -632,6 +632,6 @@ def test_finansal_suc_yontemi_istegi_reddedilir(sorgu):
         "SASA'da manipülasyon şüphesi var mı",
     ],
 )
-def test_suc_terimi_tek_basina_ret_sebebi_degildir(sorgu):
+def test_crime_term_alone_is_not_a_rejection_reason(sorgu):
     """Terim + YONTEM istegi reddedilir; terim + korunma/tanim CEVAPLANIR."""
-    assert kapsam_belirle(sorgu) == KAPSAM_FINANS
+    assert classify_scope(sorgu) == KAPSAM_FINANS

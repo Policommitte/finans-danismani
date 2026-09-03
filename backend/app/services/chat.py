@@ -38,7 +38,9 @@ logger = logging.getLogger(__name__)
 TITLE_MAX_LENGTH = 60
 
 
-async def sohbet_bul_veya_ac(user_id: int, conversation_id: int | None, ilk_mesaj: str) -> dict:
+async def find_or_open_conversation(
+    user_id: int, conversation_id: int | None, ilk_mesaj: str
+) -> dict:
     """Var olan sohbeti dogrular ya da yeni bir sohbet acar.
 
     Sahiplik kontrolu ZORUNLU: baska kullanicinin `conversation_id`'si
@@ -167,7 +169,7 @@ async def stream_chat_response(
             # yorumu) - onbellege yazilir yazilmaz olaydan POPLANIR.
             pdf_baytlari = event.pop("_dahili_pdf_bytes", None)
 
-            mesaj = await _asistan_mesajini_kaydet(
+            mesaj = await _save_assistant_message(
                 thread_id,
                 "".join(parcalar),
                 kaynaklar,
@@ -186,7 +188,7 @@ async def stream_chat_response(
                         (event.get("rapor") or {}).get("dosya_adi", "rapor.pdf"),
                     )
             elif "rapor" in event:
-                # Mesaj kaydedilemediyse (bkz. _asistan_mesajini_kaydet)
+                # Mesaj kaydedilemediyse (bkz. _save_assistant_message)
                 # indirme anahtari (message_id) HIC olusmayacak - metadata'yi
                 # de gonderme, aksi halde frontend kirik bir indirme
                 # baglantisi cizer.
@@ -195,7 +197,7 @@ async def stream_chat_response(
         yield event
 
 
-async def _asistan_mesajini_kaydet(
+async def _save_assistant_message(
     thread_id: int,
     metin: str,
     kaynaklar: list[dict],
@@ -228,7 +230,7 @@ async def _asistan_mesajini_kaydet(
         return None
 
 
-def sse_paketle(event: dict) -> str:
+def format_sse(event: dict) -> str:
     """Olayi SSE cerceve bicimine cevirir.
 
     `ensure_ascii=False`: Turkce karakterler `\\u00e7` olarak kacilirsa gövde

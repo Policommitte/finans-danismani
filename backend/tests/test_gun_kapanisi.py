@@ -30,32 +30,32 @@ pytestmark = pytest.mark.db
 SEMBOL = "THYAO"
 
 
-def _oturum():
+def _session():
     from app.db.session import get_session_factory
 
     return get_session_factory()()
 
 
-async def _sorgu(sql: str, params: dict | None = None) -> list[dict]:
-    async with _oturum() as session:
+async def _query(sql: str, params: dict | None = None) -> list[dict]:
+    async with _session() as session:
         sonuc = await session.execute(text(sql), params or {})
         return [dict(satir) for satir in sonuc.mappings().all()]
 
 
-async def _calistir(sql: str, params: dict | None = None) -> None:
-    async with _oturum() as session:
+async def _execute(sql: str, params: dict | None = None) -> None:
+    async with _session() as session:
         await session.execute(text(sql), params or {})
         await session.commit()
 
 
 async def _asset_id(sembol: str = SEMBOL) -> int:
-    satir = await _sorgu("SELECT id FROM assets WHERE symbol = :s", {"s": sembol})
+    satir = await _query("SELECT id FROM assets WHERE symbol = :s", {"s": sembol})
     return int(satir[0]["id"])
 
 
-async def _gun_basi(gun_farki: int) -> str:
+async def _day_start(gun_farki: int) -> str:
     """Bugunden `gun_farki` gun onceki TURKIYE tarihini `YYYY-AA-GG` dondurur."""
-    satir = await _sorgu(
+    satir = await _query(
         """
         SELECT CAST(
                    date_trunc('day', now() AT TIME ZONE CAST(:tz AS TEXT))
@@ -67,9 +67,9 @@ async def _gun_basi(gun_farki: int) -> str:
     return str(satir[0]["gun"])
 
 
-async def _canli_ekle(asset_id: int, gun: str, saat: str, fiyat: float, kaynak: str) -> None:
+async def _add_live_price(asset_id: int, gun: str, saat: str, fiyat: float, kaynak: str) -> None:
     """Belirli bir gun/saatte (Turkiye saati) canli fiyat satiri yaratir."""
-    await _calistir(
+    await _execute(
         """
         INSERT INTO live_prices (asset_id, price, source, created_at)
         VALUES (:aid, :fiyat, :kaynak,
@@ -94,9 +94,9 @@ PENCERE = "5 days"
 
 
 @asynccontextmanager
-async def _temiz_ortam():
+async def _clean_environment():
     """Test penceresini bosaltir, cikista `assets` ve `price_history`'yi geri koyar."""
-    async with _oturum() as session:
+    async with _session() as session:
         onceki_varlik = (
             (
                 await session.execute(
@@ -127,7 +127,7 @@ async def _temiz_ortam():
     try:
         yield
     finally:
-        async with _oturum() as session:
+        async with _session() as session:
             await session.execute(text("DELETE FROM live_prices"))
             await session.execute(
                 text(f"DELETE FROM price_history WHERE ts >= now() - INTERVAL '{PENCERE}'")
@@ -166,32 +166,32 @@ async def _temiz_ortam():
 # ---------------------------------------------------------------------------
 
 
-async def test_tick_price_history_yerine_live_prices_a_yazar():
+async def test_tick_writes_live_prices_not_price_history():
     """Yonlendirmenin ozu: gun ici tick GECMIS tabloyu sismez."""
     from app.market.scheduler import price_tick
 
-    async with _temiz_ortam():
-        gecmis_once = (await _sorgu("SELECT count(*) AS n FROM price_history"))[0]["n"]
+    async with _clean_environment():
+        gecmis_once = (await _query("SELECT count(*) AS n FROM price_history"))[0]["n"]
 
         await price_tick(SahteApiSaglayici(), write_live=True)
 
-        canli = (await _sorgu("SELECT count(*) AS n FROM live_prices"))[0]["n"]
-        gecmis_sonra = (await _sorgu("SELECT count(*) AS n FROM price_history"))[0]["n"]
+        canli = (await _query("SELECT count(*) AS n FROM live_prices"))[0]["n"]
+        gecmis_sonra = (await _query("SELECT count(*) AS n FROM price_history"))[0]["n"]
 
         assert canli > 0, "canli fiyat live_prices'a yazilmali"
         assert gecmis_sonra == gecmis_once, "gun ici tick price_history'ye YAZMAMALI"
 
 
-async def test_write_live_kapaliyken_hicbir_canli_satir_yazilmaz():
+async def test_no_live_row_written_when_write_live_disabled():
     from app.market.scheduler import price_tick
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         await price_tick(SahteApiSaglayici(), write_live=False)
 
-        assert (await _sorgu("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 0
+        assert (await _query("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 0
 
 
-async def test_tick_prev_close_a_dokunmaz():
+async def test_tick_does_not_touch_prev_close():
     """`daily_change_pct` "dune gore" kalmali: prev_close gun ici sabittir.
 
     Onceki davranista her tick `prev_close = current_price` yapiyordu; boylece
@@ -200,13 +200,13 @@ async def test_tick_prev_close_a_dokunmaz():
     """
     from app.market.scheduler import price_tick
 
-    async with _temiz_ortam():
-        onceki = await _sorgu("SELECT id, prev_close FROM assets ORDER BY id")
+    async with _clean_environment():
+        onceki = await _query("SELECT id, prev_close FROM assets ORDER BY id")
 
         await price_tick(SahteApiSaglayici(carpan=1.02), write_live=True)
         await price_tick(SahteApiSaglayici(carpan=1.04), write_live=True)
 
-        sonraki = await _sorgu("SELECT id, prev_close FROM assets ORDER BY id")
+        sonraki = await _query("SELECT id, prev_close FROM assets ORDER BY id")
         assert sonraki == onceki
 
 
@@ -215,37 +215,37 @@ async def test_tick_prev_close_a_dokunmaz():
 # ---------------------------------------------------------------------------
 
 
-async def test_bugunun_satirlari_kapanisi_beklemez():
+async def test_todays_rows_do_not_wait_for_close():
     """Gun daha bitmedi: bugunun canli satirlari silinmemeli."""
     from app.market.scheduler import close_finished_days
     from app.repositories.deps import get_market_repository
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        bugun = await _gun_basi(0)
-        await _canli_ekle(aid, bugun, "10:00", 100.0, "api")
+        bugun = await _day_start(0)
+        await _add_live_price(aid, bugun, "10:00", 100.0, "api")
 
         assert await get_market_repository().pending_close_days() == []
         assert await close_finished_days() == 0
-        assert (await _sorgu("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 1
+        assert (await _query("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 1
 
 
-async def test_gun_kapaninca_son_fiyat_gecmise_yazilir_ve_gun_temizlenir():
+async def test_day_close_writes_last_price_to_history_and_clears_day():
     from app.market.scheduler import close_finished_days
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        dun = await _gun_basi(1)
-        bugun = await _gun_basi(0)
+        dun = await _day_start(1)
+        bugun = await _day_start(0)
 
-        await _canli_ekle(aid, dun, "09:30", 100.0, "api")
-        await _canli_ekle(aid, dun, "13:00", 105.0, "api")
-        await _canli_ekle(aid, dun, "17:45", 110.0, "api")  # gunun SON fiyati
-        await _canli_ekle(aid, bugun, "09:30", 120.0, "api")  # yeni gun - kalmali
+        await _add_live_price(aid, dun, "09:30", 100.0, "api")
+        await _add_live_price(aid, dun, "13:00", 105.0, "api")
+        await _add_live_price(aid, dun, "17:45", 110.0, "api")  # gunun SON fiyati
+        await _add_live_price(aid, bugun, "09:30", 120.0, "api")  # yeni gun - kalmali
 
         assert await close_finished_days() == 1
 
-        kapanis = await _sorgu(
+        kapanis = await _query(
             """
             SELECT price, source FROM price_history
             WHERE asset_id = :a
@@ -257,60 +257,60 @@ async def test_gun_kapaninca_son_fiyat_gecmise_yazilir_ve_gun_temizlenir():
         assert float(kapanis[0]["price"]) == 110.0
         assert kapanis[0]["source"] == "api"
 
-        kalan = await _sorgu("SELECT price FROM live_prices ORDER BY id")
+        kalan = await _query("SELECT price FROM live_prices ORDER BY id")
         assert [float(k["price"]) for k in kalan] == [120.0], "yalnizca kapanan gun silinmeli"
 
 
-async def test_kapanis_prev_close_u_gunceller():
+async def test_close_updates_prev_close():
     from app.market.scheduler import close_finished_days
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        dun = await _gun_basi(1)
-        await _canli_ekle(aid, dun, "17:45", 111.0, "api")
+        dun = await _day_start(1)
+        await _add_live_price(aid, dun, "17:45", 111.0, "api")
 
         await close_finished_days()
 
-        satir = await _sorgu("SELECT prev_close FROM assets WHERE id = :a", {"a": aid})
+        satir = await _query("SELECT prev_close FROM assets WHERE id = :a", {"a": aid})
         assert float(satir[0]["prev_close"]) == 111.0
 
 
-async def test_kapali_gecen_gunler_toplu_kapatilir():
+async def test_missed_days_closed_in_bulk():
     """Uygulama hafta sonu kapali kaldiysa acilista hepsi sirayla kapanmali."""
     from app.market.scheduler import close_finished_days
     from app.repositories.deps import get_market_repository
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        gunler = [await _gun_basi(3), await _gun_basi(2), await _gun_basi(1)]
+        gunler = [await _day_start(3), await _day_start(2), await _day_start(1)]
         for sira, gun in enumerate(gunler, start=1):
-            await _canli_ekle(aid, gun, "17:45", 100.0 + sira, "api")
+            await _add_live_price(aid, gun, "17:45", 100.0 + sira, "api")
 
         assert await get_market_repository().pending_close_days() == gunler
         assert await close_finished_days() == 3
 
-        kapanislar = await _sorgu(
+        kapanislar = await _query(
             "SELECT price FROM price_history WHERE asset_id = :a AND ts >= now() - "
             "INTERVAL '4 days' ORDER BY ts",
             {"a": aid},
         )
         assert [float(k["price"]) for k in kapanislar] == [101.0, 102.0, 103.0]
-        assert (await _sorgu("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 0
+        assert (await _query("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 0
 
 
-async def test_kapanis_tekrar_calistirilabilir():
+async def test_close_is_rerunnable():
     """Ayni gunu iki kez kapatmak hata vermemeli, veri bozmamali."""
     from app.market.scheduler import close_finished_days
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        dun = await _gun_basi(1)
-        await _canli_ekle(aid, dun, "17:45", 110.0, "api")
+        dun = await _day_start(1)
+        await _add_live_price(aid, dun, "17:45", 110.0, "api")
 
         assert await close_finished_days() == 1
         assert await close_finished_days() == 0  # bekleyen gun kalmadi
 
-        kapanis = await _sorgu(
+        kapanis = await _query(
             "SELECT count(*) AS n FROM price_history WHERE asset_id = :a AND ts >= "
             "now() - INTERVAL '2 days'",
             {"a": aid},
@@ -318,16 +318,16 @@ async def test_kapanis_tekrar_calistirilabilir():
         assert kapanis[0]["n"] == 1
 
 
-async def test_simule_kapanis_gercek_veriyi_ezmez():
+async def test_simulated_close_does_not_overwrite_real_data():
     """Yahoo'ya ulasilamayan bir gun, mevcut GERCEK kapanisi bozmamali."""
     from app.market.scheduler import close_finished_days
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        dun = await _gun_basi(1)
+        dun = await _day_start(1)
 
         # Gercek (backfill) kapanis zaten yazilmis olsun.
-        await _calistir(
+        await _execute(
             """
             INSERT INTO price_history (asset_id, ts, price, source)
             VALUES (:a, CAST(CAST(:gun AS DATE) AS TIMESTAMP)
@@ -336,11 +336,11 @@ async def test_simule_kapanis_gercek_veriyi_ezmez():
             """,
             {"a": aid, "gun": dun, "tz": settings.market_day_timezone},
         )
-        await _canli_ekle(aid, dun, "17:45", 110.0, "simulated")
+        await _add_live_price(aid, dun, "17:45", 110.0, "simulated")
 
         await close_finished_days()
 
-        satir = await _sorgu(
+        satir = await _query(
             """
             SELECT price, source FROM price_history
             WHERE asset_id = :a
@@ -352,15 +352,15 @@ async def test_simule_kapanis_gercek_veriyi_ezmez():
         assert satir[0]["source"] == "backfill"
 
 
-async def test_gercek_kapanis_simule_satiri_duzeltir():
+async def test_real_close_corrects_simulated_row():
     """Ters yon: gercek veri, daha once yazilmis simule kapanisi DUZELTMELI."""
     from app.market.scheduler import close_finished_days
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        dun = await _gun_basi(1)
+        dun = await _day_start(1)
 
-        await _calistir(
+        await _execute(
             """
             INSERT INTO price_history (asset_id, ts, price, source)
             VALUES (:a, CAST(CAST(:gun AS DATE) AS TIMESTAMP)
@@ -369,11 +369,11 @@ async def test_gercek_kapanis_simule_satiri_duzeltir():
             """,
             {"a": aid, "gun": dun, "tz": settings.market_day_timezone},
         )
-        await _canli_ekle(aid, dun, "17:45", 110.0, "api")
+        await _add_live_price(aid, dun, "17:45", 110.0, "api")
 
         await close_finished_days()
 
-        satir = await _sorgu(
+        satir = await _query(
             """
             SELECT price, source FROM price_history
             WHERE asset_id = :a
@@ -385,7 +385,7 @@ async def test_gercek_kapanis_simule_satiri_duzeltir():
         assert satir[0]["source"] == "api"
 
 
-async def test_gun_siniri_turkiye_saatine_gore_belirlenir():
+async def test_day_boundary_follows_turkey_time():
     """UTC 22:00 Turkiye'de ERTESI gundur; kapanis o gune yazilmamali.
 
     Sunucu (Supabase) UTC calisiyor. Gun siniri UTC'ye birakilsaydi Turkiye
@@ -393,13 +393,13 @@ async def test_gun_siniri_turkiye_saatine_gore_belirlenir():
     """
     from app.repositories.deps import get_market_repository
 
-    async with _temiz_ortam():
+    async with _clean_environment():
         aid = await _asset_id()
-        dun = await _gun_basi(1)
+        dun = await _day_start(1)
 
         # Turkiye saatiyle dun 23:30 -> UTC'de dun 20:30. Ayni gune ait.
-        await _canli_ekle(aid, dun, "23:30", 110.0, "api")
+        await _add_live_price(aid, dun, "23:30", 110.0, "api")
         # Turkiye saatiyle BUGUN 00:30 -> hala kapanmamis gun.
-        await _canli_ekle(aid, await _gun_basi(0), "00:30", 120.0, "api")
+        await _add_live_price(aid, await _day_start(0), "00:30", 120.0, "api")
 
         assert await get_market_repository().pending_close_days() == [dun]

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 5
 
 
-async def bildirimleri_gonder(limit: int | None = None) -> dict[str, int]:
+async def dispatch_notifications(limit: int | None = None) -> dict[str, int]:
     """Bekleyen bildirimleri isler; {sent, skipped, failed} sayaclarini doner."""
     repository = get_notification_repository()
     notifier = get_notifier()
@@ -39,7 +39,7 @@ async def bildirimleri_gonder(limit: int | None = None) -> dict[str, int]:
     for row in rows:
         outbox_id = int(row["id"])
 
-        if _cok_eski(row.get("created_at")):
+        if _is_too_old(row.get("created_at")):
             # Kanal uzun sure kapali kalip sonra acilirsa birikmis gecmis
             # bildirimler tek seferde gitmesin: eski olay bilgi degil gurultudur.
             await repository.mark(outbox_id, "SKIPPED", "olay cok eski")
@@ -60,7 +60,7 @@ async def bildirimleri_gonder(limit: int | None = None) -> dict[str, int]:
             sonuc = await notifier.send(mesaj)
         except Exception as exc:  # noqa: BLE001 - kanal sozlesmeyi bozmus olabilir
             logger.exception("bildirim kanali beklenmedik hata verdi")
-            await _basarisiz(repository, row, f"{type(exc).__name__}: {exc}", sayac)
+            await _mark_failed(repository, row, f"{type(exc).__name__}: {exc}", sayac)
             continue
 
         if sonuc.sent:
@@ -70,14 +70,14 @@ async def bildirimleri_gonder(limit: int | None = None) -> dict[str, int]:
             await repository.mark(outbox_id, "SKIPPED", sonuc.detail)
             sayac["skipped"] += 1
         else:
-            await _basarisiz(repository, row, sonuc.detail or "bilinmeyen hata", sayac)
+            await _mark_failed(repository, row, sonuc.detail or "bilinmeyen hata", sayac)
 
     if sayac["sent"] or sayac["failed"]:
         logger.info("bildirim turu tamamlandi", extra=sayac)
     return sayac
 
 
-async def _basarisiz(repository, row: dict, hata: str, sayac: dict) -> None:
+async def _mark_failed(repository, row: dict, hata: str, sayac: dict) -> None:
     """Basarisiz gonderimi kapatir ya da tekrar denenmek uzere birakir.
 
     Deneme hakki dolmadiysa satir PENDING kalir - `claim_pending` sayaci
@@ -93,7 +93,7 @@ async def _basarisiz(repository, row: dict, hata: str, sayac: dict) -> None:
         )
 
 
-def _cok_eski(created_at) -> bool:
+def _is_too_old(created_at) -> bool:
     an = _datetime(created_at)
     if an is None:
         return False

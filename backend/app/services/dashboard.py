@@ -17,7 +17,9 @@ from app.services import trading as trading_service
 from app.services.risk import risk_profili_getir
 
 
-async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> DashboardSummaryResponse:
+async def get_dashboard_summary(
+    user_id: int, portfolio_id: int | None = None
+) -> DashboardSummaryResponse:
     """Dashboard'un ilk yuklemesi icin birlesik ozet.
 
     Bagimsiz sorgular PARALEL calisir: sirali beklemek ilk yuklemeyi bosuna
@@ -31,7 +33,7 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Dashboard
         portfolio_service.dagilim_getir(user_id, portfolio_id),
         trading_service.hesap_getir(user_id),
         risk_profili_getir(user_id, portfolio_id),
-        market_service.en_cok_hareket_edenler(),
+        market_service.top_movers(),
         return_exceptions=True,
     )
 
@@ -40,12 +42,12 @@ async def ozet_getir(user_id: int, portfolio_id: int | None = None) -> Dashboard
         holdings=varliklar.items if not isinstance(varliklar, Exception) else [],
         allocation=dagilim.items if not isinstance(dagilim, Exception) else [],
         cash_account=nakit if not isinstance(nakit, Exception) else None,
-        risk=RiskProfileResponse(**risk) if not isinstance(risk, Exception) else _bos_risk(),
+        risk=RiskProfileResponse(**risk) if not isinstance(risk, Exception) else _empty_risk(),
         movers=hareketliler if not isinstance(hareketliler, Exception) else [],
     )
 
 
-def _bos_risk() -> RiskProfileResponse:
+def _empty_risk() -> RiskProfileResponse:
     return RiskProfileResponse(
         risk_score=0,
         risk_level="hesaplanamadi",

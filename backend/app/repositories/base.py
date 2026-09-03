@@ -610,6 +610,15 @@ class ContestRepository(Protocol):
         bu metot kendisi bir kontrol yapmaz, cagrildiginda kosulsuz siler."""
         ...
 
+    async def reset_shop_purchases(self, user_id: int) -> None:
+        """DEMO/GELISTIRME icin: kullanicinin TUM magaza gecmisini (joker
+        satin almalari + envanteri + bagislari/rozetleri) siler - harcanan
+        puanlar `get_points_balance` formulu geregi (earned - spent) otomatik
+        GERI IADE edilmis olur. `reset_todays_participation` ile AYNI ilke:
+        servis katmani `settings.app_env == "production"` iken REDDEDER, bu
+        metot kosulsuz siler."""
+        ...
+
     async def submit_answer(
         self,
         participation_id: int,
