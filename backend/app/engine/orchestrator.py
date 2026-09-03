@@ -1532,9 +1532,9 @@ class Orchestrator:
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
             # Sorulan varlik once, ardindan gunun hareketlileri; tekrarlar
             # elenir ve kart sayisi sinirlanir.
-            "mentioned_assets": list(
-                dict.fromkeys([*bahsedilen_semboller, *hareketli_semboller])
-            )[:KART_SEMBOL_SINIRI],
+            "mentioned_assets": list(dict.fromkeys([*bahsedilen_semboller, *hareketli_semboller]))[
+                :KART_SEMBOL_SINIRI
+            ],
         }
         if uretilen_rapor:
             # `rapor`: yalnizca META veri (dosya adi/boyut) - SSE'ye JSON

@@ -675,9 +675,7 @@ _KISISEL_VERI = "|".join(rf"{kok}\w*" for kok in _KISISEL_VERI_KOKLERI)
 #: birinin verisi istenirken "Ayse'nin portfoyum" denmez. Tamlama benzeri
 #: bir kelime cumlenin basinda olsa bile (bkz. `_KISI_OLMAYAN_KELIME`
 #: notu) hedef bu eki tasiyorsa soru REFLEKSIFTIR.
-_KENDI_VERISI_HEDEFI = re.compile(
-    rf"^(?:{'|'.join(_KISISEL_VERI_KOKLERI)})(?:lar|ler)?(?:im|um|m)"
-)
+_KENDI_VERISI_HEDEFI = re.compile(rf"^(?:{'|'.join(_KISISEL_VERI_KOKLERI)})(?:lar|ler)?(?:im|um|m)")
 
 #: "<Isim>'in <kisisel veri>" kalibi - NORMALIZE EDILMIS (ASCII+kucuk harf)
 #: metin uzerinde calisir.
