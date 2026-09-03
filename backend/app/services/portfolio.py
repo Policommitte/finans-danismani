@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+from app.config import settings
 from app.core.errors import NotFoundError
 from app.repositories.deps import get_portfolio_repository
 from app.schemas.portfolio import (
@@ -26,6 +27,7 @@ from app.schemas.portfolio import (
     PortfolioSnapshotPerformanceResponse,
     PortfolioSummary,
     PortfolioValueSnapshotPoint,
+    SymbolPeriodPnl,
     Transaction,
     TransactionsResponse,
 )
@@ -140,22 +142,103 @@ async def islemler_getir(
     )
 
 
+#: Donem secenekleri ve saat karsiliklari - TEK kaynak. Frontend'deki
+#: dugmeler (1G/1H/1A/1Y) bu anahtarlari gonderir.
+PERFORMANS_ARALIKLARI: dict[str, int] = {
+    "1G": 24,
+    "1H": 24 * 7,
+    "1A": 24 * 30,
+    "1Y": 24 * 365,
+}
+
+#: Gun ici korumalari YALNIZCA "bugun" gorunumunde uygulanir. Daha genis
+#: tutulursa (orn. 1 hafta) %5 sicrama filtresi, son kapanis ile bugunku
+#: canli fiyat arasindaki farkta tetiklenip haftanin tamamini atar ve 1H
+#: ekrani 1G ile birebir ayni gorunur.
+_GUN_ICI_SINIR_SAAT = 24
+
+#: Bu esigin USTUNDE gunde TEK nokta doner, yani "bugun" disindaki her
+#: aralik gunluk kovaya iner.
+#:
+#: 1 hafta da dahil: gun ici noktalar birakildiginda hafta ici gunlerin
+#: kapanislari (gunde 1 nokta) ile BUGUNUN dakikalik noktalari (onlarca)
+#: ayni eksene biniyor - grafik solda dumduz, sagda sikisik cikiyor ve
+#: haftanin gercek seyri okunamiyordu.
+_GUNLUK_KOVA_SINIR_SAAT = 24
+
+
 async def performans_getir(
-    user_id: int, portfolio_id: int | None = None, hours: int = 24
+    user_id: int, portfolio_id: int | None = None, range_key: str = "1G"
 ) -> PortfolioPerformanceResponse:
-    rows = await get_portfolio_repository().get_performance_history(
-        user_id, portfolio_id, hours=hours
+    """Secilen donem icin portfoy degeri serisi + donem kar/zarari.
+
+    IKI KORUMA yalnizca GUN ICI (<= 1 hafta) yolunda uygulanir:
+
+    1. `portfolio_performance_valid_from`: gelistirme donemindeki bozuk
+       `live_prices` kayitlarini eler. Uzun araliklarda uygulanamaz - esik
+       12 gun oncesini isaret ediyor, aylik/yillik grafigi tamamen keserdi.
+    2. "%5 sicrama" filtresi: ardisik iki nokta arasinda %5'ten buyuk fark
+       varsa seriyi sifirlar (eski seed fiyatindan ilk gercek fiyata gecis).
+       Gunluk veride BTC gibi varliklarda %5'lik gunluk hareket NORMALDIR;
+       uzun aralikta uygulanirsa grafik durmadan kirpilirdi.
+
+    Uzun araliklarda bu korumalara ihtiyac yok: veri `price_history`'den
+    gelir ve o tablodaki her satir gercek piyasa verisidir (`source='api'`).
+    """
+    hours = PERFORMANS_ARALIKLARI.get(range_key, PERFORMANS_ARALIKLARI["1G"])
+    gun_ici = hours <= _GUN_ICI_SINIR_SAAT
+    gunluk_kova = hours > _GUNLUK_KOVA_SINIR_SAAT
+
+    repository = get_portfolio_repository()
+    rows = await repository.get_performance_history(
+        user_id,
+        portfolio_id,
+        hours=hours,
+        valid_from=settings.portfolio_performance_valid_from if gun_ici else None,
+        gunluk=gunluk_kova,
     )
+
     temiz_satirlar: list[dict] = []
     for row in rows:
         value = float(row["total_value_try"] or 0)
-        if temiz_satirlar:
+        if gun_ici and temiz_satirlar:
             previous = float(temiz_satirlar[-1]["total_value_try"] or 0)
             if previous > 0 and abs(value / previous - 1) > 0.05:
                 # Eski seed fiyatindan ilk gercek piyasa fiyatina gecis,
                 # kullanici performansi degildir; yeni canli baz buradan baslar.
                 temiz_satirlar = []
         temiz_satirlar.append(row)
+
+    # Donem basi olarak GRAFIGIN ILK NOKTASI kullanilir, "now() - hours"
+    # degil: penceredeki en eski fiyat kaydi genelde tam o an degildir ve
+    # iki farkli baz kullanmak grafikteki degisim ile kar/zarar rakaminin
+    # birbirini tutmamasina yol acardi.
+    donem_basi = temiz_satirlar[0]["ts"] if temiz_satirlar else None
+    pnl_satirlari = (
+        await repository.get_period_pnl(user_id, portfolio_id, start_ts=donem_basi)
+        if donem_basi is not None
+        else []
+    )
+
+    symbol_pnl: list[SymbolPeriodPnl] = []
+    toplam_kar_zarar = 0.0
+    toplam_sermaye = 0.0
+    for row in pnl_satirlari:
+        kar_zarar, sermaye = _donem_kar_zarar(row)
+        # Donem boyunca ne pozisyon ne islem varsa (cok once tamamen
+        # satilmis varlik) satiri hic gostermeyiz - ekranda 0,00 TL'lik
+        # anlamsiz satirlar birikirdi.
+        if kar_zarar == 0 and sermaye == 0:
+            continue
+        toplam_kar_zarar += kar_zarar
+        toplam_sermaye += sermaye
+        symbol_pnl.append(
+            SymbolPeriodPnl(
+                symbol=row["symbol"],
+                pnl_try=round(kar_zarar, 2),
+                pnl_pct=round(kar_zarar / sermaye * 100, 2) if sermaye > 0 else None,
+            )
+        )
 
     benchmark_start = next(
         (
@@ -188,6 +271,12 @@ async def performans_getir(
             for row in temiz_satirlar
         ],
         hours=hours,
+        range_key=range_key,  # type: ignore[arg-type]
+        change_try=round(toplam_kar_zarar, 2),
+        change_pct=(
+            round(toplam_kar_zarar / toplam_sermaye * 100, 2) if toplam_sermaye > 0 else None
+        ),
+        symbol_pnl=symbol_pnl,
     )
 
 
@@ -208,6 +297,20 @@ async def snapshot_performansi_getir(
         ],
         hours=hours,
     )
+
+
+def _donem_kar_zarar(row: dict) -> tuple[float, float]:
+    """Bir varligin donem kar/zarari ve donem basi sermayesi.
+
+    Sermaye = donem basindaki deger + donem icinde ODENEN alim maliyeti;
+    yuzde bunun uzerinden hesaplanir. Donem icinde hic para baglanmamissa
+    (deger de 0'sa) yuzde anlamsizdir, o yuzden 0 doner ve cagiran taraf
+    yuzdeyi None yapar.
+    """
+    baslangic = _f(row["baslangic_degeri"])
+    alim = _f(row["alim_maliyeti"])
+    kar_zarar = _f(row["bitis_degeri"]) - baslangic - alim + _f(row["satis_hasilati"])
+    return kar_zarar, baslangic + alim
 
 
 def _holding(row: dict) -> Holding:

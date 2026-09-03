@@ -107,8 +107,13 @@ def test_beklenmeyen_hata_icerideki_ayrintiyi_SIZDIRMAZ(client_no_raise, auth, m
     [
         ("/api/portfolio/transactions", {"limit": 0}),
         ("/api/portfolio/transactions", {"limit": 101}),
-        ("/api/portfolio/performance", {"hours": 0}),
-        ("/api/portfolio/performance", {"hours": 169}),
+        # ⚠️ `/performance` PR #81'de yeniden tasarlandi: artik `hours` DEGIL
+        # `range` (1G|1H|1A|1Y) aliyor, saat tabanli uc `-v2`ye tasindi.
+        # Eski satirlar `hours`'u taniNMAYAN bir parametre yaptigi icin 200
+        # donuyordu - yani sinir kontrolu artik hicbir sey sinamiyordu.
+        ("/api/portfolio/performance", {"range": "5Y"}),
+        ("/api/portfolio/performance-v2", {"hours": 0}),
+        ("/api/portfolio/performance-v2", {"hours": 721}),
         ("/api/market/history", {"symbol": "THYAO", "days": 731}),
         ("/api/market/candles", {"symbol": "THYAO", "interval": "3h"}),
         ("/api/market/candles", {"symbol": "THYAO", "range": "10y"}),

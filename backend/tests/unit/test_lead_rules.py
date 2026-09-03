@@ -91,6 +91,40 @@ def test_sogutma_penceresi_override_edilebilir():
     assert uygunluk_degerlendir(lead_signal(), gun_once(10), cooldown_days=30) == "cooldown_active"
 
 
+# --- Danisman gorusme sonucu ----------------------------------------------
+#
+# main'in `feature/danisman-ekrani` dali (PR #81) bu kurali `test_lead_rules.py`
+# icine eklemisti; migrasyonda o duz dosya kaldirildigi icin testler BURAYA
+# tasindi - kural kaybolmasin.
+
+
+@pytest.mark.parametrize("sonuc", ["KABUL", "ISTEMIYOR"])
+def test_danisman_dosyayi_kapattiysa_dislanir(sonuc):
+    """Musteri oldu ya da acikca istemedi; kampanya onu tekrar hedeflememeli."""
+    assert uygunluk_degerlendir(lead_signal(advisor_outcome=sonuc), None) == "advisor_closed"
+
+
+@pytest.mark.parametrize(
+    "sonuc",
+    [
+        # "ulasilamadi" bir KAPANIS DEGIL - kisi tekrar aranmali, kuyrukta kalir.
+        "ULASILAMADI",
+        # `ACIK` = "sonucu temizle"; kullanici hic isaretlenmemis sayilir.
+        "ACIK",
+    ],
+)
+def test_kapanis_olmayan_sonuclar_DISLAMAZ(sonuc):
+    assert uygunluk_degerlendir(lead_signal(advisor_outcome=sonuc), None) is None
+
+
+def test_danisman_karari_diger_tum_kurallardan_ONCE_gelir():
+    """Rizasi da geliri de olmayan biri yine `advisor_closed` doner: danisman
+    dosyayi kapattiysa daha SPESIFIK olan neden odur."""
+    sinyal = lead_signal(advisor_outcome="ISTEMIYOR", marketing_consent=False, monthly_income=0)
+
+    assert uygunluk_degerlendir(sinyal, None) == "advisor_closed"
+
+
 # --- Kuyruk secimi (SEG-07/SEG-08) ---------------------------------------
 
 

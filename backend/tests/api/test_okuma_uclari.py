@@ -12,23 +12,95 @@ from __future__ import annotations
 
 import pytest
 
-#: Kimlik dogrulamasi ZORUNLU olan tum GET uclari.
+#: Kimlik dogrulamasi ZORUNLU olan TUM parametresiz GET uclari (401 kontrolu).
+#: Liste elle degil, `test_korumali_uc_listesi_uygulamayla_SENKRON` ile
+#: OpenAPI semasina karsi dogrulanir.
 KORUMALI_GET = [
+    "/api/auth/me",
+    "/api/contest/leaderboard",
+    "/api/contest/today",
+    "/api/contest/wallet",
+    "/api/contest/wallet/history",
+    "/api/conversations",
     "/api/dashboard/summary",
-    "/api/portfolio/summary",
-    "/api/portfolio/holdings",
-    "/api/portfolio/allocation",
-    "/api/portfolio/transactions",
-    "/api/portfolio/performance",
-    "/api/risk/profile",
+    "/api/economic-calendar",
+    "/api/leads/autonomous-queue",
+    "/api/leads/bsd-queue",
+    "/api/leads/excluded",
     "/api/market/assets",
+    "/api/market/candles",
+    "/api/market/forecast",
+    "/api/market/forecast-portfolio",
+    "/api/market/history",
     "/api/market/news",
-    "/api/trading/account",
-    "/api/trading/orders",
+    "/api/market/ohlc",
+    "/api/market/photo",
     "/api/oneriler",
     "/api/oneriler/ayarlar",
-    "/api/economic-calendar",
+    "/api/portfolio/allocation",
+    "/api/portfolio/holdings",
+    "/api/portfolio/performance",
+    "/api/portfolio/performance-v2",
+    "/api/portfolio/summary",
+    "/api/portfolio/transactions",
+    "/api/risk/profile",
+    "/api/trading/account",
+    "/api/trading/orders",
 ]
+
+#: `KORUMALI_GET`'in ALT KUMESI: zorunlu sorgu parametresi ISTEMEYEN ve
+#: musteri roluyle 200 donen uclar - duman testi bunlari kullanir.
+#: Disarida kalanlar ya zorunlu parametre ister (`/market/history?symbol=`)
+#: ya da DANISMAN rolu ister (`/leads/*`); ikisi de 200 DONMEZ ve bu
+#: beklenen davranistir.
+TOKENLA_200_DONEN = [
+    "/api/auth/me",
+    "/api/contest/leaderboard",
+    "/api/contest/today",
+    "/api/contest/wallet",
+    "/api/contest/wallet/history",
+    "/api/conversations",
+    "/api/dashboard/summary",
+    "/api/economic-calendar",
+    "/api/market/assets",
+    "/api/market/news",
+    "/api/oneriler",
+    "/api/oneriler/ayarlar",
+    "/api/portfolio/allocation",
+    "/api/portfolio/holdings",
+    "/api/portfolio/performance",
+    "/api/portfolio/performance-v2",
+    "/api/portfolio/summary",
+    "/api/portfolio/transactions",
+    "/api/risk/profile",
+    "/api/trading/account",
+    "/api/trading/orders",
+]
+
+
+def test_korumali_uc_listesi_uygulamayla_SENKRON():
+    """Liste elle tutuluyor ve elle tutulan her liste bayatlar.
+
+    OpenAPI semasi kaynagin KENDISIDIR: guvenlik semasi tasiyan, parametresiz
+    her GET ucu listede olmali. Yeni bir uc eklenip listeye yazilmazsa bu
+    test kirmizi yanar - `KORUMALI_GET` bir daha sessizce geride kalmaz.
+    (Migrasyon sirasinda 13 uc listede yoktu; kimlik dogrulamasi
+    zorunlulugu hic sinanmiyordu.)
+    """
+    from app.main import app
+
+    sema = app.openapi()
+    korumali = {
+        yol
+        for yol, ops in sema["paths"].items()
+        if "get" in ops
+        and yol.startswith("/api/")
+        and "{" not in yol
+        and ops["get"].get("security")
+    }
+
+    assert korumali - set(KORUMALI_GET) == set(), "listeye yazilmamis korumali uc var"
+    assert set(TOKENLA_200_DONEN) <= set(KORUMALI_GET), "alt kume disina cikmis yol var"
 
 
 @pytest.mark.parametrize("yol", KORUMALI_GET)
@@ -38,7 +110,7 @@ def test_korumali_uclar_token_ister(client, yol):
     assert client.get(yol).status_code == 401
 
 
-@pytest.mark.parametrize("yol", KORUMALI_GET)
+@pytest.mark.parametrize("yol", TOKENLA_200_DONEN)
 def test_korumali_uclar_gecerli_token_ile_200_doner(client, auth, yol):
     """Duman testi: rota kurulumu, sema uyumu ve servis zinciri ayakta mi."""
     assert client.get(yol, headers=auth).status_code == 200

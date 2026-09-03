@@ -73,22 +73,50 @@ export function MessageList({
   onPackagePurchased?: (orderCount: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  //: Kullanici yukari kaydirdiysa yeni token'lar onu asagi SURUKLEMEZ;
+  //: bunun yerine "en alta in" dugmesi cikar. En alta donunce yapisma
+  //: yeniden baslar.
+  const stickToBottomRef = useRef(true);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const lastMessage = messages[messages.length - 1];
   const lastMessageKey = lastMessage
     ? `${lastMessage.id}:${lastMessage.content.length}:${lastMessage.quickReplies?.length ?? 0}:${lastMessage.investmentPackage ? 1 : 0}`
     : "";
 
-  // Keep the newest message in view as answers stream in or the guided flow
-  // appends its questions.
-  useEffect(() => {
+  function isNearBottom(container: HTMLDivElement): boolean {
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 48;
+  }
+
+  function scrollToBottom(behavior: ScrollBehavior = "auto") {
     const container = containerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+    stickToBottomRef.current = true;
+    setShowJumpToBottom(false);
+  }
+
+  function handleScroll() {
+    const container = containerRef.current;
+    if (!container) return;
+    const nearBottom = isNearBottom(container);
+    stickToBottomRef.current = nearBottom;
+    setShowJumpToBottom(!nearBottom && messages.length > 0);
+  }
+
+  // Keep the newest message in view as answers stream in or the guided flow
+  // appends its questions - unless the user scrolled up to read.
+  useEffect(() => {
+    if (stickToBottomRef.current) {
+      scrollToBottom();
+    } else {
+      setShowJumpToBottom(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastMessageKey]);
 
   return (
-    <div ref={containerRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div ref={containerRef} onScroll={handleScroll} className="flex-1 space-y-3 overflow-y-auto p-4">
       {leading}
       {messages.length === 0 && emptyState && (
         <div className="rounded-lg app-card-muted p-4 text-sm app-muted">
@@ -158,6 +186,17 @@ export function MessageList({
           )}
         </div>
       ))}
+    </div>
+    {showJumpToBottom && (
+      <button
+        type="button"
+        onClick={() => scrollToBottom("smooth")}
+        aria-label="En alta in"
+        className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border app-border bg-[var(--color-surface)] px-3 py-1 text-xs font-medium app-heading shadow-md transition hover:bg-[var(--color-primary-soft)]"
+      >
+        ↓
+      </button>
+    )}
     </div>
   );
 }
