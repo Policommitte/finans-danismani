@@ -342,7 +342,7 @@ export default function BultenPage() {
         <button
           type="button"
           onClick={() => setSelectedArticle(featured)}
-          className="app-hover-card flex w-full flex-col gap-4 rounded-2xl border p-6 text-left shadow-sm sm:flex-row sm:items-start"
+          className="app-card flex w-full flex-col gap-4 rounded-2xl border p-6 text-left shadow-sm sm:flex-row sm:items-start"
         >
           <span
             className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl app-primary-soft"
