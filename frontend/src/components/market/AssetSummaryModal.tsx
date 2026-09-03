@@ -206,8 +206,6 @@ export function AssetSummaryModal({
     changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-brand-teal)" : "var(--color-danger)";
   const lastAssistantMessage = [...chat.messages].reverse().find((m) => m.role === "assistant");
 
-  const sparklinePoints = (history?.points ?? []).slice(-20);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
       <div
@@ -251,25 +249,14 @@ export function AssetSummaryModal({
             <GuestAccessPrompt symbol={symbol} onClose={onClose} />
           ) : (
             <>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-end gap-3">
-              <div className="text-3xl font-bold app-heading">
-                {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
-              </div>
-              {asset?.daily_change_pct != null && (
-                <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
-                  {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
-                </span>
-              )}
+          <div className="flex items-end gap-3">
+            <div className="text-3xl font-bold app-heading">
+              {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
             </div>
-            {sparklinePoints.length >= 2 && (
-              <div className="h-12 w-24 shrink-0">
-                <ResponsiveContainer>
-                  <LineChart data={sparklinePoints}>
-                    <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+            {asset?.daily_change_pct != null && (
+              <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
+                {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
+              </span>
             )}
           </div>
 
