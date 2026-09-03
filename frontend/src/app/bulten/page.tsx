@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { BorsaIstanbulLogo, matchNewsLogo, matchSourceLogo } from "../../components/bulten/logos";
 import { NewsCard } from "../../components/bulten/NewsCard";
 import { NewsDetailModal, type NewsDetailArticle } from "../../components/bulten/NewsDetailModal";
+import { holdingImageFilter, holdingThumbnail } from "../../components/bulten/thumbnails";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { BULLETIN_PAGE_READY_EVENT } from "../../components/layout/transitionEvents";
@@ -400,7 +401,8 @@ export default function BultenPage() {
                   <NewsCard
                     key={holding.symbol}
                     icon={<HoldingIcon />}
-                    photoQuery={holding.asset_name}
+                    image={holdingThumbnail(`${holding.symbol} ${holding.asset_name}`, holding.asset_class)}
+                    imageFilter={holdingImageFilter(`${holding.symbol} ${holding.asset_name}`, holding.asset_class)}
                     symbol={holding.symbol}
                     time={holdingArticle.time}
                     tag={
