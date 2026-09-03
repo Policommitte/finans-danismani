@@ -69,9 +69,22 @@ export function SummaryCards({
   const pendingCount = recommendations?.counts?.PUBLISHED ?? 0;
   const isBuy = topRecommendation?.side === "BUY";
 
+  //: Kar/zarar yonune gore hafif, ama musterinin RAHATCA fark edecegi bir
+  //: renk vurgusu - duz koyu lacivertin (--color-panel-dark) uzerine
+  //: basari/tehlike renginden %26 karisim. Veri gelmeden notr kalir.
+  //: `total_pnl_try` degistiginde (yeni fiyat/emir) gecis animasyonlu.
+  const netWorthTintColor = summary
+    ? isUp
+      ? "color-mix(in srgb, var(--color-success) 26%, var(--color-panel-dark))"
+      : "color-mix(in srgb, var(--color-danger) 26%, var(--color-panel-dark))"
+    : "var(--color-panel-dark)";
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <div className="relative overflow-hidden rounded-xl bg-[var(--color-panel-dark)] p-5 text-white shadow-lg">
+      <div
+        className="relative overflow-hidden rounded-xl p-5 text-white shadow-lg transition-colors duration-700"
+        style={{ backgroundColor: netWorthTintColor }}
+      >
         <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
         <div className="relative flex items-center gap-2 text-xs font-medium text-white/70">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10">
