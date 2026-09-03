@@ -1,9 +1,26 @@
 name: Backend CI
 
 on:
+  # TUM dallara push CI'yi tetikler. ONCESI `branches: [main]` idi ve `main`
+  # korumali oldugu icin (bkz. CONTRIBUTING.md) oraya dogrudan push HIC
+  # olmuyordu: ozellik dallari pushlandiginda tek bir is bile kosmuyor, geri
+  # bildirim ancak PR acildiktan sonra geliyordu.
   push:
-    branches: [main]
+  # PR olayi AYRICA sart: fork'tan gelen PR'larda push olayi bu depoda
+  # tetiklenmez, tek kapsam buradan gelir. Ayni depodaki bir dalda PR aciksa
+  # her push iki kez kosar (push + synchronize); bu bilincli bir maliyet -
+  # `main` uzerindeki zorunlu kontroller PR kosusuna bagli oldugu icin
+  # `types:` ile kisip PR kosusunu ayiklamak korumayi zayiflatirdi.
   pull_request:
+  # Elle tetikleme: Actions sekmesinden herhangi bir dalda calistirilabilir.
+  workflow_dispatch:
+
+# Ayni dala pesi sira push atilirsa eskisi iptal edilir. `github.event_name`
+# gruba DAHIL: push ve pull_request kosulari birbirini iptal ETMEMELI - PR
+# kosusu iptal olursa zorunlu kontrol "cancelled" kalir ve PR kilitlenir.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

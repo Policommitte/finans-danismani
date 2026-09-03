@@ -319,6 +319,11 @@ export function useInvestmentPackageFlow({
     [appendLocalMessage, copy],
   );
 
+  /** Silently forgets the flow (e.g. when another conversation is loaded). */
+  const reset = useCallback(() => {
+    setState({ step: "idle", answers: {}, promptMessageId: null });
+  }, [setState]);
+
   const isCollectingAnswers = step === "budget" || step === "horizon" || step === "risk" || step === "goal";
 
   return {
@@ -330,5 +335,6 @@ export function useInvestmentPackageFlow({
     handleUserMessage,
     handleQuickReply,
     notifyPurchased,
+    reset,
   };
 }

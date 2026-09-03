@@ -135,6 +135,14 @@ class PortfolioAgent(BaseAgent):
                 f"En buyuk pozisyon {en_buyuk['symbol']} "
                 f"({_tl(en_buyuk.get('market_value_try'))})."
             )
+            hareketliler = gunun_hareketlileri(veri)
+            if hareketliler:
+                metin = ", ".join(
+                    f"{h['symbol']} {_pct(h.get('daily_change_pct'))} "
+                    f"({_tl(h.get('daily_change_try'))})"
+                    for h in hareketliler
+                )
+                satirlar.append(f"Bugun en cok hareket eden pozisyonlar: {metin}.")
             zararda = [h for h in holdings if (h.get("pnl_pct") or 0) < 0]
             if zararda:
                 isimler = ", ".join(h["symbol"] for h in zararda[:3])
@@ -163,6 +171,22 @@ class PortfolioAgent(BaseAgent):
 
 
 _TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜâîûÂÎÛ", "cgiosuCGIOSUaiuAIU")
+
+
+#: Kac pozisyon "gunun hareketlisi" sayilir - hem ozet metninde hem de
+#: sohbet cevabinin altindaki varlik kartlarinda kullanilir.
+GUNUN_HAREKETLI_SAYISI = 3
+
+
+def gunun_hareketlileri(veri: dict, adet: int = GUNUN_HAREKETLI_SAYISI) -> list[dict]:
+    """Bugun mutlak yuzde olarak en cok degisen pozisyonlar."""
+    holdings = [
+        h
+        for h in (veri.get("holdings") or [])
+        if isinstance(h, dict) and h.get("daily_change_pct") is not None
+    ]
+    holdings.sort(key=lambda h: abs(float(h["daily_change_pct"])), reverse=True)
+    return holdings[:adet]
 
 
 def _tl(value) -> str:
@@ -194,13 +218,16 @@ def _prompt_yaz(query: str, veri: dict) -> str:
     ]
     satirlar.extend(
         f"- {h['symbol']} ({h.get('asset_class')}): deger {h.get('market_value_try')} TL, "
-        f"kar/zarar {h.get('pnl_pct')}%"
+        f"bugunku degisim {h.get('daily_change_pct')}% ({h.get('daily_change_try')} TL), "
+        f"toplam kar/zarar {h.get('pnl_pct')}%"
         for h in holdings
     )
     satirlar += [
         "",
-        "Yukaridaki rakamlara dayanarak Turkce, kisa (en fazla 4 cumle) bir portfoy "
-        "degerlendirmesi yaz. YENI SAYI URETME, yalnizca verilen rakamlari kullan. "
+        "Yukaridaki rakamlara dayanarak Turkce, kisa (en fazla 6 cumle) bir portfoy "
+        "degerlendirmesi yaz. BUGUNKU DEGISIM ile TOPLAM KAR/ZARARI KARISTIRMA: "
+        "'bugun en cok kazandiran/kaybettiren' derken yalnizca bugunku degisimi "
+        "kullan. YENI SAYI URETME, yalnizca verilen rakamlari kullan. "
         "Yatirim tavsiyesi verme, yalnizca durumu betimle.",
         "",
         "Degerlendirme:",

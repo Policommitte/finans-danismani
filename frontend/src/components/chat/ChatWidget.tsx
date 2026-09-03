@@ -6,13 +6,48 @@ import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { useChatStream } from "../../hooks/useChatStream";
+import { useChat } from "../../contexts/ChatContext";
+import { useAuth } from "../../hooks/useAuth";
+import { useDailyBrief } from "../../hooks/useDailyBrief";
 import { useInvestmentPackageFlow } from "../../hooks/useInvestmentPackageFlow";
 import type { ChatQuickReply } from "../../models/chat";
 import type { PendingAttachment } from "./AttachmentMenu";
+import { ConversationHistory } from "./ConversationHistory";
+import { DailyBriefBubble } from "./DailyBriefBubble";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
-import { SuggestionBubble } from "./SuggestionBubble";
+import { SuggestionStrip } from "./SuggestionStrip";
+
+const HEADER_COPY = {
+  tr: {
+    title: "Yatırım Asistanı",
+    ready: "Hazır",
+    history: "Sohbet geçmişi",
+    newChat: "Yeni sohbet",
+    close: "Sohbeti kapat",
+    open: "Yatırım Asistanı'nı aç",
+    send: "Gönder",
+    stop: "Durdur",
+    placeholder: "Mesajınızı yazın (Shift+Enter: yeni satır)",
+    loginRequired: "Giriş yapmanız gerekir",
+    loadingHistory: "Sohbet yükleniyor…",
+    welcome: "Portföyün, piyasa verileri veya risk durumun hakkında soru sorabilirsin.",
+  },
+  en: {
+    title: "Investment Assistant",
+    ready: "Ready",
+    history: "Conversation history",
+    newChat: "New chat",
+    close: "Close chat",
+    open: "Open the Investment Assistant",
+    send: "Send",
+    stop: "Stop",
+    placeholder: "Type your message (Shift+Enter for a new line)",
+    loginRequired: "You need to sign in",
+    loadingHistory: "Loading conversation…",
+    welcome: "Ask about your portfolio, market data or your risk profile.",
+  },
+} as const;
 
 type ResizeDirection = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 type PanelRect = { height: number; left: number; top: number; width: number };
@@ -93,13 +128,25 @@ export function ChatWidget({
   const resizeStateRef = useRef<ResizeState | null>(null);
   const latestPanelRectRef = useRef<PanelRect | null>(null);
   const { language } = useLanguage();
-  const chat = useChatStream();
+  const copy = HEADER_COPY[language] ?? HEADER_COPY.tr;
+  const chat = useChat();
+  const [historyOpen, setHistoryOpen] = useState(false);
   const investmentFlow = useInvestmentPackageFlow({
     language,
     appendLocalMessage: chat.appendLocalMessage,
     updateMessage: chat.updateMessage,
   });
   const messages = canSend ? chat.messages : [];
+  const auth = useAuth();
+  const dailyBrief = useDailyBrief({
+    enabled: canSend,
+    userId: auth.user?.id ?? null,
+    language,
+  });
+  //: Gunluk ozet OTURUM BASINA TEK KEZ istenir: davete tekrar tekrar
+  //: tiklanamaz (baloncuk kapaniyor) ama panel kapanip acilirsa ayni
+  //: istemin ikinci kez tum ajanlari kosturmasi da istenmez.
+  const briefRequestedRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -320,6 +367,18 @@ export function ChatWidget({
     chat.sendMessage(trimmed, attachment);
   }
 
+  function startNewConversation() {
+    investmentFlow.reset();
+    chat.startNewConversation();
+    setHistoryOpen(false);
+  }
+
+  async function openConversation(conversationId: number) {
+    investmentFlow.reset();
+    setHistoryOpen(false);
+    await chat.loadConversation(conversationId);
+  }
+
   function selectQuickReply(reply: ChatQuickReply) {
     if (!canSend || chat.isStreaming) {
       return;
@@ -328,6 +387,20 @@ export function ChatWidget({
       return;
     }
     chat.sendMessage(reply.message);
+  }
+
+  /** Davete tiklandi: panel acilir ve gunluk ozet istemi bir kez gonderilir. */
+  function openDailyBrief() {
+    const brief = dailyBrief.brief;
+    dailyBrief.dismiss();
+    setOpen(true);
+
+    if (!brief || !canSend || briefRequestedRef.current) {
+      return;
+    }
+
+    briefRequestedRef.current = true;
+    chat.sendMessage(brief.prompt, undefined, { displayText: brief.displayText });
   }
 
   return (
@@ -351,38 +424,71 @@ export function ChatWidget({
                 <ChatAvatar />
               </span>
               <div>
-                <div className="font-semibold">Yatırım Asistanı</div>
-                <div className="text-xs opacity-80">{chat.status ?? "Hazır"}</div>
+                <div className="font-semibold">{copy.title}</div>
+                <div className="text-xs opacity-80">
+                  {chat.isLoadingHistory ? copy.loadingHistory : chat.status ?? copy.ready}
+                </div>
               </div>
             </div>
-            <button
-              type="button"
-              aria-label="Sohbeti kapat"
-              className="rounded px-2 py-1 text-xl leading-none hover:opacity-80"
-              onClick={() => setOpen(false)}
-            >
-              ×
-            </button>
+            <div className="flex items-center gap-0.5">
+              {canSend && (
+                <>
+                  <button
+                    type="button"
+                    aria-label={copy.newChat}
+                    title={copy.newChat}
+                    className="rounded p-1.5 hover:bg-white/15 disabled:opacity-50"
+                    onClick={startNewConversation}
+                    disabled={chat.messages.length === 0 && !chat.conversationId}
+                  >
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={copy.history}
+                    title={copy.history}
+                    aria-pressed={historyOpen}
+                    className={`rounded p-1.5 hover:bg-white/15 ${historyOpen ? "bg-white/20" : ""}`}
+                    onClick={() => setHistoryOpen((current) => !current)}
+                  >
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5l3 2" />
+                    </svg>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                aria-label={copy.close}
+                className="rounded px-2 py-1 text-xl leading-none hover:opacity-80"
+                onClick={() => setOpen(false)}
+              >
+                ×
+              </button>
+            </div>
           </header>
+          <ConversationHistory
+            open={historyOpen && canSend}
+            activeConversationId={chat.conversationId}
+            language={language}
+            onSelect={openConversation}
+            onClose={() => setHistoryOpen(false)}
+          />
           {chat.error && <div className="app-danger-box px-4 py-2 text-xs">{chat.error}</div>}
           <MessageList
             messages={messages}
             onSelectAsset={onSelectAsset}
-            leading={
-              canSend && messages.length === 0 ? (
-                <SuggestionBubble
-                  title={investmentFlow.suggestionTitle}
-                  suggestions={investmentFlow.suggestions}
-                  disabled={chat.isStreaming}
-                  onSelect={selectQuickReply}
-                />
-              ) : undefined
-            }
             quickRepliesDisabled={chat.isStreaming}
             onQuickReply={selectQuickReply}
             onPackagePurchased={investmentFlow.notifyPurchased}
             emptyState={
-              canSend ? null : (
+              canSend ? (
+                copy.welcome
+              ) : (
                 <Link href="/login" className="font-semibold text-[var(--color-primary)] underline-offset-4 hover:underline">
                   {blockedMessage}
                 </Link>
@@ -390,14 +496,24 @@ export function ChatWidget({
             }
           />
           <MessageInput
-            disabled={!canSend || chat.isStreaming || investmentFlow.step === "building"}
+            disabled={!canSend || chat.isStreaming || chat.isLoadingHistory || investmentFlow.step === "building"}
+            isStreaming={chat.isStreaming}
+            onStop={chat.stopStreaming}
             onSend={sendMessage}
             placeholder={
-              !canSend
-                ? "Giriş yapmanız gerekir"
-                : investmentFlow.inputPlaceholder ?? "Mesajınızı yazın"
+              !canSend ? copy.loginRequired : investmentFlow.inputPlaceholder ?? copy.placeholder
             }
-            buttonLabel="Gönder"
+            buttonLabel={copy.send}
+            stopLabel={copy.stop}
+            leading={
+              canSend && !investmentFlow.isActive ? (
+                <SuggestionStrip
+                  suggestions={investmentFlow.suggestions}
+                  disabled={chat.isStreaming || chat.isLoadingHistory}
+                  onSelect={selectQuickReply}
+                />
+              ) : undefined
+            }
           />
           {resizeHandles.map((handle) => (
             <div
@@ -416,11 +532,21 @@ export function ChatWidget({
           />
         </section>
       )}
+      {!open && dailyBrief.brief && (
+        <DailyBriefBubble
+          tone={dailyBrief.brief.tone}
+          teaser={dailyBrief.brief.teaser}
+          actionLabel={dailyBrief.brief.actionLabel}
+          closeLabel={language === "tr" ? "Günün özetini kapat" : "Dismiss today's brief"}
+          onOpen={openDailyBrief}
+          onDismiss={dailyBrief.dismiss}
+        />
+      )}
       <button
         type="button"
         data-tour="chat-assistant"
         className="relative z-30 h-16 w-16 rounded-full bg-[var(--color-panel-dark)] p-0 shadow-lg transition hover:-translate-y-0.5 hover:brightness-110"
-        aria-label={open ? "Sohbeti kapat" : "Yatırım Asistanı'nı aç"}
+        aria-label={open ? copy.close : copy.open}
         onClick={() => setOpen(!open)}
       >
         <ChatAvatar />
