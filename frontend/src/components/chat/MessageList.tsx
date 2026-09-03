@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatQuickReply } from "../../models/chat";
 import { downloadChatReport } from "../../services/chatService";
 import { AgentErrorNotice } from "./AgentErrorNotice";
+import { ChatAvatar } from "./ChatAvatar";
 import { InvestmentPackageCard } from "./InvestmentPackageCard";
 import { MentionedAssetCard } from "./MentionedAssetCard";
 import { QuickReplies } from "./QuickReplies";
@@ -60,13 +61,18 @@ function ReportDownloadButton({ messageId, fileName }: { messageId: number; file
  * yaninda gosteriliyor - tek bir "dusunuyor" gostergesi kaliyor. */
 function TypingBubble({ statusText }: { statusText?: string | null }) {
   return (
-    <div className="mr-auto flex max-w-[86%] items-center gap-2 rounded-lg app-card-muted px-3 py-2 text-sm app-heading">
-      <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60" />
+    <div className="mr-auto flex max-w-[86%] items-center gap-2">
+      <span className="h-7 w-7 shrink-0">
+        <ChatAvatar />
       </span>
-      <span className="text-xs app-muted">{statusText || "Düşünüyor…"}</span>
+      <div className="flex items-center gap-2 rounded-lg app-card-muted px-3 py-2 text-sm app-heading">
+        <span className="flex items-center gap-1" aria-hidden="true">
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60" />
+        </span>
+        <span className="text-xs app-muted">{statusText || "Düşünüyor…"}</span>
+      </div>
     </div>
   );
 }

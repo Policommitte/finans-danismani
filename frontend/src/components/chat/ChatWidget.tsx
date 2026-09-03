@@ -1,8 +1,5 @@
 "use client";
 
-import { thinking } from "blobatar/expression";
-import "blobatar/motion.css";
-import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
@@ -10,6 +7,7 @@ import { useChatStream } from "../../hooks/useChatStream";
 import { useInvestmentPackageFlow } from "../../hooks/useInvestmentPackageFlow";
 import type { ChatQuickReply } from "../../models/chat";
 import type { PendingAttachment } from "./AttachmentMenu";
+import { ChatAvatar } from "./ChatAvatar";
 import { MessageInput } from "./MessageInput";
 import { MessageList } from "./MessageList";
 import { SuggestionBubble } from "./SuggestionBubble";
@@ -55,16 +53,6 @@ function getPanelLeftBoundary(viewportWidth: number): number {
       PANEL_LEFT_BOUNDARY,
       viewportWidth - PANEL_MIN_WIDTH - PANEL_VIEWPORT_MARGIN,
     ),
-  );
-}
-
-export function ChatAvatar() {
-  return (
-    <span className="flex h-full w-full shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-panel-dark)]">
-      <span className="block h-[118%] w-[118%] [&_svg]:h-full [&_svg]:w-full">
-        <Blobatar name="Aichatbot" traits={{ shape: 0.933 }} hue={225} expression={thinking} animate="hover" />
-      </span>
-    </span>
   );
 }
 
