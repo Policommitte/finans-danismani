@@ -43,21 +43,21 @@ def mcp() -> MCPClient:
 
 
 @pytest.fixture
-def kimlik():
-    """Tool cagrilari icin kimlik baglami (auth katmaninin yaptigi is)."""
+def identity():
+    """Tool cagrilari icin identity baglami (auth katmaninin yaptigi is)."""
     set_current_user_id(1)
     yield 1
     set_current_user_id(None)
 
 
-def test_katalogdaki_tum_toollar_kayitli():
+def test_all_catalog_tools_registered():
     kayitli = {tool for tools in TOOL_GROUPS.values() for tool in tools}
 
     assert KATALOG <= kayitli
 
 
 @pytest.mark.parametrize("tool_adi", sorted(KATALOG))
-def test_hicbir_tool_user_id_parametresi_almaz(tool_adi):
+def test_no_tool_accepts_user_id_parameter(tool_adi):
     """Prompt injection'in baskasinin verisini isteyebilmesini engelleyen kural."""
     handler = next(tools[tool_adi] for tools in TOOL_GROUPS.values() if tool_adi in tools)
 
@@ -67,8 +67,8 @@ def test_hicbir_tool_user_id_parametresi_almaz(tool_adi):
 
 
 @pytest.mark.db
-async def test_tool_kimlik_baglami_yoksa_reddeder():
-    """Fail-closed: kimlik cozulemediyse 'varsayilan kullanici' kacamagi YOK."""
+async def test_tool_rejects_without_identity_context():
+    """Fail-closed: identity cozulemediyse 'varsayilan kullanici' kacamagi YOK."""
     set_current_user_id(None)
 
     with pytest.raises(MCPAuthorizationError):
@@ -76,7 +76,7 @@ async def test_tool_kimlik_baglami_yoksa_reddeder():
 
 
 @pytest.mark.db
-async def test_tool_ortak_zarfi_doner(kimlik):
+async def test_tool_returns_common_envelope(identity):
     sonuc = await portfolio_get_summary()
 
     assert set(sonuc) == {"ok", "data", "error"}
@@ -85,7 +85,7 @@ async def test_tool_ortak_zarfi_doner(kimlik):
 
 
 @pytest.mark.db
-async def test_client_zarfi_acar(mcp, kimlik):
+async def test_client_unwraps_envelope(mcp, identity):
     """Ajanlar `data` icerigini gorur; zarf sinirda acilir."""
     sonuc = await mcp.call_tool(CORE_SERVER_NAME, "portfolio_get_summary")
 
@@ -94,35 +94,35 @@ async def test_client_zarfi_acar(mcp, kimlik):
 
 
 @pytest.mark.db
-async def test_basarisiz_zarf_tool_error_a_cevrilir(mcp, kimlik):
+async def test_failed_envelope_converted_to_tool_error(mcp, identity):
     """`ok=False` bir cokme degil ama ajan tarafinda `tool_error` olmali."""
     with pytest.raises(MCPToolExecutionError):
         await mcp.call_tool(MARKET_SERVER_NAME, "market_get_quote", {"symbol": "YOKBOYLE"})
 
 
-async def test_zarfsiz_tool_ciktisi_oldugu_gibi_doner(mcp):
+async def test_unwrapped_tool_output_returned_as_is(mcp):
     """Zarf oncesi yazilmis tool'lar ve test sahteleri calismaya devam etmeli."""
     from app.mcp.client import MCPServer
 
-    async def eski_usul(**_):
+    async def legacy_style(**_):
         return {"chunks": []}
 
     server = MCPServer(name="eski")
-    server.register_tool("eski_tool", eski_usul)
+    server.register_tool("eski_tool", legacy_style)
     mcp.register_server(server)
 
     assert await mcp.call_tool("eski", "eski_tool") == {"chunks": []}
 
 
 @pytest.mark.db
-async def test_portfoy_toollari_kullanicinin_kendi_verisini_doner(kimlik):
+async def test_portfolio_tools_return_own_user_data(identity):
     sonuc = await portfolio_get_summary()
 
     assert sonuc["data"]["holding_count"] == 3
 
 
 @pytest.mark.db
-async def test_baska_kullanici_baglaminda_baska_veri_doner():
+async def test_different_user_context_returns_different_data():
     set_current_user_id(2)
     try:
         sonuc = await portfolio_get_summary()
@@ -132,7 +132,7 @@ async def test_baska_kullanici_baglaminda_baska_veri_doner():
 
 
 @pytest.mark.db
-async def test_rag_search_yapilandirilmis_doner(mcp):
+async def test_rag_search_returns_structured_result(mcp):
     """Duz metin donerse kaynak metadata'si MCP sinirinda kaybolur (FR-RAG-04)."""
     sonuc = await mcp.call_tool(RAG_SERVER_NAME, "rag_search", {"query": "THYAO net kar"})
 
@@ -143,7 +143,7 @@ async def test_rag_search_yapilandirilmis_doner(mcp):
 
 
 @pytest.mark.db
-async def test_rag_search_eski_alan_adlarini_da_tasir(mcp):
+async def test_rag_search_also_carries_legacy_field_names(mcp):
     """MarketResearchAgent `title`/`text`/`date`/`metadata` bekliyor."""
     sonuc = await mcp.call_tool(RAG_SERVER_NAME, "rag_search", {"query": "THYAO net kar"})
 
@@ -154,7 +154,7 @@ async def test_rag_search_eski_alan_adlarini_da_tasir(mcp):
 
 
 @pytest.mark.db
-async def test_rag_search_filters_sozlugunu_de_kabul_eder():
+async def test_rag_search_also_accepts_filters_dict():
     """Geriye donuk uyum: ajan `filters={"symbol": ...}` gonderiyor."""
     sonuc = await rag_search(query="maliyet", filters={"symbol": "SASA"})
 
@@ -185,7 +185,7 @@ async def test_rag_search_filters_sozlugundeki_tarihi_de_kabul_eder():
 
 
 @pytest.mark.db
-async def test_market_get_history_ham_seri_yerine_ozet_doner(mcp):
+async def test_market_get_history_returns_summary_not_raw_series(mcp):
     """LLM baglami sismesin diye (mimari v4 bolum 6.4)."""
     sonuc = await mcp.call_tool(
         MARKET_SERVER_NAME, "market_get_history", {"symbol": "THYAO", "days": 90}
@@ -198,7 +198,7 @@ async def test_market_get_history_ham_seri_yerine_ozet_doner(mcp):
 
 
 @pytest.mark.db
-async def test_tool_cagrisi_denetime_yazilir(kimlik):
+async def test_tool_call_written_to_audit(identity):
     """`tool_calls` kaydi - denetim + demo icin (mimari v4 bolum 6.4)."""
     kayitlar: list[dict] = []
 
@@ -220,7 +220,7 @@ async def test_tool_cagrisi_denetime_yazilir(kimlik):
 
 
 @pytest.mark.db
-async def test_denetim_yazimi_cokerse_cagri_etkilenmez(kimlik):
+async def test_call_unaffected_when_audit_write_fails(identity):
     class BozukDenetim:
         async def log_tool_call(self, record: dict) -> None:
             raise RuntimeError("denetim veritabani kapali")
@@ -234,7 +234,7 @@ async def test_denetim_yazimi_cokerse_cagri_etkilenmez(kimlik):
     assert sonuc["total_value_try"] > 0
 
 
-def test_denetim_kaydinda_hassas_alanlar_maskelenir():
+def test_sensitive_fields_masked_in_audit_record():
     maskeli = mask_arguments({"symbol": "THYAO", "password": "gizli", "query": "x" * 500})
 
     assert maskeli["symbol"] == "THYAO"

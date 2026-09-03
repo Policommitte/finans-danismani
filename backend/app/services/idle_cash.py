@@ -13,7 +13,7 @@ from math import ceil, sqrt
 from statistics import mean, median, stdev
 
 from app.core.errors import BusinessRuleError, NotFoundError
-from app.core.quantity import adet_yuvarla
+from app.core.quantity import round_quantity
 from app.repositories.deps import get_recommendation_repository
 from app.schemas.idle_cash import (
     IdleCashBasketBacktest,
@@ -848,7 +848,7 @@ def _sabit_uyelik_sec(
             uygun,
         ):
             return []
-        if adet_yuvarla(yatirilabilir * agirlik / _sayi(asset["current_price"]), sinif) <= 0:
+        if round_quantity(yatirilabilir * agirlik / _sayi(asset["current_price"]), sinif) <= 0:
             return []
         dogrulananlar.append(asset)
     return secilenler
@@ -864,6 +864,7 @@ def suggestion_build(
     candidate_offset: int = 0,
     strategy_index: int = 0,
     fixed_asset_ids: list[int] | None = None,
+    investable_ratio: float = 0.90,
 ) -> IdleCashSuggestion:
     profil = str(context.get("risk_tolerance") or VARSAYILAN_PROFIL).upper()
     if profil not in {"LOW", "MEDIUM", "HIGH"}:
@@ -881,7 +882,7 @@ def suggestion_build(
     if not adaylar:
         raise NotFoundError("Yatırım sepeti için uygun güncel piyasa verisi alınamadı.")
 
-    yatirilabilir = round(bakiye * 0.90, 2)
+    yatirilabilir = round(bakiye * investable_ratio, 2)
     sirali = sorted(
         adaylar,
         key=lambda a: (
@@ -900,7 +901,7 @@ def suggestion_build(
     uygun = [
         a
         for a in sirali
-        if adet_yuvarla(
+        if round_quantity(
             yatirilabilir / _sayi(a["current_price"]),
             str(a.get("asset_class") or ""),
         )
@@ -943,7 +944,7 @@ def suggestion_build(
             if len(aday_secimler) == denenen_adet:
                 risk_agirliklari = _risk_agirliklari(aday_secimler, strategy, profil)
                 if all(
-                    adet_yuvarla(
+                    round_quantity(
                         yatirilabilir * agirlik / _sayi(asset["current_price"]),
                         str(asset.get("asset_class") or ""),
                     )
@@ -962,7 +963,7 @@ def suggestion_build(
     for asset, agirlik in zip(secilenler, agirliklar):
         fiyat = _sayi(asset["current_price"])
         sinif = str(asset.get("asset_class") or "").upper()
-        miktar = adet_yuvarla(yatirilabilir * agirlik / fiyat, sinif)
+        miktar = round_quantity(yatirilabilir * agirlik / fiyat, sinif)
         tutar = round(miktar * fiyat, 2)
         elde_var = _sayi(holdings.get(int(asset["asset_id"]))) > 0
         puan_bilesenleri = _puan_bilesenleri(asset, profil, goal, elde_var)

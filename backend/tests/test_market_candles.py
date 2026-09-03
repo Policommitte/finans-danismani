@@ -128,7 +128,7 @@ async def test_saatlik_ve_dort_saatlik_grafik_iki_yillik_saatlik_arsivi_kullanir
         ("1y", 730),
     ],
 )
-async def test_saatlik_arsiv_gorunen_aralikla_olceklenir(monkeypatch, range_key, beklenen_gun):
+async def test_hourly_archive_scales_with_visible_range(monkeypatch, range_key, beklenen_gun):
     repository = OhlcvRepository()
     monkeypatch.setattr(market, "get_market_repository", lambda: repository)
 

@@ -208,7 +208,7 @@ class ApiMarketProvider(MarketDataProvider):
             return []
 
         await self._kotayi_isle(cagri_sayisi)
-        return yahoo.tamamlanmis_saatlik_mumlar(candles)
+        return yahoo.completed_hourly_candles(candles)
 
 
 def build_provider(name: str | None = None) -> MarketDataProvider:

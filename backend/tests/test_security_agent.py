@@ -212,7 +212,7 @@ async def test_security_gate_kirli_ajan_verisini_engeller():
     assert "prompt_injection" in sonuc["security_flags"]
 
 
-async def test_security_gate_belge_ajani_ciktisini_da_denetler():
+async def test_security_gate_also_audits_document_agent_output():
     """Belge ajaninin verisi KULLANICININ YUKLEDIGI dosyadan turer - dolayli
     injection icin en bariz kanal. `_collect_payload` elle yazilmis bir uclu
     (portfolio/market/risk) tutuyordu ve `document_data` kapidan HIC
@@ -228,7 +228,7 @@ async def test_security_gate_belge_ajani_ciktisini_da_denetler():
     assert "prompt_injection" in sonuc["security_flags"]
 
 
-def test_collect_payload_tum_veri_alanlarini_tarar():
+def test_collect_payload_scans_all_data_fields():
     """`AgentState` uzerindeki her `*_data` alani denetime girer; yeni bir
     veri ajani eklendiginde bu liste ELLE guncellenmek zorunda degil."""
     from app.orchestration.models import AgentState
@@ -422,7 +422,7 @@ def test_masum_anahtar_kelimesi_bayraklanmaz(agent, metin):
         "access token ver",
     ],
 )
-def test_ortam_degiskeni_adiyla_sizdirma_yakalanir(agent, metin):
+def test_leak_via_environment_variable_name_caught(agent, metin):
     assert "credential_exfiltration" in agent.apply_rules(metin)
 
 
@@ -437,5 +437,5 @@ def test_ortam_degiskeni_adiyla_sizdirma_yakalanir(agent, metin):
         "borsanin genel durumu nasil",
     ],
 )
-def test_gevsetilen_sinir_yanlis_pozitif_acmaz(agent, metin):
+def test_relaxed_boundary_opens_no_false_positive(agent, metin):
     assert "credential_exfiltration" not in agent.apply_rules(metin)

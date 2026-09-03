@@ -38,7 +38,7 @@ PARAMETRELERIN KAYNAGI
         }
 
     `symbol` OZEL DURUM: `build_task` regex ile bir tahmin uretir ama
-    `_sembolu_katalogdan_coz` bu tahmini `market_list_symbols` ciktisiyla
+    `_resolve_symbol_from_catalog` bu tahmini `market_list_symbols` ciktisiyla
     DOGRULAR; katalogda yoksa siler. Yani ajanin sonunda kullandigi sembol her
     zaman veritabaninda gercekten var olan bir koddur.
 
@@ -175,7 +175,7 @@ _BIRIM_GUN = {
 _VARSAYILAN_GECMIS_GUN = 30
 
 
-def _periyot_gun(query: str) -> int | None:
+def _period_days(query: str) -> int | None:
     """Sorgudan gecmis penceresini gun cinsinden cikarir; yoksa `None`.
 
     Donem ifadesi varsa onu kullanir ("son 1 yil" -> 365). Donem yok ama
@@ -362,7 +362,7 @@ _SEMBOL_TAKMA_ADLARI: dict[str, str] = {
     "gumusu": "GUMUS",
     "gumusun": "GUMUS",
     # --- Adin ILK KELIMESI kullanicinin soyledigi kelime DEGIL --------------
-    # `sembol_coz` ad eslesmesinde ilk kelimeye bakar ve en az 5 harf ister.
+    # `resolve_symbol` ad eslesmesinde ilk kelimeye bakar ve en az 5 harf ister.
     # Asagidaki varliklarda ilk kelime ya cok kisa ya da kullanicinin hic
     # kullanmadigi bir kelime:
     #
@@ -400,7 +400,7 @@ _SEMBOL_TAKMA_ADLARI: dict[str, str] = {
 def _takma_addan_coz(tokenler: list[str], katalog_sembolleri: set[str]) -> tuple[str, int] | None:
     """Takma adlardan sembol cozer; (sembol, konum) ya da `None`.
 
-    Hedef sembol KATALOGDA YOKSA eslesme uretilmez - `sembol_coz`'un temel
+    Hedef sembol KATALOGDA YOKSA eslesme uretilmez - `resolve_symbol`'un temel
     kurali korunur: veritabaninda gercekten var olmayan hicbir sey sembol
     sayilmaz. Boylece USD/TRY silinirse bu tablo sessizce yanlis sonuc
     uretmeye baslamaz.
@@ -462,7 +462,7 @@ def _alaka_skorlarini_logla(
 _OLCEK_ALT_SINIRI = 0.05
 
 
-def _alakasiz_kaynaklari_ele(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _drop_irrelevant_sources(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Hicbiri yeterince alakali degilse TAMAMINI eler.
 
     Eleme SETIN TAMAMINA uygulanir, tek tek chunk'lara degil: bir konu
@@ -544,7 +544,7 @@ def _dokuman_bazinda_tekille(chunks: list[dict[str, Any]]) -> list[dict[str, Any
     return list(gorulen.values())
 
 
-def _ekli_eslesme(token: str, kok: str) -> bool:
+def _matches_with_suffix(token: str, kok: str) -> bool:
     """`token`, `kok` + taninan bir Turkce ek mi?
 
     Ikisi de NORMALIZE edilmis (ASCII + kucuk harf) beklenir.
@@ -554,7 +554,7 @@ def _ekli_eslesme(token: str, kok: str) -> bool:
     return token[len(kok) :] in _TR_EKLER
 
 
-def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
+def resolve_symbol(query: str, katalog: list[dict[str, Any]]) -> str | None:
     """Sorgudaki hisse kodunu KATALOGDAN cozer; tahmin etmez.
 
     Eski yontem sorguyu regex'e bakip "4-5 harfli kelime + Turkce ek" gorunce
@@ -584,7 +584,7 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
     # (puan, -konum, sembol): once puan, esitlikte sorguda ONCE gecen kazanir.
     en_iyi: tuple[int, int, str] | None = None
 
-    def aday_ekle(puan: int, konum: int, sembol: str) -> None:
+    def add_candidate(puan: int, konum: int, sembol: str) -> None:
         nonlocal en_iyi
         aday = (puan, -konum, sembol.upper())
         if en_iyi is None or aday > en_iyi:
@@ -602,7 +602,7 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
             # Buyuk harf iyi bir ayirac: kullanici bir hisse kodu yazarken
             # buyuk yazar, cumle icinde ayni harfleri kucuk yazar.
             if re.search(rf"(?<![A-Za-z0-9]){re.escape(sembol)}(?![A-Za-z0-9])", query):
-                aday_ekle(3, query.index(sembol), sembol)
+                add_candidate(3, query.index(sembol), sembol)
             continue
 
         kok = _normalize(sembol)
@@ -616,9 +616,9 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
 
         eslesti = False
         for konum, token in enumerate(tokenler):
-            if any(_ekli_eslesme(token, k) for k in kokler):
+            if any(_matches_with_suffix(token, k) for k in kokler):
                 # Tam eslesme ekli eslesmeden guclu: "btc" > "btcden".
-                aday_ekle(3 if token in kokler else 2, konum, sembol)
+                add_candidate(3 if token in kokler else 2, konum, sembol)
                 eslesti = True
                 break
 
@@ -632,7 +632,7 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
                     if konum + uzunluk > len(tokenler):
                         continue
                     if "".join(tokenler[konum : konum + uzunluk]) == kok_sikisik:
-                        aday_ekle(3, konum, sembol)
+                        add_candidate(3, konum, sembol)
                         eslesti = True
                         break
                 if eslesti:
@@ -644,13 +644,13 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
         if not ad:
             continue
         if ad and ad in metin:
-            aday_ekle(3, metin.index(ad), sembol)
+            add_candidate(3, metin.index(ad), sembol)
             continue
         ilk_kelime = ad.split()[0] if ad.split() else ""
         if len(ilk_kelime) >= 5:
             for konum, token in enumerate(tokenler):
-                if _ekli_eslesme(token, ilk_kelime):
-                    aday_ekle(2, konum, sembol)
+                if _matches_with_suffix(token, ilk_kelime):
+                    add_candidate(2, konum, sembol)
                     break
 
     # Takma adlar EN SON denenir: kod ya da ad ile gercek bir eslesme
@@ -662,7 +662,7 @@ def sembol_coz(query: str, katalog: list[dict[str, Any]]) -> str | None:
             {str(k.get("symbol") or "").upper() for k in katalog},
         )
         if takma:
-            aday_ekle(2, takma[1], takma[0])
+            add_candidate(2, takma[1], takma[0])
 
     return en_iyi[2] if en_iyi else None
 
@@ -731,7 +731,7 @@ _MEVSIMSEL_ASGARI_YIL = 3
 _MEVSIM_YIL_RE = re.compile(r"son\s+(\d{1,2})\s*yil")
 
 
-def _mevsim_araligi(query: str) -> dict[str, Any] | None:
+def _season_range(query: str) -> dict[str, Any] | None:
     """Sorgudan mevsimsel karsilastirma penceresini cikarir; yoksa `None`.
 
     Returns:
@@ -812,7 +812,7 @@ class MarketResearchAgent(BaseAgent):
             timeout_seconds=timeout_seconds,
             llm_timeout_seconds=llm_timeout_seconds,
         )
-        #: `market_list_symbols` onbellegi - bkz. `_sembol_katalogu`.
+        #: `market_list_symbols` onbellegi - bkz. `_symbol_catalog`.
         self._katalog: list[dict[str, Any]] | None = None
         self._katalog_zamani: float = 0.0
 
@@ -837,7 +837,7 @@ class MarketResearchAgent(BaseAgent):
         # Regex tahminini KATALOGLA degistir: bu adim olmadan "thyao hissesi"
         # sorgusundan sembol HISSE cikiyor ve hem RAG filtresi hem fiyat
         # sorgusu bosa gidiyor.
-        await self._sembolu_katalogdan_coz(task)
+        await self._resolve_symbol_from_catalog(task)
         query = (task.get("query") or "").strip()
 
         if not query:
@@ -880,7 +880,7 @@ class MarketResearchAgent(BaseAgent):
                 "live_data": canli_veri,
                 "confidence": guven,
                 "mode": mode,
-                # Katalogla dogrulanmis sembol (bkz. `_sembolu_katalogdan_coz`) -
+                # Katalogla dogrulanmis sembol (bkz. `_resolve_symbol_from_catalog`) -
                 # orchestrator bunu "mentioned_assets" SSE olayina tasir, frontend
                 # sohbet cevabinin altinda varlik karti gostermek icin kullanir.
                 "symbol": task.get("symbol"),
@@ -910,7 +910,7 @@ class MarketResearchAgent(BaseAgent):
         task.setdefault("query", state.user_query)
 
         if not task.get("symbol"):
-            sembol, kesin = self._sembol_ve_kesinlik(task["query"])
+            sembol, kesin = self._symbol_and_confidence(task["query"])
             if sembol:
                 task["symbol"] = sembol
                 # Router acikca sembol verdiyse (ileride) kesin sayilir;
@@ -918,18 +918,18 @@ class MarketResearchAgent(BaseAgent):
                 task.setdefault("symbol_kesin", kesin)
 
         if "seasonality" not in task:
-            mevsim = _mevsim_araligi(task["query"])
+            mevsim = _season_range(task["query"])
             if mevsim is not None:
                 task["seasonality"] = mevsim
 
         if "history_days" not in task:
-            gun = _periyot_gun(task["query"])
+            gun = _period_days(task["query"])
             if gun is not None:
                 task["history_days"] = gun
 
         return task
 
-    async def _sembol_katalogu(self) -> list[dict[str, Any]] | None:
+    async def _symbol_catalog(self) -> list[dict[str, Any]] | None:
         """`market_list_symbols` ciktisi - kisa sureli onbellekli.
 
         `None` DONMESI "katalog okunamadi" demektir (MCP client yok ya da tool
@@ -954,7 +954,7 @@ class MarketResearchAgent(BaseAgent):
         self._katalog_zamani = simdi
         return self._katalog
 
-    async def _sembolu_katalogdan_coz(self, task: dict[str, Any]) -> None:
+    async def _resolve_symbol_from_catalog(self, task: dict[str, Any]) -> None:
         """`task["symbol"]` degerini katalogla dogrular ya da SILER.
 
         Silme kismi kritik: katalog okunabildigi halde sorguda hicbir gercek
@@ -978,11 +978,11 @@ class MarketResearchAgent(BaseAgent):
         if task.get("symbol") and task.get("symbol_kesin") is not False:
             return
 
-        katalog = await self._sembol_katalogu()
+        katalog = await self._symbol_catalog()
         if katalog is None:
             return  # katalog yok - eski davranis korunur
 
-        sembol = sembol_coz(task.get("query") or "", katalog)
+        sembol = resolve_symbol(task.get("query") or "", katalog)
         if sembol:
             task["symbol"] = sembol
             task["symbol_kesin"] = True
@@ -1002,11 +1002,11 @@ class MarketResearchAgent(BaseAgent):
         Buyuk harf duyarli calisir: hisse kodlari her zaman buyuk yazilir, bu
         sayede sirada gecen normal Turkce kelimeler sembol sanilmaz.
         """
-        sembol, _ = MarketResearchAgent._sembol_ve_kesinlik(query)
+        sembol, _ = MarketResearchAgent._symbol_and_confidence(query)
         return sembol
 
     @staticmethod
-    def _sembol_ve_kesinlik(query: str) -> tuple[str | None, bool]:
+    def _symbol_and_confidence(query: str) -> tuple[str | None, bool]:
         """(sembol, kesin_mi) doner.
 
         `kesin=True`  buyuk harfle, eksiz yazilmis kod - guvenilir.
@@ -1096,7 +1096,7 @@ class MarketResearchAgent(BaseAgent):
         _alaka_skorlarini_logla(query, chunks, filters)
         # ALAKA ESIGI: cop baglam yalnizca kaynak listesini degil ajanin
         # PROMPT'unu da kirletir. Elemeyi burada yapmak ikisini birden cozer.
-        chunks = _alakasiz_kaynaklari_ele(chunks)
+        chunks = _drop_irrelevant_sources(chunks)
 
         if not chunks:
             # Kaynak yoksa LLM'e HIC gidilmez: modelin bosluktan icerik
@@ -1222,10 +1222,10 @@ class MarketResearchAgent(BaseAgent):
             )
         except MCPToolExecutionError:
             logger.warning("canli fiyat alinamadi", extra={"symbol": sembol}, exc_info=True)
-            return self._sembol_bulunamadi(task, sembol), None
+            return self._symbol_not_found(task, sembol), None
 
         if quote.get("price") is None:
-            return self._sembol_bulunamadi(task, sembol), None
+            return self._symbol_not_found(task, sembol), None
 
         # Alan adlari `app/mcp/server.py::market_get_quote` sozlesmesidir.
         canli_veri = {
@@ -1241,12 +1241,12 @@ class MarketResearchAgent(BaseAgent):
 
         # --- Donem performansi -------------------------------------------
         # `history_days` yalnizca sorguda bir donem/performans ifadesi
-        # gectiginde dolu olur (bkz. `_periyot_gun`). Veri `price_history`
+        # gectiginde dolu olur (bkz. `_period_days`). Veri `price_history`
         # tablosundan gelir - haber indeksinden DEGIL; "son 1 yildaki
         # karlilik" gibi sorulari cevaplayan tek yol budur.
         gun = task.get("history_days")
         if gun:
-            gecmis_ozet, gecmis = await self._gecmis_getir(sembol, int(gun))
+            gecmis_ozet, gecmis = await self._fetch_history(sembol, int(gun))
             if gecmis is not None:
                 canli_veri["history"] = gecmis
             if gecmis_ozet:
@@ -1259,7 +1259,7 @@ class MarketResearchAgent(BaseAgent):
         # icin ayri bir tool var.
         mevsim = task.get("seasonality")
         if mevsim:
-            mevsim_ozet, mevsim_veri = await self._mevsimsellik_getir(sembol, mevsim)
+            mevsim_ozet, mevsim_veri = await self._fetch_seasonality(sembol, mevsim)
             if mevsim_veri is not None:
                 canli_veri["seasonality"] = mevsim_veri
             if mevsim_ozet:
@@ -1279,7 +1279,7 @@ class MarketResearchAgent(BaseAgent):
         return ozet, canli_veri
 
     @staticmethod
-    def _sembol_bulunamadi(task: dict[str, Any], sembol: str) -> str:
+    def _symbol_not_found(task: dict[str, Any], sembol: str) -> str:
         """Fiyat bulunamadiginda kullaniciya ne yazilacagi.
 
         Sembol KESIN ise ("THYAO" diye yazilmis) bu gercek bir bilgi:
@@ -1292,7 +1292,7 @@ class MarketResearchAgent(BaseAgent):
             return f"{sembol} icin canli fiyat verisi bulunamadi."
         return ""
 
-    async def _mevsimsellik_getir(
+    async def _fetch_seasonality(
         self, sembol: str, mevsim: dict[str, Any]
     ) -> tuple[str, dict[str, Any] | None]:
         """`market_get_seasonality` ozetini metin + yapisal veri olarak doner.
@@ -1366,7 +1366,7 @@ class MarketResearchAgent(BaseAgent):
 
         return metin, sonuc
 
-    async def _gecmis_getir(self, sembol: str, gun: int) -> tuple[str, dict[str, Any] | None]:
+    async def _fetch_history(self, sembol: str, gun: int) -> tuple[str, dict[str, Any] | None]:
         """`market_get_history` ozetini metin + yapisal veri olarak doner.
 
         Tool ham seriyi DEGIL ozet istatistikleri doner (change_pct,

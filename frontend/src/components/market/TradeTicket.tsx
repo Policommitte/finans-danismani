@@ -14,7 +14,7 @@ import type {
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { adetAdimi, adetGecerliMi, gecersizAdetMesaji } from "../../utils/assetQuantity";
+import { quantityStep, isValidQuantity, invalidQuantityMessage } from "../../utils/assetQuantity";
 
 const ASSET_CLASS_LABELS: Record<string, { tr: string; en: string }> = {
   STOCK: { tr: "Hisse", en: "Stock" },
@@ -201,7 +201,7 @@ export function TradeTicket({
   const parsedQuantity = Number(quantity);
   const exceedsHolding = isSell && Number.isFinite(parsedQuantity) && parsedQuantity > sellableQuantity;
   // Hisse ve ETF bolunmez: 1,18 adet INTC diye bir sey yok.
-  const kusuratHatasi = !adetGecerliMi(parsedQuantity, asset.asset_class)
+  const kusuratHatasi = !isValidQuantity(parsedQuantity, asset.asset_class)
     && Number.isFinite(parsedQuantity)
     && parsedQuantity > 0;
   const parsedLimitPrice = Number(limitPrice);
@@ -342,8 +342,8 @@ export function TradeTicket({
             <input
               className="mt-2 w-full rounded-md border app-input px-3 py-2.5 text-sm outline-none"
               type="number"
-              min={adetAdimi(asset.asset_class) === "any" ? "0.000001" : adetAdimi(asset.asset_class)}
-              step={adetAdimi(asset.asset_class)}
+              min={quantityStep(asset.asset_class) === "any" ? "0.000001" : quantityStep(asset.asset_class)}
+              step={quantityStep(asset.asset_class)}
               max={isSell ? sellableQuantity : undefined}
               value={quantity}
               onChange={(event) => changeQuantity(event.target.value)}
@@ -366,7 +366,7 @@ export function TradeTicket({
             )}
             {kusuratHatasi && (
               <span className="mt-1.5 block text-xs font-normal normal-case tracking-normal app-danger">
-                {gecersizAdetMesaji(asset.asset_class, language)}
+                {invalidQuantityMessage(asset.asset_class, language)}
               </span>
             )}
             {exceedsHolding && (
