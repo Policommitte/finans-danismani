@@ -1,4 +1,4 @@
-"""RAG alaka esigi (`market_research._alakasiz_kaynaklari_ele`).
+"""RAG alaka esigi (`market_research._drop_irrelevant_sources`).
 
 AYRI DOSYADA: `test_market_research_agent.py` bastan asagi
 `pytestmark = pytest.mark.db` tasiyor ve DB olmadan tamamen atlaniyor.
@@ -14,11 +14,11 @@ kapsamsiz kalir.
 import pytest
 
 
-def _skorlu(*skorlar):
+def _scored(*skorlar):
     return [{"score": s, "text": "x"} for s in skorlar]
 
 
-def test_alaka_esigi_sql_yolu_disinda_uygulanmaz(monkeypatch):
+def test_relevance_threshold_not_applied_outside_sql_path(monkeypatch):
     """Bellek ici depo `hits/len(terms)` orani uretir - BASKA BIR OLCEK.
 
     0.75 esigi o olcekte "terimlerin dortte ucu eslesmeli" demek olur ve
@@ -30,8 +30,8 @@ def test_alaka_esigi_sql_yolu_disinda_uygulanmaz(monkeypatch):
     monkeypatch.setattr(mr.settings, "rag_min_score", 0.75)
     monkeypatch.setattr(mr.settings, "database_url", "")  # -> database_enabled False
 
-    chunks = _skorlu(0.5, 0.4)
-    assert mr._alakasiz_kaynaklari_ele(chunks) == chunks
+    chunks = _scored(0.5, 0.4)
+    assert mr._drop_irrelevant_sources(chunks) == chunks
 
 
 @pytest.mark.parametrize(
@@ -44,7 +44,7 @@ def test_alaka_esigi_sql_yolu_disinda_uygulanmaz(monkeypatch):
         ((1.9, 0.7, 0.7), 3),  # "altin fiyatlari"        -> alakali
     ],
 )
-def test_alaka_esigi_setin_tamamina_uygulanir(monkeypatch, skorlar, kalan):
+def test_relevance_threshold_applied_to_whole_set(monkeypatch, skorlar, kalan):
     """Eleme tek tek chunk'lara DEGIL, setin tamamina uygulanir.
 
     Bir konu gercekten eslesiyorsa kuyruktaki dusuk skorlu parcalar da o
@@ -57,10 +57,10 @@ def test_alaka_esigi_setin_tamamina_uygulanir(monkeypatch, skorlar, kalan):
     monkeypatch.setattr(mr.settings, "rag_min_score", 0.75)
     monkeypatch.setattr(mr.settings, "database_url", "postgresql://x/y")
 
-    assert len(mr._alakasiz_kaynaklari_ele(_skorlu(*skorlar))) == kalan
+    assert len(mr._drop_irrelevant_sources(_scored(*skorlar))) == kalan
 
 
-def test_alaka_esigi_rrf_olceginde_atlanir(monkeypatch):
+def test_relevance_threshold_skipped_on_rrf_scale(monkeypatch):
     """Hibrit arama acilinca skorlar RRF'e doner (~0.016).
 
     BM25'e gore secilmis esik orada TUM kaynaklari elerdi. Yanlis esik,
@@ -71,15 +71,15 @@ def test_alaka_esigi_rrf_olceginde_atlanir(monkeypatch):
     monkeypatch.setattr(mr.settings, "rag_min_score", 0.75)
     monkeypatch.setattr(mr.settings, "database_url", "postgresql://x/y")
 
-    chunks = _skorlu(0.0164, 0.0161)
-    assert mr._alakasiz_kaynaklari_ele(chunks) == chunks
+    chunks = _scored(0.0164, 0.0161)
+    assert mr._drop_irrelevant_sources(chunks) == chunks
 
 
-def test_alaka_esigi_skor_yoksa_eleme_yapmaz(monkeypatch):
+def test_relevance_threshold_does_not_filter_without_score(monkeypatch):
     from app.agents import market_research as mr
 
     monkeypatch.setattr(mr.settings, "rag_min_score", 0.75)
     monkeypatch.setattr(mr.settings, "database_url", "postgresql://x/y")
 
     chunks = [{"text": "skor alani yok"}, {"text": "yine yok"}]
-    assert mr._alakasiz_kaynaklari_ele(chunks) == chunks
+    assert mr._drop_irrelevant_sources(chunks) == chunks

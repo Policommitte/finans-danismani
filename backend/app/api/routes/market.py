@@ -29,7 +29,7 @@ async def assets(
     category: str | None = Query(default=None, description="STOCK | GOLD | CRYPTO | ..."),
 ) -> AssetsResponse:
     """Takip edilen varliklar ve guncel fiyatlari."""
-    return await service.varliklar_getir(category)
+    return await service.list_assets(category)
 
 
 #: `borsa-verisi/` betigi Yahoo'dan varsayilan olarak 2 yillik gecmis ceker
@@ -50,7 +50,7 @@ async def history(
     Gunluk/haftalik gorunum icin varsayilan 30 gun yeterlidir; frontend
     yillik gorunum icin `days=365` veya `days=730` gonderebilir.
     """
-    return await service.gecmis_getir(symbol, days=days)
+    return await service.get_price_history(symbol, days=days)
 
 
 @router.get("/ohlc", response_model=OhlcResponse)
@@ -100,7 +100,7 @@ async def search(user: CurrentUser, payload: MarketSearchRequest) -> MarketSearc
     GET degil POST: sorgu metni uzun olabilir ve URL'de loglanmasi istenmez.
     Ajan devreye GIRMEZ; dogrudan RAG indeksinde arama yapilir.
     """
-    return await service.arama_yap(
+    return await service.search_assets(
         query=payload.query, top_k=payload.top_k, sirket=payload.sirket, tip=payload.tip
     )
 

@@ -42,6 +42,14 @@ async def reset_today(user: CurrentUser) -> None:
     await service.reset_todays_participation(user["id"])
 
 
+@router.post("/shop/reset", status_code=204)
+async def reset_shop(user: CurrentUser) -> None:
+    """DEMO/GELISTIRME icin: tum magaza satin almalarini (joker + bagis)
+    siler, harcanan puanlar iade edilmis gibi bakiyeye geri doner. Uretimde
+    422 doner (bkz. services/contest.py)."""
+    await service.reset_shop_purchases(user["id"])
+
+
 @router.get("/{contest_id}/topics", response_model=list[ContestTopic])
 async def contest_topics(contest_id: int, user: CurrentUser) -> list[ContestTopic]:
     """Calisma notu ekrani icin o yarismaya bagli konular."""

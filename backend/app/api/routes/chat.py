@@ -94,11 +94,13 @@ async def chat_stream(request: Request, user: CurrentUser, payload: ChatRequest)
     # Sohbet cozumu ve SAHIPLIK KONTROLU akis baslamadan once yapilir: bu
     # noktada firlayan hata normal hata sozlesmesine (404/JSON) donusur.
     # Gövde uretilirken firlasaydi durum kodu coktan 200 gonderilmis olurdu.
-    session = await service.sohbet_bul_veya_ac(user["id"], payload.conversation_id, payload.message)
+    session = await service.find_or_open_conversation(
+        user["id"], payload.conversation_id, payload.message
+    )
 
     # Ek boyut/format dogrulamasi da AYNI SEBEPLE akis baslamadan once
     # yapilir (422/JSON donmesi icin) - gercek cozme, akis icinde tekrarlanir
-    # (govde bu istek nesnesinden servis katmanina tasinmiyor).
+    # (event_body bu istek nesnesinden servis katmanina tasinmiyor).
     if payload.attachment is not None:
         service.decode_attachment(payload.attachment)
 
@@ -110,12 +112,12 @@ async def chat_stream(request: Request, user: CurrentUser, payload: ChatRequest)
         attachment=payload.attachment,
     )
 
-    async def govde():
+    async def event_body():
         async for event in olaylar:
-            yield service.sse_paketle(event)
+            yield service.format_sse(event)
 
     return StreamingResponse(
-        govde(),
+        event_body(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

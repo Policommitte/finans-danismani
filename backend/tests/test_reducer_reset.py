@@ -119,7 +119,7 @@ async def test_agent_error_olayi_yalnizca_ilgili_turda_yayinlanir(orchestrator):
     assert [o for o in ikinci if o["type"] == "agent_error"] == []
 
 
-async def test_agent_error_olayi_uretimde_ic_ayrinti_sizdirmaz(orchestrator, monkeypatch):
+async def test_agent_error_event_leaks_no_internal_detail_in_production(orchestrator, monkeypatch):
     """Istisna metni tool adi, baglanti dizesi, dosya yolu tasiyabilir."""
     monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "production")
 
@@ -131,7 +131,7 @@ async def test_agent_error_olayi_uretimde_ic_ayrinti_sizdirmaz(orchestrator, mon
     assert hata["error_type"] == "timeout"
 
 
-async def test_agent_error_olayi_gelistirmede_metni_de_tasir(orchestrator, monkeypatch):
+async def test_agent_error_event_also_carries_text_in_development(orchestrator, monkeypatch):
     """Karsit durum: gelistirirken "timeout" tek basina hicbir sey soylemiyor."""
     monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "development")
 

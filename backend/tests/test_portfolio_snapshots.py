@@ -75,9 +75,9 @@ async def test_snapshot_hatasi_fiyat_tickini_durdurmaz(monkeypatch):
     monkeypatch.setattr(scheduler, "get_market_repository", lambda: MarketRepository())
     monkeypatch.setattr(scheduler, "get_portfolio_repository", lambda: BrokenPortfolioRepository())
     monkeypatch.setattr(trading, "bekleyen_emirleri_isle", no_orders)
-    monkeypatch.setattr(recommendation, "suresi_dolanlari_kapat", no_expired)
-    monkeypatch.setattr(recommendation, "oneri_uret", no_recommendations)
-    monkeypatch.setattr(dispatcher, "bildirimleri_gonder", no_notifications)
+    monkeypatch.setattr(recommendation, "expire_due_recommendations", no_expired)
+    monkeypatch.setattr(recommendation, "generate_recommendations", no_recommendations)
+    monkeypatch.setattr(dispatcher, "dispatch_notifications", no_notifications)
 
     assert await scheduler.price_tick(Provider(), write_live=False) == 1
 
@@ -127,9 +127,9 @@ async def test_yalnizca_fiyat_yazilan_tur_yeni_snapshot_uretir(monkeypatch):
     monkeypatch.setattr(scheduler, "get_market_repository", lambda: MarketRepository())
     monkeypatch.setattr(scheduler, "get_portfolio_repository", lambda: portfolio_repository)
     monkeypatch.setattr(trading, "bekleyen_emirleri_isle", no_orders)
-    monkeypatch.setattr(recommendation, "suresi_dolanlari_kapat", no_expired)
-    monkeypatch.setattr(recommendation, "oneri_uret", no_recommendations)
-    monkeypatch.setattr(dispatcher, "bildirimleri_gonder", no_notifications)
+    monkeypatch.setattr(recommendation, "expire_due_recommendations", no_expired)
+    monkeypatch.setattr(recommendation, "generate_recommendations", no_recommendations)
+    monkeypatch.setattr(dispatcher, "dispatch_notifications", no_notifications)
 
     assert await scheduler.price_tick(Provider(), write_live=False) == 1
     assert await scheduler.price_tick(Provider(), write_live=False) == 0

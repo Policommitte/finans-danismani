@@ -43,7 +43,7 @@ def test_pdf_ve_excel_kabul_edilir():
     assert chat_service.decode_attachment(_ek("makro.xlsm")) == b"x"
 
 
-def test_eski_bicim_xls_reddedilir():
+def test_legacy_xls_format_rejected():
     """openpyxl BIFF (.xls) okuyamaz; kabul edip sonra "acilamadi" demek
     yerine kapida reddedilir (bkz. parser.EXCEL_UZANTILARI notu)."""
     with pytest.raises(BusinessRuleError):

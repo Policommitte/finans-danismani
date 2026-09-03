@@ -36,7 +36,7 @@ SEED_TOPLAMI = 1_638_585.00
 
 
 @pytest.fixture
-def sql_repolar(monkeypatch):
+def sql_repositories(monkeypatch):
     """Repository'leri gercek DB'ye baglar."""
     from app.config import settings
     from app.repositories import deps
@@ -47,33 +47,33 @@ def sql_repolar(monkeypatch):
     deps.reset_repositories()
 
 
-async def test_baglanti_calisiyor(sql_repolar):
+async def test_connection_works(sql_repositories):
     from app.db.session import ping
 
     assert await ping() is True
 
 
-async def test_kullanici_eposta_ile_bulunur(sql_repolar):
-    user = await sql_repolar.get_user_repository().get_by_email("mehmet@example.com")
+async def test_user_found_by_email(sql_repositories):
+    user = await sql_repositories.get_user_repository().get_by_email("mehmet@example.com")
 
     assert user["id"] == 1
     assert user["password_hash"].startswith("$2b$")
 
 
-async def test_profil_sorgusu_sifre_hashini_dondurmez(sql_repolar):
-    user = await sql_repolar.get_user_repository().get_by_id(1)
+async def test_profile_query_does_not_return_password_hash(sql_repositories):
+    user = await sql_repositories.get_user_repository().get_by_id(1)
 
     assert "password_hash" not in user
 
 
-async def test_ozet_varlik_satirlariyla_tutarli(sql_repolar):
+async def test_summary_consistent_with_holding_rows(sql_repositories):
     """Ozet ile varlik listesi AYNI view zincirinden gelmeli.
 
     Toplam sabit bir sayiyla karsilastirilmaz: fiyat gorevi calistiginda deger
     degisir. Sinanan sey hesabin TEK kaynaktan gelmesi - iki uc ayrisirsa
     dashboard'da iki farkli toplam gorunur.
     """
-    repository = sql_repolar.get_portfolio_repository()
+    repository = sql_repositories.get_portfolio_repository()
     ozet = await repository.get_summary(1)
     varliklar = await repository.get_holdings(1)
 
@@ -82,72 +82,74 @@ async def test_ozet_varlik_satirlariyla_tutarli(sql_repolar):
     assert round(float(ozet["total_value_try"]), 2) == round(beklenen, 2)
 
 
-async def test_kar_zarar_deger_ile_maliyet_farkina_esit(sql_repolar):
-    ozet = await sql_repolar.get_portfolio_repository().get_summary(1)
+async def test_profit_loss_equals_value_minus_cost(sql_repositories):
+    ozet = await sql_repositories.get_portfolio_repository().get_summary(1)
 
     fark = float(ozet["total_value_try"]) - float(ozet["total_cost_try"])
     assert round(float(ozet["total_pnl_try"]), 2) == round(fark, 2)
 
 
-async def test_varsayilan_portfoy_secilir(sql_repolar):
-    repository = sql_repolar.get_portfolio_repository()
+async def test_default_portfolio_selected(sql_repositories):
+    repository = sql_repositories.get_portfolio_repository()
 
     assert await repository.get_default_portfolio_id(1) == 1
 
 
-async def test_baska_kullanicinin_portfoyu_gorunmez(sql_repolar):
+async def test_another_users_portfolio_not_visible(sql_repositories):
     """Derinlemesine savunma: portfolio_id gonderilse bile user_id filtresi var."""
-    varliklar = await sql_repolar.get_portfolio_repository().get_holdings(user_id=2, portfolio_id=1)
+    varliklar = await sql_repositories.get_portfolio_repository().get_holdings(
+        user_id=2, portfolio_id=1
+    )
 
     assert varliklar == []
 
 
-async def test_dagilim_yuzdeleri_100_e_tamamlanir(sql_repolar):
-    dagilim = await sql_repolar.get_portfolio_repository().get_allocation(1)
+async def test_allocation_percentages_sum_to_100(sql_repositories):
+    dagilim = await sql_repositories.get_portfolio_repository().get_allocation(1)
 
     toplam = sum(float(d["class_pct"]) for d in dagilim)
     assert abs(toplam - 100.0) < 0.05
 
 
-async def test_fiyat_gecmisi_backfill_den_gelir(sql_repolar):
-    seri = await sql_repolar.get_market_repository().get_history("THYAO", days=30)
+async def test_price_history_comes_from_backfill(sql_repositories):
+    seri = await sql_repositories.get_market_repository().get_history("THYAO", days=30)
 
     assert len(seri) > 100  # 4 saat cozunurluk -> gunde ~6 satir
     assert [s["ts"] for s in seri] == sorted(s["ts"] for s in seri)
 
 
-async def test_rag_aramasi_bm25_ile_sonuc_doner(sql_repolar):
+async def test_rag_search_returns_results_with_bm25(sql_repositories):
     """Embedding modeli secilene kadar arama BM25 ayagiyla calisir."""
-    sonuclar = await sql_repolar.get_rag_repository().search("THYAO net kar", top_k=5)
+    sonuclar = await sql_repositories.get_rag_repository().search("THYAO net kar", top_k=5)
 
     assert sonuclar
     assert {"doc_id", "baslik", "sirket", "tarih", "tip", "content", "score"} <= set(sonuclar[0])
 
 
-async def test_rag_aramasi_sirket_filtresine_uyar(sql_repolar):
+async def test_rag_search_respects_company_filter(sql_repositories):
     """Filtre SEMBOL ile calismali.
 
     Dokumanlarda `sirket` alani UNVAN tasiyor ("Türk Hava Yolları"), ajanlar ise
     sorgudan SEMBOL cikariyor ("THYAO"). Yalnizca unvana bakan bir filtre, ajanin
     her filtreli aramasinda sessizce bos donerdi.
     """
-    sonuclar = await sql_repolar.get_rag_repository().search("yolcu doluluk", sirket="THYAO")
+    sonuclar = await sql_repositories.get_rag_repository().search("yolcu doluluk", sirket="THYAO")
 
     assert sonuclar, "sembol ile filtreleme unvanla yazilmis dokumani bulmali"
     assert all(s["symbol"] == "THYAO" for s in sonuclar)
 
 
-async def test_rag_aramasi_turkce_kelimeleri_ORlar(sql_repolar):
+async def test_rag_search_ORs_turkish_words(sql_repositories):
     """plainto_tsquery AND'lerse dogal dildeki soru sessizce bos doner."""
-    sonuclar = await sql_repolar.get_rag_repository().search(
+    sonuclar = await sql_repositories.get_rag_repository().search(
         "THYAO yolcu doluluk oranı ne oldu", top_k=5
     )
 
     assert sonuclar, "tum kelimelerin ayni chunk'ta gecmesi beklenmemeli (OR)"
 
 
-async def test_sohbet_kaydedilir_ve_okunur(sql_repolar):
-    repository = sql_repolar.get_chat_repository()
+async def test_conversation_saved_and_read(sql_repositories):
+    repository = sql_repositories.get_chat_repository()
 
     oturum = await repository.create_session(1, "Entegrasyon testi sohbeti")
     await repository.add_message(oturum["id"], "user", "Portfoyum nasil?")
@@ -158,21 +160,21 @@ async def test_sohbet_kaydedilir_ve_okunur(sql_repolar):
     assert mesajlar[1]["meta"] == {"sources": []}
 
 
-async def test_baskasinin_oturumu_okunamaz(sql_repolar):
-    repository = sql_repolar.get_chat_repository()
+async def test_another_users_session_not_readable(sql_repositories):
+    repository = sql_repositories.get_chat_repository()
     oturum = await repository.create_session(1, "Sahiplik testi")
 
     assert await repository.get_session(oturum["id"], user_id=2) is None
 
 
-async def test_fiyat_guncellemesi_yazilir_ve_degisim_hesaplanir(sql_repolar):
+async def test_price_update_written_and_change_computed(sql_repositories):
     """Fiyat yazimi DESTRUKTIFTIR; test kendi degisikligini geri alir.
 
     Alinmasaydi bu testten sonra calisan toplam/dagilim testleri seed degerini
     degil guncellenmis fiyati gorurdu - hem de yalnizca sira degistiginde
     bozulan, bulunmasi zor bir bicimde.
     """
-    repository = sql_repolar.get_market_repository()
+    repository = sql_repositories.get_market_repository()
     varliklar = await repository.get_assets_for_price_update()
     hedef = next(v for v in varliklar if v["symbol"] == "THYAO")
     eski_fiyat = round(float(hedef["current_price"]), 4)
@@ -197,7 +199,7 @@ async def test_fiyat_guncellemesi_yazilir_ve_degisim_hesaplanir(sql_repolar):
         )
 
 
-async def test_denetim_kayitlari_yazilir(sql_repolar):
+async def test_audit_records_written(sql_repositories):
     import uuid
 
     from sqlalchemy import text
@@ -205,7 +207,7 @@ async def test_denetim_kayitlari_yazilir(sql_repolar):
     from app.db.session import get_session_factory
 
     request_id = str(uuid.uuid4())
-    await sql_repolar.get_audit_repository().log_tool_call(
+    await sql_repositories.get_audit_repository().log_tool_call(
         {
             "request_id": request_id,
             "session_id": None,
@@ -230,14 +232,14 @@ async def test_denetim_kayitlari_yazilir(sql_repolar):
     assert satir["args"] == {"limit": 10}
 
 
-async def test_varlik_satirlari_sozlesmedeki_alanlari_tasir(sql_repolar):
+async def test_holding_rows_carry_contract_fields(sql_repositories):
     """`v_holdings_valued` alan kumesi REST sozlesmesiyle uyusmali.
 
     Eskiden burada SQL ile bellek ici implementasyon karsilastiriliyordu;
     bellek ici implementasyon kaldirildigi icin referans artik sozlesmenin
     kendisi (`app/schemas/portfolio.py::Holding`).
     """
-    varliklar = await sql_repolar.get_portfolio_repository().get_holdings(1)
+    varliklar = await sql_repositories.get_portfolio_repository().get_holdings(1)
 
     beklenen = {
         "symbol",

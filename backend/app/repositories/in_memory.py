@@ -340,7 +340,7 @@ _BASKET_STATES: dict[tuple[int, str], dict] = {}
 _KILL_SWITCH: dict = {"active": False, "reason": None, "activated_by": None}
 
 
-def _kuyrukla(order: dict, event_type: str, extra: dict | None = None) -> None:
+def _enqueue_outbox(order: dict, event_type: str, extra: dict | None = None) -> None:
     """Emir olayini bellek ici outbox'a yazar.
 
     SQL tarafinda bu yazim gerceklesmeyle AYNI transaction icindedir; bellek
@@ -1091,7 +1091,7 @@ class InMemoryTradingRepository:
                     account["available_balance"] += reserve
                     account["reserved_balance"] -= reserve
                     order.update(status="CANCELLED", reserved_amount=0.0)
-                    _kuyrukla(order, "ORDER_EXPIRED")
+                    _enqueue_outbox(order, "ORDER_EXPIRED")
                     continue
             if order["status"] != "PENDING" or order["asset_id"] not in prices:
                 continue
@@ -1157,7 +1157,7 @@ class InMemoryTradingRepository:
                     account["reserved_balance"] -= reserve
                     order["status"] = "REJECTED"
                     order["rejection_reason"] = "Yeni fiyatta kullanilabilir bakiye yetersiz."
-                    _kuyrukla(order, "ORDER_REJECTED")
+                    _enqueue_outbox(order, "ORDER_REJECTED")
                     continue
                 account["available_balance"] += reserve - total
                 account["reserved_balance"] -= reserve
@@ -1182,7 +1182,7 @@ class InMemoryTradingRepository:
                 if not holding or float(holding["quantity"]) < float(order["quantity"]):
                     order["status"] = "REJECTED"
                     order["rejection_reason"] = "Gerceklesme aninda satilabilir adet yetersiz."
-                    _kuyrukla(order, "ORDER_REJECTED")
+                    _enqueue_outbox(order, "ORDER_REJECTED")
                     continue
                 holding["quantity"] = float(holding["quantity"]) - float(order["quantity"])
                 if holding["quantity"] == 0:
@@ -1209,7 +1209,7 @@ class InMemoryTradingRepository:
                 commission=commission,
                 filled_at=now,
             )
-            _kuyrukla(
+            _enqueue_outbox(
                 order,
                 "ORDER_FILLED",
                 {
@@ -1337,7 +1337,7 @@ class InMemoryNotificationRepository:
         return rows[:limit]
 
 
-def _zaman(value) -> datetime | None:
+def _to_datetime(value) -> datetime | None:
     """ISO metni ya da datetime -> tz farkindali datetime."""
     if value is None:
         return None
@@ -1587,20 +1587,20 @@ class InMemoryRecommendationRepository:
         )
         return dict(row) if row else None
 
-    def _bul(self, user_id: int, rid: int) -> dict | None:
+    def _find(self, user_id: int, rid: int) -> dict | None:
         return next(
             (r for r in _RECOMMENDATIONS if r["id"] == rid and r["user_id"] == user_id), None
         )
 
     async def mark_viewed(self, user_id: int, recommendation_id: int) -> dict | None:
-        row = self._bul(user_id, recommendation_id)
+        row = self._find(user_id, recommendation_id)
         if row and row["status"] == "PUBLISHED":
             row["status"] = "VIEWED"
             row["viewed_at"] = datetime.now(timezone.utc).isoformat()
         return dict(row) if row else None
 
     async def reject(self, user_id: int, recommendation_id: int, reason: str) -> dict:
-        row = self._bul(user_id, recommendation_id)
+        row = self._find(user_id, recommendation_id)
         if not row or row["status"] not in {"PUBLISHED", "VIEWED"}:
             raise BusinessRuleError("Bu oneri artik reddedilemez.")
         row.update(
@@ -1611,7 +1611,7 @@ class InMemoryRecommendationRepository:
         return dict(row)
 
     async def attach_order(self, user_id: int, recommendation_id: int, order_id: int) -> dict:
-        row = self._bul(user_id, recommendation_id)
+        row = self._find(user_id, recommendation_id)
         if not row or row.get("order_id") is not None:
             raise BusinessRuleError("Bu oneri zaten bir emre donusmus.")
         if row["status"] not in {"PUBLISHED", "VIEWED", "APPROVED"}:
@@ -1631,7 +1631,7 @@ class InMemoryRecommendationRepository:
         for r in _RECOMMENDATIONS:
             if r["status"] not in {"PUBLISHED", "VIEWED"}:
                 continue
-            son = _zaman(r["expires_at"])
+            son = _to_datetime(r["expires_at"])
             if son is not None and son <= an:
                 r["status"] = "EXPIRED"
                 sayi += 1
@@ -2827,6 +2827,11 @@ class InMemoryContestRepository:
         _PARTICIPATIONS[:] = [p for p in _PARTICIPATIONS if p["id"] not in remove_ids]
         _ANSWERS[:] = [a for a in _ANSWERS if a["participation_id"] not in remove_ids]
         _PAYOUTS[:] = [pay for pay in _PAYOUTS if pay["participation_id"] not in remove_ids]
+
+    async def reset_shop_purchases(self, user_id: int) -> None:
+        _POWERUP_PURCHASES[:] = [r for r in _POWERUP_PURCHASES if r["user_id"] != user_id]
+        _USER_POWERUPS[:] = [r for r in _USER_POWERUPS if r["user_id"] != user_id]
+        _DONATION_PURCHASES[:] = [r for r in _DONATION_PURCHASES if r["user_id"] != user_id]
 
     async def submit_answer(
         self,

@@ -28,7 +28,7 @@ KORUMALI_UCLAR = [
 ]
 
 
-def test_login_token_dondurur(client):
+def test_login_returns_token(client):
     yanit = client.post("/api/auth/login", json={"email": DEMO_EMAIL, "password": DEMO_PASSWORD})
 
     assert yanit.status_code == 200
@@ -37,14 +37,14 @@ def test_login_token_dondurur(client):
     assert decode_access_token(govde["access_token"]) == DEMO_USER_ID
 
 
-def test_login_yanlis_sifreyi_reddeder(client):
+def test_login_rejects_wrong_password(client):
     yanit = client.post("/api/auth/login", json={"email": DEMO_EMAIL, "password": "yanlis"})
 
     assert yanit.status_code == 401
     assert yanit.json()["error"]["code"] == "unauthorized"
 
 
-def test_login_bilinmeyen_kullanici_ile_ayni_mesaji_verir(client):
+def test_login_gives_same_message_for_unknown_user(client):
     """Kullanici numaralandirmasina karsi: iki durum ayirt EDILEMEMELI."""
     yanlis_sifre = client.post(
         "/api/auth/login", json={"email": DEMO_EMAIL, "password": "yanlis"}
@@ -56,14 +56,14 @@ def test_login_bilinmeyen_kullanici_ile_ayni_mesaji_verir(client):
     assert yanlis_sifre["error"]["message"] == yok["error"]["message"]
 
 
-def test_login_gecersiz_eposta_bicimini_reddeder(client):
+def test_login_rejects_invalid_email_format(client):
     yanit = client.post("/api/auth/login", json={"email": "eposta-degil", "password": "x"})
 
     assert yanit.status_code == 422
     assert yanit.json()["error"]["code"] == "validation_error"
 
 
-def test_me_profil_dondurur_ama_sifre_hashini_dondurmez(client, auth):
+def test_me_returns_profile_without_password_hash(client, auth):
     yanit = client.get("/api/auth/me", headers=auth)
 
     assert yanit.status_code == 200
@@ -74,7 +74,7 @@ def test_me_profil_dondurur_ama_sifre_hashini_dondurmez(client, auth):
 
 
 @pytest.mark.parametrize("yol", KORUMALI_UCLAR)
-def test_korumali_uclar_tokensiz_401_doner(client, yol):
+def test_protected_endpoints_return_401_without_token(client, yol):
     yanit = client.get(yol)
 
     assert yanit.status_code == 401
@@ -85,13 +85,13 @@ def test_korumali_uclar_tokensiz_401_doner(client, yol):
     assert yanit.headers["X-Request-ID"] == hata["request_id"]
 
 
-def test_gecersiz_token_401_doner(client):
+def test_invalid_token_returns_401(client):
     yanit = client.get("/api/auth/me", headers={"Authorization": "Bearer bozuk.token.dizesi"})
 
     assert yanit.status_code == 401
 
 
-def test_suresi_dolmus_token_401_doner(client):
+def test_expired_token_returns_401(client):
     suresi_dolmus = create_access_token(DEMO_USER_ID, expires_minutes=-1)
 
     yanit = client.get("/api/auth/me", headers={"Authorization": f"Bearer {suresi_dolmus}"})
@@ -99,7 +99,7 @@ def test_suresi_dolmus_token_401_doner(client):
     assert yanit.status_code == 401
 
 
-def test_silinmis_kullanicinin_tokeni_calismaz(client):
+def test_deleted_user_token_does_not_work(client):
     """Token gecerli ama kullanici yok: yetki DB'deki guncel kayda gore verilir."""
     yanit = client.get(
         "/api/auth/me", headers={"Authorization": f"Bearer {create_access_token(9999)}"}
@@ -108,7 +108,7 @@ def test_silinmis_kullanicinin_tokeni_calismaz(client):
     assert yanit.status_code == 401
 
 
-def test_bozuk_hash_istisna_firlatmaz():
+def test_corrupt_hash_does_not_raise():
     """Bozuk hash 500 degil 'gecersiz kimlik' anlamina gelmeli."""
     assert verify_password("demo1234", "bu-bir-bcrypt-hashi-degil") is False
     assert verify_password("", "") is False

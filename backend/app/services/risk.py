@@ -271,7 +271,7 @@ async def risk_profili_getir(user_id: int, portfolio_id: int | None = None) -> d
     # veritabaninda (~645 ms gidis-donus, bkz. `_oynakliklari_olc`) her
     # dashboard yuklemesine ~1.3 sn ekleniyordu - `_oynakliklari_olc`
     # cagrisi zaten paralellestirilmisti ama onun ONUNDEKI uc adim seri
-    # kalmisti. `dashboard.ozet_getir` bu fonksiyonu gather icinde cagirsa
+    # kalmisti. `dashboard.get_dashboard_summary` bu fonksiyonu gather icinde cagirsa
     # da, icerideki seri zincir toplam sureyi belirliyordu (en uzun dal).
     holdings, allocation, user = await asyncio.gather(
         portfolio_repository.get_holdings(user_id, portfolio_id),
@@ -325,7 +325,7 @@ async def _oynakliklari_olc(holdings: list[dict]) -> dict[str, float]:
     # PARALEL: sorgular birbirinden bagimsiz. Sirayla calistirildiginda uzak
     # veritabaninda (Supabase ap-south-1) sorgu basina ~645 ms gidis-donus
     # birikiyordu; olculdu: 3 sembol sirayla 1.935 ms, paralel ~700 ms.
-    # `dashboard.ozet_getir` de zaten ayni deseni (gather) kullaniyor.
+    # `dashboard.get_dashboard_summary` de zaten ayni deseni (gather) kullaniyor.
     seriler = await asyncio.gather(
         *(market_repository.get_history(s, days=VOLATILITY_WINDOW_DAYS) for s in semboller),
         # Tek sembolun gecmisi okunamazsa TUM risk profili dusmemeli;

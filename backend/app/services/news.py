@@ -480,14 +480,16 @@ _devam_eden_cozumlemeler: set[int] = set()
 _arka_plan_gorevleri: set[asyncio.Task] = set()
 
 
-def _hizli_gorsel(kategori: str | None, baslik: str | None) -> str:
+def _instant_image(kategori: str | None, baslik: str | None) -> str:
     """Dis cagri YAPMADAN aninda donebilecek gorsel."""
     return _local_keyword_image(baslik) or _CATEGORY_FALLBACK_IMAGE.get(
         kategori or "", _DEFAULT_IMAGE
     )
 
 
-async def _arka_planda_coz(document_id: int, kategori: str | None, baslik: str | None) -> None:
+async def _resolve_in_background(
+    document_id: int, kategori: str | None, baslik: str | None
+) -> None:
     try:
         await resolve_image(document_id, kategori, baslik)
     except Exception:  # noqa: BLE001 - kapak gorseli icin istek akisini bozma
@@ -496,7 +498,7 @@ async def _arka_planda_coz(document_id: int, kategori: str | None, baslik: str |
         _devam_eden_cozumlemeler.discard(document_id)
 
 
-def gorseli_arka_planda_coz(document_id: int, kategori: str | None, baslik: str | None) -> None:
+def resolve_image_in_background(document_id: int, kategori: str | None, baslik: str | None) -> None:
     """Pexels aramasini ve DB yazimini istekten bagimsiz bir goreve birakir.
 
     Yerel anahtar kelime gorseli olan haberler icin hicbir sey yapilmaz -
@@ -506,7 +508,7 @@ def gorseli_arka_planda_coz(document_id: int, kategori: str | None, baslik: str 
     if document_id in _devam_eden_cozumlemeler or _local_keyword_image(baslik):
         return
     _devam_eden_cozumlemeler.add(document_id)
-    gorev = asyncio.create_task(_arka_planda_coz(document_id, kategori, baslik))
+    gorev = asyncio.create_task(_resolve_in_background(document_id, kategori, baslik))
     _arka_plan_gorevleri.add(gorev)
     gorev.add_done_callback(_arka_plan_gorevleri.discard)
 
@@ -536,9 +538,9 @@ async def _haber(row: dict, change_by_symbol: dict[str, float | None]) -> NewsAr
     image_url = row.get("image_url")
     if not image_url:
         # Istegi Pexels'e bekletme: aninda yerel/kategori gorseli, arama
-        # arka planda (bkz. `gorseli_arka_planda_coz`).
-        image_url = _hizli_gorsel(kategori, stored_baslik)
-        gorseli_arka_planda_coz(document_id, kategori, stored_baslik)
+        # arka planda (bkz. `resolve_image_in_background`).
+        image_url = _instant_image(kategori, stored_baslik)
+        resolve_image_in_background(document_id, kategori, stored_baslik)
 
     related_symbol = _related_symbol(kategori, stored_baslik)
     related_change_pct = change_by_symbol.get(related_symbol) if related_symbol else None

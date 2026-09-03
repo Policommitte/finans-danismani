@@ -43,7 +43,7 @@ RANGE_DAYS = {"1d": 1, "5d": 5, "1m": 30, "3m": 90, "1y": 365}
 #: varsayilan 1 aylik/saatlik grafigi icin iki yillik saatlik arsivin tamami
 #: (binlerce satir, yuz kilobaytlarca JSON) cekiliyor, ustelik 60 sn'de bir
 #: tazeleniyordu - ve bu istek sayfa gecis perdesinin bekledigi istekti.
-#: Tampon artik gorunen aralikla OLCEKLENIR (bkz. `_gecmis_gun_sayisi`);
+#: Tampon artik gorunen aralikla OLCEKLENIR (bkz. `_history_day_count`);
 #: yillik gorunum yine tam arsivi alir, aylik gorunum almaz.
 HISTORY_BUFFER_DAYS = {"1m": 30, "5m": 60, "1h": 120, "1d": 730}
 #: Depodaki en uzun arsiv (015_hourly_market_candles.sql: saatlik mumlar iki
@@ -54,7 +54,7 @@ HISTORY_SCROLL_FACTOR = 2
 CHART_TIME_ZONE = ZoneInfo("Europe/Istanbul")
 
 
-def _gecmis_gun_sayisi(range_key: str, kaynak_interval: str) -> int:
+def _history_day_count(range_key: str, kaynak_interval: str) -> int:
     """Grafik icin depodan istenecek gun sayisi.
 
     Gorunen araligin `HISTORY_SCROLL_FACTOR` kati (sola kaydirma payi), kaynak
@@ -83,7 +83,7 @@ def _kaynak_mum_araligi(interval: str, range_key: str) -> str:
     return "5m"
 
 
-async def varliklar_getir(category: str | None = None) -> AssetsResponse:
+async def list_assets(category: str | None = None) -> AssetsResponse:
     rows = await get_market_repository().list_assets(category)
     return AssetsResponse(items=[_asset(row) for row in rows])
 
@@ -98,7 +98,7 @@ async def varliklar_getir(category: str | None = None) -> AssetsResponse:
 _MIN_SORGU_GUN = 3
 
 
-async def gecmis_getir(symbol: str, days: int = 30) -> HistoryResponse:
+async def get_price_history(symbol: str, days: int = 30) -> HistoryResponse:
     """PriceChart icin HAM zaman serisi.
 
     MCP tool'undan (`market_get_history`) farkli olarak burada ozetleme yoktur:
@@ -136,8 +136,8 @@ async def mumlar_getir(symbol: str, interval: str, range_key: str) -> CandlesRes
     kaynak_interval = _kaynak_mum_araligi(interval, range_key)
     # Tarih secimi ilk gorunen pencereyi belirler. Daha eski mumlari da
     # yukleyerek grafigin sola kaydirilabilmesini saglariz - ama gorunen
-    # aralikla orantili olarak (bkz. `_gecmis_gun_sayisi`).
-    days = _gecmis_gun_sayisi(range_key, kaynak_interval)
+    # aralikla orantili olarak (bkz. `_history_day_count`).
+    days = _history_day_count(range_key, kaynak_interval)
     ohlcv_rows = await repository.get_candles(symbol, interval=kaynak_interval, days=days)
     if ohlcv_rows:
         if interval == "1h" and kaynak_interval == "1h":
@@ -296,7 +296,7 @@ async def fotograf_getir(query: str) -> PhotoResponse:
     return PhotoResponse(query=query, url=url)
 
 
-async def arama_yap(
+async def search_assets(
     query: str, top_k: int = 5, sirket: str | None = None, tip: str | None = None
 ) -> MarketSearchResponse:
     """RAG destekli piyasa aramasi.
@@ -319,14 +319,14 @@ async def arama_yap(
                 tarih=str(row.get("tarih") or "") or None,
                 tip=row.get("tip"),
                 excerpt=(row.get("content") or "")[:EXCERPT_LENGTH],
-                score=_f_opt(row.get("score")),
+                score=_optional_float(row.get("score")),
             )
             for row in rows
         ],
     )
 
 
-async def en_cok_hareket_edenler(limit: int = 5) -> list[Asset]:
+async def top_movers(limit: int = 5) -> list[Asset]:
     """Gun icinde mutlak degisimi en yuksek varliklar (dashboard karti)."""
     rows = await get_market_repository().list_assets()
     rows.sort(key=lambda r: abs(float(r.get("daily_change_pct") or 0)), reverse=True)
@@ -340,13 +340,13 @@ def _asset(row: dict) -> Asset:
         asset_class=row["asset_class"],
         currency=row["currency"],
         current_price=round(float(row["current_price"]), 4),
-        daily_change_pct=_f_opt(row.get("daily_change_pct")),
-        weekly_change_pct=_f_opt(row.get("weekly_change_pct")),
-        yearly_change_pct=_f_opt(row.get("yearly_change_pct")),
+        daily_change_pct=_optional_float(row.get("daily_change_pct")),
+        weekly_change_pct=_optional_float(row.get("weekly_change_pct")),
+        yearly_change_pct=_optional_float(row.get("yearly_change_pct")),
     )
 
 
-def _f_opt(value) -> float | None:
+def _optional_float(value) -> float | None:
     return None if value is None else round(float(value), 4)
 
 

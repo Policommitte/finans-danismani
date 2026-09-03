@@ -130,11 +130,29 @@ export function useChatStream() {
     }
   }
 
+  /**
+   * Adds a message that lives only in the widget (guided flows, local
+   * confirmations). Returns the generated id so the caller can patch it later.
+   */
+  function appendLocalMessage(message: Omit<ChatMessage, "id" | "local">): string {
+    const id = crypto.randomUUID();
+    setMessages((current) => [...current, { ...message, id, local: true }]);
+    return id;
+  }
+
+  function updateMessage(id: string, patch: Partial<ChatMessage>) {
+    setMessages((current) =>
+      current.map((message) => (message.id === id ? { ...message, ...patch } : message)),
+    );
+  }
+
   return {
     messages,
     status,
     isStreaming,
     error,
     sendMessage,
+    appendLocalMessage,
+    updateMessage,
   };
 }

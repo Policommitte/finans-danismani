@@ -45,16 +45,19 @@ export function WaitingScreen({ onStart }: Props) {
         <div className="mx-auto mt-8 max-w-md">
           <button
             onClick={onStart}
-            className="w-full rounded-lg px-6 py-3 text-sm font-semibold transition"
-            style={{ background: "var(--color-panel-dark)", color: "#fff" }}
+            className="group w-full rounded-full px-6 py-3.5 text-sm font-bold text-white transition hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(135deg, var(--color-cta) 0%, var(--color-cta-hover) 100%)",
+              boxShadow: "0 8px 24px color-mix(in srgb, var(--color-cta) 45%, transparent)",
+            }}
           >
-            {language === "tr" ? "Test modunda başlat" : "Start in test mode"}
+            <span className="inline-flex items-center justify-center gap-2">
+              <span className="animate-pulse text-base" aria-hidden="true">
+                ⚡
+              </span>
+              {language === "tr" ? "Çalışma notlarına geç" : "Go to the study notes"}
+            </span>
           </button>
-          <p className="app-muted mt-2 text-xs">
-            {language === "tr"
-              ? "Demo için saati beklemeden çalışma notuna geçer. Sunumda bu buton kaldırılacak."
-              : "For the demo, this skips ahead to the study notes without waiting for the time. This button will be removed for the presentation."}
-          </p>
         </div>
 
         <p className="app-muted mt-6 text-xs">
