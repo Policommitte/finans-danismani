@@ -260,6 +260,7 @@ export function BasketSuggestionPanel({ onReady }: { onReady?: () => void }) {
         suggestion={selectedBasket?.suggestion ?? null}
         title={selectedBasket ? optionTitle(selectedBasket, language) : undefined}
         strategyLabel={selectedBasket ? STRATEGY_COPY[selectedBasket.strategy_key][language].label : undefined}
+        metrics={selectedBasket?.metrics}
         onClose={() => setSelectedBasket(null)}
       />
     </section>

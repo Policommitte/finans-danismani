@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "../../contexts/LanguageContext";
-import type { IdleCashSuggestion } from "../../models/chat";
+import type { IdleCashBasketOption, IdleCashSuggestion } from "../../models/chat";
 import { createBasketMarketOrders } from "../../services/tradingService";
 
 type Language = "tr" | "en";
@@ -28,11 +28,13 @@ export function IdleCashSuggestionModal({
   onClose,
   title,
   strategyLabel,
+  metrics,
 }: {
   suggestion: IdleCashSuggestion | null;
   onClose: () => void;
   title?: string;
   strategyLabel?: string;
+  metrics?: IdleCashBasketOption["metrics"];
 }) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
@@ -119,7 +121,7 @@ export function IdleCashSuggestionModal({
         </header>
 
         <div className="overflow-y-auto px-6 py-5">
-          <IdleCashSuggestionContent suggestion={suggestion} />
+          <IdleCashSuggestionContent suggestion={suggestion} metrics={metrics} />
         </div>
 
         <footer className="border-t px-6 py-4">
@@ -188,8 +190,10 @@ export function IdleCashSuggestionModal({
 
 export function IdleCashSuggestionContent({
   suggestion,
+  metrics,
 }: {
   suggestion: IdleCashSuggestion;
+  metrics?: IdleCashBasketOption["metrics"];
 }) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
@@ -205,6 +209,15 @@ export function IdleCashSuggestionContent({
         <Summary label={language === "tr" ? "Risk profili" : "Risk profile"} value={RISK_LABELS[language][suggestion.risk_profile]} />
         <Summary label={language === "tr" ? "Hedef" : "Goal"} value={GOAL_LABELS[language][suggestion.goal]} />
       </div>
+
+      {metrics && (
+        <div className="mb-5 grid gap-3 rounded-xl border p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <Summary label={language === "tr" ? "Sepet riski" : "Basket risk"} value={RISK_LABELS[language][metrics.risk_level]} />
+          <Summary label={language === "tr" ? "20 günlük oynaklık" : "20-day volatility"} value={`%${metrics.expected_volatility_20d_pct.toLocaleString(locale)}`} />
+          <Summary label={language === "tr" ? "Çeşitlendirme" : "Diversification"} value={`${metrics.diversification_score.toLocaleString(locale)} / 100`} />
+          <Summary label={language === "tr" ? "Dağılım" : "Allocation"} value={`${metrics.asset_class_count} ${language === "tr" ? "sınıf" : "classes"} · ${metrics.sector_count} ${language === "tr" ? "sektör" : "sectors"}`} />
+        </div>
+      )}
 
       <div className="space-y-3">
         {suggestion.items.map((item) => (
