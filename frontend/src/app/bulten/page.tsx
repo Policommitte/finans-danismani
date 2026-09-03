@@ -1,18 +1,54 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { BorsaIstanbulLogo, matchNewsLogo, matchSourceLogo } from "../../components/bulten/logos";
 import { NewsCard } from "../../components/bulten/NewsCard";
 import { NewsDetailModal, type NewsDetailArticle } from "../../components/bulten/NewsDetailModal";
 import { ErrorState } from "../../components/feedback/ErrorState";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { BULLETIN_PAGE_READY_EVENT } from "../../components/layout/transitionEvents";
+import { EconomicCalendarTab } from "../../components/market/EconomicCalendarTab";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { useDashboard } from "../../hooks/useDashboard";
 import { useLanguage } from "../../contexts/LanguageContext";
 import type { NewsArticle } from "../../models/market";
 import type { Holding } from "../../models/portfolio";
 import { getNews } from "../../services/marketService";
+
+type Section = "haberler" | "takvim";
+
+const SECTIONS: { key: Section; label: { tr: string; en: string } }[] = [
+  { key: "haberler", label: { tr: "Haberler", en: "News" } },
+  { key: "takvim", label: { tr: "Ekonomik Takvim", en: "Economic Calendar" } },
+];
+
+function CalendarLoadingOverlay({ language }: { language: "tr" | "en" }) {
+  const [mainElement, setMainElement] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setMainElement(document.querySelector("main"));
+  }, []);
+
+  if (!mainElement) return null;
+
+  return createPortal(
+    <div className="absolute inset-0 z-[80] grid place-items-center bg-slate-950/10 backdrop-blur-md">
+      <div
+        role="status"
+        aria-live="polite"
+        className="relative flex h-24 w-44 items-start justify-center"
+      >
+        <span className="page-transition__logo" />
+        <span className="page-transition__spinner" />
+        <span className="sr-only">
+          {language === "tr" ? "Ekonomik takvim hazırlanıyor" : "Preparing economic calendar"}
+        </span>
+      </div>
+    </div>,
+    mainElement,
+  );
+}
 
 type Category = "portfoy" | "bist" | "makro" | "bulten";
 
@@ -173,10 +209,20 @@ function buildHoldingArticle(
 
 export default function BultenPage() {
   const { language } = useLanguage();
+  const [section, setSection] = useState<Section>("haberler");
+  const [calendarReady, setCalendarReady] = useState(false);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("tumu");
   const [selectedArticle, setSelectedArticle] = useState<NewsDetailArticle | null>(null);
   const { data, loading, error, refetch } = useDashboard();
   const news = useAsyncData(() => getNews(50), [], "news:50");
+
+  const markCalendarReady = useCallback(() => setCalendarReady(true), []);
+
+  function selectSection(next: Section) {
+    if (next === section) return;
+    if (next === "takvim") setCalendarReady(false);
+    setSection(next);
+  }
 
   useEffect(() => {
     if (loading || news.loading) {
@@ -210,25 +256,28 @@ export default function BultenPage() {
   const bulletinItems = filtered.filter((article) => article.id !== featured?.id);
   const showPortfolio = activeTab === "tumu" || activeTab === "portfoy";
 
-  if ((loading && !data) || (news.loading && !news.data)) {
-    return <LoadingState label={language === "tr" ? "Bülten yükleniyor" : "Loading newsletter"} />;
+  if (section === "haberler") {
+    if ((loading && !data) || (news.loading && !news.data)) {
+      return <LoadingState label={language === "tr" ? "Bülten yükleniyor" : "Loading newsletter"} />;
+    }
+
+    if (!data) {
+      return (
+        <ErrorState
+          message={error ?? (language === "tr" ? "Bülten verisi boş döndü." : "Newsletter data returned empty.")}
+          onRetry={refetch}
+        />
+      );
+    }
+
+    if (news.error) {
+      return <ErrorState message={news.error} onRetry={news.refetch} />;
+    }
   }
 
-  if (!data) {
-    return (
-      <ErrorState
-        message={error ?? (language === "tr" ? "Bülten verisi boş döndü." : "Newsletter data returned empty.")}
-        onRetry={refetch}
-      />
-    );
-  }
-
-  if (news.error) {
-    return <ErrorState message={news.error} onRetry={news.refetch} />;
-  }
-
-  const portfolioTotalTry = data.summary?.total_value_try
-    ?? data.holdings.reduce((total, holding) => total + holding.market_value_try, 0);
+  const holdings = data?.holdings ?? [];
+  const portfolioTotalTry = data?.summary?.total_value_try
+    ?? holdings.reduce((total, holding) => total + holding.market_value_try, 0);
 
   return (
     <div className="space-y-6">
@@ -241,6 +290,31 @@ export default function BultenPage() {
         </p>
       </div>
 
+      <nav className="flex flex-wrap gap-2">
+        {SECTIONS.map((item) => {
+          const active = item.key === section;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => selectSection(item.key)}
+              className={`rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${
+                active ? "app-primary border-transparent" : "app-card app-border app-subtle-hover"
+              }`}
+            >
+              {item.label[language]}
+            </button>
+          );
+        })}
+      </nav>
+
+      {section === "takvim" ? (
+        <>
+          <EconomicCalendarTab onReady={markCalendarReady} />
+          {!calendarReady && <CalendarLoadingOverlay language={language} />}
+        </>
+      ) : (
+        <>
       <nav className="flex flex-wrap gap-2">
         {tabs.map((tab) => {
           const active = tab.key === activeTab;
@@ -303,13 +377,13 @@ export default function BultenPage() {
           <h2 className="mb-3 text-base font-semibold app-heading">
             {language === "tr" ? "Portföyden" : "From Your Portfolio"}
           </h2>
-          {data.holdings.length === 0 ? (
+          {holdings.length === 0 ? (
             <p className="text-sm app-muted">
               {language === "tr" ? "Portföyünde henüz bir varlık bulunmuyor." : "There are no assets in your portfolio yet."}
             </p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {data.holdings.map((holding) => {
+              {holdings.map((holding) => {
                 const holdingArticle = buildHoldingArticle(holding, portfolioTotalTry, language);
                 const sharePct = portfolioTotalTry > 0
                   ? (holding.market_value_try / portfolioTotalTry) * 100
@@ -370,6 +444,8 @@ export default function BultenPage() {
       )}
 
       {selectedArticle && <NewsDetailModal article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
+        </>
+      )}
     </div>
   );
 }
