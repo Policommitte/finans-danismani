@@ -37,10 +37,21 @@ export function TradingCenter() {
     );
   }, []);
 
+  //: Dashboard'daki "Otonom Oneriler" karti gibi disaridan gelen linkler
+  //: `?mode=otonom` ile dogrudan Otonom Alim sekmesini acabilir. Okunduktan
+  //: sonra URL temizlenir - sekme durumu tamamen client-side kalir.
   useEffect(() => {
-    if (window.location.search) {
-      window.history.replaceState(window.history.state, "", "/market");
+    if (!window.location.search) {
+      return;
     }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mode") === "otonom") {
+      setMode("autonomous");
+      setVisited((current) => (current.has("autonomous") ? current : new Set([...current, "autonomous"])));
+    }
+
+    window.history.replaceState(window.history.state, "", "/market");
   }, []);
 
   useEffect(() => {
