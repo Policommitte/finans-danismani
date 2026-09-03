@@ -1,5 +1,5 @@
 -- =====================================================================
--- 025 - Portfoy degeri 5 dakikalik snapshot'lari
+-- 025 - Basarili fiyat turlarindaki portfoy degeri snapshot'lari
 -- =====================================================================
 -- Grafik, farkli varliklarin seyrek fiyat gecmisini sonradan birlestirmek
 -- yerine scheduler aninda hesaplanan varlik + nakit toplamlarini okur.

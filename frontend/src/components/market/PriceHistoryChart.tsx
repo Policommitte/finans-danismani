@@ -132,17 +132,18 @@ const FORECAST_UP_COLOR = "#26a69a";
 const FORECAST_DOWN_COLOR = "#ef5350";
 
 /**
- * Colors every forecast point by its direction relative to the previous
- * point, so rising stretches render green and falling stretches red.
+ * Lightweight Charts applies a point's color to the segment that starts at
+ * that point. Compare with the NEXT value so turning points change color on
+ * the correct side: into a peak green, out of a peak red.
  */
 export function colorForecastByDirection<T extends { value: number }>(
   points: T[],
 ): Array<T & { color: string }> {
   return points.map((point, index) => {
-    const previous = index > 0 ? points[index - 1].value : point.value;
+    const next = index < points.length - 1 ? points[index + 1].value : point.value;
     return {
       ...point,
-      color: point.value >= previous ? FORECAST_UP_COLOR : FORECAST_DOWN_COLOR,
+      color: next >= point.value ? FORECAST_UP_COLOR : FORECAST_DOWN_COLOR,
     };
   });
 }
@@ -290,18 +291,18 @@ export function PriceHistoryChart({
 
     } else {
       const series = chart.addSeries(LineSeries, {
-        color: primaryColor,
+        color: FORECAST_UP_COLOR,
         lineWidth: 2,
         crosshairMarkerVisible: false,
         priceLineVisible: true,
         lastValueVisible: true,
         priceFormat: { type: "price", precision, minMove },
       });
-      series.setData(data.candles.map((candle) => ({
+      series.setData(colorForecastByDirection(data.candles.map((candle) => ({
         time: candle.time as UTCTimestamp,
         value: candle.close,
-      })));
-      updateLineColor = (color: string) => series.applyOptions({ color });
+      }))));
+      updateLineColor = () => series.applyOptions({ color: FORECAST_UP_COLOR });
     }
 
     // --- TAHMIN: gri kesikli cizgi + belirsizlik bandi ---
@@ -353,8 +354,8 @@ export function PriceHistoryChart({
 
       // Tahmin cizgisi yon renkli NOKTALI cizgi: yukselen parcalar yesil,
       // dusen parcalar kirmizi (mum renkleriyle ayni). lightweight-charts'ta
-      // bir noktanin `color`'u, ONCEKI noktadan o noktaya cizilen parcayi
-      // boyar; bu yuzden her nokta bir onceki degerle karsilastirilir.
+      // bir noktanin `color`'u, o noktadan SONRAKI noktaya cizilen parcayi
+      // boyar; bu yuzden her nokta bir sonraki degerle karsilastirilir.
       const forecastLine = chart.addSeries(LineSeries, {
         color: FORECAST_UP_COLOR,
         lineWidth: 3,

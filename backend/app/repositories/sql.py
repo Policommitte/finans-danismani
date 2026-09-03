@@ -377,7 +377,7 @@ class SqlPortfolioRepository(_SqlRepository):
                             ELSE p.quantity END
                        * COALESCE(h.price, p.current_price)
                        * p.try_rate
-                   ) AS total_value_try,
+                   ) + MAX(c.cash_value_try) AS total_value_try,
                    BOOL_AND(h.price IS NOT NULL) AS is_complete,
                    MAX(b.price) AS bist100_price
             FROM timeline t
@@ -412,6 +412,32 @@ class SqlPortfolioRepository(_SqlRepository):
                 ORDER BY x.ts DESC
                 LIMIT 1
             ) h ON TRUE
+            LEFT JOIN LATERAL (
+                -- Haftalik/aylik/yillik seri de toplam portfoy degerini
+                -- gostermeli: yatirimlarin yanina O ANDAKI nakit eklenir.
+                -- `cash_ledger.amount` nakdi degistiren tamamlanmis hareketin
+                -- isaretli tutaridir (alim eksi, satis/yatirma arti). Bugunku
+                -- toplam nakitten t.ts sonrasindaki hareketleri geri alarak
+                -- gecmis bakiye kurulur. Boylece bekleyen emirlerde available
+                -- ile reserved arasindaki aktarim net degeri degistirmez.
+                SELECT COALESCE(
+                    SUM(
+                        (
+                            ca.available_balance + ca.reserved_balance
+                            - COALESCE((
+                                SELECT SUM(cl.amount)
+                                FROM cash_ledger cl
+                                WHERE cl.account_id = ca.id
+                                  AND cl.created_at > t.ts
+                            ), 0)
+                        ) * fx.try_rate
+                    ),
+                    0
+                ) AS cash_value_try
+                FROM cash_accounts ca
+                JOIN selected_portfolio sp ON sp.id = ca.portfolio_id
+                JOIN v_fx_rates fx ON fx.currency = ca.currency
+            ) c ON TRUE
             LEFT JOIN bist b ON b.ts = t.ts
             GROUP BY t.ts
             ORDER BY t.ts
@@ -535,12 +561,11 @@ class SqlPortfolioRepository(_SqlRepository):
         )
 
     async def write_value_snapshots(self) -> int:
-        """Her portfoy icin tek, standart 5 dakikalik anlik goruntu yazar.
+        """Her basarili fiyat turunda portfoylerin anlik toplamlarini yazar.
 
-        Ayni kovada scheduler birden fazla kez calisirsa satir cogaltmak yerine
-        en son dogrulanmis degeri gunceller. Nakit, rezerve bakiye dahil edilerek
-        snapshot anindaki toplamdan hesaplanir; frontend sonradan bugunun
-        nakdini eski noktalara eklemez.
+        Zaman kovasi kullanilmaz: iki basarili fiyat turu birbirinin uzerine
+        yazmaz. Nakit, rezerve bakiye dahil edilerek snapshot anindaki
+        toplamdan hesaplanir.
         """
         async with self._session_factory() as session:
             result = await session.execute(
@@ -569,22 +594,14 @@ class SqlPortfolioRepository(_SqlRepository):
                             cash_value_try, total_value_try, source
                         )
                         SELECT h.portfolio_id,
-                               date_bin(
-                                   INTERVAL '5 minutes', now(),
-                                   TIMESTAMPTZ '1970-01-01 00:00:00+00'
-                               ),
+                               now(),
                                h.holdings_value_try,
                                c.cash_value_try,
                                h.holdings_value_try + c.cash_value_try,
                                'scheduler'
                         FROM holdings h
                         JOIN cash c ON c.portfolio_id = h.portfolio_id
-                        ON CONFLICT (portfolio_id, ts) DO UPDATE SET
-                            holdings_value_try = EXCLUDED.holdings_value_try,
-                            cash_value_try = EXCLUDED.cash_value_try,
-                            total_value_try = EXCLUDED.total_value_try,
-                            source = EXCLUDED.source,
-                            updated_at = now()
+                        ON CONFLICT (portfolio_id, ts) DO NOTHING
                         RETURNING 1
                     )
                     SELECT COUNT(*) AS written_count FROM written
