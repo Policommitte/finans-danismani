@@ -5,9 +5,10 @@ import { createPortal } from "react-dom";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { AutonomousTradingPanel } from "./AutonomousTradingPanel";
 import { BasketSuggestionPanel } from "./BasketSuggestionPanel";
+import { InfluencerBasketsPanel } from "./InfluencerBasketsPanel";
 import { ManualTradingPanel } from "./ManualTradingPanel";
 
-type TradingMode = "manual" | "autonomous" | "basket";
+type TradingMode = "manual" | "autonomous" | "basket" | "influencer";
 
 export function TradingCenter() {
   const { language } = useLanguage();
@@ -28,6 +29,11 @@ export function TradingCenter() {
   const markBasketReady = useCallback(() => {
     setReadyModes((current) =>
       current.has("basket") ? current : new Set([...current, "basket"]),
+    );
+  }, []);
+  const markInfluencerReady = useCallback(() => {
+    setReadyModes((current) =>
+      current.has("influencer") ? current : new Set([...current, "influencer"]),
     );
   }, []);
 
@@ -66,7 +72,7 @@ export function TradingCenter() {
       </div>
 
       <div
-        className="grid w-full max-w-xl grid-cols-3 gap-1 rounded-2xl app-card-muted p-1.5"
+        className="grid w-full max-w-3xl grid-cols-2 gap-1 rounded-2xl app-card-muted p-1.5 sm:grid-cols-4"
         role="tablist"
         aria-label={language === "tr" ? "İşlem türü" : "Trading mode"}
       >
@@ -85,6 +91,11 @@ export function TradingCenter() {
           label={language === "tr" ? "Sepet Önerisi" : "Basket Suggestion"}
           onClick={() => selectMode("basket")}
         />
+        <ModeButton
+          active={mode === "influencer"}
+          label={language === "tr" ? "Fenomen Sepetleri" : "Public-Figure Baskets"}
+          onClick={() => selectMode("influencer")}
+        />
       </div>
 
       {visited.has("manual") && (
@@ -100,6 +111,11 @@ export function TradingCenter() {
       {visited.has("basket") && (
         <div role="tabpanel" hidden={mode !== "basket"}>
           <BasketSuggestionPanel onReady={markBasketReady} />
+        </div>
+      )}
+      {visited.has("influencer") && (
+        <div role="tabpanel" hidden={mode !== "influencer"}>
+          <InfluencerBasketsPanel onReady={markInfluencerReady} />
         </div>
       )}
       {!readyModes.has(mode) && <ModeLoadingOverlay language={language} />}

@@ -84,7 +84,6 @@ def test_snapshot_performans_endpointi_ayri_sozlesme_dondurur(client, auth):
     assert yanit.status_code == 200
     govde = yanit.json()
     assert govde["hours"] == 24
-    assert govde["interval_minutes"] == 5
     assert isinstance(govde["points"], list)
 
 

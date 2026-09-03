@@ -8,6 +8,7 @@ import {
   type LeaderboardPeriod,
 } from "../../models/oyun";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { PhotoImage } from "./PhotoImage";
 
 const PERIODS: { id: LeaderboardPeriod; label: { tr: string; en: string } }[] = [
   { id: "gunluk", label: { tr: "Günlük", en: "Daily" } },
@@ -162,7 +163,10 @@ type Props = {
         </div>
       </Card>
 
-      <Card title={language === "tr" ? "Haftanın büyük ödülleri" : "This week's big prizes"}>
+      <Card
+        title={language === "tr" ? "Haftanın Büyük Ödülleri" : "This Week's Big Prizes"}
+        titleClassName="text-lg"
+      >
         <div className="space-y-2.5">
           {WEEKLY_PRIZES.map((prize) => (
             <div
@@ -171,6 +175,16 @@ type Props = {
               style={{ background: "var(--color-surface-muted)" }}
             >
               <MedalIcon place={prize.place} className="h-5 w-5 shrink-0" />
+              <div
+                className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg"
+                style={{ background: "var(--color-surface)" }}
+              >
+                <PhotoImage
+                  src={prize.image}
+                  alt={prize.title[language]}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              </div>
               <div className="min-w-0 flex-1">
                 <p className="app-heading truncate text-xs font-semibold">{prize.title[language]}</p>
                 <p className="app-muted text-[11px] tabular-nums">

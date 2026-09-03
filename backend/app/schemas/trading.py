@@ -63,6 +63,48 @@ class CreateOrderRequest(OrderPreviewRequest):
     idempotency_key: str = Field(min_length=8, max_length=100)
 
 
+class PercentageBasketAllocation(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    weight_pct: float = Field(gt=0, le=100)
+
+
+class PercentageBasketPreviewRequest(BaseModel):
+    allocations: list[PercentageBasketAllocation] = Field(min_length=2, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_allocations(self):
+        symbols = [item.symbol.strip().upper() for item in self.allocations]
+        if len(symbols) != len(set(symbols)):
+            raise ValueError("Sepette ayni sembol birden fazla kez kullanilamaz.")
+        total = sum(item.weight_pct for item in self.allocations)
+        if abs(total - 100) > 1e-6:
+            raise ValueError("Sepet agirliklarinin toplami yuzde 100 olmalidir.")
+        return self
+
+
+class PercentageBasketPreviewItem(BaseModel):
+    symbol: str
+    asset_name: str
+    asset_class: str
+    currency: str
+    weight_pct: float
+    quoted_price_try: float
+    quantity: float
+    estimated_gross: float
+    estimated_reserve: float
+
+
+class PercentageBasketPreview(BaseModel):
+    available_balance: float
+    investable_gross: float
+    estimated_gross: float
+    estimated_reserve: float
+    remaining_balance: float
+    items: list[PercentageBasketPreviewItem]
+    unavailable_symbols: list[str]
+    unaffordable_symbols: list[str]
+
+
 class PaperOrder(BaseModel):
     id: int
     symbol: str
