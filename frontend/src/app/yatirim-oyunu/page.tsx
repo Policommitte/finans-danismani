@@ -321,9 +321,13 @@ export default function YatirimOyunuPage() {
           <button
             type="button"
             onClick={handleLeaveContest}
-            className="rounded-lg border px-4 py-2 text-xs font-semibold transition"
-            style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}
+            className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold text-white transition hover:scale-[1.03] hover:shadow-lg active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(135deg, var(--color-danger) 0%, color-mix(in srgb, var(--color-danger) 70%, black) 100%)",
+              boxShadow: "0 4px 14px color-mix(in srgb, var(--color-danger) 40%, transparent)",
+            }}
           >
+            <span aria-hidden="true">🚪</span>
             {PAGE_TEXT.leaveContest[language]}
           </button>
         </div>
