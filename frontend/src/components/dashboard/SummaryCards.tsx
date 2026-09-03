@@ -70,13 +70,16 @@ export function SummaryCards({
   const isBuy = topRecommendation?.side === "BUY";
 
   //: Kar/zarar yonune gore hafif, ama musterinin RAHATCA fark edecegi bir
-  //: renk vurgusu - duz koyu lacivertin (--color-panel-dark) uzerine
-  //: basari/tehlike renginden %26 karisim. Veri gelmeden notr kalir.
-  //: `total_pnl_try` degistiginde (yeni fiyat/emir) gecis animasyonlu.
+  //: renk vurgusu. `--color-panel-dark` KOYU MAVI oldugu icin kirmizi
+  //: onun uzerine karisinca mor'a kayiyordu (kirmizi+mavi=mor) - bunun
+  //: yerine notr, neredeyse siyah `--color-panel-dark-alt` uzerine
+  //: karistiriliyor, boylece kirmizi kirmizi, yesil yesil kaliyor.
+  //: Veri gelmeden notr lacivert kalir; `total_pnl_try` degistiginde
+  //: (yeni fiyat/emir) gecis animasyonlu.
   const netWorthTintColor = summary
     ? isUp
-      ? "color-mix(in srgb, var(--color-success) 26%, var(--color-panel-dark))"
-      : "color-mix(in srgb, var(--color-danger) 26%, var(--color-panel-dark))"
+      ? "color-mix(in srgb, var(--color-success) 32%, var(--color-panel-dark-alt))"
+      : "color-mix(in srgb, var(--color-danger) 32%, var(--color-panel-dark-alt))"
     : "var(--color-panel-dark)";
 
   return (
