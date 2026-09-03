@@ -412,8 +412,157 @@ def _takma_addan_coz(tokenler: list[str], katalog_sembolleri: set[str]) -> tuple
     return None
 
 
+#: Turkce karakterleri ASCII karsiliklarina cevirir; anahtar kelime listesi tek
+#: yazimla ("guncel") hem "güncel" hem "guncel" girdisini yakalar.
+#:
+#: NOT: `app.engine.orchestrator` icinde de ayni tablo vardir. Ajan katmaninin
+#: motor katmanina bagimli olmamasi icin (agents -> engine dairesel import)
+#: burada bilincli olarak yerel bir kopya tutuluyor.
+#:
+#: ⚠️ MODULUN BASLARINDA DURMALI: `_ALAN_TERS` IMPORT ANINDA `_normalize`
+#: cagirir. Asagi tasinirsa modul NameError ile yuklenmez.
+_TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+
+
+def _normalize(text: str) -> str:
+    return text.translate(_TR_TRANSLATION).lower()
+
+
+#: Varlik -> o varligin HABER DILINDEKI alan kelimeleri.
+#:
+#: NEDEN GEREKLI: gomme uzayinda sirket adi ile SEKTORU komsu degil. Olculdu
+#: (17 Agustos 2026 indeksi, 917 chunk, esik 0.30):
+#:
+#:     "Aselsan hissesini etkileyebilecek gelismeler neler"
+#:         -> "Turk savunma sanayisi ..." haberi   0.212  ELENIR
+#:     ayni sorgu + "savunma sanayi"
+#:         -> ayni haber                          0.382  gecer
+#:
+#: Yani model Aselsan'in ne is yaptigini BILMIYOR. Ayni olcumde alakasiz bir
+#: hububat ihracati haberi (0.281) savunma haberini geciyordu.
+#:
+#: NEDEN `assets.sector` KULLANILMIYOR: o kolon GICS kovasi tasiyor ve
+#: Ingilizce - ASELS icin "INDUSTRIALS". Turkce haber metnine yapismiyor;
+#: olculdu, esigi GECIREMIYOR:
+#:
+#:     + "INDUSTRIALS" (ham sector)  0.235   elenir
+#:     + "Sanayi" (sectorun Turkcesi) 0.238  elenir
+#:     + "savunma sanayi"             0.382  gecer
+#:
+#: Ustelik ayni kova hem Aselsan'i hem Kontrolmatik'i (enerji/otomasyon)
+#: kapsiyor, yani GERI YONDE de anahtar olamaz.
+#:
+#: TABLO IKI YONDE DE OKUNUR - ikinci bir tablo YOKTUR:
+#:     ileri: sembol -> ifadeler   (arama metnine eklenir, `_arama_metni`)
+#:     geri : ifade  -> sembol     (`_ALAN_TERS`, `_alandan_coz`)
+#:
+#: ⚠️ IFADELER DUZGUN TURKCE YAZILIR. Ileri yonde dogrudan korpusa gidiyorlar
+#: ve korpus diakritikli; eslesme ise `_normalize` uzerinden yapildigi icin
+#: diakritik geri yonu bozmaz.
+#:
+#: ⚠️ JENERIK TEK KELIME EKLEMEYIN ("teknoloji", "sanayi", "holding",
+#: "kripto"). Ileri yonde ayirt etmezler, geri yonde ise ya birden cok
+#: varliga cikip eslesmeyi iptal ederler ya da alakasiz sorulari bir hisseye
+#: baglarlar. Ifadeler MUMKUN OLDUGUNCA SPESIFIK olmali.
+_ALAN_SOZLUGU: dict[str, tuple[str, ...]] = {
+    # --- BIST ---
+    "ASELS": ("savunma sanayi", "savunma elektroniği", "radar sistemleri"),
+    "KONTR": ("enerji depolama", "batarya üretimi"),
+    "THYAO": ("havacılık", "havayolu", "uçuş ağı", "havalimanı"),
+    "GARAN": ("bankacılık", "mevduat", "kredi hacmi"),
+    "TCELL": ("telekomünikasyon", "mobil operatör"),
+    "TUPRS": ("rafineri", "akaryakıt"),
+    "EREGL": ("demir çelik", "çelik üretimi"),
+    "SISE": ("cam sanayi",),
+    "SASA": ("polyester", "petrokimya"),
+    "AKCNS": ("çimento",),
+    "TOASO": ("otomotiv",),
+    "BIMAS": ("market zinciri", "indirim marketi"),
+    # --- Emtia / kur / tahvil ---
+    "BRENT": ("ham petrol", "petrol fiyatları", "OPEC"),
+    "GRAM_ALTIN": ("ons altın", "altın fiyatları", "kıymetli maden"),
+    "GUMUS": ("gümüş fiyatları",),
+    "BAKIR": ("bakır fiyatları",),
+    "MISIR": ("tahıl", "hububat"),
+    "USD/TRY": ("dolar kuru",),
+    "EUR/TRY": ("euro kuru",),
+    "US10Y": ("tahvil faizi", "ABD tahvili"),
+    # --- ABD hisseleri ---
+    # NOT: Turkce haberlerde bu sirketler ADLARIYLA aniliyor, dolayisiyla
+    # ileri yondeki katkilari BIST'e gore dusuk. Yine de geri yon icin
+    # ("elektrikli arac hisseleri nasil") anlamlilar.
+    "NVDA": ("yapay zeka çipi", "grafik işlemci"),
+    "INTC": ("işlemci üreticisi",),
+    "MSFT": ("bulut bilişim", "kurumsal yazılım"),
+    "AAPL": ("akıllı telefon",),
+    "AMZN": ("e-ticaret",),
+    "TSLA": ("elektrikli araç",),
+    "META": ("sosyal medya",),
+    "GOOG": ("arama motoru", "dijital reklam"),
+    "LLY": ("ilaç sektörü",),
+}
+
+#: `_ALAN_SOZLUGU`'nun TERSI - ayri bir tablo degil, tek satirlik turetme.
+#: Anahtarlar normalize edilir cunku eslesme normalize sorgu metninde aranir.
+_ALAN_TERS: dict[str, str] = {
+    _normalize(ifade): sembol for sembol, ifadeler in _ALAN_SOZLUGU.items() for ifade in ifadeler
+}
+
+
+def _alandan_coz(query: str, katalog_sembolleri: set[str]) -> str | None:
+    """Sorgudaki ALAN ifadesinden sembol cozer ("savunma sanayi" -> ASELS).
+
+    Sirket adi hic gecmeyen sektor sorularini varliga baglar; `resolve_symbol`
+    yalnizca sembol/unvan eslestirdigi icin bu sorularda `None` doner ve
+    canli fiyat yolu hic acilmaz.
+
+    UC KURAL:
+
+      1. YALNIZCA TEK ESLESME KABUL EDILIR. Ifadeler bire-cok olabilir
+         ("yapay zeka cipi" + "bulut bilisim" -> NVDA, MSFT) ama `task`
+         TEKIL bir `symbol` tasiyor; birden cok varliga cikan sorgularda
+         sembolsuz devam etmek (bugunku davranis) yanlis bir tanesini
+         secmekten iyidir.
+      2. KATALOGDA OLMAYAN SEMBOL URETILMEZ - `_takma_addan_coz` ile ayni
+         kural: varlik silinirse tablo sessizce yanlis sonuc uretmeye
+         baslamasin.
+    ⚠️ BU CIKARIM SESSIZ KALIR. Donen sembol NE arama metnine dokunur NE de
+    canli fiyat/kart yolunu acar (bkz. `_run_rag` ve `_resolve_mode`). Sebep:
+    sorudaki alan ifadesi, soruyu SORULAN sirkete degil katalogdaki sirkete
+    mal edebilir -
+
+        "Baykar savunma sanayinde nasil gidiyor"  -> ASELS
+        "Cimsa cimento sektorunde nasil"          -> AKCNS
+
+    ve bu iki sirket de katalogda YOK. Olculdu: alan kelimeleri arama
+    metnine eklenince sorulan sirketin haberleri tamamen dusuyor -
+
+        "Baykar savunma sanayinde"                     -> 4/5 sonuc Baykar
+        "Baykar savunma sanayinde savunma elektronigi" -> 0/5 sonuc Baykar
+
+    (Ad enjekte edilmese bile dusuyor; sucu tasiyan alan kelimeleri.)
+
+    Bir ara "buyuk harfle baslayan, ifadenin disinda kalan, katalogda
+    olmayan token varsa bastir" kurali denendi. KALDIRILDI: Turkcede cumle
+    bas harfi HER ZAMAN buyuk yazilir, dolayisiyla buyuk harf ozel ad kaniti
+    degil - "Bugun savunma sanayi nasil" da bastiriliyordu. Ayni konumdaki
+    "Bugun" ile "Baykar"i sozluk olmadan ayirmak mumkun degil; tahmine
+    dayali bir sinir koymaktansa cikarimi etkisiz birakmak dogru.
+    """
+    metin = _normalize(query)
+    bulunan = {
+        sembol
+        for ifade, sembol in _ALAN_TERS.items()
+        if ifade in metin and sembol in katalog_sembolleri
+    }
+    return bulunan.pop() if len(bulunan) == 1 else None
+
+
 def _alaka_skorlarini_logla(
-    query: str, chunks: list[dict[str, Any]], filters: dict[str, Any] | None = None
+    query: str,
+    chunks: list[dict[str, Any]],
+    filters: dict[str, Any] | None = None,
+    arama: str | None = None,
 ) -> None:
     """Donen chunk'larin GERCEK kosinus benzerliklerini tek satirda loglar.
 
@@ -445,12 +594,16 @@ def _alaka_skorlarini_logla(
     # `filters` DE loglanir: sessiz bir `symbol`/tarih filtresi aramayi
     # daraltip "hicbir sey bulunamadi" gibi gosterebilir - o durumda sorun
     # esikte degil, router'in cikardigi filtrededir.
+    # `arama` DA loglanir: gomulen metin artik ham sorgudan FARKLI
+    # (bkz. `_arama_metni`). Yalnizca ham sorgu loglansaydi, kotu bir
+    # damitmanin urettigi bos sonuc "indekste icerik yok" gibi gorunurdu.
     logger.info(
-        "rag alaka skorlari | esik=%s top_k=%s | filtre=%s | sorgu=%r | %s",
+        "rag alaka skorlari | esik=%s top_k=%s | filtre=%s | sorgu=%r | arama=%r | %s",
         settings.rag_min_similarity or "kapali",
         settings.rag_top_k,
         filters or "-",
         query[:60],
+        (arama if arama is not None else query)[:60],
         " · ".join(_bicimle(c) for c in chunks) or "(sonuc yok)",
     )
 
@@ -769,17 +922,136 @@ def _season_range(query: str) -> dict[str, Any] | None:
     }
 
 
-#: Turkce karakterleri ASCII karsiliklarina cevirir; anahtar kelime listesi tek
-#: yazimla ("guncel") hem "güncel" hem "guncel" girdisini yakalar.
+#: ARAMA metninden atilan "yatirim cercevesi" kaliplari.
 #:
-#: NOT: `app.engine.orchestrator` icinde de ayni tablo vardir. Ajan katmaninin
-#: motor katmanina bagimli olmamasi icin (agents -> engine dairesel import)
-#: burada bilincli olarak yerel bir kopya tutuluyor.
-_TR_TRANSLATION = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+#: NEDEN VAR: kullanicinin ham cumlesi oldugu gibi gomuluyordu ve soruyu
+#: SARAN kelimeler ("hissesini etkileyebilecek gelismeler neler") sorgu
+#: vektorunu haberlerden UZAKLASTIRIP jenerik piyasa yorumu metinlerine
+#: cekiyordu. Olculdu (17 Agustos 2026 indeksi, 917 chunk, esik 0.30):
+#:
+#:     "Turk Hava Yollari hissesini etkileyebilecek gelismeler neler"
+#:         -> gercek THY haberi  0.275  ELENIR
+#:     "Turk Hava Yollari"
+#:         -> ayni haber         0.395  gecer
+#:
+#: Yani ilgili haber indekste dururken yalnizca sorunun kurulusu yuzunden
+#: eleniyordu. Ayni olcumde alakasiz bir hububat ihracati haberi (0.293)
+#: gercek THY haberini geciyordu.
+#:
+#: ⚠️ BU LISTE YALNIZCA ARAMAYI ETKILER. LLM'e giden prompt HAM sorguyu
+#: kullanmaya devam eder (`_run_rag` ikisini ayri tasir) - model kullanicinin
+#: gercek sorusunu gormezse ozet soruyla alakasiz cikar.
+_ARAMA_CERCEVESI: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(kalip)
+    for kalip in (
+        # Cok kelimeli kaliplar ONCE: tek kelimeler once silinirse bunlar
+        # bir daha eslesmez ("son 24 saat" -> "son saat" olurdu).
+        r"\bson\s+\d+\s+\w+\b",  # "son 24 saatte"
+        r"\bgenel\s+olarak\b",
+        r"\bvar\s+m[iı]\b",
+        r"\byok\s+mu\b",
+        r"\bne\s+olur\b",
+        # Yatirim/soru cercevesi - tek kelimeler.
+        r"\bhisse\w*\b",  # hisse, hissesi, hissesini, hisselerini
+        r"\betkiley\w*\b",  # etkileyebilecek, etkileyecek
+        r"\betkile[rn]\w*\b",  # etkiler, etkilenir
+        r"\bgelisme\w*\b",
+        r"\bhaber\w*\b",  # her chunk zaten haber; ayirt edici degil
+        # "sektor" ve yalin "son" jenerik dolgudur ve olculebilir zarar
+        # veriyorlardi - "havacilik sektorunde son durum ne" sorusunda:
+        #     'havacilik sektorunde son'  -> 3/5 havacilik sonucu
+        #     'havacilik sektorunde'      -> 2/5
+        #     'havacilik'                 -> 5/5
+        # ("son 24 saatte" bicimi yukaridaki cok kelimeli kalipta zaten
+        # yakalaniyor; bu yalin bicim icin.)
+        r"\bsektor\w*\b",
+        r"\bson\b",
+        r"\byorum\w*\b",
+        r"\btavsiye\w*\b",
+        r"\bportfoy\w*\b",  # portfoy sorusu ayri ajanin isi
+        r"\bnas[iı]l\b",
+        # ⚠️ `ne(?:ler)?` - `neler?` DEGIL. Ikincisi "nele" + opsiyonel "r"
+        # demektir ve tek basina "ne"yi HIC yakalamaz (ilk yazimda oyleydi;
+        # "sebebi ne olabilir" cumlesinde "ne" arama metninde kaliyordu).
+        r"\bne(?:ler)?\b",
+        r"\bnedir\b",
+        r"\bneden\b",
+        r"\bsebe[bp]\w*\b",
+        r"\bolabilir\b",
+        r"\bol(?:an|mus|uyor)\b",  # icerik tasimayan yardimci fiiller
+        r"\bgidiyor\b",
+        r"\bdurum\w*\b",
+        r"\bgorun\w*\b",  # gorunuyor
+        r"\bacaba\b",
+        r"\bsence\b",
+        r"\bpeki\b",
+        r"\bm[iıuü]\b",  # tek harfli soru eki
+    )
+)
+
+#: Damitma sonrasi kabul edilen ASGARI uzunluk. Altina duserse ham sorgu
+#: kullanilir: "neler oluyor" gibi bir cumleden geriye hicbir sey kalmaz ve
+#: bos metni gommek her chunk'a esit uzaklikta anlamsiz bir vektor uretir.
+_ASGARI_ARAMA_UZUNLUGU = 3
 
 
-def _normalize(text: str) -> str:
-    return text.translate(_TR_TRANSLATION).lower()
+def _arama_metni(
+    query: str,
+    varlik_adi: str | None = None,
+    alan: tuple[str, ...] | None = None,
+) -> str:
+    """Gomulecek ARAMA metnini uretir - ham sorgunun yerine gecmez.
+
+    Uc is yapar:
+      0. `alan` verilmisse (bkz. `_ALAN_SOZLUGU`) varligin alan kelimelerini
+         SONA ekler. Gomme uzayinda sirket adi sektorune komsu olmadigi icin
+         ("Aselsan" -> savunma haberi 0.212) bu takviye olmadan sektor
+         haberleri esigin altinda kaliyor.
+      1. `_ARAMA_CERCEVESI` kaliplarini atar (yukaridaki gerekce).
+      2. `varlik_adi` verilmisse metnin BASINA ekler. Kullanici "asels"
+         yazmis olabilir; korpusta gecen bicim "ASELSAN"dir.
+
+    ⚠️ KALIPLAR NORMALIZE metinde ARANIR, KESME ORIJINALDE YAPILIR.
+    `_normalize` yalnizca 1:1 karakter cevirisi + `lower()` oldugu icin
+    karakter sayisini korur, dolayisiyla indeksler iki metinde hizalidir.
+    Boylece "Türk Hava Yolları" diakritigini KAYBETMEDEN kalir - normalize
+    edilmis metni gommek gomme kalitesini dusururdu.
+
+    Hizalama beklenmedik bicimde bozulursa (ileride tabloya cok karakterli
+    bir esleme eklenirse) ham sorgu dondurulur: sessizce yanlis yerden kesip
+    metni bozmaktansa damitmadan vazgecmek daha guvenli.
+    """
+    ham = (query or "").strip()
+    normalize = _normalize(ham)
+    if len(normalize) != len(ham):
+        return ham
+
+    araliklar = [m.span() for kalip in _ARAMA_CERCEVESI for m in kalip.finditer(normalize)]
+
+    korunan: list[str] = []
+    imlec = 0
+    for bas, son in sorted(araliklar):
+        if bas >= imlec:
+            korunan.append(ham[imlec:bas])
+            imlec = son
+        else:  # ic ice gecen eslesme - yalnizca ileri git
+            imlec = max(imlec, son)
+    korunan.append(ham[imlec:])
+
+    damitilmis = " ".join("".join(korunan).split())
+    if len(damitilmis) < _ASGARI_ARAMA_UZUNLUGU:
+        damitilmis = ham
+
+    ad = (varlik_adi or "").strip()
+    if ad and _normalize(ad) not in _normalize(damitilmis):
+        damitilmis = f"{ad} {damitilmis}".strip()
+
+    # Alan kelimeleri SONA eklenir: sorunun kendi konusu basta kalsin, alan
+    # yalnizca sektor haberlerini yakina cekmek icin agirlik olsun.
+    for ifade in alan or ():
+        if _normalize(ifade) not in _normalize(damitilmis):
+            damitilmis = f"{damitilmis} {ifade}".strip()
+    return damitilmis
 
 
 class MarketResearchAgent(BaseAgent):
@@ -954,13 +1226,34 @@ class MarketResearchAgent(BaseAgent):
         self._katalog_zamani = simdi
         return self._katalog
 
+    async def _varlik_adi(self, sembol: str | None) -> str | None:
+        """Sembolun katalogdaki ADI ("ASELS" -> "Aselsan"); bulunamazsa `None`.
+
+        Arama metnine kod degil AD konur: haber metinlerinde "ASELS" gecmez,
+        "ASELSAN" gecer. Katalog okunamazsa `None` doner ve `_arama_metni`
+        yalnizca damitma yapar - arama yine calisir, sadece ad takviyesi olmaz.
+        """
+        if not sembol:
+            return None
+
+        katalog = await self._symbol_catalog()
+        for kayit in katalog or []:
+            if str(kayit.get("symbol") or "").upper() == sembol.upper():
+                return str(kayit.get("ad") or "").strip() or None
+        return None
+
     async def _resolve_symbol_from_catalog(self, task: dict[str, Any]) -> None:
         """`task["symbol"]` degerini katalogla dogrular ya da SILER.
 
         Silme kismi kritik: katalog okunabildigi halde sorguda hicbir gercek
         sembol yoksa, `build_task`'in regex tahmini ("HISSE", "VERI") task'ta
-        kalmamalidir. Kalirsa `_run_rag` aramayi olmayan bir sirkete
-        filtreler ve sonuc her zaman bos doner.
+        kalmamalidir. Kalirsa canli fiyat yolu olmayan bir sembolu sorar ve
+        `_run_rag` arama metnine uydurma bir varlik adi ekler.
+
+        (Eskiden bu tahmin RAG'i olmayan bir sirkete FILTRELIYORDU ve sonuc
+        her zaman bos donuyordu; sembol artik filtre degil arama metni -
+        bkz. `_run_rag`. Yanlis tahmini silmek yine de gerekli, yalnizca
+        bedeli artik "hicbir sonuc" degil "gurultulu arama metni".)
 
         Router sembolu ACIKCA verdiyse dokunulmaz.
 
@@ -982,10 +1275,30 @@ class MarketResearchAgent(BaseAgent):
         if katalog is None:
             return  # katalog yok - eski davranis korunur
 
-        sembol = resolve_symbol(task.get("query") or "", katalog)
+        sorgu = task.get("query") or ""
+        sembol = resolve_symbol(sorgu, katalog)
         if sembol:
             task["symbol"] = sembol
             task["symbol_kesin"] = True
+            return
+
+        # Sirket adi hic gecmiyorsa ALAN ifadesinden dene ("savunma sanayi"
+        # -> ASELS). Bu, `resolve_symbol`'un kapsamadigi sektor sorularini
+        # varliga baglar; sorunun kendisi zaten RAG'e gidiyordu, kazanc canli
+        # fiyat/kart yolunun da acilmasi.
+        katalog_sembolleri = {str(k.get("symbol") or "").upper() for k in katalog}
+        if alan_sembolu := _alandan_coz(sorgu, katalog_sembolleri):
+            task.pop("symbol", None)  # varsa regex tahminini once temizle
+            task["symbol"] = alan_sembolu
+            # Cikarim, acik bir kod yazimi DEGIL: `_run_live` fiyatla teyit
+            # etsin, tutmazsa sessizce dussun.
+            task["symbol_kesin"] = False
+            # `_resolve_mode` bunu gorunce RAG'i acik tutar (bkz. orasi).
+            task["symbol_alandan"] = True
+            logger.debug(
+                "sembol alan ifadesinden cozuldu",
+                extra={"agent": self.name, "symbol": alan_sembolu},
+            )
             return
 
         if task.pop("symbol", None) is not None:
@@ -1051,6 +1364,20 @@ class MarketResearchAgent(BaseAgent):
         )
         baglam_isteniyor = any(k in normalized for k in _CONTEXT_KEYWORDS)
 
+        # ALANDAN CIKARILAN SEMBOL CANLI YOLU HIC ACMAZ.
+        #
+        # Cikarim "soruda su sektor geciyor"dan ibaret; sorulan sirketin
+        # katalogdaki sirket oldugunu GOSTERMEZ. Fiyat kartinin cikmasi ise
+        # bunu kesin bir iddiaya cevirir: "Baykar savunma sanayinde fiyati
+        # ne" sorusuna ASELSAN'in 390,25 TL'si gosteriliyordu - Baykar halka
+        # acik bile degil.
+        #
+        # Hangi durumun hangisi oldugunu ayirmak icin bir sinir denendi ve
+        # kaldirildi (bkz. `_alandan_coz`); tahmin etmek yerine cikarimi
+        # canli yoldan tamamen uzak tutmak dogru.
+        if task.get("symbol_alandan"):
+            return "rag"
+
         if canli_isteniyor and baglam_isteniyor:
             return "both"
         if canli_isteniyor:
@@ -1072,22 +1399,69 @@ class MarketResearchAgent(BaseAgent):
     ) -> tuple[str | None, list[Source], list[dict[str, Any]], float | None, AgentError | None]:
         """Haber/rapor indeksinde arama yapar ve kaynaga dayali ozet uretir.
 
+        SEMBOL FILTRE DEGIL, ARAMA METNININ PARCASIDIR
+        ----------------------------------------------
+        Onceden cozulen sembol `filters["symbol"]` olarak gonderiliyordu ve
+        `rag.hybrid_search` bunu SIRALAMADAN ONCE calisan bir `WHERE` olarak
+        uyguluyor: eslesmeyen satirlar aday havuzuna hic girmiyor. Eslesme ise
+        yalnizca uc yoldan olabiliyor - `assets.symbol`, `assets.name` ya da
+        `documents.baslik ILIKE '%SEMBOL%'`.
+
+        Gercek veride ucu de olu: `rag.documents.asset_id` HIC doldurulmuyor
+        (234/234 satir NULL) ve hicbir baslikta ham kod ("ASELS") gecmiyor.
+        Sonuc, sembol DOGRU cozuldugunde bile havuzun tamamen bosalmasiydi -
+        olculdu, dort sembolde de ayni: filtreli 0 chunk, filtresiz 5 chunk.
+        Yani sembolu dogru bilmek aramayi BOZUYORDU.
+
+        Bu yuzden sembol artik filtreye degil ARAMA METNINE gider (varligin
+        katalogdaki adiyla, bkz. `_arama_metni`): dense ayak zaten dogru
+        haberi one cikariyor, alakasizlari da `rag_min_similarity` eliyor.
+
+        Tarih filtreleri KALIR: onlar `documents.tarih` uzerinden calisir ve
+        eksik metadataya bagli degildir.
+
         Returns:
             (ozet, Source listesi, ham kaynak sozlukleri, guven skoru, hata)
         """
         filters: dict[str, Any] = {}
-        if sembol := task.get("symbol"):
-            filters["symbol"] = sembol
         if date_from := task.get("date_from"):
             filters["date_from"] = date_from
         if date_to := task.get("date_to"):
             filters["date_to"] = date_to
 
+        # ARAMA METNI YALNIZCA SORGUDA ADIYLA GECEN SEMBOLDEN BESLENIR.
+        #
+        # Sembol alan ifadesinden CIKARILDIYSA (`symbol_alandan`) arama
+        # metnine hicbir sey eklenmez: kullanicinin sordugu sirket
+        # katalogdakinden baskasi olabilir ve genisletme onun haberlerini
+        # eziyor. Olculdu:
+        #
+        #     "Baykar savunma sanayinde"                     -> 4/5 Baykar
+        #     "Baykar savunma sanayinde savunma elektronigi"  -> 0/5 Baykar
+        #
+        # Kullanici sirketi ADIYLA yazdiysa (`resolve_symbol` cozdu) boyle bir
+        # belirsizlik YOK - orada takviye olculmus kazanc saglar:
+        # "aselsan" -> savunma haberi 3. siradan 1. siraya, 0.345 -> 0.426.
+        sembol = task.get("symbol")
+        if task.get("symbol_alandan"):
+            # Ozne de bos birakilir - arama metnindekiyle ayni gerekce: sorulan
+            # sirket katalogdakinden baskasi olabilir. Model ozneyi sorudan cikarir.
+            ozne = None
+            arama = _arama_metni(query)
+        else:
+            varlik_adi = await self._varlik_adi(sembol)
+            ozne = _ozne_etiketi(varlik_adi, sembol)
+            arama = _arama_metni(
+                query,
+                varlik_adi,
+                _ALAN_SOZLUGU.get(str(sembol or "").upper()),
+            )
+
         sonuc = await self.call_tool(
             server=RAG_SERVER_NAME,
             tool="rag_search",
             arguments={
-                "query": query,
+                "query": arama,
                 "top_k": task.get("top_k") or settings.rag_top_k or DEFAULT_TOP_K,
                 "filters": filters,
             },
@@ -1114,11 +1488,11 @@ class MarketResearchAgent(BaseAgent):
         ]
         guven = round(sum(c.get("score", 0.0) for c in chunks) / len(chunks), 3)
 
-        ozet, hata = await self._summarize(query, chunks)
+        ozet, hata = await self._summarize(query, chunks, ozne)
         return ozet, kaynaklar, ham_kaynaklar, guven, hata
 
     async def _summarize(
-        self, query: str, chunks: list[dict[str, Any]]
+        self, query: str, chunks: list[dict[str, Any]], ozne: str | None = None
     ) -> tuple[str, AgentError | None]:
         """Chunk'lari kaynaga dayali tek bir ozete cevirir.
 
@@ -1131,7 +1505,7 @@ class MarketResearchAgent(BaseAgent):
             return self._fallback_summary(chunks), None
 
         try:
-            return await self.generate(_build_rag_prompt(query, chunks)), None
+            return await self.generate(_build_rag_prompt(query, chunks, ozne)), None
         except Exception as exc:  # noqa: BLE001 - LLM cokse de RAG verisi korunmali
             logger.exception("piyasa ozeti uretilemedi", extra={"agent": self.name})
             return self._fallback_summary(chunks), AgentError(
@@ -1430,18 +1804,72 @@ class MarketResearchAgent(BaseAgent):
         return tools
 
 
-def _build_rag_prompt(query: str, chunks: list[dict[str, Any]]) -> str:
+def _ozne_etiketi(varlik_adi: str | None, sembol: str | None) -> str | None:
+    """Ozet prompt'una konacak ozne etiketi: "Turk Hava Yollari (THYAO)".
+
+    Ikisi de yoksa `None` doner; `_build_rag_prompt` o zaman modelden ozneyi
+    sorunun kendisinden cikarmasini ister.
+    """
+    ad = (varlik_adi or "").strip()
+    kod = (sembol or "").strip().upper()
+    if ad and kod and _normalize(kod) not in _normalize(ad):
+        return f"{ad} ({kod})"
+    return ad or kod or None
+
+
+def _build_rag_prompt(query: str, chunks: list[dict[str, Any]], ozne: str | None = None) -> str:
     """Kaynaga dayali (grounded) ozet prompt'u.
 
-    Modelden ACIKCA yalnizca verilen kaynaklara dayanmasi istenir; boylece
-    yanit izlenebilir kalir ve kaynakta olmayan bilgi uretilmesi engellenir.
+    Modelden yalnizca verilen kaynaklara dayanmasi istenir; boylece yanit
+    izlenebilir kalir ve kaynakta olmayan bilgi uretilmesi engellenir.
+
+    Kaynaklar ayrica DOGRUDAN / BAGLAM diye ayirttirilir. `_arama_metni` alan
+    kelimelerini bilerek gomdugu icin havuzda sektor haberleri de vardir ve
+    model ikisini tek paragrafta birlestiriyordu (2 Eylul 2026: "THYAO
+    haberleri" sorusuna havalimani rekoru ozeti). Ayrim KURAL ile yapilamaz -
+    haberde sirket adi hic gecmeyebilir - bu yuzden karar metni zaten okuyan
+    MODELE birakilir. Ek LLM cagrisi yok, ayni tek ozet cagrisi.
+
+    Olcut haberin KONUSU degil, metninde ozne hakkinda BILGI olup olmadigidir:
+    vergi rekortmenleri listesindeki "Garanti BBVA 3. sirada" satiri, haberin
+    konusu baska olsa da dogrudan bilgidir ve kaybolmamali.
+
+    Sentez katmani da ayrimi korumak zorunda (bkz. `SYNTHESIZER_SYSTEM_PROMPT`
+    10. madde); biri degisirse digeri gozden gecirilmeli.
     """
-    lines = [
-        f"Kullanici sorusu: {query}",
+    lines = [f"Kullanıcı sorusu: {query}"]
+    lines.append(
+        f"Sorunun öznesi: {ozne}"
+        if ozne
+        else "Sorunun öznesini kullanıcının sorusundan kendin çıkar."
+    )
+    lines += [
         "",
-        "Asagidaki kaynaklara dayanarak Turkce, kisa ve net bir yanit yaz. "
+        "Aşağıdaki kaynaklara dayanarak Türkçe, kısa ve net bir yanıt yaz. "
         "Sadece bu kaynaklarda yer alan bilgileri kullan, kaynaklarda olmayan "
-        "hicbir bilgi uydurma.",
+        "hiçbir bilgi uydurma.",
+        "",
+        "Yazmadan önce her kaynağı kendi içinde ikiye ayır. Ölçüt haberin "
+        "BAŞLIĞI ya da ana konusu değil, METNİNDE özne hakkında bilgi olup "
+        "olmadığıdır:",
+        "- DOĞRUDAN: metin özne hakkında somut bir bilgi veriyor. Haberin ana "
+        "konusu başka bir şey olsa bile buraya girer: bir listede geçen rakam, "
+        "tek cümlelik bir açıklama da bilgidir.",
+        "- BAĞLAM: metinde özne hakkında bilgi yok, ama haber öznenin "
+        "sektörünü ya da pazarını ilgilendiriyor.",
+        "Öznenin sektöründen olmak tek başına DOĞRUDAN yapmaz; adının geçmesi "
+        "de yetmez - o geçişte özne hakkında bir BİLGİ olmalı.",
+        "",
+        "Yanıtı bu ayrımı KORUYARAK yaz:",
+        "1. Önce özne hakkındaki bilgileri özetle; her birinin hangi haberin "
+        "içinden geldiğini belirt.",
+        "2. Bağlam haberlerini ayrı bir bölümde, aynı sektörden gelişmeler "
+        "olduklarını ve özneyi doğrudan konu almadıklarını belirterek ÖZETLE.",
+        "3. Boş grup için başlık açma; dolu grubu her zaman özetle.",
+        "4. Doğrudan haber YOKSA bunu ilk cümlede söyle ve ARDINDAN bağlam "
+        "haberlerini özetlemeye devam et; yalnızca yokluğunu bildirip durma, "
+        "elindeki hiçbir kaynağı özetlemeden bırakma.",
+        "5. Bağlam haberlerini özne hakkındaymış gibi anlatma.",
         "",
     ]
     for i, chunk in enumerate(chunks, start=1):
@@ -1450,5 +1878,5 @@ def _build_rag_prompt(query: str, chunks: list[dict[str, Any]]) -> str:
         lines.append(f"[{i}] Kaynak: {kaynak} ({tarih})")
         lines.append(chunk.get("text", ""))
         lines.append("")
-    lines.append("Yanit:")
+    lines.append("Yanıt:")
     return "\n".join(lines)

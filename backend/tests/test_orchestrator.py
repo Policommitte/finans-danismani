@@ -1111,6 +1111,19 @@ def test_synthesis_prompt_asks_for_brevity_and_question_focus():
     assert "YENİ SAYI ÜRETME" in prompt
 
 
+def test_sentez_promptu_dogrudan_baglam_ayrimini_korumayi_ister():
+    """2. madde ("hepsini sirayla anlatma") piyasa ajaninin dogrudan/baglam
+    ayrimini eritiyordu; birlestirme acikca yasaklanir.
+    """
+    prompt = orchestrator_modulu.SYNTHESIZER_SYSTEM_PROMPT
+
+    assert "aynı sektörden bağlam" in prompt
+    # Prompt sarmalandigi icin tam cumle eslesmez.
+    assert "kısaltmak için iki grubu" in prompt
+    # Dogrudan bilgi yoksa baglam da atiliyordu (GARAN).
+    assert "bağlam bilgisini ATMA" in prompt
+
+
 async def test_fallback_reply_orders_sections_by_router_order():
     """Sabit sira, tek hisse sorusunda bile yaniti portfoy dokumuyle
     baslatiyordu - sorunun cevabi en alta dusuyordu."""
@@ -1121,6 +1134,72 @@ async def test_fallback_reply_orders_sections_by_router_order():
     metin = state["final_response"]
     assert AGENT_MARKET_RESEARCH in state["requested_agents"]
     assert metin.index("Piyasa araştırması") < metin.index("Portföy analizi")
+
+
+async def test_kart_sembolleri_gunun_hareketlilerini_de_icerir():
+    """Kart hep piyasa ajaninin TEK sembolunu gosteriyordu: gunluk ozette bu
+    her seferinde ayni hisse oluyordu. Gunun hareketlileri de eklenir."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_PORTFOLIO] = SahteAjan(
+        AGENT_PORTFOLIO,
+        {
+            "portfolio_data": {
+                "holdings": [
+                    {"symbol": "TCELL", "daily_change_pct": 0.9},
+                    {"symbol": "BAKIR", "daily_change_pct": -5.3},
+                    {"symbol": "ASELS", "daily_change_pct": 2.1},
+                    {"symbol": "GOOG", "daily_change_pct": 0.1},
+                ]
+            }
+        },
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "Portföyümün dağılımı nedir?")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["BAKIR", "ASELS", "TCELL"]
+
+
+async def test_kart_sembolleri_sinirlanir_ve_tekrar_etmez():
+    """Piyasa sembolu once gelir, ayni sembol iki kez yazilmaz."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_MARKET_RESEARCH] = SahteAjan(
+        AGENT_MARKET_RESEARCH, {"market_data": {"symbol": "BAKIR"}}
+    )
+    ajanlar[AGENT_PORTFOLIO] = SahteAjan(
+        AGENT_PORTFOLIO,
+        {
+            "portfolio_data": {
+                "holdings": [
+                    {"symbol": "BAKIR", "daily_change_pct": -5.3},
+                    {"symbol": "ASELS", "daily_change_pct": 2.1},
+                    {"symbol": "TCELL", "daily_change_pct": 0.9},
+                    {"symbol": "GOOG", "daily_change_pct": 0.5},
+                ]
+            }
+        },
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "Portföyümün dağılımı nedir?")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["BAKIR", "ASELS", "TCELL"]
+
+
+async def test_kart_sembolleri_portfoysuz_soruda_degismez():
+    """Piyasa sorusunda portfoy ajani calismaz - kart yine tek varlik."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_MARKET_RESEARCH] = SahteAjan(
+        AGENT_MARKET_RESEARCH, {"market_data": {"symbol": "THYAO"}}
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "THYAO fiyatı ne kadar?")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["THYAO"]
 
 
 async def test_fallback_reply_starts_with_portfolio_for_portfolio_question():
