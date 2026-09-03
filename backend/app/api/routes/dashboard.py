@@ -16,4 +16,4 @@ async def summary(user: CurrentUser) -> DashboardSummaryResponse:
     Sekmeler ve tazeleme granuler uclari kullanir; bu uc yalnizca ilk acilisin
     4 istegini 1'e indirmek icindir.
     """
-    return await service.ozet_getir(user["id"])
+    return await service.get_dashboard_summary(user["id"])

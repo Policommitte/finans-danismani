@@ -12,11 +12,13 @@ import {
   type PortfolioFxRates,
   type PortfolioViewMode,
 } from "../../components/portfolio/PortfolioVisualization";
+import { PeriodSelector } from "../../components/dashboard/PeriodSelector";
+import type { PerformanceRange } from "../../models/portfolio";
 import { RecommendationList } from "../../components/risk/RecommendationList";
 import { RiskScoreCard } from "../../components/risk/RiskScoreCard";
 import { useAuth } from "../../hooks/useAuth";
 import { useDashboard } from "../../hooks/useDashboard";
-import { usePortfolioPerformance } from "../../hooks/usePortfolio";
+import { usePortfolioPerformance, usePortfolioSnapshots } from "../../hooks/usePortfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { DASHBOARD_READY_EVENT } from "../../components/layout/transitionEvents";
 import { getPublicMarketTicker } from "../../services/marketService";
@@ -36,7 +38,31 @@ export default function DashboardPage() {
   const [fxRates, setFxRates] = useState<PortfolioFxRates>({ USD: null, EUR: null });
   const auth = useAuth();
   const dashboard = useDashboard();
-  const performance = usePortfolioPerformance(24);
+  //: Donem TEK yerde tutulur: grafik, "Donem Degisimi" karti ve varlik
+  //: tablosunun kar/zarar sutunu ayni istekten beslenir, boylece uc yerde
+  //: farkli donemlere ait rakam gorunmesi mumkun degil.
+  const [range, setRange] = useState<PerformanceRange>("1G");
+  const performance = usePortfolioPerformance(range);
+  //: 1G'de grafik scheduler'in OLCTUGU snapshot'lari cizer: nakit dahil,
+  //: emirler islendikten sonra alindigi icin yeniden hesaplanan seriden
+  //: dogru. Ama snapshot 30 gun saklanip 720 saatle sinirli oldugundan
+  //: 1H/1A/1Y'yi besleyemez - orada yeniden kurulan seriye duseriz.
+  const isIntraday = range === "1G";
+  const snapshots = usePortfolioSnapshots(isIntraday);
+
+  //: Grafik tek bir bicim bekler; uzun aralik serisi snapshot bicimine
+  //: cevrilir. Nakit ayrimi yalnizca snapshot'ta var, digerinde toplam
+  //: dogrudan varlik degeridir.
+  const chartPoints = isIntraday
+    ? (snapshots.data?.points ?? [])
+    : (performance.data?.points ?? []).map((point) => ({
+        ts: point.ts,
+        holdings_value_try: point.total_value_try,
+        cash_value_try: 0,
+        total_value_try: point.total_value_try,
+      }));
+  const chartLoading = isIntraday ? snapshots.loading : performance.loading;
+  const chartError = isIntraday ? snapshots.error : performance.error;
   const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
 
   useEffect(() => {
@@ -68,7 +94,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (dashboard.loading || performance.loading) {
+    if (dashboard.loading || performance.loading || snapshots.loading) {
       return;
     }
 
@@ -78,7 +104,7 @@ export default function DashboardPage() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboard.loading, performance.loading]);
+  }, [dashboard.loading, performance.loading, snapshots.loading]);
 
   if (dashboard.loading && !dashboard.data) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
@@ -138,19 +164,38 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Donem secici kartlarin USTUNDE ve saga yasli: sag ustteki Risk
+          Skoru kartinin hemen ustune denk gelir, dort kartin da ustunde
+          durdugu icin "bu ekran su donemi gosteriyor" mesajini verir. */}
+      <div className="flex justify-end">
+        <PeriodSelector
+          value={range}
+          onChange={setRange}
+          loading={performance.loading}
+          language={language}
+        />
+      </div>
+
       <SummaryCards
         data={data}
         displayCurrency={displayCurrency}
         conversionDivisor={conversionDivisor}
+        range={range}
+        periodChangeTry={performance.data?.change_try ?? null}
+        periodChangePct={performance.data?.change_pct ?? null}
+        periodLoading={performance.loading}
       />
 
       <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
         <PortfolioVisualization
           holdings={data.holdings}
           cashTotalTry={(data.cash_account?.available_balance ?? 0) + (data.cash_account?.reserved_balance ?? 0)}
-          performancePoints={performance.data?.points ?? []}
-          performanceLoading={performance.loading}
-          performanceError={performance.error}
+          range={range}
+          periodChangeTry={performance.data?.change_try ?? null}
+          periodChangePct={performance.data?.change_pct ?? null}
+          performancePoints={chartPoints}
+          performanceLoading={chartLoading}
+          performanceError={chartError}
           mode={portfolioViewMode}
           onModeChange={setPortfolioViewMode}
           displayCurrency={displayCurrency}
@@ -163,6 +208,9 @@ export default function DashboardPage() {
             cashAccount={data.cash_account}
             displayCurrency={displayCurrency}
             conversionDivisor={conversionDivisor}
+            range={range}
+            symbolPnl={performance.data?.symbol_pnl ?? []}
+            periodLoading={performance.loading}
           />
         </div>
       </div>

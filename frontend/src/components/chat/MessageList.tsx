@@ -1,24 +1,26 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
-import type { ChatMessage } from "../../models/chat";
+import { useEffect, useRef, useState } from "react";
+import type { ChatMessage, ChatQuickReply } from "../../models/chat";
 import { downloadChatReport } from "../../services/chatService";
 import { AgentErrorNotice } from "./AgentErrorNotice";
+import { InvestmentPackageCard } from "./InvestmentPackageCard";
 import { MentionedAssetCard } from "./MentionedAssetCard";
+import { QuickReplies } from "./QuickReplies";
 import { SourceList } from "./SourceList";
 
-function ReportDownloadButton({ messageId, dosyaAdi }: { messageId: number; dosyaAdi: string }) {
-  const [indiriliyor, setIndiriliyor] = useState(false);
-  const [hata, setHata] = useState<string | null>(null);
+function ReportDownloadButton({ messageId, fileName }: { messageId: number; fileName: string }) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
-    setIndiriliyor(true);
-    setHata(null);
+    setDownloading(true);
+    setError(null);
     try {
-      await downloadChatReport(messageId, dosyaAdi);
+      await downloadChatReport(messageId, fileName);
     } catch (exc) {
-      setHata(exc instanceof Error ? exc.message : "Rapor indirilemedi.");
+      setError(exc instanceof Error ? exc.message : "Rapor indirilemedi.");
     } finally {
-      setIndiriliyor(false);
+      setDownloading(false);
     }
   }
 
@@ -27,7 +29,7 @@ function ReportDownloadButton({ messageId, dosyaAdi }: { messageId: number; dosy
       <button
         type="button"
         onClick={handleClick}
-        disabled={indiriliyor}
+        disabled={downloading}
         className="flex items-center gap-1.5 rounded-md border app-border bg-[var(--color-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] transition hover:bg-[var(--color-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <svg
@@ -45,9 +47,9 @@ function ReportDownloadButton({ messageId, dosyaAdi }: { messageId: number; dosy
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
-        {indiriliyor ? "İndiriliyor…" : `Raporu indir (${dosyaAdi})`}
+        {downloading ? "İndiriliyor…" : `Raporu indir (${fileName})`}
       </button>
-      {hata && <div className="app-danger-box mt-1 rounded-md px-2 py-1 text-xs">{hata}</div>}
+      {error && <div className="app-danger-box mt-1 rounded-md px-2 py-1 text-xs">{error}</div>}
     </div>
   );
 }
@@ -56,14 +58,67 @@ export function MessageList({
   messages,
   emptyState = "Portföyün, piyasa verileri veya risk durumun hakkında soru sorabilirsin.",
   onSelectAsset,
+  leading,
+  quickRepliesDisabled,
+  onQuickReply,
+  onPackagePurchased,
 }: {
   messages: ChatMessage[];
   emptyState?: ReactNode;
   onSelectAsset?: (symbol: string) => void;
+  /** Rendered above the messages (e.g. the suggestion bubble). */
+  leading?: ReactNode;
+  quickRepliesDisabled?: boolean;
+  onQuickReply?: (reply: ChatQuickReply) => void;
+  onPackagePurchased?: (orderCount: number) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  //: Kullanici yukari kaydirdiysa yeni token'lar onu asagi SURUKLEMEZ;
+  //: bunun yerine "en alta in" dugmesi cikar. En alta donunce yapisma
+  //: yeniden baslar.
+  const stickToBottomRef = useRef(true);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageKey = lastMessage
+    ? `${lastMessage.id}:${lastMessage.content.length}:${lastMessage.quickReplies?.length ?? 0}:${lastMessage.investmentPackage ? 1 : 0}`
+    : "";
+
+  function isNearBottom(container: HTMLDivElement): boolean {
+    return container.scrollHeight - container.scrollTop - container.clientHeight < 48;
+  }
+
+  function scrollToBottom(behavior: ScrollBehavior = "auto") {
+    const container = containerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+    stickToBottomRef.current = true;
+    setShowJumpToBottom(false);
+  }
+
+  function handleScroll() {
+    const container = containerRef.current;
+    if (!container) return;
+    const nearBottom = isNearBottom(container);
+    stickToBottomRef.current = nearBottom;
+    setShowJumpToBottom(!nearBottom && messages.length > 0);
+  }
+
+  // Keep the newest message in view as answers stream in or the guided flow
+  // appends its questions - unless the user scrolled up to read.
+  useEffect(() => {
+    if (stickToBottomRef.current) {
+      scrollToBottom();
+    } else {
+      setShowJumpToBottom(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastMessageKey]);
+
   return (
-    <div className="flex-1 space-y-3 overflow-y-auto p-4">
-      {messages.length === 0 && (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div ref={containerRef} onScroll={handleScroll} className="flex-1 space-y-3 overflow-y-auto p-4">
+      {leading}
+      {messages.length === 0 && emptyState && (
         <div className="rounded-lg app-card-muted p-4 text-sm app-muted">
           {emptyState}
         </div>
@@ -71,7 +126,7 @@ export function MessageList({
       {messages.map((message) => (
         <div
           key={message.id}
-          className={`max-w-[86%] rounded-lg px-3 py-2 text-sm ${
+          className={`${message.investmentPackage ? "max-w-[97%]" : "max-w-[86%]"} rounded-lg px-3 py-2 text-sm ${
             message.role === "user"
               ? "ml-auto app-primary"
               : "mr-auto app-card-muted app-heading"
@@ -105,12 +160,25 @@ export function MessageList({
             </div>
           )}
           <div className="whitespace-pre-wrap">{message.content || "..."}</div>
+          {message.role === "assistant" && message.investmentPackage && (
+            <InvestmentPackageCard
+              investmentPackage={message.investmentPackage}
+              onPurchased={onPackagePurchased}
+            />
+          )}
+          {message.role === "assistant" && message.quickReplies && onQuickReply && (
+            <QuickReplies
+              replies={message.quickReplies}
+              disabled={quickRepliesDisabled}
+              onSelect={onQuickReply}
+            />
+          )}
           {message.role === "assistant" && <SourceList sources={message.sources ?? []} />}
           {message.role === "assistant" && <AgentErrorNotice errors={message.agent_errors ?? []} />}
           {message.role === "assistant" && message.rapor && message.message_id && (
             <ReportDownloadButton
               messageId={message.message_id}
-              dosyaAdi={message.rapor.dosya_adi}
+              fileName={message.rapor.dosya_adi}
             />
           )}
           {message.role === "assistant" && onSelectAsset && (
@@ -118,6 +186,17 @@ export function MessageList({
           )}
         </div>
       ))}
+    </div>
+    {showJumpToBottom && (
+      <button
+        type="button"
+        onClick={() => scrollToBottom("smooth")}
+        aria-label="En alta in"
+        className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border app-border bg-[var(--color-surface)] px-3 py-1 text-xs font-medium app-heading shadow-md transition hover:bg-[var(--color-primary-soft)]"
+      >
+        ↓
+      </button>
+    )}
     </div>
   );
 }

@@ -12,7 +12,7 @@ from app.services.risk import risk_profili_hesapla
 
 
 @pytest.mark.db
-def test_varlik_listesi_doner(client, auth):
+def test_asset_list_returned(client, auth):
     govde = client.get("/api/market/assets", headers=auth).json()
 
     semboller = {v["symbol"] for v in govde["items"]}
@@ -20,7 +20,7 @@ def test_varlik_listesi_doner(client, auth):
 
 
 @pytest.mark.db
-def test_varlik_listesi_kategoriye_gore_filtrelenir(client, auth):
+def test_asset_list_filtered_by_category(client, auth):
     govde = client.get("/api/market/assets?category=CRYPTO", headers=auth).json()
 
     assert govde["items"]
@@ -28,7 +28,7 @@ def test_varlik_listesi_kategoriye_gore_filtrelenir(client, auth):
 
 
 @pytest.mark.db
-def test_fiyat_gecmisi_istenen_gun_sayisinca_nokta_doner(client, auth):
+def test_price_history_returns_requested_number_of_days(client, auth):
     govde = client.get("/api/market/history?symbol=THYAO&days=10", headers=auth).json()
 
     assert govde["symbol"] == "THYAO"
@@ -41,7 +41,7 @@ def test_fiyat_gecmisi_istenen_gun_sayisinca_nokta_doner(client, auth):
 
 
 @pytest.mark.db
-def test_fiyat_gecmisi_kronolojik_sirali(client, auth):
+def test_price_history_in_chronological_order(client, auth):
     """PriceChart soldan saga cizer; seri eskiden yeniye gelmeli."""
     noktalar = client.get("/api/market/history?symbol=THYAO&days=5", headers=auth).json()["points"]
 
@@ -66,7 +66,7 @@ def test_mum_endpointi_ohlc_serisi_doner(client, auth):
 
 
 @pytest.mark.db
-def test_bilinmeyen_sembol_404_doner(client, auth):
+def test_unknown_symbol_returns_404(client, auth):
     yanit = client.get("/api/market/history?symbol=YOKBOYLE", headers=auth)
 
     assert yanit.status_code == 404
@@ -74,7 +74,7 @@ def test_bilinmeyen_sembol_404_doner(client, auth):
 
 
 @pytest.mark.db
-def test_arama_ilgili_dokumani_bulur(client, auth):
+def test_search_finds_relevant_document(client, auth):
     yanit = client.post(
         "/api/market/search", headers=auth, json={"query": "THYAO net kar yolcu doluluk"}
     )
@@ -87,7 +87,7 @@ def test_arama_ilgili_dokumani_bulur(client, auth):
 
 
 @pytest.mark.db
-def test_arama_sirket_filtresine_uyar(client, auth):
+def test_search_respects_company_filter(client, auth):
     """Filtre SEMBOL ile de calismali: ajan sorgudan sembol cikarir, dokumanda
     unvan yazilidir. Yalnizca unvana bakilsaydi filtreli arama bos donerdi."""
     sonuclar = client.post(
@@ -99,7 +99,7 @@ def test_arama_sirket_filtresine_uyar(client, auth):
 
 
 @pytest.mark.db
-def test_arama_cok_kisa_sorguyu_reddeder(client, auth):
+def test_search_rejects_too_short_query(client, auth):
     yanit = client.post("/api/market/search", headers=auth, json={"query": "a"})
 
     assert yanit.status_code == 422
@@ -107,7 +107,7 @@ def test_arama_cok_kisa_sorguyu_reddeder(client, auth):
 
 @pytest.mark.db
 async def test_arama_dense_ayagi_gercekten_calisir(client, auth, monkeypatch):
-    """`arama_yap` artik `.search()` yerine `.hybrid_search()` cagirir (bkz.
+    """`search_assets` artik `.search()` yerine `.hybrid_search()` cagirir (bkz.
     `app/services/market.py`) - bu test dense (embedding) ayagin bu REST
     yolunda da GERCEKTEN devrede oldugunu kanitlar, sadece "hata firlatmadi"
     degil. Ayni DOC-005 deseni:
@@ -166,7 +166,7 @@ async def test_arama_dense_ayagi_gercekten_calisir(client, auth, monkeypatch):
 
 
 @pytest.mark.db
-def test_risk_profili_bilesenleriyle_doner(client, auth):
+def test_risk_profile_returned_with_components(client, auth):
     govde = client.get("/api/risk/profile", headers=auth).json()
 
     assert 0 < govde["risk_score"] <= 100
@@ -182,7 +182,7 @@ def test_risk_profili_bilesenleriyle_doner(client, auth):
 
 
 @pytest.mark.db
-def test_risk_skoru_ayni_girdide_ayni_sonucu_verir(client, auth):
+def test_risk_score_is_deterministic(client, auth):
     """Deterministik: iki cagri arasinda LLM ya da rastgelelik yok."""
     birinci = client.get("/api/risk/profile", headers=auth).json()
     ikinci = client.get("/api/risk/profile", headers=auth).json()
@@ -190,7 +190,7 @@ def test_risk_skoru_ayni_girdide_ayni_sonucu_verir(client, auth):
     assert birinci == ikinci
 
 
-def test_bos_portfoyde_skor_hesaplanamadi_doner():
+def test_empty_portfolio_returns_score_unavailable():
     sonuc = risk_profili_hesapla(holdings=[], allocation=[])
 
     assert sonuc["risk_score"] == 0
@@ -198,7 +198,7 @@ def test_bos_portfoyde_skor_hesaplanamadi_doner():
     assert sonuc["holding_count"] == 0
 
 
-def test_tek_kripto_varlik_dengeli_portfoyden_riskli():
+def test_single_crypto_asset_riskier_than_balanced_portfolio():
     kripto = risk_profili_hesapla(
         holdings=[{"symbol": "BTC", "asset_class": "CRYPTO", "market_value_try": 100_000}],
         allocation=[{"asset_class": "CRYPTO", "class_pct": 100}],
@@ -222,7 +222,7 @@ def test_tek_kripto_varlik_dengeli_portfoyden_riskli():
     assert kripto["components"]["concentration"] > dengeli["components"]["concentration"]
 
 
-def test_oynaklik_skoru_yukseltir():
+def test_volatility_raises_score():
     varliklar = [{"symbol": "BTC", "asset_class": "CRYPTO", "market_value_try": 100_000}]
     dagilim = [{"asset_class": "CRYPTO", "class_pct": 100}]
 
@@ -234,7 +234,7 @@ def test_oynaklik_skoru_yukseltir():
 
 
 @pytest.mark.parametrize("tolerans", ["LOW", "MEDIUM", "HIGH"])
-def test_tamamen_kripto_portfoy_her_toleransin_ustunde(tolerans):
+def test_all_crypto_portfolio_exceeds_every_tolerance(tolerans):
     """%100 kripto skoru 80'in uzerine cikar; en yuksek tolerans bile asilir."""
     sonuc = risk_profili_hesapla(
         holdings=[{"symbol": "BTC", "asset_class": "CRYPTO", "market_value_try": 100_000}],
@@ -246,7 +246,7 @@ def test_tamamen_kripto_portfoy_her_toleransin_ustunde(tolerans):
     assert sonuc["suggestions"]
 
 
-def test_dengeli_portfoy_dusuk_toleransla_uyumlu():
+def test_balanced_portfolio_matches_low_tolerance():
     sonuc = risk_profili_hesapla(
         holdings=[
             {"symbol": "TR10Y", "asset_class": "BOND", "market_value_try": 40_000},
@@ -265,7 +265,7 @@ def test_dengeli_portfoy_dusuk_toleransla_uyumlu():
     assert sonuc["tolerance_alignment"] in {"uyumlu", "tolerans alti"}
 
 
-def test_tolerans_bilinmiyorsa_karsilastirma_yapilmaz():
+def test_no_comparison_when_tolerance_unknown():
     sonuc = risk_profili_hesapla(
         holdings=[{"symbol": "THYAO", "asset_class": "STOCK", "market_value_try": 10_000}],
         allocation=[{"asset_class": "STOCK", "class_pct": 100}],

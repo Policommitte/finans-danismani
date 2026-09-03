@@ -52,7 +52,7 @@ const PROFIL_ADLARI: Record<string, { tr: string; en: string }> = {
  * Metin "bu varlik neden secildi"i DEGIL "bu oneri neden SANA geldi"yi
  * anlatir; varligin gerekcesi zaten kartin ustundeki maddelerde duruyor.
  */
-function nedenBanaGeldi(
+function whyRecommended(
   recommendation: Recommendation,
   money: Intl.NumberFormat,
   language: string,
@@ -115,7 +115,7 @@ function nedenBanaGeldi(
   return satirlar;
 }
 
-function kalanSure(expiresAt: string, language: string): string {
+function remainingTime(expiresAt: string, language: string): string {
   const kalan = new Date(expiresAt).getTime() - Date.now();
   if (kalan <= 0) return language === "tr" ? "süresi doldu" : "expired";
   const dakika = Math.floor(kalan / 60000);
@@ -137,12 +137,12 @@ export function RecommendationCard({ recommendation, submitting, onApprove, onRe
   const money = new Intl.NumberFormat(locale, { style: "currency", currency: "TRY" });
   const [quantity, setQuantity] = useState(String(recommendation.quantity));
   const [rejecting, setRejecting] = useState(false);
-  const [kalan, setKalan] = useState(() => kalanSure(recommendation.expires_at, language));
+  const [kalan, setKalan] = useState(() => remainingTime(recommendation.expires_at, language));
 
   // TTL geri sayimi: kart acikken sure dolabilir, kullanici bunu gormeli.
   useEffect(() => {
     const timer = window.setInterval(
-      () => setKalan(kalanSure(recommendation.expires_at, language)),
+      () => setKalan(remainingTime(recommendation.expires_at, language)),
       30_000,
     );
     return () => window.clearInterval(timer);
@@ -211,7 +211,7 @@ export function RecommendationCard({ recommendation, submitting, onApprove, onRe
           {language === "tr" ? "Neden bana geldi?" : "Why did I get this?"}
         </summary>
         <div className="mt-2 space-y-1.5 text-xs app-muted">
-          {nedenBanaGeldi(recommendation, money, language).map((satir) => (
+          {whyRecommended(recommendation, money, language).map((satir) => (
             <p key={satir}>{satir}</p>
           ))}
           <p className="pt-1 font-medium">{language === "tr" ? "Kaynaklar" : "Sources"}</p>

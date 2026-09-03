@@ -126,6 +126,11 @@ async def portfolio_get_holdings() -> dict[str, Any]:
                     "market_value_try": _f(h["market_value_try"]),
                     "pnl_try": _f(h["pnl_try"]),
                     "pnl_pct": _f(h["pnl_pct"]),
+                    # GUNLUK degisim: `pnl_pct` acilistan beri degil TUM
+                    # zamanin kar/zarari - ajan "bugun en cok kazandiran"
+                    # diye onu yaziyordu (canlida yanlis rapor edildi).
+                    "daily_change_pct": _f(h.get("daily_change_pct")),
+                    "daily_change_try": _f(h.get("daily_change_try")),
                 }
                 for h in holdings
             ]
@@ -310,7 +315,7 @@ async def market_get_seasonality(
     if not seri:
         return fail(f"'{symbol}' icin fiyat gecmisi bulunamadi.")
 
-    noktalar = [(_gun(p["ts"]), _f(p["price"])) for p in seri]
+    noktalar = [(_to_date(p["ts"]), _f(p["price"])) for p in seri]
     noktalar = [(g, f) for g, f in noktalar if g is not None and f is not None]
 
     donemler: list[dict[str, Any]] = []
@@ -319,7 +324,7 @@ async def market_get_seasonality(
     for yil in range(ilk_yil, bugun.year + 1):
         bas = date(yil, start_month, 1)
         bitis_yili = yil if end_month >= start_month else yil + 1
-        bitis = _ay_sonu(bitis_yili, end_month)
+        bitis = _month_end(bitis_yili, end_month)
 
         # SUREN DONEM: takvimde bitmemis ama buyuk olcude yasanmis bir donemi
         # tamamen atmak, elde en TAZE gozlemi yok saymak demek. Agustos
@@ -566,12 +571,12 @@ def build_servers() -> list[MCPServer]:
 _ASGARI_TAMAMLANMA = 0.7
 
 
-def _ay_sonu(yil: int, ay: int) -> date:
+def _month_end(yil: int, ay: int) -> date:
     """Bir ayin son gunu - artik yil dahil dogru (`calendar.monthrange`)."""
     return date(yil, ay, calendar.monthrange(yil, ay)[1])
 
 
-def _gun(ts: Any) -> date | None:
+def _to_date(ts: Any) -> date | None:
     """`price_history.ts` degerini `date`'e cevirir.
 
     Repository katmani `datetime` (SQL) ya da ISO string (bellek ici)

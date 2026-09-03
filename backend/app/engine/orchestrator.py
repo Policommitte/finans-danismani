@@ -60,9 +60,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
+from app.agents.portfolio import gunun_hareketlileri
 from app.agents.security_agent import PII_FLAG
 from app.config import settings
-from app.core.llm import _gecici_hata_mi
+from app.core.llm import _is_transient_error
 from app.engine.kapsam import (
     KAPSAM_BASKA_KISI,
     KAPSAM_BELIRSIZ,
@@ -71,9 +72,9 @@ from app.engine.kapsam import (
     KAPSAM_YASAK,
     KISA_YANIT_KAPSAMLARI,
     SEMBOL_DESENI,
-    kapsam_belirle,
-    kisa_yanit,
+    classify_scope,
     normalize,
+    short_reply,
     varlik_adi_geciyor_mu,
 )
 from app.orchestration.models import RESET, AgentError, AgentState, Source
@@ -302,7 +303,7 @@ KISMI_YANIT_ASGARI_KARAKTER = 120
 #: Yarim kalan sentezin sonuna eklenen aciklama.
 KISMI_YANIT_NOTU = "(Yanıtın devamı teknik bir nedenle üretilemedi.)"
 
-#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 13. madde ile AYNI metin.
+#: Uyum ibaresi - `SYNTHESIZER_SYSTEM_PROMPT` 14. madde ile AYNI metin.
 YATIRIM_TAVSIYESI_IBARESI = "Bu bilgiler yatırım tavsiyesi değildir."
 
 #: Cikti guvenlik denetimi basarisiz oldugunda donen sabit mesaj.
@@ -311,7 +312,7 @@ SAFE_RESPONSE_MESSAGE = (
     "şekilde ifade ederek tekrar deneyin."
 )
 
-#: LLM kapsam suzgecinin istem sablonu (bkz. `_kapsam_llm_suzgeci`).
+#: LLM kapsam suzgecinin istem sablonu (bkz. `_scope_llm_filter`).
 #:
 #: Model TEK KELIME dondurmeye zorlanir; uc etiketten birine cozulemezse
 #: karar YOK sayilir ve kural karari gecerli kalir (fail-open). Etiketler
@@ -363,6 +364,9 @@ Türkçe yanıta dönüştür.
 
 KISA TUT
 4. En fazla 150 kelime. Cevap net olduğunda 2-3 cümlede bitir.
+   İSTİSNA: Kullanıcı açıkça birden fazla konuyu kapsayan bir özet istediyse
+   (örn. günlük portföy brifingi) istediği bölümlerin HEPSİNİ yaz ve
+   belirttiği kelime sınırına kadar çık.
 5. Madde listesi yalnızca gerçekten liste olan şeyler için (örn. birkaç yıllık
    getiri). Üç maddeyi geçme.
 6. Aynı sayıyı iki kez yazma; tekrar eden cümle kurma.
@@ -373,11 +377,15 @@ DÜRÜSTLÜK
 8. Veri az ya da yetersizse bunu tek cümleyle açıkça söyle; uzmanın "yeterli
    değildir" uyarısını YUTMA.
 9. Bir uzmandan veri gelmediyse dürüstçe belirt.
-10. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
+10. Bir uzman bilgiyi "doğrudan X hakkında" ve "aynı sektörden bağlam" diye
+    AYIRMIŞSA bu ayrımı KORU: bağlam bilgisini X hakkındaymış gibi yazma,
+    kısaltmak için iki grubu birleştirme. Doğrudan bilgi yoksa bunu ilk
+    cümlede söyle ama bağlam bilgisini ATMA - özetlemeye devam et.
+11. Kişisel veri (TCKN, hesap/IBAN numarası, telefon, e-posta) yazma; geçse
     bile maskele.
-11. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
-12. Sade dil kullan; gereksiz teknik jargondan kaçın.
-13. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
+12. Kullandığın bilgi bir kaynağa dayanıyorsa kaynağı kısaca belirt.
+13. Sade dil kullan; gereksiz teknik jargondan kaçın.
+14. Yanıtın sonuna mutlaka "Bu bilgiler yatırım tavsiyesi değildir." ibaresini
     ekle."""
 
 
@@ -401,10 +409,28 @@ def _normalize(text: str) -> str:
 
 
 #: Sentez akisi ILK TOKEN'DAN ONCE gecici hatayla duserse kac kez daha
-#: denenecegi. Dusuk tutuldu: sentezin dis zaman asimi 45 sn ve basarisizlik
-#: zaten deterministik ozete duserek guvenli sonlanir.
-_SENTEZ_YENIDEN_DENEME = 1
-_SENTEZ_BEKLEME_SANIYE = 1.5
+#: denenecegi. Toplam deneme = 1 + bu sayi.
+#:
+#: 1 -> 2 (2 Eylul 2026, canlida olculdu): saglayici arka arkaya iki kez
+#: `503 Service temporarily overloaded` dondugunde tek yeniden deneme
+#: yetmedi ve yanit deterministik ozete dustu - kullanici ajan bolumlerini
+#: (`Piyasa arastirmasi: ... Portfoy analizi: ...`) alt alta gordu. Ajan
+#: tarafindaki hak zaten 2 (`app/core/llm.py::_YENIDEN_DENEME`); sentez
+#: ondan daha kirilgan olmamali.
+#:
+#: UST SINIR VAR: her deneme once ILK TOKEN'i beklemek zorunda
+#: (`synthesizer_stall_seconds`) ve beklemeler `synthesizer_timeout_seconds`
+#: butcesinden yenir. Hak daha da artirilirsa dis zaman asimi tetiklenir -
+#: sonuc yine deterministik ozet olur ama kullanici cok daha uzun bekler.
+#: `done` olayinda gonderilen en fazla varlik karti sayisi.
+KART_SEMBOL_SINIRI = 3
+
+_SENTEZ_YENIDEN_DENEME = 2
+
+#: Denemeler arasi bekleme - kademeli. Sabit bekleme yogunluk aninda ikinci
+#: denemeyi de ayni dalgaya sokuyordu; ajan tarafindaki kademelendirmeyle
+#: (`app/core/llm.py::_BEKLEME_SANIYE`) ayni mantik.
+_SENTEZ_BEKLEME_SANIYELERI = (1.5, 3.0)
 
 
 class Orchestrator:
@@ -467,7 +493,7 @@ class Orchestrator:
         )
         self.checkpointer = checkpointer if checkpointer is not None else MemorySaver()
         #: Router'in KOSULLU olarak tetikledigi ilk katman. `_add_agent_edges`
-        #: doldurur, `_kapsam_dallanmasi` calisma aninda okur.
+        #: doldurur, `_scope_branch` calisma aninda okur.
         self._router_hedefleri: tuple[str, ...] = ()
         self.graph = self.build_graph().compile(checkpointer=self.checkpointer)
 
@@ -571,7 +597,7 @@ class Orchestrator:
         self._router_hedefleri = tuple(katmanlar[0])
         builder.add_conditional_edges(
             NODE_ROUTER,
-            self._kapsam_dallanmasi,
+            self._scope_branch,
             {NODE_SMALL_TALK: NODE_SMALL_TALK, **{ad: ad for ad in self._router_hedefleri}},
         )
 
@@ -589,7 +615,7 @@ class Orchestrator:
         """Ham ajan verisi temizse sentezle, degilse guvenli yanit dondur."""
         return NODE_SYNTHESIZER if state.is_output_safe else NODE_SAFE_RESPONSE
 
-    def _kapsam_dallanmasi(self, state: AgentState) -> str | list[str]:
+    def _scope_branch(self, state: AgentState) -> str | list[str]:
         """Kapsam disi sorguyu kisa yanita, finans sorusunu ajanlara yollar.
 
         Liste dondurmek LangGraph'ta PARALEL FAN-OUT demektir; finans yolunda
@@ -610,11 +636,11 @@ class Orchestrator:
         Uc asamalidir ve sira onemlidir:
 
           1. KAPSAM (kurallar) - "bu soru bize mi?" Finans disiysa
-             `requested_agents` bos kalir ve `_kapsam_dallanmasi` akisi
+             `requested_agents` bos kalir ve `_scope_branch` akisi
              `small_talk`'a cevirir; hicbir ajan, hicbir LLM calismaz.
           2. KAPSAM (LLM suzgeci) - kurallarin ajanlara gecirdigi ama taninan
              bir varlik/sembol icermeyen sorular kucuk modele onaylatilir
-             (bkz. `_kapsam_llm_suzgeci`). Kurallar yalnizca LISTEDEKI yasak
+             (bkz. `_scope_llm_filter`). Kurallar yalnizca LISTEDEKI yasak
              konulari bilir; suzgec listede olmayanlari yakalar.
           3. NIYET - "hangi uzman?" Yalnizca finans sorularinda calisir.
 
@@ -623,7 +649,7 @@ class Orchestrator:
         doldurur. Ajanlar bu listeye bakarak kendilerini erken sonlandirabilir
         (ucuz no-op) - bkz. `BaseAgent.is_requested`.
         """
-        kapsam = kapsam_belirle(state.user_query, devam_turu=self._devam_turu(state))
+        kapsam = classify_scope(state.user_query, devam_turu=self._is_follow_up_turn(state))
 
         # BELGE EKLIYSE "SINYAL YOK" KARARLARI EZILIR - ama RET KARARLARI DEGIL.
         #
@@ -651,7 +677,7 @@ class Orchestrator:
             }
 
         if kapsam not in KISA_YANIT_KAPSAMLARI:
-            kapsam = await self._kapsam_llm_suzgeci(state, kapsam)
+            kapsam = await self._scope_llm_filter(state, kapsam)
 
         if kapsam in KISA_YANIT_KAPSAMLARI:
             logger.info(
@@ -678,7 +704,7 @@ class Orchestrator:
         """
         return [ad for ad in self.agents if ad != AGENT_DOCUMENT_ANALYSIS]
 
-    async def _kapsam_llm_suzgeci(self, state: AgentState, kapsam: str) -> str:
+    async def _scope_llm_filter(self, state: AgentState, kapsam: str) -> str:
         """Kurallarin gecirdigi sorguyu kucuk modele onaylatir.
 
         CANLI SIZINTI (1 Eylul 2026): "yukselen tetikci pazari" ve "tetikci
@@ -709,7 +735,7 @@ class Orchestrator:
         if varlik_adi_geciyor_mu(n) or SEMBOL_DESENI.search(state.user_query):
             return kapsam
 
-        onceki = self._onceki_kullanici_mesaji(state)
+        onceki = self._previous_user_message(state)
         baglam = f"Önceki mesaj: {onceki}\n" if onceki else ""
         istem = KAPSAM_LLM_PROMPT.format(baglam=baglam, soru=state.user_query)
 
@@ -749,7 +775,7 @@ class Orchestrator:
         return yeni_kapsam
 
     @staticmethod
-    def _onceki_kullanici_mesaji(state: AgentState) -> str:
+    def _previous_user_message(state: AgentState) -> str:
         """Mevcut sorudan ONCEKI son kullanici mesajini dondurur (yoksa bos).
 
         `stream_request` mevcut soruyu listeye coktan eklemistir; bu yuzden
@@ -764,7 +790,7 @@ class Orchestrator:
         return icerik if isinstance(icerik, str) else str(icerik)
 
     @staticmethod
-    def _devam_turu(state: AgentState) -> bool:
+    def _is_follow_up_turn(state: AgentState) -> bool:
         """Bu sohbette daha once en az bir tur yasandi mi?
 
         `stream_request` her turun basinda kullanicinin mesajini listeye ekler;
@@ -797,7 +823,7 @@ class Orchestrator:
         }.get(next(iter(kume)), "belirsiz")
 
     @staticmethod
-    def _piyasa_sinyali_var(ham_sorgu: str, requested: list[str]) -> bool:
+    def _has_market_signal(ham_sorgu: str, requested: list[str]) -> bool:
         """Sorgu belirli bir ENSTRUMANDAN mi soz ediyor?
 
         Iki isaret: piyasa ajaninin kendi anahtar kelimeleri, ya da ham metinde
@@ -811,7 +837,7 @@ class Orchestrator:
         return AGENT_MARKET_RESEARCH in requested or bool(SEMBOL_DESENI.search(ham_sorgu))
 
     @staticmethod
-    def _yalnizca_genel_tavsiye(normalized: str) -> bool:
+    def _only_generic_advice(normalized: str) -> bool:
         """Risk ajani SADECE genel bir tavsiye kelimesiyle mi eslesti?
 
         `True` ise sorguda "risk", "dengele", "cesitlendir", "strateji" gibi
@@ -847,7 +873,7 @@ class Orchestrator:
             # Devam turu: baglam onceki turda, hangi uzmanin gerektigi buradan
             # anlasilamaz ("Peki ya simdi?"). Eski guvenli varsayilan korunur -
             # eksik yanit vermektense biraz fazla calis.
-            if self._devam_turu(state):
+            if self._is_follow_up_turn(state):
                 return self._belge_disi_ajanlar()
 
             # Ilk tur: finans sinyali VAR ama hangi uzman oldugu belirsiz
@@ -869,8 +895,8 @@ class Orchestrator:
         # portfoy dokumuyle sisiyordu.
         if (
             AGENT_RISK_STRATEGY in requested
-            and self._yalnizca_genel_tavsiye(normalized)
-            and self._piyasa_sinyali_var(state.user_query, requested)
+            and self._only_generic_advice(normalized)
+            and self._has_market_signal(state.user_query, requested)
         ):
             requested.remove(AGENT_RISK_STRATEGY)
             if AGENT_MARKET_RESEARCH in self.agents and AGENT_MARKET_RESEARCH not in requested:
@@ -1016,7 +1042,7 @@ class Orchestrator:
             kismi = kismi[: son_sinir + 1].rstrip()
 
         satirlar = [kismi, "", KISMI_YANIT_NOTU]
-        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 13. madde);
+        # Uyum ibaresi zorunlu (bkz. SYNTHESIZER_SYSTEM_PROMPT 14. madde);
         # sentez yarim kaldigi icin model onu yazmaya firsat bulamamis olabilir.
         if YATIRIM_TAVSIYESI_IBARESI not in kismi:
             satirlar.append(YATIRIM_TAVSIYESI_IBARESI)
@@ -1043,7 +1069,7 @@ class Orchestrator:
         # uretilmeyen yollarda nihai metni tek token olayi olarak gonderdigi
         # icin frontend sozlesmesi degismez.
         if not hasattr(self.synthesizer_llm, "astream"):
-            return await self.synthesizer_llm.generate(_mesajlari_metne_cevir(messages))
+            return await self.synthesizer_llm.generate(_messages_to_text(messages))
 
         # Biriktirici CAGIRAN TARAFTAN gelir; boylece bu coroutine iptal
         # edilse bile uretilen metin kaybolmaz (bkz. `synthesize`).
@@ -1074,15 +1100,27 @@ class Orchestrator:
                 # denemek kullaniciya yarim yanitin ustune ikinci bir yanit
                 # yazardi. Akis daha baslamadiysa hicbir sey gorunmemistir,
                 # yeniden denemek GORUNMEZ olur.
-                if parts or _yeniden_deneme_hakki[0] <= 0 or not _gecici_hata_mi(hata):
+                if parts or _yeniden_deneme_hakki[0] <= 0 or not _is_transient_error(hata):
                     raise
+                # Kacinci deneme oldugumuza gore bekle: hak azaldikca
+                # kademede ilerleriz (2 hak -> 1.5 sn, 1 hak -> 3.0 sn).
+                bekleme = _SENTEZ_BEKLEME_SANIYELERI[
+                    min(
+                        _SENTEZ_YENIDEN_DENEME - _yeniden_deneme_hakki[0],
+                        len(_SENTEZ_BEKLEME_SANIYELERI) - 1,
+                    )
+                ]
                 _yeniden_deneme_hakki[0] -= 1
                 logger.warning(
                     "sentez akisi gecici hatayla dustu; yeniden deneniyor",
-                    extra={"kalan": _yeniden_deneme_hakki[0], "hata": str(hata)[:200]},
+                    extra={
+                        "kalan": _yeniden_deneme_hakki[0],
+                        "bekleme_sn": bekleme,
+                        "hata": str(hata)[:200],
+                    },
                 )
                 await akis.aclose()
-                await asyncio.sleep(_SENTEZ_BEKLEME_SANIYE)
+                await asyncio.sleep(bekleme)
                 akis = self.synthesizer_llm.astream(messages, config=config)
                 continue
             except asyncio.TimeoutError as exc:
@@ -1128,7 +1166,7 @@ class Orchestrator:
         """
         bolumler = [f"Kullanicinin sorusu: {state.user_query}"]
 
-        for ajan in self._bolum_sirasi(state):
+        for ajan in self._section_order(state):
             veri = _AJAN_VERISI[ajan](state)
             if veri is not None:
                 bolumler.append(f"\n{_BOLUM_BASLIKLARI[ajan]}:\n{_ajan_metni(veri)}")
@@ -1137,7 +1175,7 @@ class Orchestrator:
             kaynaklar = "\n".join(f"- [{s.doc_id}] {s.baslik}" for s in state.sources)
             bolumler.append(f"\nKaynaklar:\n{kaynaklar}")
 
-        eksikler = self._verisi_eksik_ajanlar(state)
+        eksikler = self._agents_missing_data(state)
         if eksikler:
             hatalar = "\n".join(f"- {ad}" for ad in eksikler)
             bolumler.append("\nUlasilamayan veriler (kullaniciya durustce belirt):\n" + hatalar)
@@ -1145,7 +1183,7 @@ class Orchestrator:
         return "\n".join(bolumler)
 
     @staticmethod
-    def _verisi_eksik_ajanlar(state: AgentState) -> list[str]:
+    def _agents_missing_data(state: AgentState) -> list[str]:
         """Hata veren ajanlardan GERCEKTEN veri uretemeyenler.
 
         `agent_errors` listesinde olmak "veri yok" demek DEGILDIR. Ajanlar
@@ -1179,7 +1217,7 @@ class Orchestrator:
         return sorted(eksikler)
 
     @staticmethod
-    def _bolum_sirasi(state: AgentState) -> list[str]:
+    def _section_order(state: AgentState) -> list[str]:
         """Yanit bolumlerinin sirasi: once router'in istedikleri, sonra geri kalan.
 
         Router `requested_agents`'i niyet sirasinda dolduruyor: "THYAO alayim
@@ -1208,7 +1246,7 @@ class Orchestrator:
         """
         satirlar: list[str] = []
 
-        for ajan in self._bolum_sirasi(state):
+        for ajan in self._section_order(state):
             baslik, veri = _BOLUM_BASLIKLARI[ajan], _AJAN_VERISI[ajan](state)
             if veri is not None:
                 satirlar.append(f"{baslik}: {_ajan_metni(veri)}")
@@ -1218,8 +1256,8 @@ class Orchestrator:
 
         # Kismi basarisizlik: hangi uzmandan VERI GELMEDIGINI durustce soyle.
         # Hata veren ama verisini yine de ureten ajan (orn. LLM yorumu
-        # alinamayan portfoy ajani) buraya GIRMEZ - bkz. `_verisi_eksik_ajanlar`.
-        eksik_ajanlar = self._verisi_eksik_ajanlar(state)
+        # alinamayan portfoy ajani) buraya GIRMEZ - bkz. `_agents_missing_data`.
+        eksik_ajanlar = self._agents_missing_data(state)
         if eksik_ajanlar:
             satirlar.append(f"Not: Şu analizlere şu anda ulaşılamadı: {', '.join(eksik_ajanlar)}.")
 
@@ -1251,7 +1289,7 @@ class Orchestrator:
         yalnizca konu disi bir sorgu. Kullaniciya donen dil de buna gore
         farklidir (bkz. modul docstring'i, "IKI FARKLI HAYIR YOLU").
         """
-        metin = kisa_yanit(state.scope or KAPSAM_BELIRSIZ)
+        metin = short_reply(state.scope or KAPSAM_BELIRSIZ)
         logger.info(
             "kapsam disi sorgu kisa yanitla sonlandirildi",
             extra={"scope": state.scope, "request_id": state.request_id},
@@ -1363,6 +1401,10 @@ class Orchestrator:
         #: ilk token'dan once gitme zorunlulugu yok, cunku frontend karti
         #: cevap TAMAMLANDIKTAN sonra gosterir.
         bahsedilen_semboller: list[str] = []
+        #: Portfoy ajani calistiysa gunun en hareketli pozisyonlari - piyasa
+        #: ajaninin sembolu TEK bir varlik veriyor, portfoy sorularinda ise
+        #: cevap birden fazla pozisyondan bahsediyor.
+        hareketli_semboller: list[str] = []
         son_yanit: str | None = None
         #: Kullaniciya GERCEKTEN gonderilmis token'lar. Nihai metin bundan
         #: uzunsa aradaki fark sonda ek token olarak yollanir (bkz. asagisi).
@@ -1415,11 +1457,19 @@ class Orchestrator:
                         if isinstance(piyasa_verisi, dict) and piyasa_verisi.get("symbol"):
                             bahsedilen_semboller = [piyasa_verisi["symbol"]]
 
+                        portfoy_verisi = update.get("portfolio_data")
+                        if isinstance(portfoy_verisi, dict):
+                            hareketli_semboller = [
+                                h["symbol"]
+                                for h in gunun_hareketlileri(portfoy_verisi)
+                                if h.get("symbol")
+                            ]
+
                         # Kismi basarisizlik: tek ajan coktu, sohbet DEVAM
                         # ediyor. Frontend bunu uyari olarak gosterir, akisi
                         # hata sayip kapatmaz.
                         for hata in update.get("agent_errors") or []:
-                            yield self._agent_error_olayi(hata)
+                            yield self._agent_error_event(hata)
 
                         yanit = update.get("final_response")
                         if yanit:
@@ -1456,7 +1506,14 @@ class Orchestrator:
             if toplanan_kaynaklar and not kaynaklar_yayinlandi:
                 kaynaklar_yayinlandi = True
                 yield _kaynak_olayi()
-            yield {"type": "token", "content": son_yanit}
+            # TC018-US12: bu yol LLM CALISTIRMADI (small_talk/reject/
+            # safe_response/LLM'siz sentez) - metin bastan tamamen belli.
+            # Yine de `_sahte_akis` ile kucuk parcalara bolup gecikmeli
+            # yayinlaniyor, boylece kullanici acisindan TUM yanitlar ayni
+            # "kelime kelime beliren" deneyimi verir (bkz. o metodun
+            # docstring'i).
+            async for parca in self._sahte_akis(son_yanit):
+                yield {"type": "token", "content": parca}
         elif son_yanit and token_yayinlandi:
             # AKIS YARIM KALDIYSA KUYRUGU GONDER.
             #
@@ -1480,7 +1537,11 @@ class Orchestrator:
         bitis_olayi: dict = {
             "type": "done",
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
-            "mentioned_assets": bahsedilen_semboller,
+            # Sorulan varlik once, ardindan gunun hareketlileri; tekrarlar
+            # elenir ve kart sayisi sinirlanir.
+            "mentioned_assets": list(dict.fromkeys([*bahsedilen_semboller, *hareketli_semboller]))[
+                :KART_SEMBOL_SINIRI
+            ],
         }
         if uretilen_rapor:
             # `rapor`: yalnizca META veri (dosya adi/boyut) - SSE'ye JSON
@@ -1489,7 +1550,7 @@ class Orchestrator:
             # `_dahili_pdf_bytes`: HAM PDF baytlari. Alt cizgiyle baslamasi
             # BILINCLI - `app.services.chat.stream_chat_response` bu alani
             # okuyup raporu onbellege (`report_cache`) yazdiktan SONRA
-            # olaydan POPLAR; SSE paketleyici (`sse_paketle`) bu alani asla
+            # olaydan POPLAR; SSE paketleyici (`format_sse`) bu alani asla
             # gormemeli, gorursede JSON'a gomulu binary veri kullaniciya
             # gider ve akis bozulur.
             bitis_olayi["rapor"] = {
@@ -1500,7 +1561,7 @@ class Orchestrator:
         yield bitis_olayi
 
     @staticmethod
-    def _hata_ayrintisi_gonderilsin() -> bool:
+    def _should_send_error_detail() -> bool:
         """Ajan hatasinin METNI istemciye gitsin mi?
 
         URETIMDE HAYIR: istisna metni ic ayrinti (tool adi, baglanti dizesi,
@@ -1516,12 +1577,12 @@ class Orchestrator:
         return (settings.app_env or "").strip().lower() not in ("production", "prod")
 
     @classmethod
-    def _agent_error_olayi(cls, hata) -> dict:
+    def _agent_error_event(cls, hata) -> dict:
         """`AgentError`'i SSE olayina cevirir.
 
         Frontend'e ajan adi ve hata TURU yeter - "piyasa verisine ulasilamadi"
         cumlesini bu ikisinden kurar. Hata METNI yalnizca uretim disinda
-        eklenir (bkz. `_hata_ayrintisi_gonderilsin`).
+        eklenir (bkz. `_should_send_error_detail`).
         """
         if isinstance(hata, AgentError):
             olay = {"type": "agent_error", "agent": hata.agent_name, "error_type": hata.error_type}
@@ -1537,7 +1598,7 @@ class Orchestrator:
             olay = {"type": "agent_error", "agent": "bilinmiyor", "error_type": "unknown"}
             mesaj = ""
 
-        if mesaj and cls._hata_ayrintisi_gonderilsin():
+        if mesaj and cls._should_send_error_detail():
             olay["message"] = str(mesaj)[:500]
         return olay
 
@@ -1562,6 +1623,40 @@ class Orchestrator:
                 return None
 
         return NODE_STATUS_MESSAGES.get(node_name)
+
+    #: `_sahte_akis` parca uzunlugu (karakter). Kucuk tutulur: TC018-US12
+    #: issue'sunda bildirildigi gibi small_talk/reject/safe_response gibi
+    #: LLM CALISTIRMAYAN yollar metni tek parca gonderiyordu - gercek
+    #: akan yanitlarin yaninda "donmus, sonra birden beliren" bir metin
+    #: gorsel tutarsizlik yaratiyordu. Bu sabitler o metni YAPAY olarak
+    #: bolup gecikmeli yayinlar; amac gercekci bir LLM hizi TAKLIT ETMEK
+    #: degil (zaten uretim yoktur, metin bastan tamamen belli), sadece
+    #: ayni "kelime kelime beliren" gorsel deneyimi vermektir.
+    _SAHTE_AKIS_PARCA_UZUNLUGU = 3
+    #: Parcalar arasi gecikme (saniye). 3 karakter / 20ms ~ 150 krkt/sn -
+    #: gercek LLM akislarindan (olculen ~300 krkt/sn, bkz. llm-secimi
+    #: notlari) daha YAVAS: canli konusuyormus hissi versin, gozden
+    #: kacacak kadar hizli gecmesin. Kisa cumlelerde (small_talk/reject
+    #: mesajlari genelde 1-2 cumle) toplam gecikme ~200-500ms'yi gecmez.
+    _SAHTE_AKIS_GECIKME_SANIYE = 0.02
+
+    @classmethod
+    async def _sahte_akis(cls, metin: str) -> AsyncGenerator[str, None]:
+        """Hazir/sabit bir yaniti kucuk parcalara bolup gecikmeli yayinlar.
+
+        `small_talk_response`/`safe_response`/`reject_response` gibi
+        dugumlerde HICBIR LLM CALISMAZ (bkz. o metotlarin docstring'i) -
+        metin `app.engine.kapsam` icindeki sabit bir tablodan ya da
+        guvenlik katmanindan gelir. Yine de kullaniciya giden TUM
+        yanitlar ayni gorsel deneyimi (kelime kelime beliren metin)
+        versin diye burada karakter bazinda bolunup yayinlanir. Frontend
+        tarafinda HICBIR degisiklik gerekmez: zaten `token` olaylarini
+        sirayla ekliyor (bkz. `useChatStream.ts`).
+        """
+        parca_uzunlugu = cls._SAHTE_AKIS_PARCA_UZUNLUGU
+        for i in range(0, len(metin), parca_uzunlugu):
+            yield metin[i : i + parca_uzunlugu]
+            await asyncio.sleep(cls._SAHTE_AKIS_GECIKME_SANIYE)
 
     @staticmethod
     def _extract_token(chunk) -> str:
@@ -1608,7 +1703,7 @@ class Orchestrator:
         return serialized
 
 
-def _mesajlari_metne_cevir(messages: Sequence) -> str:
+def _messages_to_text(messages: Sequence) -> str:
     """LangChain mesaj listesini duz metne cevirir.
 
     Yalnizca `generate(prompt: str)` sunan tek seferlik istemciler icin

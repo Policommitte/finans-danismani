@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { useChatStream } from "../../hooks/useChatStream";
+import { useChat } from "../../contexts/ChatContext";
 import type { Asset, HistoryResponse, OhlcResponse } from "../../models/market";
 import { getMarketAssets, getMarketHistory, getMarketOhlc } from "../../services/marketService";
 import { CandlestickChart } from "./CandlestickChart";
@@ -96,11 +96,19 @@ export function AssetSummaryModal({
   symbol,
   isAuthenticated,
   onClose,
+  onNavigate,
 }: {
   symbol: string;
   isAuthenticated: boolean;
+  /** Kartin KAPATILMASI: carpi, arka plan tiklamasi, "Şimdilik Kapat". */
   onClose: () => void;
+  //: Kart icinden BASKA BIR SAYFAYA gidilmesi. Kapatmadan ayri tutulur:
+  //: aramadan acilan kart kapaninca arama paleti geri gelir, ama
+  //: "İşlem Ekranına Git" ile gidilirken gelMEMELIdir. Verilmezse
+  //: `onClose` gibi davranir.
+  onNavigate?: () => void;
 }) {
+  const closeAndNavigate = onNavigate ?? onClose;
   const [asset, setAsset] = useState<Asset | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
@@ -108,8 +116,10 @@ export function AssetSummaryModal({
   const [chartMode, setChartMode] = useState<"line" | "candle">("line");
   const [ohlc, setOhlc] = useState<OhlcResponse | null>(null);
   const [ohlcLoading, setOhlcLoading] = useState(false);
-  const chat = useChatStream();
+  const chat = useChat();
   const askedRef = useRef<string | null>(null);
+  //: Paylasilan sohbette YALNIZCA bu modalin sordugu sorunun cevabi izlenir.
+  const [analysisMessageId, setAnalysisMessageId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -188,7 +198,7 @@ export function AssetSummaryModal({
       return;
     }
     askedRef.current = symbol;
-    chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`);
+    setAnalysisMessageId(chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, isAuthenticated]);
 
@@ -204,7 +214,7 @@ export function AssetSummaryModal({
   //: (marka yesili / kirmizi, ikisi de tema-duyarli); yon belirsizse notr mavi.
   const aiBoxAccent =
     changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-brand-teal)" : "var(--color-danger)";
-  const lastAssistantMessage = [...chat.messages].reverse().find((m) => m.role === "assistant");
+  const lastAssistantMessage = chat.messages.find((m) => m.id === analysisMessageId);
 
   const sparklinePoints = (history?.points ?? []).slice(-20);
 
@@ -363,7 +373,7 @@ export function AssetSummaryModal({
           <div className="mt-5 flex gap-3">
             <Link
               href="/market"
-              onClick={onClose}
+              onClick={closeAndNavigate}
               className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
             >
               İşlem Ekranına Git

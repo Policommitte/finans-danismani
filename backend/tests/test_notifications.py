@@ -11,7 +11,7 @@ import pytest
 
 from app.notifications import templates
 from app.notifications.base import NotificationMessage, NotificationResult
-from app.notifications.dispatcher import MAX_ATTEMPTS, bildirimleri_gonder
+from app.notifications.dispatcher import MAX_ATTEMPTS, dispatch_notifications
 from app.repositories import in_memory
 from app.repositories.in_memory import (
     InMemoryNotificationRepository,
@@ -46,17 +46,17 @@ class _KaydedenNotifier:
 
 
 @pytest.fixture
-def notifier_yamasi(monkeypatch):
+def notifier_patch(monkeypatch):
     """`get_notifier()` yerine test notifier'i koyar."""
 
-    def uygula(notifier):
+    def apply(notifier):
         monkeypatch.setattr("app.notifications.dispatcher.get_notifier", lambda: notifier)
         return notifier
 
-    return uygula
+    return apply
 
 
-async def _gerceklesen_emir(repository) -> None:
+async def _filled_order(repository) -> None:
     await repository.create_market_order(
         user_id=1,
         symbol="THYAO",
@@ -71,8 +71,8 @@ async def _gerceklesen_emir(repository) -> None:
 
 
 @pytest.mark.asyncio
-async def test_gerceklesen_emir_outboxa_yazilir(repository, outbox):
-    await _gerceklesen_emir(repository)
+async def test_filled_order_written_to_outbox(repository, outbox):
+    await _filled_order(repository)
 
     rows = await outbox.list_for_user(1)
     assert len(rows) == 1
@@ -85,7 +85,7 @@ async def test_gerceklesen_emir_outboxa_yazilir(repository, outbox):
 
 
 @pytest.mark.asyncio
-async def test_reddedilen_emir_outboxa_yazilir(repository, outbox):
+async def test_rejected_order_written_to_outbox(repository, outbox):
     """Satilabilir adet yoksa emir reddedilir ve bu da bildirilir."""
     await repository.create_market_order(
         user_id=1,
@@ -107,11 +107,11 @@ async def test_reddedilen_emir_outboxa_yazilir(repository, outbox):
 
 
 @pytest.mark.asyncio
-async def test_kanal_bagli_degilse_satir_skipped_kapanir(repository, outbox):
+async def test_row_closed_as_skipped_when_channel_not_connected(repository, outbox):
     """Varsayilan kanal NoopNotifier: satir PENDING birikmemeli."""
-    await _gerceklesen_emir(repository)
+    await _filled_order(repository)
 
-    sayac = await bildirimleri_gonder()
+    sayac = await dispatch_notifications()
 
     assert sayac == {"sent": 0, "skipped": 1, "failed": 0}
     kayit = (await outbox.list_for_user(1))[0]
@@ -119,11 +119,11 @@ async def test_kanal_bagli_degilse_satir_skipped_kapanir(repository, outbox):
 
 
 @pytest.mark.asyncio
-async def test_kanal_acikken_gonderilir(repository, outbox, notifier_yamasi):
-    notifier = notifier_yamasi(_KaydedenNotifier())
-    await _gerceklesen_emir(repository)
+async def test_sent_when_channel_enabled(repository, outbox, notifier_patch):
+    notifier = notifier_patch(_KaydedenNotifier())
+    await _filled_order(repository)
 
-    sayac = await bildirimleri_gonder()
+    sayac = await dispatch_notifications()
 
     assert sayac["sent"] == 1
     assert (await outbox.list_for_user(1))[0]["status"] == "SENT"
@@ -135,14 +135,14 @@ async def test_kanal_acikken_gonderilir(repository, outbox, notifier_yamasi):
 
 
 @pytest.mark.asyncio
-async def test_cok_eski_olay_gonderilmez(repository, outbox, notifier_yamasi):
+async def test_too_old_event_not_sent(repository, outbox, notifier_patch):
     """Kanal aylar sonra acilirsa birikmis gecmis bildirimler gitmemeli."""
-    notifier = notifier_yamasi(_KaydedenNotifier())
-    await _gerceklesen_emir(repository)
+    notifier = notifier_patch(_KaydedenNotifier())
+    await _filled_order(repository)
     eski = datetime.now(timezone.utc) - timedelta(days=3)
     in_memory._NOTIFICATION_OUTBOX[0]["created_at"] = eski.isoformat()
 
-    sayac = await bildirimleri_gonder()
+    sayac = await dispatch_notifications()
 
     assert sayac == {"sent": 0, "skipped": 1, "failed": 0}
     assert notifier.gonderilenler == []
@@ -152,19 +152,17 @@ async def test_cok_eski_olay_gonderilmez(repository, outbox, notifier_yamasi):
 
 
 @pytest.mark.asyncio
-async def test_gonderim_hatasi_once_tekrar_denenir_sonra_failed(
-    repository, outbox, notifier_yamasi
-):
-    notifier_yamasi(_KaydedenNotifier(NotificationResult.fail("smtp kapali")))
-    await _gerceklesen_emir(repository)
+async def test_send_error_retried_then_marked_failed(repository, outbox, notifier_patch):
+    notifier_patch(_KaydedenNotifier(NotificationResult.fail("smtp kapali")))
+    await _filled_order(repository)
 
     # Ilk denemelerde satir PENDING kalir ki gecici hata bildirimi yakmasin.
-    sayac = await bildirimleri_gonder()
+    sayac = await dispatch_notifications()
     assert sayac == {"sent": 0, "skipped": 0, "failed": 0}
     assert (await outbox.list_for_user(1))[0]["status"] == "PENDING"
 
     for _ in range(MAX_ATTEMPTS - 1):
-        sayac = await bildirimleri_gonder()
+        sayac = await dispatch_notifications()
 
     kayit = (await outbox.list_for_user(1))[0]
     assert sayac["failed"] == 1
@@ -173,18 +171,18 @@ async def test_gonderim_hatasi_once_tekrar_denenir_sonra_failed(
 
 
 @pytest.mark.asyncio
-async def test_kapanan_satir_ikinci_kez_gonderilmez(repository, outbox, notifier_yamasi):
-    notifier = notifier_yamasi(_KaydedenNotifier())
-    await _gerceklesen_emir(repository)
+async def test_closed_row_not_sent_twice(repository, outbox, notifier_patch):
+    notifier = notifier_patch(_KaydedenNotifier())
+    await _filled_order(repository)
 
-    await bildirimleri_gonder()
-    await bildirimleri_gonder()
+    await dispatch_notifications()
+    await dispatch_notifications()
 
     assert len(notifier.gonderilenler) == 1
 
 
 @pytest.mark.asyncio
-async def test_deneme_hakki_dolan_satir_artik_alinmaz(outbox):
+async def test_row_out_of_attempts_no_longer_claimed(outbox):
     reset_data()
     in_memory._NOTIFICATION_OUTBOX.append(
         {

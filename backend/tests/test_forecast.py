@@ -2,7 +2,7 @@
 """Tahmin katmani testleri.
 
 ⚠️ MODEL CAGRISI YAPILMAZ. `torch`+`timesfm` agir/opsiyonel bagimliliklardir
-ve CI'da kurulu OLMAYABILIR; testler `model.ham_tahmin`'i sahte bir cikti ile
+ve CI'da kurulu OLMAYABILIR; testler `model.ham_tahmin`'i fake bir cikti ile
 degistirir. Boylece IS MANTIGI (shrinkage, TL drift, band kaydirma, portfoy
 toplama) modelden BAGIMSIZ dogrulanir - zaten kirilgan olan kisim odur,
 modelin kendisi degil.
@@ -28,12 +28,12 @@ def sahte_model(monkeypatch):
     kadar kirptigi boylece TAM OLARAK olculebilir.
     """
 
-    def sahte(kapanislar, ufuk):
+    def fake(kapanislar, ufuk):
         son = float(kapanislar[-1])
         medyan = np.linspace(son * 1.005, son * 1.10, ufuk)
         return medyan, medyan * 0.90, medyan * 1.10
 
-    monkeypatch.setattr(engine.tahmin_modeli, "ham_tahmin", sahte)
+    monkeypatch.setattr(engine.tahmin_modeli, "ham_tahmin", fake)
     monkeypatch.setattr(engine.tahmin_modeli, "yuklu_mu", lambda: True)
 
 
@@ -267,7 +267,7 @@ def test_portfoy_bos_listede_none_doner():
 # ---------------------------------------------------------------------------
 
 
-def test_forecast_rotasi_slash_iceren_sembolu_kabul_eder(monkeypatch):
+def test_forecast_route_accepts_symbol_with_slash(monkeypatch):
     from fastapi.testclient import TestClient
 
     from app.api.routes import market as market_routes
@@ -276,11 +276,11 @@ def test_forecast_rotasi_slash_iceren_sembolu_kabul_eder(monkeypatch):
 
     gorulen: list[str] = []
 
-    async def sahte_tahmin(symbol: str):
+    async def fake_forecast(symbol: str):
         gorulen.append(symbol)
         return None
 
-    monkeypatch.setattr(market_routes.forecast_service, "varlik_tahmini", sahte_tahmin)
+    monkeypatch.setattr(market_routes.forecast_service, "varlik_tahmini", fake_forecast)
     app.dependency_overrides[get_current_user] = lambda: {"id": 1, "role": "customer"}
     try:
         client = TestClient(app)

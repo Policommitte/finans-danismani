@@ -27,7 +27,7 @@ from app.engine.kapsam import (
     KAPSAM_KUFUR,
     KAPSAM_SELAMLAMA,
     KAPSAM_YASAK,
-    kisa_yanit,
+    short_reply,
 )
 from app.engine.orchestrator import (
     AGENT_DOCUMENT_ANALYSIS,
@@ -464,7 +464,7 @@ def test_route_intent_buyuk_harfle_de_eslesir():
     assert AGENT_PORTFOLIO in orchestrator.route_intent(state)
 
 
-def test_route_intent_ilk_turda_eslesme_yoksa_piyasayi_secer():
+def test_route_intent_selects_market_without_match_on_first_turn():
     """Finans sinyali var ama hangi uzman belirsiz -> piyasa arastirmasi.
 
     Eskiden burada TUM ajanlar donuyordu; tek bir hisse sorusu kullanicinin
@@ -476,7 +476,7 @@ def test_route_intent_ilk_turda_eslesme_yoksa_piyasayi_secer():
     assert orchestrator.route_intent(state) == [AGENT_MARKET_RESEARCH]
 
 
-def test_route_intent_devam_turunda_eslesme_yoksa_tum_ajanlari_secer():
+def test_route_intent_selects_all_agents_without_match_on_follow_up_turn():
     """Devam turunda baglam onceki turda; eski guvenli varsayilan korunur."""
     orchestrator = _orchestrator()
     state = AgentState(
@@ -527,7 +527,7 @@ async def test_route_node_secimi_state_e_yazar():
         ("bana bir şiir yaz", KAPSAM_DISI),
     ],
 )
-async def test_kapsam_disi_sorgu_hicbir_ajani_calistirmaz(sorgu, beklenen_kapsam):
+async def test_out_of_scope_query_runs_no_agent(sorgu, beklenen_kapsam):
     ajanlar = _uc_ajan()
     orchestrator = _orchestrator(agents=ajanlar)
 
@@ -536,10 +536,10 @@ async def test_kapsam_disi_sorgu_hicbir_ajani_calistirmaz(sorgu, beklenen_kapsam
     assert state["scope"] == beklenen_kapsam
     assert state["requested_agents"] == []
     assert all(ajan.cagri_sayisi == 0 for ajan in ajanlar.values())
-    assert state["final_response"] == kisa_yanit(beklenen_kapsam)
+    assert state["final_response"] == short_reply(beklenen_kapsam)
 
 
-async def test_kufurlu_mesaj_portfoy_verisi_dondurmez():
+async def test_profane_message_returns_no_portfolio_data():
     """Hatanin birebir tekrari: hakaret -> portfoy toplami + risk skoru."""
     orchestrator = _orchestrator()
 
@@ -552,7 +552,7 @@ async def test_kufurlu_mesaj_portfoy_verisi_dondurmez():
     assert "100" not in state["final_response"]
 
 
-async def test_kapsam_disi_sorgu_sentezleyiciyi_cagirmaz():
+async def test_out_of_scope_query_does_not_call_synthesizer():
     """Sabit metin doner; LLM cagrisi yapilmaz (kota korunur)."""
     llm = GenericFakeChatModel(messages=iter(["LLM CALISTI"]))
     orchestrator = _orchestrator(synthesizer_llm=llm)
@@ -562,7 +562,7 @@ async def test_kapsam_disi_sorgu_sentezleyiciyi_cagirmaz():
     assert "LLM CALISTI" not in state["final_response"]
 
 
-async def test_selamlama_ile_baslayan_finans_sorusu_ajanlara_gider():
+async def test_finance_question_after_greeting_goes_to_agents():
     """'Merhaba, portfoyum nasil?' sohbete DUSMEMELI - soru gercek."""
     ajanlar = _uc_ajan()
     orchestrator = _orchestrator(agents=ajanlar)
@@ -573,7 +573,7 @@ async def test_selamlama_ile_baslayan_finans_sorusu_ajanlara_gider():
     assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 1
 
 
-async def test_dolgu_kufru_ajanlari_calistirmaz():
+async def test_filler_profanity_does_not_run_agents():
     """URUN KARARI DEGISTI (1 Eylul 2026) - bkz. `test_kapsam.py`.
 
     Eskiden dolgu kufru gercek soruyu iptal ETMIYORDU ve bu test
@@ -587,7 +587,7 @@ async def test_dolgu_kufru_ajanlari_calistirmaz():
     assert state["requested_agents"] == []
 
 
-async def test_ayar_kapaliyken_dolgu_kufru_soruyu_iptal_etmez(monkeypatch):
+async def test_filler_profanity_does_not_cancel_question_when_setting_off(monkeypatch):
     """Eski davranis `PROFANITY_CANCELS_FINANCE=false` ile geri gelir."""
     from app.config import settings
 
@@ -599,7 +599,7 @@ async def test_ayar_kapaliyken_dolgu_kufru_soruyu_iptal_etmez(monkeypatch):
     assert AGENT_PORTFOLIO in state["requested_agents"]
 
 
-async def test_devam_turunda_kisa_soru_ajanlara_gider():
+async def test_short_question_goes_to_agents_on_follow_up_turn():
     """Cok turlu baglam (FR-CHAT-03): 'Peki simdi?' kapsam disi sayilmamali."""
     ajanlar = _uc_ajan()
     orchestrator = _orchestrator(agents=ajanlar)
@@ -610,7 +610,7 @@ async def test_devam_turunda_kisa_soru_ajanlara_gider():
     assert ajanlar[AGENT_PORTFOLIO].cagri_sayisi == 2
 
 
-async def test_kapsam_disi_sorgu_uzman_belirlendi_mesaji_yayinlamaz():
+async def test_out_of_scope_query_does_not_publish_expert_selected_message():
     """Hicbir uzman calismayacakken 'Ilgili uzmanlar belirlendi' yanlistir."""
     orchestrator = _orchestrator()
 
@@ -620,14 +620,14 @@ async def test_kapsam_disi_sorgu_uzman_belirlendi_mesaji_yayinlamaz():
     assert not [o for o in durumlar if o["stage"] == "routing"]
 
 
-async def test_kapsam_disi_yanit_token_olarak_gider():
+async def test_out_of_scope_reply_sent_as_token():
     """Frontend'in tek render yolu olsun diye kisa yanit da token olarak gider."""
     orchestrator = _orchestrator()
 
     olaylar = await _olaylar(orchestrator, "Merhaba")
 
     token_olaylari = [o for o in olaylar if o["type"] == "token"]
-    assert "".join(o["content"] for o in token_olaylari) == kisa_yanit(KAPSAM_SELAMLAMA)
+    assert "".join(o["content"] for o in token_olaylari) == short_reply(KAPSAM_SELAMLAMA)
 
 
 # ---------------------------------------------------------------------------
@@ -989,7 +989,7 @@ class VeriUretenAmaHataliAjan(BaseAgent):
         }
 
 
-async def test_verisi_uretilen_ajan_ulasilamadi_diye_yazilmaz():
+async def test_agent_with_data_not_written_as_unreachable():
     """Canlida goruldu: yanit portfoy toplamini ve risk skorunu eksiksiz
     yazdiktan sonra altina 'ulasilamadi: portfolio, risk_strategy' ekliyordu."""
     orchestrator = _orchestrator(
@@ -1007,7 +1007,7 @@ async def test_verisi_uretilen_ajan_ulasilamadi_diye_yazilmaz():
     assert "toplam 100.000 TL" in state["final_response"]
 
 
-async def test_verisi_gelmeyen_ajan_ulasilamadi_diye_yazilir():
+async def test_agent_without_data_written_as_unreachable():
     """Karsit durum: veri GERCEKTEN yoksa kullaniciya durustce soylenmeli."""
     orchestrator = _orchestrator(agents={AGENT_PORTFOLIO: CokenAjan(AGENT_PORTFOLIO)})
 
@@ -1017,7 +1017,7 @@ async def test_verisi_gelmeyen_ajan_ulasilamadi_diye_yazilir():
     assert AGENT_PORTFOLIO in state["final_response"]
 
 
-async def test_sentez_baglami_da_ayni_ayrimi_yapar():
+async def test_synthesis_context_makes_same_distinction():
     """LLM'e 'ulasilamadi' demek, eldeki veriyi kullanmasini engeller."""
     ajan = VeriUretenAmaHataliAjan(
         AGENT_PORTFOLIO, "portfolio_data", {"summary": "toplam 100.000 TL"}
@@ -1052,7 +1052,7 @@ class PatlayanSentezleyici:
         yield  # pragma: no cover - generator olmasi icin
 
 
-async def test_sentez_hatasi_agent_error_olarak_yayinlanir():
+async def test_synthesis_error_published_as_agent_error():
     """Sentez sessizce deterministik ozete dusuyordu; hata loglara gomuluydu."""
     orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
 
@@ -1062,7 +1062,7 @@ async def test_sentez_hatasi_agent_error_olarak_yayinlanir():
     assert [o for o in hatalar if o["agent"] == NODE_SYNTHESIZER]
 
 
-async def test_gelistirmede_hata_metni_de_gider(monkeypatch):
+async def test_error_text_also_sent_in_development(monkeypatch):
     monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "development")
     orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
 
@@ -1074,7 +1074,7 @@ async def test_gelistirmede_hata_metni_de_gider(monkeypatch):
     assert "404" in sentez.get("message", "")
 
 
-async def test_uretimde_hata_metni_gonderilmez(monkeypatch):
+async def test_error_text_not_sent_in_production(monkeypatch):
     """Istisna metni tool adi/baglanti dizesi tasiyabilir - disari cikmamali."""
     monkeypatch.setattr(orchestrator_modulu.settings, "app_env", "production")
     orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
@@ -1087,7 +1087,7 @@ async def test_uretimde_hata_metni_gonderilmez(monkeypatch):
     assert "message" not in sentez
 
 
-async def test_sentez_hatasi_ulasilamadi_metnine_yazilmaz():
+async def test_synthesis_error_not_written_as_unreachable_text():
     """Sentezleyici bir VERI ajani degil; kullaniciya oyle sunulmamali."""
     orchestrator = _orchestrator(synthesizer_llm=PatlayanSentezleyici())
 
@@ -1101,7 +1101,7 @@ async def test_sentez_hatasi_ulasilamadi_metnine_yazilmaz():
 # ---------------------------------------------------------------------------
 
 
-def test_sentez_promptu_kisalik_ve_soru_odagi_ister():
+def test_synthesis_prompt_asks_for_brevity_and_question_focus():
     """Kullanici sikayeti: yanitlar hep uzun ve portfoy dokumuyle basliyor."""
     prompt = orchestrator_modulu.SYNTHESIZER_SYSTEM_PROMPT
 
@@ -1111,7 +1111,20 @@ def test_sentez_promptu_kisalik_ve_soru_odagi_ister():
     assert "YENİ SAYI ÜRETME" in prompt
 
 
-async def test_yedek_yanit_bolumleri_router_sirasina_gore_dizer():
+def test_sentez_promptu_dogrudan_baglam_ayrimini_korumayi_ister():
+    """2. madde ("hepsini sirayla anlatma") piyasa ajaninin dogrudan/baglam
+    ayrimini eritiyordu; birlestirme acikca yasaklanir.
+    """
+    prompt = orchestrator_modulu.SYNTHESIZER_SYSTEM_PROMPT
+
+    assert "aynı sektörden bağlam" in prompt
+    # Prompt sarmalandigi icin tam cumle eslesmez.
+    assert "kısaltmak için iki grubu" in prompt
+    # Dogrudan bilgi yoksa baglam da atiliyordu (GARAN).
+    assert "bağlam bilgisini ATMA" in prompt
+
+
+async def test_fallback_reply_orders_sections_by_router_order():
     """Sabit sira, tek hisse sorusunda bile yaniti portfoy dokumuyle
     baslatiyordu - sorunun cevabi en alta dusuyordu."""
     orchestrator = _orchestrator()
@@ -1123,7 +1136,73 @@ async def test_yedek_yanit_bolumleri_router_sirasina_gore_dizer():
     assert metin.index("Piyasa araştırması") < metin.index("Portföy analizi")
 
 
-async def test_yedek_yanit_portfoy_sorusunda_portfoyle_baslar():
+async def test_kart_sembolleri_gunun_hareketlilerini_de_icerir():
+    """Kart hep piyasa ajaninin TEK sembolunu gosteriyordu: gunluk ozette bu
+    her seferinde ayni hisse oluyordu. Gunun hareketlileri de eklenir."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_PORTFOLIO] = SahteAjan(
+        AGENT_PORTFOLIO,
+        {
+            "portfolio_data": {
+                "holdings": [
+                    {"symbol": "TCELL", "daily_change_pct": 0.9},
+                    {"symbol": "BAKIR", "daily_change_pct": -5.3},
+                    {"symbol": "ASELS", "daily_change_pct": 2.1},
+                    {"symbol": "GOOG", "daily_change_pct": 0.1},
+                ]
+            }
+        },
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "Portföyümün dağılımı nedir?")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["BAKIR", "ASELS", "TCELL"]
+
+
+async def test_kart_sembolleri_sinirlanir_ve_tekrar_etmez():
+    """Piyasa sembolu once gelir, ayni sembol iki kez yazilmaz."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_MARKET_RESEARCH] = SahteAjan(
+        AGENT_MARKET_RESEARCH, {"market_data": {"symbol": "BAKIR"}}
+    )
+    ajanlar[AGENT_PORTFOLIO] = SahteAjan(
+        AGENT_PORTFOLIO,
+        {
+            "portfolio_data": {
+                "holdings": [
+                    {"symbol": "BAKIR", "daily_change_pct": -5.3},
+                    {"symbol": "ASELS", "daily_change_pct": 2.1},
+                    {"symbol": "TCELL", "daily_change_pct": 0.9},
+                    {"symbol": "GOOG", "daily_change_pct": 0.5},
+                ]
+            }
+        },
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "Portföyümün dağılımı nedir?")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["BAKIR", "ASELS", "TCELL"]
+
+
+async def test_kart_sembolleri_portfoysuz_soruda_degismez():
+    """Piyasa sorusunda portfoy ajani calismaz - kart yine tek varlik."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_MARKET_RESEARCH] = SahteAjan(
+        AGENT_MARKET_RESEARCH, {"market_data": {"symbol": "THYAO"}}
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "THYAO fiyatı ne kadar?")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["THYAO"]
+
+
+async def test_fallback_reply_starts_with_portfolio_for_portfolio_question():
     """Karsit durum: kullanici portfoyunu sorduysa basa o gelmeli."""
     orchestrator = _orchestrator()
 
@@ -1133,7 +1212,7 @@ async def test_yedek_yanit_portfoy_sorusunda_portfoyle_baslar():
     assert metin.index("Portföy analizi") < metin.index("Risk değerlendirmesi")
 
 
-async def test_yedek_yanit_router_istemese_de_veriyi_kaybetmez():
+async def test_fallback_reply_keeps_data_even_if_router_did_not_request():
     """Router istemedigi halde veri ureten ajan yaniттan dusmemeli."""
     orchestrator = _orchestrator()
     state = AgentState(
@@ -1169,7 +1248,7 @@ async def test_yedek_yanit_router_istemese_de_veriyi_kaybetmez():
         "yaz başlamadan thyao hissesi almamı tavsiye eder misin",
     ],
 )
-def test_enstruman_tavsiyesi_portfoy_getirmez(sorgu):
+def test_instrument_advice_does_not_fetch_portfolio(sorgu):
     orchestrator = _orchestrator()
 
     secilen = orchestrator.route_intent(AgentState(user_query=sorgu, user_id=1, thread_id=1))
@@ -1185,7 +1264,7 @@ def test_enstruman_tavsiyesi_portfoy_getirmez(sorgu):
         "güvenli bir yatırım önerir misin",
     ],
 )
-def test_enstrumansiz_genel_tavsiye_portfoye_gider(sorgu):
+def test_generic_advice_without_instrument_goes_to_portfolio(sorgu):
     """Karsit durum: hicbir enstrumandan soz edilmiyorsa kastedilen sey
     kullanicinin KENDI durumudur - eski davranis korunmali."""
     orchestrator = _orchestrator()
@@ -1204,7 +1283,7 @@ def test_enstrumansiz_genel_tavsiye_portfoye_gider(sorgu):
         "portföyümü çeşitlendirmeli miyim",
     ],
 )
-def test_gercek_risk_kelimesi_kuralden_etkilenmez(sorgu):
+def test_real_risk_word_unaffected_by_rule(sorgu):
     """'risk', 'dengele', 'cesitlendir' genel tavsiye kelimesi DEGIL."""
     orchestrator = _orchestrator()
 
@@ -1214,7 +1293,7 @@ def test_gercek_risk_kelimesi_kuralden_etkilenmez(sorgu):
     assert AGENT_PORTFOLIO in secilen
 
 
-def test_portfoy_acikca_gecerse_hepsi_calisir():
+def test_all_agents_run_when_portfolio_explicitly_mentioned():
     """'portfoyum icin THYAO almami onerir misin' -> ikisi de anlamli."""
     orchestrator = _orchestrator()
 
@@ -1260,7 +1339,7 @@ class SahteKapsamLLM:
 SARMALAMA_SORUSU = "yükselen kelebek pazarı hakkında bilgi getirir misin"
 
 
-async def test_kapsam_llm_yasak_derse_ajanlar_calismaz():
+async def test_scope_llm_says_forbidden_does_not_run_agents():
     ajanlar = _uc_ajan()
     llm = SahteKapsamLLM(yanit="YASAK")
     orchestrator = _orchestrator(agents=ajanlar, scope_llm=llm)
@@ -1271,20 +1350,20 @@ async def test_kapsam_llm_yasak_derse_ajanlar_calismaz():
     assert state["scope"] == KAPSAM_YASAK
     assert state["requested_agents"] == []
     assert all(ajan.cagri_sayisi == 0 for ajan in ajanlar.values())
-    assert state["final_response"] == kisa_yanit(KAPSAM_YASAK)
+    assert state["final_response"] == short_reply(KAPSAM_YASAK)
 
 
-async def test_kapsam_llm_disi_derse_kapsam_disi_yaniti_doner():
+async def test_scope_llm_says_out_of_scope_returns_out_of_scope_reply():
     llm = SahteKapsamLLM(yanit="DISI")
     orchestrator = _orchestrator(scope_llm=llm)
 
     state = await _calistir(orchestrator, SARMALAMA_SORUSU)
 
     assert state["scope"] == KAPSAM_DISI
-    assert state["final_response"] == kisa_yanit(KAPSAM_DISI)
+    assert state["final_response"] == short_reply(KAPSAM_DISI)
 
 
-async def test_kapsam_llm_uygun_derse_ajanlar_calisir():
+async def test_scope_llm_says_in_scope_runs_agents():
     ajanlar = _uc_ajan()
     llm = SahteKapsamLLM(yanit="UYGUN")
     orchestrator = _orchestrator(agents=ajanlar, scope_llm=llm)
@@ -1296,7 +1375,7 @@ async def test_kapsam_llm_uygun_derse_ajanlar_calisir():
     assert state["requested_agents"]
 
 
-async def test_kapsam_llm_cokerse_kural_karari_gecerli_kalir():
+async def test_scope_llm_failure_keeps_rule_decision():
     """FAIL-OPEN: saglayici 503 attiginda sohbet olmemeli."""
     ajanlar = _uc_ajan()
     llm = SahteKapsamLLM(hata=RuntimeError("Service temporarily overloaded"))
@@ -1308,7 +1387,7 @@ async def test_kapsam_llm_cokerse_kural_karari_gecerli_kalir():
     assert state["requested_agents"]
 
 
-async def test_kapsam_llm_sure_asiminda_kural_karari_gecerli_kalir(monkeypatch):
+async def test_scope_llm_timeout_keeps_rule_decision(monkeypatch):
     monkeypatch.setattr(orchestrator_modulu.settings, "scope_llm_timeout_seconds", 0.05)
     ajanlar = _uc_ajan()
     llm = SahteKapsamLLM(yanit="YASAK", gecikme=0.5)
@@ -1320,7 +1399,7 @@ async def test_kapsam_llm_sure_asiminda_kural_karari_gecerli_kalir(monkeypatch):
     assert state["requested_agents"]
 
 
-async def test_kapsam_llm_anlamsiz_yanitta_kural_karari_gecerli_kalir():
+async def test_scope_llm_nonsense_reply_keeps_rule_decision():
     """Model konusmaya baslarsa (etiket cozulmezse) karar YOK sayilir."""
     llm = SahteKapsamLLM(yanit="42")
     orchestrator = _orchestrator(scope_llm=llm)
@@ -1330,7 +1409,7 @@ async def test_kapsam_llm_anlamsiz_yanitta_kural_karari_gecerli_kalir():
     assert state["scope"] == "finans"
 
 
-async def test_varlik_adi_gecen_soru_llm_e_sorulmaz():
+async def test_question_mentioning_asset_name_not_asked_to_llm():
     """'ASELSAN alinir mi' gibi net sorular gecikme odememeli."""
     llm = SahteKapsamLLM(yanit="YASAK")  # cagrilsaydi yaniti bloklardi
     orchestrator = _orchestrator(scope_llm=llm)
@@ -1342,7 +1421,7 @@ async def test_varlik_adi_gecen_soru_llm_e_sorulmaz():
     assert state["requested_agents"]
 
 
-async def test_scope_llm_yoksa_davranis_degismez():
+async def test_behaviour_unchanged_without_scope_llm():
     """`scope_llm=None` onceki davranisin birebir aynisi olmali."""
     orchestrator = _orchestrator()  # scope_llm verilmedi
 
@@ -1352,7 +1431,7 @@ async def test_scope_llm_yoksa_davranis_degismez():
     assert state["requested_agents"]
 
 
-async def test_kapsam_llm_ayarla_kapatilabilir(monkeypatch):
+async def test_scope_llm_can_be_disabled_by_setting(monkeypatch):
     monkeypatch.setattr(orchestrator_modulu.settings, "scope_llm_enabled", False)
     llm = SahteKapsamLLM(yanit="YASAK")
     orchestrator = _orchestrator(scope_llm=llm)
@@ -1363,7 +1442,7 @@ async def test_kapsam_llm_ayarla_kapatilabilir(monkeypatch):
     assert state["scope"] == "finans"
 
 
-async def test_devam_turunda_onceki_mesaj_isteme_girer():
+async def test_previous_message_enters_prompt_on_follow_up_turn():
     """'peki ya simdi?' tek basina anlamsiz; baglamsiz sorulsa DISI cikardi."""
     llm = SahteKapsamLLM(yanit="UYGUN")
     orchestrator = _orchestrator(scope_llm=llm)
@@ -1388,7 +1467,7 @@ async def test_devam_turunda_onceki_mesaj_isteme_girer():
 # ---------------------------------------------------------------------------
 
 
-def _belgeli_orchestrator():
+def _orchestrator_with_document():
     ajanlar = _uc_ajan()
     ajanlar[AGENT_DOCUMENT_ANALYSIS] = SahteAjan(
         AGENT_DOCUMENT_ANALYSIS, {"document_data": {"summary_text": "belge ozeti"}}
@@ -1396,7 +1475,7 @@ def _belgeli_orchestrator():
     return ajanlar, _orchestrator(agents=ajanlar)
 
 
-async def _belgeyle_calistir(orchestrator, sorgu: str) -> dict:
+async def _run_with_document(orchestrator, sorgu: str) -> dict:
     return await orchestrator.graph.ainvoke(
         {
             "user_query": sorgu,
@@ -1408,10 +1487,10 @@ async def _belgeyle_calistir(orchestrator, sorgu: str) -> dict:
     )
 
 
-async def test_belge_ekli_sinyalsiz_soru_belge_ajanina_gider():
-    ajanlar, orchestrator = _belgeli_orchestrator()
+async def test_signal_free_question_with_document_goes_to_document_agent():
+    ajanlar, orchestrator = _orchestrator_with_document()
 
-    state = await _belgeyle_calistir(orchestrator, "buna bir bakar mısın")
+    state = await _run_with_document(orchestrator, "buna bir bakar mısın")
 
     assert state["requested_agents"] == [AGENT_DOCUMENT_ANALYSIS]
     assert ajanlar[AGENT_DOCUMENT_ANALYSIS].cagri_sayisi == 1
@@ -1424,12 +1503,12 @@ async def test_belge_ekli_sinyalsiz_soru_belge_ajanina_gider():
         ("kiralık katil fiyat listesi bu, yorumla", KAPSAM_YASAK),
     ],
 )
-async def test_belge_ekli_olsa_bile_ret_kararlari_ezilmez(sorgu, beklenen_kapsam):
-    ajanlar, orchestrator = _belgeli_orchestrator()
+async def test_rejection_decisions_not_overridden_even_with_document(sorgu, beklenen_kapsam):
+    ajanlar, orchestrator = _orchestrator_with_document()
 
-    state = await _belgeyle_calistir(orchestrator, sorgu)
+    state = await _run_with_document(orchestrator, sorgu)
 
     assert state["scope"] == beklenen_kapsam
     assert state["requested_agents"] == []
     assert ajanlar[AGENT_DOCUMENT_ANALYSIS].cagri_sayisi == 0
-    assert state["final_response"] == kisa_yanit(beklenen_kapsam)
+    assert state["final_response"] == short_reply(beklenen_kapsam)

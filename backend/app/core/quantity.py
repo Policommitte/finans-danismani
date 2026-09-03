@@ -46,19 +46,19 @@ KRIPTO_BASAMAK = 6
 _TOLERANS = 1e-9
 
 
-def _sinif(asset_class: str | None) -> str:
+def _asset_class(asset_class: str | None) -> str:
     return (asset_class or "").upper()
 
 
-def bolunmez_mi(asset_class: str | None) -> bool:
-    return _sinif(asset_class) in BOLUNMEZ_SINIFLAR
+def is_indivisible(asset_class: str | None) -> bool:
+    return _asset_class(asset_class) in BOLUNMEZ_SINIFLAR
 
 
-def ceyrek_adimli_mi(asset_class: str | None) -> bool:
-    return _sinif(asset_class) in CEYREK_ADIMLI_SINIFLAR
+def is_quarter_step(asset_class: str | None) -> bool:
+    return _asset_class(asset_class) in CEYREK_ADIMLI_SINIFLAR
 
 
-def adet_yuvarla(ham: float, asset_class: str | None) -> float:
+def round_quantity(ham: float, asset_class: str | None) -> float:
     """Ham adedi sinifa gore ASAGI yuvarlar.
 
     Asagi yuvarlanir cunku adet bir BUTCEDEN turetilir; yukari yuvarlamak
@@ -70,30 +70,30 @@ def adet_yuvarla(ham: float, asset_class: str | None) -> float:
     """
     if ham <= 0:
         return 0.0
-    if bolunmez_mi(asset_class):
+    if is_indivisible(asset_class):
         return float(math.floor(ham + _TOLERANS))
-    if ceyrek_adimli_mi(asset_class):
+    if is_quarter_step(asset_class):
         return math.floor(ham / CEYREK_ADIM + _TOLERANS) * CEYREK_ADIM
-    if _sinif(asset_class) in SERBEST_SINIFLAR:
+    if _asset_class(asset_class) in SERBEST_SINIFLAR:
         carpan = 10**KRIPTO_BASAMAK
         return math.floor(ham * carpan) / carpan
     # Tanimsiz bir sinif gelirse EN KISITLAYICI kural uygulanir: tam adet.
     return float(math.floor(ham + _TOLERANS))
 
 
-def adet_gecerli_mi(adet: float, asset_class: str | None) -> bool:
+def is_valid_quantity(adet: float, asset_class: str | None) -> bool:
     """Kullanicinin girdigi adet bu sinif icin gecerli mi?"""
     if adet <= 0:
         return False
-    if ceyrek_adimli_mi(asset_class):
+    if is_quarter_step(asset_class):
         return abs(adet / CEYREK_ADIM - round(adet / CEYREK_ADIM)) < 1e-6
-    if _sinif(asset_class) in SERBEST_SINIFLAR:
+    if _asset_class(asset_class) in SERBEST_SINIFLAR:
         return True
     return abs(adet - round(adet)) < 1e-9
 
 
-def gecersiz_adet_mesaji(asset_class: str | None) -> str:
+def invalid_quantity_message(asset_class: str | None) -> str:
     """Kullaniciya gosterilecek hata metni (frontend cevirisiyle eslesir)."""
-    if ceyrek_adimli_mi(asset_class):
+    if is_quarter_step(asset_class):
         return "Doviz emirleri 0,25'in katlari olmalidir."
     return "Bu varlik tam adet alinip satilir."
