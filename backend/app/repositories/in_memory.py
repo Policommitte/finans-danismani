@@ -718,9 +718,21 @@ class InMemoryPortfolioRepository:
         ]
 
     async def get_performance_history(
-        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+        self,
+        user_id: int,
+        portfolio_id: int | None = None,
+        hours: int = 24,
+        valid_from: datetime | None = None,
+        gunluk: bool = False,
     ) -> list[dict]:
         # Bellek ici yedekte dogrulanmis fiyat zaman serisi tutulmaz.
+        return []
+
+    async def get_period_pnl(
+        self, user_id: int, portfolio_id: int | None = None, start_ts: datetime | None = None
+    ) -> list[dict]:
+        # Fiyat gecmisi olmadan donem basi deger hesaplanamaz; bos donmek
+        # ekranda "donem kar/zarari yok" demektir, uydurma rakam degil.
         return []
 
 

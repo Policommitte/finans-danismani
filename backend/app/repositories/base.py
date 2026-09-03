@@ -22,7 +22,7 @@ Parasal degerler her yerde TRY'ye normalize edilmis olarak doner ve alan adlari
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Protocol
 
 
@@ -93,9 +93,48 @@ class PortfolioRepository(Protocol):
     ) -> list[dict]: ...
 
     async def get_performance_history(
-        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+        self,
+        user_id: int,
+        portfolio_id: int | None = None,
+        hours: int = 24,
+        valid_from: datetime | None = None,
+        gunluk: bool = False,
     ) -> list[dict]:
-        """Mevcut pozisyonlarin gercek fiyat gecmisiyle TL bazli degeri."""
+        """Portfoy degerinin zaman serisi (TRY).
+
+        `gunluk=True` iken gunde TEK nokta doner - aylik/yillik grafikte
+        gun ici ayrinti hem gorsel olarak anlamsizdir hem de sorguyu
+        katlarca yavaslatir.
+
+        Her gecmis noktada varligin O TARIHTEKI adedi kullanilir; adet
+        `transactions`'tan turetilir. HIC islem kaydi olmayan (dogrudan
+        tohumlanmis) varliklarda bugunku adet sabit kabul edilir - aksi
+        halde o portfoyler duz sifir grafik gorurdu.
+
+        `valid_from` verilirse o andan ONCEKI fiyat kayitlari elenir
+        (gelistirme donemi artiklari). Uzun araliklarda cagiran taraf
+        None gecer - bkz. `services/portfolio.py::performans_getir`.
+        """
+        ...
+
+    async def get_period_pnl(
+        self, user_id: int, portfolio_id: int | None = None, start_ts: datetime | None = None
+    ) -> list[dict]:
+        """Varlik bazinda DONEM kar/zarari icin ham bilesenler.
+
+        `start_ts` GRAFIGIN ILK NOKTASIDIR - "now() - hours" degil. Iki
+        rakamin ayni ani baz almasi, grafikteki degisim ile gosterilen
+        kar/zararin birbirini tutmasi icin sarttir.
+
+        Donen her satir: `symbol`, `bitis_degeri`, `baslangic_degeri`,
+        `alim_maliyeti`, `satis_hasilati` (hepsi TRY). Kar/zarar bunlardan
+        servis katmaninda hesaplanir:
+
+            kar_zarar = bitis - baslangic - alim + satis
+
+        `Holding.pnl_try`'dan FARKLIDIR: o, alim gununden bugune toplam
+        kar/zarardir ve donemden bagimsizdir.
+        """
         ...
 
 

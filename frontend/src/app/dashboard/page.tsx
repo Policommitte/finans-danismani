@@ -12,6 +12,8 @@ import {
   type PortfolioFxRates,
   type PortfolioViewMode,
 } from "../../components/portfolio/PortfolioVisualization";
+import { PeriodSelector } from "../../components/dashboard/PeriodSelector";
+import type { PerformanceRange } from "../../models/portfolio";
 import { RecommendationList } from "../../components/risk/RecommendationList";
 import { RiskScoreCard } from "../../components/risk/RiskScoreCard";
 import { useAuth } from "../../hooks/useAuth";
@@ -36,7 +38,11 @@ export default function DashboardPage() {
   const [fxRates, setFxRates] = useState<PortfolioFxRates>({ USD: null, EUR: null });
   const auth = useAuth();
   const dashboard = useDashboard();
-  const performance = usePortfolioPerformance(24);
+  //: Donem TEK yerde tutulur: grafik, "Donem Degisimi" karti ve varlik
+  //: tablosunun kar/zarar sutunu ayni istekten beslenir, boylece uc yerde
+  //: farkli donemlere ait rakam gorunmesi mumkun degil.
+  const [range, setRange] = useState<PerformanceRange>("1G");
+  const performance = usePortfolioPerformance(range);
   const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
 
   useEffect(() => {
@@ -138,16 +144,35 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Donem secici kartlarin USTUNDE ve saga yasli: sag ustteki Risk
+          Skoru kartinin hemen ustune denk gelir, dort kartin da ustunde
+          durdugu icin "bu ekran su donemi gosteriyor" mesajini verir. */}
+      <div className="flex justify-end">
+        <PeriodSelector
+          deger={range}
+          onDegis={setRange}
+          yukleniyor={performance.loading}
+          language={language}
+        />
+      </div>
+
       <SummaryCards
         data={data}
         displayCurrency={displayCurrency}
         conversionDivisor={conversionDivisor}
+        range={range}
+        periodChangeTry={performance.data?.change_try ?? null}
+        periodChangePct={performance.data?.change_pct ?? null}
+        periodLoading={performance.loading}
       />
 
       <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
         <PortfolioVisualization
           holdings={data.holdings}
           cashTotalTry={(data.cash_account?.available_balance ?? 0) + (data.cash_account?.reserved_balance ?? 0)}
+          range={range}
+          periodChangeTry={performance.data?.change_try ?? null}
+          periodChangePct={performance.data?.change_pct ?? null}
           performancePoints={performance.data?.points ?? []}
           performanceLoading={performance.loading}
           performanceError={performance.error}
@@ -163,6 +188,9 @@ export default function DashboardPage() {
             cashAccount={data.cash_account}
             displayCurrency={displayCurrency}
             conversionDivisor={conversionDivisor}
+            range={range}
+            symbolPnl={performance.data?.symbol_pnl ?? []}
+            periodLoading={performance.loading}
           />
         </div>
       </div>

@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -263,7 +263,12 @@ class SqlPortfolioRepository(_SqlRepository):
         )
 
     async def get_performance_history(
-        self, user_id: int, portfolio_id: int | None = None, hours: int = 24
+        self,
+        user_id: int,
+        portfolio_id: int | None = None,
+        hours: int = 24,
+        valid_from: datetime | None = None,
+        gunluk: bool = False,
     ) -> list[dict]:
         return await self._rows(
             """
@@ -280,32 +285,86 @@ class SqlPortfolioRepository(_SqlRepository):
                             LIMIT 1
                         )
                       )
+            ), islem AS (
+                SELECT t.asset_id,
+                       t.transaction_date AS ts,
+                       SUM(
+                           CASE WHEN t.transaction_type = 'BUY' THEN t.quantity
+                                ELSE -t.quantity END
+                       ) AS delta
+                FROM transactions t
+                JOIN selected_portfolio sp ON sp.id = t.portfolio_id
+                GROUP BY t.asset_id, t.transaction_date
+            ), islemli_varlik AS (
+                SELECT DISTINCT asset_id FROM islem
             ), positions AS (
-                SELECT pa.asset_id, pa.quantity, a.current_price, fx.try_rate
-                FROM portfolio_assets pa
-                JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
-                JOIN assets a ON a.id = pa.asset_id
+                -- Portfoyde SU AN bulunan varliklar + gecmiste alinip
+                -- tamamen satilmis olanlar: ikincisi de gecmis degerin
+                -- parcasidir, disarida birakilirsa grafik gecmisi eksik cikar.
+                SELECT v.asset_id, v.quantity, a.current_price, fx.try_rate
+                FROM (
+                    SELECT pa.asset_id, pa.quantity
+                    FROM portfolio_assets pa
+                    JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
+                    UNION
+                    SELECT iv.asset_id, 0
+                    FROM islemli_varlik iv
+                    WHERE iv.asset_id NOT IN (
+                        SELECT pa.asset_id FROM portfolio_assets pa
+                        JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
+                    )
+                ) v
+                JOIN assets a ON a.id = v.asset_id
                 JOIN v_fx_rates fx ON fx.currency = a.currency
             ), all_prices AS (
                 SELECT ph.asset_id, ph.ts, ph.price
                 FROM price_history ph
                 WHERE ph.ts >= now() - make_interval(hours => :hours)
-                  AND ph.ts >= :valid_from
+                  AND (CAST(:valid_from AS TIMESTAMPTZ) IS NULL OR ph.ts >= :valid_from)
                   AND ph.source <> 'simulated'
                 UNION ALL
                 SELECT lp.asset_id, lp.created_at AS ts, lp.price
                 FROM live_prices lp
                 WHERE lp.created_at >= now() - make_interval(hours => :hours)
-                  AND lp.created_at >= :valid_from
+                  AND (CAST(:valid_from AS TIMESTAMPTZ) IS NULL OR lp.created_at >= :valid_from)
                   AND lp.source <> 'simulated'
             ), timeline AS (
-                SELECT DISTINCT ap.ts
-                FROM all_prices ap
-                JOIN positions p ON p.asset_id = ap.asset_id
+                -- Uzun araliklarda GUNDE TEK nokta: 1 yillik grafikte gun ici
+                -- ayrinti hem gorsel olarak anlamsiz hem de nokta basina
+                -- varlik sayisi kadar fiyat aramasi demek (942 nokta -> ~6 sn).
+                SELECT DISTINCT ON (kova) ts
+                FROM (
+                    SELECT ap.ts,
+                           CASE WHEN CAST(:gunluk AS BOOLEAN)
+                                THEN date_trunc('day', ap.ts) ELSE ap.ts END AS kova
+                    FROM all_prices ap
+                    JOIN positions p ON p.asset_id = ap.asset_id
+                ) g
+                ORDER BY kova, ts DESC
+            ), bist AS (
+                -- Kiyas serisi YALNIZCA ts'e baglidir; asagidaki CROSS JOIN
+                -- icinde arasaydik her varlik icin tekrar hesaplanirdi.
+                SELECT t.ts, b.price
+                FROM timeline t
+                LEFT JOIN LATERAL (
+                    SELECT ap.price
+                    FROM all_prices ap
+                    JOIN assets benchmark ON benchmark.id = ap.asset_id
+                    WHERE upper(benchmark.symbol) = 'BIST100'
+                      AND ap.ts <= t.ts
+                    ORDER BY ap.ts DESC
+                    LIMIT 1
+                ) b ON TRUE
             )
             SELECT t.ts,
                    SUM(
-                       p.quantity
+                       -- Varligin O ANDAKI adedi. Islem kaydi olan varlikta
+                       -- alim/satimlarin o ana kadarki net toplami; HIC islem
+                       -- kaydi olmayan (dogrudan tohumlanmis) varlikta bugunku
+                       -- adet sabit kabul edilir - aksi halde o portfoyler
+                       -- duz sifir grafik gorurdu.
+                       CASE WHEN iv.asset_id IS NOT NULL THEN COALESCE(q.qty, 0)
+                            ELSE p.quantity END
                        * COALESCE(h.price, p.current_price)
                        * p.try_rate
                    ) AS total_value_try,
@@ -313,23 +372,37 @@ class SqlPortfolioRepository(_SqlRepository):
                    MAX(b.price) AS bist100_price
             FROM timeline t
             CROSS JOIN positions p
+            LEFT JOIN islemli_varlik iv ON iv.asset_id = p.asset_id
             LEFT JOIN LATERAL (
-                SELECT ap.price
-                FROM all_prices ap
-                WHERE ap.asset_id = p.asset_id
-                  AND ap.ts <= t.ts
-                ORDER BY ap.ts DESC
+                SELECT SUM(i.delta) AS qty
+                FROM islem i
+                WHERE i.asset_id = p.asset_id
+                  AND i.ts <= t.ts
+            ) q ON TRUE
+            LEFT JOIN LATERAL (
+                -- Fiyat aramasi PENCEREYLE SINIRLI DEGIL: penceredeki ilk
+                -- noktada cogu varligin henuz o pencere icinde bir fiyat
+                -- kaydi olmaz ve `current_price`'a duserdi - yani grafigin
+                -- baslangici bugunku degere yapisir, aylik/yillik degisim
+                -- oldugundan kucuk gorunurdu. Pencere yalnizca zaman
+                -- eksenini (timeline) belirler, degerlemeyi degil.
+                SELECT x.price FROM (
+                    SELECT ph.ts, ph.price
+                    FROM price_history ph
+                    WHERE ph.asset_id = p.asset_id AND ph.ts <= t.ts
+                      AND (CAST(:valid_from AS TIMESTAMPTZ) IS NULL OR ph.ts >= :valid_from)
+                      AND ph.source <> 'simulated'
+                    UNION ALL
+                    SELECT lp.created_at AS ts, lp.price
+                    FROM live_prices lp
+                    WHERE lp.asset_id = p.asset_id AND lp.created_at <= t.ts
+                      AND (CAST(:valid_from AS TIMESTAMPTZ) IS NULL OR lp.created_at >= :valid_from)
+                      AND lp.source <> 'simulated'
+                ) x
+                ORDER BY x.ts DESC
                 LIMIT 1
             ) h ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT ap.price
-                FROM all_prices ap
-                JOIN assets benchmark ON benchmark.id = ap.asset_id
-                WHERE upper(benchmark.symbol) = 'BIST100'
-                  AND ap.ts <= t.ts
-                ORDER BY ap.ts DESC
-                LIMIT 1
-            ) b ON TRUE
+            LEFT JOIN bist b ON b.ts = t.ts
             GROUP BY t.ts
             ORDER BY t.ts
             """,
@@ -337,8 +410,118 @@ class SqlPortfolioRepository(_SqlRepository):
                 "user_id": user_id,
                 "portfolio_id": portfolio_id,
                 "hours": hours,
-                "valid_from": settings.portfolio_performance_valid_from,
+                "valid_from": valid_from,
+                "gunluk": gunluk,
             },
+        )
+
+    async def get_period_pnl(
+        self, user_id: int, portfolio_id: int | None = None, start_ts: datetime | None = None
+    ) -> list[dict]:
+        # Donem kar/zarari = (donem sonu deger) - (donem basi deger)
+        #                    - (donem ici alim maliyeti) + (donem ici satis hasilati)
+        #
+        # Bu formul uc durumu da dogru verir: donem boyunca hic islem
+        # yapilmadiysa saf fiyat farki, pozisyon donem icinde acildiysa
+        # "bugunku deger - odenen maliyet", donem icinde alinip satildiysa
+        # gerceklesen + gerceklesmemis kar birlikte.
+        #
+        # Kur cevrimi HER YERDE BUGUNKU kurla yapilir (`v_fx_rates`) -
+        # gecmis kur serisi tutulmuyor; performans grafigi de ayni
+        # varsayimla calisir, boylece iki rakam birbiriyle tutarli kalir.
+        return await self._rows(
+            """
+            WITH selected_portfolio AS (
+                SELECT id
+                FROM portfolios
+                WHERE user_id = :user_id
+                  AND id = COALESCE(
+                        CAST(:portfolio_id AS INT),
+                        (
+                            SELECT id FROM portfolios
+                            WHERE user_id = :user_id
+                            ORDER BY is_default DESC, id
+                            LIMIT 1
+                        )
+                      )
+            ), baslangic AS (
+                -- Cagiran taraf GRAFIGIN ILK NOKTASINI gecer; boylece
+                -- "donem kar/zarari" ile grafigin gosterdigi degisim ayni
+                -- ani baz alir ve iki rakam birbirini tutar.
+                SELECT CAST(:start_ts AS TIMESTAMPTZ) AS ts
+            ), islem AS (
+                SELECT t.asset_id, t.transaction_date AS ts, t.transaction_type,
+                       t.quantity, t.unit_price
+                FROM transactions t
+                JOIN selected_portfolio sp ON sp.id = t.portfolio_id
+            ), islemli_varlik AS (
+                SELECT DISTINCT asset_id FROM islem
+            ), positions AS (
+                SELECT v.asset_id, v.quantity, a.symbol, a.current_price, fx.try_rate
+                FROM (
+                    SELECT pa.asset_id, pa.quantity
+                    FROM portfolio_assets pa
+                    JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
+                    UNION
+                    SELECT iv.asset_id, 0
+                    FROM islemli_varlik iv
+                    WHERE iv.asset_id NOT IN (
+                        SELECT pa.asset_id FROM portfolio_assets pa
+                        JOIN selected_portfolio sp ON sp.id = pa.portfolio_id
+                    )
+                ) v
+                JOIN assets a ON a.id = v.asset_id
+                JOIN v_fx_rates fx ON fx.currency = a.currency
+            )
+            SELECT p.symbol,
+                   -- Donem SONU deger (bugunku adet x bugunku fiyat)
+                   p.quantity * p.current_price * p.try_rate AS bitis_degeri,
+                   -- Donem BASI deger: islem kaydi olmayan varlikta adet
+                   -- bugunku adet kabul edilir (grafikteki kural ile ayni).
+                   CASE WHEN iv.asset_id IS NOT NULL THEN COALESCE(bq.qty, 0)
+                        ELSE p.quantity END
+                       * COALESCE(bp.price, p.current_price)
+                       * p.try_rate AS baslangic_degeri,
+                   COALESCE(w.alim_maliyeti, 0) * p.try_rate  AS alim_maliyeti,
+                   COALESCE(w.satis_hasilati, 0) * p.try_rate AS satis_hasilati
+            FROM positions p
+            CROSS JOIN baslangic b
+            LEFT JOIN islemli_varlik iv ON iv.asset_id = p.asset_id
+            LEFT JOIN LATERAL (
+                SELECT SUM(CASE WHEN i.transaction_type = 'BUY' THEN i.quantity
+                                ELSE -i.quantity END) AS qty
+                FROM islem i
+                WHERE i.asset_id = p.asset_id AND i.ts <= b.ts
+            ) bq ON TRUE
+            LEFT JOIN LATERAL (
+                -- Grafikle AYNI iki kaynak: yalnizca price_history'ye
+                -- bakilsaydi gun ici baslangicta 1-2 gunluk eski kapanis
+                -- fiyati alinir, rakam grafikle tutmazdi.
+                SELECT x.price FROM (
+                    SELECT ph.ts, ph.price
+                    FROM price_history ph
+                    WHERE ph.asset_id = p.asset_id AND ph.ts <= b.ts
+                      AND ph.source <> 'simulated'
+                    UNION ALL
+                    SELECT lp.created_at AS ts, lp.price
+                    FROM live_prices lp
+                    WHERE lp.asset_id = p.asset_id AND lp.created_at <= b.ts
+                      AND lp.source <> 'simulated'
+                ) x
+                ORDER BY x.ts DESC
+                LIMIT 1
+            ) bp ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT SUM(CASE WHEN i.transaction_type = 'BUY'
+                                THEN i.quantity * i.unit_price ELSE 0 END) AS alim_maliyeti,
+                       SUM(CASE WHEN i.transaction_type = 'SELL'
+                                THEN i.quantity * i.unit_price ELSE 0 END) AS satis_hasilati
+                FROM islem i
+                WHERE i.asset_id = p.asset_id AND i.ts > b.ts
+            ) w ON TRUE
+            ORDER BY p.symbol
+            """,
+            {"user_id": user_id, "portfolio_id": portfolio_id, "start_ts": start_ts},
         )
 
 
