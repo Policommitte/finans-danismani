@@ -73,13 +73,7 @@ export default function DanismanPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold app-heading">Danışman</h1>
-        <p className="mt-1 text-sm app-muted">
-          {filtreli.length} lead gösteriliyor
-          {filtreli.length !== tumLeadler.length ? ` (toplam ${tumLeadler.length})` : ""}.
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold app-heading">Danışman Paneli</h1>
 
       {/* Grid ogeleri ayni satir yuksekligini paylasir (varsayilan stretch):
           tablo karti sol filtre paneliyle AYNI boyda durur. Kartin ici flex

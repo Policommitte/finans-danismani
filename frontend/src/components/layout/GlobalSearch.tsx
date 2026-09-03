@@ -177,7 +177,9 @@ export function GlobalSearch({
   }, [anahtar, assets]);
 
   const sayfalar = useMemo(() => {
-    const hepsi = [...mainNavItems, ...utilityNavItems];
+    // "Ana Sayfa" DISARIDA: sol kenar cubugunda ve logoda zaten tek tikla
+    // ulasilan bir yer, palette yer kaplamasinin bir degeri yok.
+    const hepsi = [...mainNavItems, ...utilityNavItems].filter((item) => item.key !== "home");
     if (!anahtar) {
       return hepsi.slice(0, MAX_SAYFA);
     }
