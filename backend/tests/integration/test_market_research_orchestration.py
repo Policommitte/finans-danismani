@@ -105,7 +105,7 @@ async def test_router_ilgisiz_sorguda_ajani_calistirmaz():
     # Portfoy ajani da kayitli olmali; aksi halde router tek ajan oldugu icin
     # "hicbiri eslesmedi -> hepsini calistir" guvenli varsayilanina duser.
     from app.engine.orchestrator import AGENT_PORTFOLIO
-    from tests.test_orchestrator import SahteAjan
+    from tests.agents.test_orchestrator import SahteAjan
 
     orchestrator = Orchestrator(
         agents={
