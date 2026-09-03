@@ -18,6 +18,7 @@ from app.agents.market_research import (
     MarketResearchAgent,
     _alandan_coz,
     _arama_metni,
+    _technical_intent,
 )
 from app.mcp.client import MCPClient, MCPServer
 from app.mcp.server import build_servers
@@ -619,3 +620,155 @@ async def test_sorguda_adiyla_gecen_sembol_alan_kelimelerini_alir():
     )
 
     assert "savunma sanayi" in cagrilar[0]
+
+
+# ---------------------------------------------------------------------------
+# Teknik analiz yolu
+#
+# Kural: teknik analiz haber ODAKLI bir soruda kendiliginden calismaz. Once
+# "haber yok" denir ve teklif edilir; kullanici onaylarsa calisir.
+# ---------------------------------------------------------------------------
+
+
+def test_teknik_niyet_siniflandirmasi():
+    assert _technical_intent("THYAO teknik analizi yapar mısın") == "explicit"
+    assert _technical_intent("THYAO RSI kaç") == "explicit"
+    assert _technical_intent("THYAO ile ilgili son haberler ne diyor") == "news_only"
+    assert _technical_intent("THYAO bilançosu nasıl") == "news_only"
+    assert _technical_intent("THYAO hakkında kısa bir yatırım analizi yap") == "general"
+    # "karsi" icindeki "rsi" teknik istek SAYILMAZ (kelime siniri).
+    assert _technical_intent("THYAO'ya karşı ne düşünüyorsun") == "general"
+
+
+def _rag_bos(ajan):
+    """`_run_rag`'i "hicbir kaynak yok" donecek sekilde degistirir."""
+
+    async def bos(task, query):
+        return NO_RETRIEVAL_MESSAGE, [], [], 0.0, None
+
+    ajan._run_rag = bos
+
+
+def _katalog_sabitle(ajan):
+    """Sembol katalogunu sabitler - teknik yol testleri DB hizina bagli kalmasin."""
+
+    async def katalog():
+        return [{"symbol": "THYAO", "ad": "Türk Hava Yolları", "asset_class": "STOCK"}]
+
+    ajan._symbol_catalog = katalog
+
+
+def _canli_bos(ajan):
+    """`_run_live`'i sessizlestirir - teknik yol testleri fiyat ucuna gitmesin."""
+
+    async def bos(task):
+        return "", None
+
+    ajan._run_live = bos
+
+
+def _teknik_izle(ajan, sonuc=None):
+    """`_run_technical` cagrilarini kaydeder; gercek tool'a gitmez."""
+    cagrilar: list[str] = []
+
+    async def sahte(sembol):
+        cagrilar.append(sembol)
+        return "THYAO teknik gorunum: Sat.", sonuc or {"sufficient": True, "symbol": sembol}
+
+    ajan._run_technical = sahte
+    return cagrilar
+
+
+async def test_haber_odakli_soruda_teknik_analize_otomatik_gecilmez():
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _rag_bos(ajan)
+    cagrilar = _teknik_izle(ajan)
+
+    sonuc = await ajan.run(_state("THYAO ile ilgili son haberler ne diyor"))
+
+    assert cagrilar == []
+    assert sonuc["market_data"]["technical"] is None
+    ozet = sonuc["market_data"]["summary"]
+    assert "teknik analiz" in ozet.lower()
+    assert "onay" in ozet.lower()
+
+
+async def test_genel_soruda_haber_yoksa_teknik_analize_dusulur():
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _rag_bos(ajan)
+    cagrilar = _teknik_izle(ajan)
+
+    sonuc = await ajan.run(_state("THYAO hakkında kısa bir yatırım analizi yap"))
+
+    assert cagrilar == ["THYAO"]
+    assert sonuc["market_data"]["technical"] is not None
+    assert "teknik gorunum" in sonuc["market_data"]["summary"]
+
+
+async def test_haber_varken_teknik_veri_destekleyici_olarak_etiketlenir():
+    """Haber bulgusu ana cevaptir; teknik veri onun ardina DESTEK olarak eklenir."""
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _canli_bos(ajan)
+    cagrilar = _teknik_izle(ajan)
+
+    async def rag_dolu(task, query):
+        return "THYAO yolcu sayisi rekor kirdi.", [], [], 0.8, None
+
+    ajan._run_rag = rag_dolu
+
+    sonuc = await ajan.run(_state("THYAO hakkında kısa bir yatırım analizi yap"))
+
+    ozet = sonuc["market_data"]["summary"]
+    assert cagrilar == ["THYAO"]
+    assert ozet.startswith("THYAO yolcu sayisi rekor kirdi.")
+    assert "Destekleyici teknik veri:" in ozet
+
+
+async def test_haber_yokken_teknik_veri_etiketlenmez():
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _rag_bos(ajan)
+    _canli_bos(ajan)
+    _teknik_izle(ajan)
+
+    ozet = (await ajan.run(_state("THYAO hakkında kısa bir yatırım analizi yap")))["market_data"][
+        "summary"
+    ]
+
+    assert "Destekleyici teknik veri:" not in ozet
+
+
+async def test_teklife_verilen_onay_teknik_analizi_calistirir():
+    """Onay turunda sembol soruda GECMEZ; onceki mesajlardan cikarilir."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _rag_bos(ajan)
+    _canli_bos(ajan)
+    cagrilar = _teknik_izle(ajan)
+    gecmis = [
+        HumanMessage(content="THYAO ile ilgili haberler ne diyor"),
+        AIMessage(content="THYAO için haber yok. İstersen teknik analiz yapabilirim."),
+        HumanMessage(content="evet yap"),
+    ]
+
+    sonuc = await ajan.run(_state("evet yap", messages=gecmis))
+
+    assert cagrilar == ["THYAO"]
+    assert sonuc["market_data"]["technical"] is not None
+
+
+async def test_onay_teklif_edilmemisken_teknik_analizi_tetiklemez():
+    ajan = _ajan()
+    _katalog_sabitle(ajan)
+    _rag_bos(ajan)
+    cagrilar = _teknik_izle(ajan)
+
+    sonuc = await ajan.run(_state("evet", messages=[]))
+
+    assert cagrilar == []
+    assert sonuc["market_data"]["technical"] is None

@@ -38,6 +38,56 @@ export type OhlcResponse = {
   candles: OhlcCandle[];
 };
 
+export type TechnicalSignal = "AL" | "SAT" | "NOTR" | "VERI_YOK";
+export type TechnicalLabel = "GUCLU_AL" | "AL" | "NOTR" | "SAT" | "GUCLU_SAT";
+
+export type TechnicalIndicator = {
+  key: string;
+  label: string;
+  value: number | null;
+  signal: TechnicalSignal;
+};
+
+export type TechnicalMovingAverage = {
+  period: number;
+  sma: number | null;
+  sma_signal: TechnicalSignal;
+  ema: number | null;
+  ema_signal: TechnicalSignal;
+};
+
+export type TechnicalSummary = {
+  label: TechnicalLabel;
+  /** -1 (güçlü sat) ile +1 (güçlü al) arası. */
+  score: number;
+  buy: number;
+  neutral: number;
+  sell: number;
+};
+
+/**
+ * Günlük mumlardan hesaplanan teknik görünüm.
+ *
+ * `sufficient` false olduğunda `summary` null gelir - eksik veriyle sınıf
+ * üretilmez. Arayüz bu durumda "analiz için veri yetersiz" gösterir.
+ */
+export type TechnicalResponse = {
+  symbol: string;
+  interval: string;
+  days: number;
+  candle_count: number;
+  last_candle_ts: string | null;
+  source: string;
+  sufficient: boolean;
+  reason: string | null;
+  price: number | null;
+  summary: TechnicalSummary | null;
+  indicator_summary: TechnicalSummary | null;
+  moving_average_summary: TechnicalSummary | null;
+  indicators: TechnicalIndicator[];
+  moving_averages: TechnicalMovingAverage[];
+};
+
 export type MarketSearchRequest = {
   query: string;
   top_k?: number;

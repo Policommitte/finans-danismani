@@ -436,6 +436,54 @@ async def market_get_kap_disclosures(symbol: str, since: str | None = None) -> d
     )
 
 
+async def market_get_technicals(symbol: str, days: int = 300) -> dict[str, Any]:
+    """Gunluk mumlardan teknik gorunum: ozet sinif + gosterge sinyalleri.
+
+    Seri DONDURMEZ (baglam sismesin), yalnizca son degerler ve sinyaller.
+    Veri yetersizse `sufficient=False` doner - ajan bunu "veri yetersiz"
+    diye yazar, sayi uydurmaz.
+
+    Args:
+        symbol: Varlik kodu.
+        days: Takvim penceresi (35-730).
+    """
+    from app.services.technical_analysis import summary_text, technical_analysis
+
+    analysis = await technical_analysis(symbol, days=max(35, min(int(days or 300), 730)))
+    if not analysis.sufficient:
+        return ok(
+            {
+                "symbol": analysis.symbol,
+                "sufficient": False,
+                "reason": analysis.reason,
+                "candle_count": analysis.candle_count,
+                "summary_text": summary_text(analysis),
+            }
+        )
+
+    return ok(
+        {
+            "symbol": analysis.symbol,
+            "sufficient": True,
+            "interval": analysis.interval,
+            "candle_count": analysis.candle_count,
+            "last_candle_ts": analysis.last_candle_ts,
+            "source": analysis.source,
+            "summary": analysis.summary.model_dump() if analysis.summary else None,
+            "indicators": [
+                {"label": i.label, "value": i.value, "signal": i.signal}
+                for i in analysis.indicators
+            ],
+            "moving_average_summary": (
+                analysis.moving_average_summary.model_dump()
+                if analysis.moving_average_summary
+                else None
+            ),
+            "summary_text": summary_text(analysis),
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # rag_* grubu
 # ---------------------------------------------------------------------------
@@ -543,6 +591,7 @@ TOOL_GROUPS: dict[str, dict[str, Any]] = {
         "market_get_quote": market_get_quote,
         "market_get_history": market_get_history,
         "market_get_seasonality": market_get_seasonality,
+        "market_get_technicals": market_get_technicals,
         "market_list_symbols": market_list_symbols,
         "market_get_kap_disclosures": market_get_kap_disclosures,
     },

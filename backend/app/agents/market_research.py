@@ -208,6 +208,93 @@ NO_RETRIEVAL_MESSAGE = (
     "kaynaklarda ilgili bir icerik yok."
 )
 
+#: Teknik analizi DOGRUDAN isteyen ifadeler.
+_TECHNICAL_KEYWORDS = (
+    "teknik analiz",
+    "teknik gorunum",
+    "teknik yorum",
+    "rsi",
+    "macd",
+    "stokastik",
+    "hareketli ortalama",
+    "gosterge",
+    "al sat sinyali",
+    "trend sinyali",
+)
+
+#: Sorunun HABER/RAPOR uzerinden cevaplanmasini isteyen ifadeler.
+#:
+#: Bunlarda haber bulunamazsa teknik analize OTOMATIK gecilmez: kullanici
+#: haber sordu, fiyat grafigi degil. Once durum soylenir, teknik analiz
+#: TEKLIF edilir, onay gelirse calisir.
+_NEWS_ONLY_KEYWORDS = (
+    "haber",
+    "rapor",
+    "bilanco",
+    "kap bildir",
+    "duyuru",
+    "gelisme",
+    "basinda",
+)
+
+#: Bir varligin DURUMUNU/EGILIMINI soran ifadeler. Teknik gorunum bunlarda
+#: haber bulunsa da ise yarar; duz fiyat sorusunda ("THYAO kac TL") yaramaz.
+_ANALYSIS_KEYWORDS = (
+    "analiz",
+    "yorum",
+    "degerlendir",
+    "gorunum",
+    "beklenti",
+    "alir miyim",
+    "almali",
+    "satmali",
+    "tavsiye",
+    "yatirim yapmali",
+)
+
+#: Teklife verilen onay - kisa ve basta gecmeli ("evet, yap").
+_CONFIRMATION_PATTERN = re.compile(
+    r"^(evet|olur|tamam|tabii|tabi|lutfen|yap|yapar misin|isterim|istiyorum|devam|olsun)\b"
+)
+
+#: Teklif metnindeki iz - onay turunda onceki AI mesajinda aranir. Sentez
+#: metni yeniden yazdigi icin tam cumle degil, bu ifade aranir.
+TECHNICAL_OFFER_MARKER = "teknik analiz"
+
+
+def technical_offer(sembol: str) -> str:
+    """Haber bulunamadiginda sentezleyiciye verilen teknik analiz teklifi."""
+    return (
+        f"{sembol} icin fiyati etkileyecek indekslenmis bir haber/rapor yok. "
+        f"Fiyat gecmisinden teknik analiz (RSI, MACD, stokastik, hareketli "
+        f"ortalamalar) yapilabilir; kullanici onay verirse calistirilacak."
+    )
+
+
+def _kelime_deseni(kelimeler: tuple[str, ...]) -> re.Pattern[str]:
+    """Kelime BASINDA eslesen desen.
+
+    Alt dize aramasi kullanilamaz: "rsi" ifadesi "karsi" kelimesinin icinde
+    de geciyor ve her "karsi" gecen soruyu teknik analiz istegi sayardi.
+    """
+    return re.compile("|".join(rf"\b{re.escape(kelime)}" for kelime in kelimeler))
+
+
+_TECHNICAL_PATTERN = _kelime_deseni(_TECHNICAL_KEYWORDS)
+_NEWS_ONLY_PATTERN = _kelime_deseni(_NEWS_ONLY_KEYWORDS)
+_ANALYSIS_PATTERN = _kelime_deseni(_ANALYSIS_KEYWORDS)
+
+
+def _technical_intent(query: str) -> str:
+    """Sorunun teknik analize bakisi: explicit | news_only | general."""
+    normalized = _normalize(query)
+    if _TECHNICAL_PATTERN.search(normalized):
+        return "explicit"
+    if _NEWS_ONLY_PATTERN.search(normalized):
+        return "news_only"
+    return "general"
+
+
 #: Varsayilan RAG chunk sayisi.
 DEFAULT_TOP_K = 5
 
@@ -1110,6 +1197,13 @@ class MarketResearchAgent(BaseAgent):
         # sorgusundan sembol HISSE cikiyor ve hem RAG filtresi hem fiyat
         # sorgusu bosa gidiyor.
         await self._resolve_symbol_from_catalog(task)
+        # Onay turunda ("evet, yap") sembol soruda GECMEZ; onceki turlardan
+        # cikarilir - yoksa teknik analiz sembolsuz kalir.
+        if task.get("technical_intent") in ("explicit", "confirmation") and not task.get("symbol"):
+            if gecmis_sembol := await self._symbol_from_history(state):
+                task["symbol"] = gecmis_sembol
+                task["symbol_kesin"] = True
+
         query = (task.get("query") or "").strip()
 
         if not query:
@@ -1130,6 +1224,7 @@ class MarketResearchAgent(BaseAgent):
         canli_veri: dict[str, Any] | None = None
         guven: float | None = None
         hatalar: list[AgentError] = []
+        rag_ozet: str | None = None
 
         if mode in ("rag", "both"):
             rag_ozet, kaynaklar, ham_kaynaklar, guven, rag_hatasi = await self._run_rag(task, query)
@@ -1143,6 +1238,27 @@ class MarketResearchAgent(BaseAgent):
             if canli_ozet:
                 ozet_parcalari.append(canli_ozet)
 
+        # Teknik analiz uc durumda calisir: acik istek, teklife onay, ya da
+        # GENEL bir soruda (egilim sorusu veya haber bulunamamis olmasi).
+        # Haber ODAKLI soruda otomatik gecilmez - orada yalnizca teklif
+        # edilir (bkz. `technical_offer`).
+        teknik_veri: dict[str, Any] | None = None
+        niyet = task.get("technical_intent", "general")
+        rag_bos = mode in ("rag", "both") and (not rag_ozet or rag_ozet == NO_RETRIEVAL_MESSAGE)
+        sembol = task.get("symbol")
+        genel_gerekce = niyet == "general" and (rag_bos or task.get("analysis_question"))
+
+        if sembol and (niyet in ("explicit", "confirmation") or genel_gerekce):
+            teknik_ozet, teknik_veri = await self._run_technical(sembol)
+            if teknik_ozet:
+                # Haber varken teknik veri DESTEKLEYICIDIR; etiket bunu
+                # sentezleyiciye soyler (bkz. SYNTHESIZER_SYSTEM_PROMPT 11a).
+                if not rag_bos and rag_ozet:
+                    teknik_ozet = f"Destekleyici teknik veri: {teknik_ozet}"
+                ozet_parcalari.append(teknik_ozet)
+        elif sembol and niyet == "news_only" and rag_bos:
+            ozet_parcalari.append(technical_offer(sembol))
+
         ozet = "\n\n".join(ozet_parcalari) if ozet_parcalari else NO_RETRIEVAL_MESSAGE
 
         guncelleme: dict = {
@@ -1150,6 +1266,9 @@ class MarketResearchAgent(BaseAgent):
                 "summary": ozet,
                 "sources": ham_kaynaklar,
                 "live_data": canli_veri,
+                #: `market_get_technicals` ciktisi - haber yoksa (ya da teknik
+                #: analiz istenmisse) dolar, aksi halde None.
+                "technical": teknik_veri,
                 "confidence": guven,
                 "mode": mode,
                 # Katalogla dogrulanmis sembol (bkz. `_resolve_symbol_from_catalog`) -
@@ -1199,7 +1318,46 @@ class MarketResearchAgent(BaseAgent):
             if gun is not None:
                 task["history_days"] = gun
 
+        if "technical_intent" not in task:
+            niyet = _technical_intent(task["query"])
+            # Kisa bir onay ("evet, yap") tek basina niyet tasimaz; anlami
+            # onceki turda teklif edilmis olmasindan gelir.
+            if niyet == "general" and self._is_technical_confirmation(state):
+                niyet = "confirmation"
+            task["technical_intent"] = niyet
+
+        if "analysis_question" not in task:
+            normalized = _normalize(task["query"])
+            task["analysis_question"] = bool(_ANALYSIS_PATTERN.search(normalized))
+
         return task
+
+    @staticmethod
+    def _is_technical_confirmation(state: AgentState) -> bool:
+        """Kullanici onceki turdaki teknik analiz teklifini onayladi mi?"""
+        if not _CONFIRMATION_PATTERN.match(_normalize(state.user_query)):
+            return False
+
+        for mesaj in reversed(state.messages):
+            icerik = getattr(mesaj, "content", "")
+            if type(mesaj).__name__ != "AIMessage" or not isinstance(icerik, str):
+                continue
+            return TECHNICAL_OFFER_MARKER in _normalize(icerik)
+        return False
+
+    async def _symbol_from_history(self, state: AgentState) -> str | None:
+        """Onceki mesajlarda gecen ilk katalog sembolu (en yeniden eskiye)."""
+        katalog = await self._symbol_catalog()
+        if not katalog:
+            return None
+
+        for mesaj in reversed(state.messages):
+            icerik = getattr(mesaj, "content", "")
+            if not isinstance(icerik, str) or not icerik.strip():
+                continue
+            if sembol := resolve_symbol(icerik, katalog):
+                return sembol
+        return None
 
     async def _symbol_catalog(self) -> list[dict[str, Any]] | None:
         """`market_list_symbols` ciktisi - kisa sureli onbellekli.
@@ -1377,6 +1535,11 @@ class MarketResearchAgent(BaseAgent):
         # canli yoldan tamamen uzak tutmak dogru.
         if task.get("symbol_alandan"):
             return "rag"
+
+        # Teknik analiz haber indeksine ihtiyac duymaz: acik istekte ("THYAO
+        # teknik analizi") RAG'e gidilmez, haber de istenmisse ikisi birlikte.
+        if task.get("technical_intent") in ("explicit", "confirmation") and task.get("symbol"):
+            return "both" if _NEWS_ONLY_PATTERN.search(normalized) else "live"
 
         if canli_isteniyor and baglam_isteniyor:
             return "both"
@@ -1739,6 +1902,25 @@ class MarketResearchAgent(BaseAgent):
             metin += f" (Hesaba katilamayan: {'; '.join(elenen)}.)"
 
         return metin, sonuc
+
+    async def _run_technical(self, sembol: str) -> tuple[str, dict[str, Any] | None]:
+        """`market_get_technicals` ozetini metin + yapisal veri olarak doner.
+
+        Tool veri yetersizken de `ok` doner (`sufficient=False`); o metin
+        "veri yetersiz" der ve sayi icermez. Tool cagrisi coktugunde akis
+        kesilmez, bos metin doner.
+        """
+        try:
+            sonuc = await self.call_tool(
+                server=MARKET_SERVER_NAME,
+                tool="market_get_technicals",
+                arguments={"symbol": sembol},
+            )
+        except (MCPClientError, MCPToolExecutionError):
+            logger.warning("teknik analiz alinamadi", extra={"symbol": sembol}, exc_info=True)
+            return "", None
+
+        return sonuc.get("summary_text") or "", sonuc
 
     async def _fetch_history(self, sembol: str, gun: int) -> tuple[str, dict[str, Any] | None]:
         """`market_get_history` ozetini metin + yapisal veri olarak doner.

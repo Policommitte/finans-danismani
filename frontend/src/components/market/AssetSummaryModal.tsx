@@ -4,9 +4,16 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useChat } from "../../contexts/ChatContext";
-import type { Asset, HistoryResponse, OhlcResponse } from "../../models/market";
-import { getMarketAssets, getMarketHistory, getMarketOhlc } from "../../services/marketService";
+import type { Asset, HistoryResponse, OhlcResponse, TechnicalResponse } from "../../models/market";
+import {
+  getMarketAssets,
+  getMarketHistory,
+  getMarketOhlc,
+  getMarketTechnical,
+} from "../../services/marketService";
 import { CandlestickChart } from "./CandlestickChart";
+import { TechnicalDetailView } from "./TechnicalDetailView";
+import { TechnicalSummaryStrip } from "./TechnicalSummaryStrip";
 
 const RANGE_TABS: { label: string; days: number }[] = [
   { label: "1G", days: 1 },
@@ -120,6 +127,11 @@ export function AssetSummaryModal({
   const askedRef = useRef<string | null>(null);
   //: Paylasilan sohbette YALNIZCA bu modalin sordugu sorunun cevabi izlenir.
   const [analysisMessageId, setAnalysisMessageId] = useState<string | null>(null);
+  const [technical, setTechnical] = useState<TechnicalResponse | null>(null);
+  const [technicalLoading, setTechnicalLoading] = useState(false);
+  //: Gosterge tablolari modali uzatmasin diye ayri bir gorunumde durur.
+  const [view, setView] = useState<"summary" | "technical">("summary");
+  const [aiExpanded, setAiExpanded] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -188,6 +200,33 @@ export function AssetSummaryModal({
       active = false;
     };
   }, [symbol, rangeDays, chartMode, isAuthenticated]);
+
+  useEffect(() => {
+    // Teknik analiz haberden BAGIMSIZ calisir: grafik sekmesinden etkilenmez,
+    // sabit gunluk mumlarla hesaplanir (bkz. app/services/technical_analysis.py).
+    if (!isAuthenticated) {
+      setTechnical(null);
+      return;
+    }
+
+    let active = true;
+    setView("summary");
+    setAiExpanded(false);
+    setTechnicalLoading(true);
+    getMarketTechnical(symbol)
+      .then((response) => {
+        if (active) setTechnical(response);
+      })
+      .catch(() => {
+        if (active) setTechnical(null);
+      })
+      .finally(() => {
+        if (active) setTechnicalLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [symbol, isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -259,6 +298,8 @@ export function AssetSummaryModal({
         <div className="px-5 py-4">
           {!isAuthenticated ? (
             <GuestAccessPrompt symbol={symbol} onClose={onClose} />
+          ) : view === "technical" && technical ? (
+            <TechnicalDetailView data={technical} onBack={() => setView("summary")} />
           ) : (
             <>
           <div className="flex items-start justify-between gap-3">
@@ -365,10 +406,29 @@ export function AssetSummaryModal({
               <span>Polifin AI Analizi</span>
               {chat.isStreaming && <span className="app-muted normal-case">{chat.status ?? "…"}</span>}
             </div>
-            <p className="whitespace-pre-wrap leading-relaxed app-heading">
+            <p
+              className={`whitespace-pre-wrap leading-relaxed app-heading ${
+                aiExpanded ? "" : "line-clamp-3"
+              }`}
+            >
               {chat.error ? chat.error : lastAssistantMessage?.content || "Analiz hazırlanıyor…"}
             </p>
+            {!chat.error && (lastAssistantMessage?.content?.length ?? 0) > 160 && (
+              <button
+                type="button"
+                onClick={() => setAiExpanded((open) => !open)}
+                className="mt-1 text-xs font-semibold app-muted underline transition hover:opacity-80"
+              >
+                {aiExpanded ? "Daha az göster" : "Devamını gör"}
+              </button>
+            )}
           </div>
+
+          <TechnicalSummaryStrip
+            data={technical}
+            loading={technicalLoading}
+            onShowDetail={() => setView("technical")}
+          />
 
           <div className="mt-5 flex gap-3">
             <Link
