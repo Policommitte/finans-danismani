@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { ChatProvider } from "../../contexts/ChatContext";
 import { LanguageProvider, useLanguage } from "../../contexts/LanguageContext";
 import { useAuth } from "../../hooks/useAuth";
 import { markTourSeen } from "../../services/authService";
@@ -314,7 +315,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <LanguageProvider>
-      <AppShellContent>{children}</AppShellContent>
+      <ChatProvider>
+        <AppShellContent>{children}</AppShellContent>
+      </ChatProvider>
     </LanguageProvider>
   );
 }

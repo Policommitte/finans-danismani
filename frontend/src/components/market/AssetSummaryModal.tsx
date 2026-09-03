@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { useChatStream } from "../../hooks/useChatStream";
+import { useChat } from "../../contexts/ChatContext";
 import type { Asset, HistoryResponse, OhlcResponse } from "../../models/market";
 import { getMarketAssets, getMarketHistory, getMarketOhlc } from "../../services/marketService";
 import { CandlestickChart } from "./CandlestickChart";
@@ -108,8 +108,10 @@ export function AssetSummaryModal({
   const [chartMode, setChartMode] = useState<"line" | "candle">("line");
   const [ohlc, setOhlc] = useState<OhlcResponse | null>(null);
   const [ohlcLoading, setOhlcLoading] = useState(false);
-  const chat = useChatStream();
+  const chat = useChat();
   const askedRef = useRef<string | null>(null);
+  //: Paylasilan sohbette YALNIZCA bu modalin sordugu sorunun cevabi izlenir.
+  const [analysisMessageId, setAnalysisMessageId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -188,7 +190,7 @@ export function AssetSummaryModal({
       return;
     }
     askedRef.current = symbol;
-    chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`);
+    setAnalysisMessageId(chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, isAuthenticated]);
 
@@ -204,7 +206,7 @@ export function AssetSummaryModal({
   //: (marka yesili / kirmizi, ikisi de tema-duyarli); yon belirsizse notr mavi.
   const aiBoxAccent =
     changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-brand-teal)" : "var(--color-danger)";
-  const lastAssistantMessage = [...chat.messages].reverse().find((m) => m.role === "assistant");
+  const lastAssistantMessage = chat.messages.find((m) => m.id === analysisMessageId);
 
   const sparklinePoints = (history?.points ?? []).slice(-20);
 

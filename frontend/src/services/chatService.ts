@@ -43,9 +43,15 @@ export async function downloadChatReport(messageId: number, filename: string): P
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Streams one chat turn. Pass an `AbortSignal` to let the user stop a long
+ * answer (or to cancel on unmount): aborting rejects with an `AbortError`,
+ * which the caller treats as a normal end of stream, not a failure.
+ */
 export async function streamChat(
   payload: ChatRequest,
   onEvent: (event: ChatEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const token = getAccessToken();
   const response = await fetch(getApiUrl("/api/chat/stream"), {
@@ -55,6 +61,7 @@ export async function streamChat(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!response.ok || !response.body) {
