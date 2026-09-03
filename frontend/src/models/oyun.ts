@@ -908,7 +908,7 @@ export function buildLeaderboard(period: LeaderboardPeriod, lang: Lang): Leaderb
   };
 
   const base = seedByPeriod[period];
-  const count = 6;
+  const count = 5;
 
   return Array.from({ length: count }, (_, i) => ({
     rank: i + 1,
@@ -922,10 +922,31 @@ export type WeeklyPrize = {
   place: 1 | 2 | 3;
   title: LocalizedText;
   points: number;
+  image: string;
+  /** Pexels'te canli bir fotograf aranirken kullanilan sorgu (bkz. CampaignsTab). */
+  imageQuery: string;
 };
 
 export const WEEKLY_PRIZES: WeeklyPrize[] = [
-  { place: 1, title: { tr: "AirPods Pro 2", en: "AirPods Pro 2" }, points: 25000 },
-  { place: 2, title: { tr: "Akıllı saat", en: "Smart watch" }, points: 15000 },
-  { place: 3, title: { tr: "2.500 TL hediye çeki", en: "2,500 TL gift card" }, points: 10000 },
+  {
+    place: 1,
+    title: { tr: "AirPods Pro 3", en: "AirPods Pro 3" },
+    points: 25000,
+    image: "/oyun/odul/airpods.jpg",
+    imageQuery: "airpods pro wireless earbuds",
+  },
+  {
+    place: 2,
+    title: { tr: "Akıllı saat", en: "Smart watch" },
+    points: 15000,
+    image: "/oyun/odul/akilli-saat.jpg",
+    imageQuery: "smart watch wearable device",
+  },
+  {
+    place: 3,
+    title: { tr: "2.500 TL hediye çeki", en: "2,500 TL gift card" },
+    points: 10000,
+    image: "/oyun/odul/hediye-ceki.jpg",
+    imageQuery: "gift card voucher",
+  },
 ];

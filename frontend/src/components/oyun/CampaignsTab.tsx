@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Card from "../ui/Card";
 import type { Powerups } from "../../hooks/useQuiz";
 import {
@@ -11,7 +11,7 @@ import {
   type PowerupKind,
 } from "../../models/oyun";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { fetchPhotoUrl } from "../../services/photoCache";
+import { PhotoImage } from "./PhotoImage";
 
 type SubTab = "jokerler" | "bagislar" | "kampanyalar";
 
@@ -29,46 +29,20 @@ type Props = {
   onBuyDonation: (item: DonationItem) => void;
 };
 
-/**
- * Görsel banner — dosya henüz yoksa sessizce boş bırakır, kırık ikon göstermez.
- * `query` verilirse önce Pexels'te canlı bir fotoğraf aranır; bulunursa yerel
- * `src`'nin yerini alır, bulunamazsa/aranmıyorsa yerel `src` kullanılmaya devam eder.
- */
+/** Kart üstü tam-genişlik görsel banner - fotoğraf çözümleme mantığı
+ * `PhotoImage`'da, burada yalnızca banner'a özgü boyut/kırpma var. */
 function Banner({ src, alt, query }: { src: string; alt: string; query?: string }) {
-  const [resolvedSrc, setResolvedSrc] = useState(src);
-  const [broken, setBroken] = useState(false);
-
-  useEffect(() => {
-    setResolvedSrc(src);
-    setBroken(false);
-    if (!query) {
-      return;
-    }
-    let active = true;
-    fetchPhotoUrl(query).then((url) => {
-      if (active && url) {
-        setResolvedSrc(url);
-        setBroken(false);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [src, query]);
-
   return (
     <div
       className="relative -mx-5 -mt-5 mb-4 aspect-[2/1] overflow-hidden rounded-t-xl"
       style={{ background: "var(--color-surface-muted)" }}
     >
-      {!broken && (
-        <img
-          src={resolvedSrc}
-          alt={alt}
-          className="absolute inset-0 h-full w-full object-cover"
-          onError={() => setBroken(true)}
-        />
-      )}
+      <PhotoImage
+        src={src}
+        alt={alt}
+        query={query}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
     </div>
   );
 }

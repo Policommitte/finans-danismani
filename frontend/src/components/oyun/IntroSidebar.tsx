@@ -95,11 +95,6 @@ export function IntroSidebar({ registered, taken, alreadyPlayedToday = false }: 
             <span className="app-muted block text-xs">
               {language === "tr" ? "Sonraki yarışma" : "Next contest"}
             </span>
-            <p className="app-heading mt-1.5 text-[13px] font-semibold leading-snug">
-              {language === "tr"
-                ? "Sonraki yarışmaya 24 saat kaldı"
-                : "24 hours until the next contest"}
-            </p>
             <strong
               className="mt-2 block text-2xl font-bold tabular-nums"
               style={{ color: "var(--color-primary)" }}
