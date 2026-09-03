@@ -25,7 +25,7 @@ import Card from "../ui/Card";
 
 //: Grafik altbasligi secilen donemi soyler - "Bugün" yazip yillik seri
 //: cizmek kullaniciyi yaniltirdi.
-const DONEM_ALTBASLIGI: Record<PerformanceRange, { tr: string; en: string }> = {
+const RANGE_SUBTITLES: Record<PerformanceRange, { tr: string; en: string }> = {
   "1G": { tr: "Bugün", en: "Today" },
   "1H": { tr: "Son 1 hafta", en: "Last week" },
   "1A": { tr: "Son 1 ay", en: "Last month" },
@@ -34,7 +34,7 @@ const DONEM_ALTBASLIGI: Record<PerformanceRange, { tr: string; en: string }> = {
 
 //: Mum grafiginin kova boyu. 1G/1H'de yarim saatlik kovalar anlamli;
 //: 1A/1Y'de backend zaten GUNDE TEK nokta donduugu icin her mum bir gundur.
-const MUM_ALTBASLIGI: Record<PerformanceRange, { tr: string; en: string }> = {
+const CANDLE_SUBTITLES: Record<PerformanceRange, { tr: string; en: string }> = {
   "1G": { tr: "30 dakikalık", en: "30-minute" },
   "1H": { tr: "Günlük", en: "Daily" },
   "1A": { tr: "Günlük", en: "Daily" },
@@ -76,7 +76,7 @@ const colors = [
  * grafikte saat anlamlidir, aylik/yillik grafikte her nokta ayri bir gun
  * oldugu icin saat gostermek tum etiketleri ayni ("00:00") yapardi.
  */
-const ZAMAN_BICIMLERI: Record<PerformanceRange, Intl.DateTimeFormatOptions> = {
+const TIME_FORMATS: Record<PerformanceRange, Intl.DateTimeFormatOptions> = {
   "1G": { hour: "2-digit", minute: "2-digit" },
   // 1H de backend'de gunluk kovaya indi (bkz. _GUNLUK_KOVA_SINIR_SAAT):
   // nokta basina bir gun dustugu icin saat gostermek yaniltici olurdu.
@@ -88,7 +88,7 @@ const ZAMAN_BICIMLERI: Record<PerformanceRange, Intl.DateTimeFormatOptions> = {
 function formatTime(value: string, language: "tr" | "en", range: PerformanceRange): string {
   return new Intl.DateTimeFormat(
     language === "tr" ? "tr-TR" : "en-US",
-    ZAMAN_BICIMLERI[range],
+    TIME_FORMATS[range],
   ).format(new Date(value));
 }
 
@@ -507,9 +507,9 @@ export function PortfolioVisualization({
           </h2>
           <p className="mt-1 text-xs app-muted">
             {mode === "line"
-              ? `${DONEM_ALTBASLIGI[range][language]} · ${displayCurrencyLabel} ${language === "tr" ? "bazlı" : "based"}`
+              ? `${RANGE_SUBTITLES[range][language]} · ${displayCurrencyLabel} ${language === "tr" ? "bazlı" : "based"}`
               : mode === "candlestick"
-                ? `${MUM_ALTBASLIGI[range][language]} · ${displayCurrencyLabel} ${language === "tr" ? "bazlı" : "based"}`
+                ? `${CANDLE_SUBTITLES[range][language]} · ${displayCurrencyLabel} ${language === "tr" ? "bazlı" : "based"}`
               : language === "tr" ? "Portföydeki varlık oranları ve değerleri" : "Portfolio asset weights and values"}
           </p>
         </div>
@@ -627,8 +627,8 @@ export function PortfolioVisualization({
         ) : chartPoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center text-center text-sm app-muted">
             {language === "tr"
-              ? `${DONEM_ALTBASLIGI[range].tr} için henüz yeterli gerçek fiyat geçmişi oluşmadı.`
-              : `There is not enough real price history for ${DONEM_ALTBASLIGI[range].en.toLowerCase()} yet.`}
+              ? `${RANGE_SUBTITLES[range].tr} için henüz yeterli gerçek fiyat geçmişi oluşmadı.`
+              : `There is not enough real price history for ${RANGE_SUBTITLES[range].en.toLowerCase()} yet.`}
           </div>
         ) : mode === "candlestick" && candlePoints.length === 0 ? (
           <div className="grid min-h-[356px] place-items-center px-6 text-center text-sm app-muted">

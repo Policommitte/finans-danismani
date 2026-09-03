@@ -41,7 +41,7 @@ export function usePortfolioPerformance(range: PerformanceRange = "1G") {
 
 //: `enabled=false` iken ag istegi atilmaz; bos yanit hook'un sozlesmesini
 //: bozmadan "veri yok" demenin en sade yolu.
-const BOS_SNAPSHOT: PortfolioSnapshotPerformanceResponse = {
+const EMPTY_SNAPSHOT: PortfolioSnapshotPerformanceResponse = {
   points: [],
   hours: 24,
   interval_minutes: 5,
@@ -58,7 +58,7 @@ const BOS_SNAPSHOT: PortfolioSnapshotPerformanceResponse = {
  */
 export function usePortfolioSnapshots(enabled: boolean, hours = 24) {
   const loader = useCallback(
-    () => (enabled ? getPortfolioSnapshotPerformance(hours) : Promise.resolve(BOS_SNAPSHOT)),
+    () => (enabled ? getPortfolioSnapshotPerformance(hours) : Promise.resolve(EMPTY_SNAPSHOT)),
     [enabled, hours],
   );
   const snapshots = useAsyncData(

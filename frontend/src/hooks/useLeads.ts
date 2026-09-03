@@ -13,7 +13,7 @@ import { useAsyncData } from "./useAsyncData";
 
 export function useLeads() {
   const [scanning, setScanning] = useState(false);
-  const [kaydedilenId, setKaydedilenId] = useState<number | null>(null);
+  const [savingUserId, setSavingUserId] = useState<number | null>(null);
 
   const loader = useCallback(async () => {
     const [bsd, autonomous, excluded] = await Promise.all([
@@ -43,15 +43,15 @@ export function useLeads() {
    * sunucunun gercek halini getiriyor ve satir sayisi/filtre sayaclari
    * da onunla tutarli kaliyor.
    */
-  async function sonucKaydet(userId: number, outcome: CallOutcomeInput) {
-    setKaydedilenId(userId);
+  async function saveOutcome(userId: number, outcome: CallOutcomeInput) {
+    setSavingUserId(userId);
     try {
       await setLeadOutcome(userId, outcome);
       await state.refresh();
     } finally {
-      setKaydedilenId(null);
+      setSavingUserId(null);
     }
   }
 
-  return { ...state, scanning, runScan, sonucKaydet, kaydedilenId };
+  return { ...state, scanning, runScan, saveOutcome, savingUserId };
 }

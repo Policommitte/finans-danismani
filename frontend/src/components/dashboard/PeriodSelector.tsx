@@ -9,22 +9,22 @@ import type { PerformanceRange } from "../../models/portfolio";
  * ekranda TEK yerde durur.
  */
 
-const ARALIKLAR: Array<{ deger: PerformanceRange; etiket: string; ad: { tr: string; en: string } }> = [
-  { deger: "1G", etiket: "1G", ad: { tr: "Bugün", en: "Today" } },
-  { deger: "1H", etiket: "1H", ad: { tr: "Son 1 hafta", en: "Last week" } },
-  { deger: "1A", etiket: "1A", ad: { tr: "Son 1 ay", en: "Last month" } },
-  { deger: "1Y", etiket: "1Y", ad: { tr: "Son 1 yıl", en: "Last year" } },
+const RANGES: Array<{ value: PerformanceRange; label: string; title: { tr: string; en: string } }> = [
+  { value: "1G", label: "1G", title: { tr: "Bugün", en: "Today" } },
+  { value: "1H", label: "1H", title: { tr: "Son 1 hafta", en: "Last week" } },
+  { value: "1A", label: "1A", title: { tr: "Son 1 ay", en: "Last month" } },
+  { value: "1Y", label: "1Y", title: { tr: "Son 1 yıl", en: "Last year" } },
 ];
 
 export function PeriodSelector({
-  deger,
-  onDegis,
-  yukleniyor,
+  value,
+  onChange,
+  loading,
   language,
 }: {
-  deger: PerformanceRange;
-  onDegis: (aralik: PerformanceRange) => void;
-  yukleniyor: boolean;
+  value: PerformanceRange;
+  onChange: (range: PerformanceRange) => void;
+  loading: boolean;
   language: "tr" | "en";
 }) {
   return (
@@ -33,25 +33,25 @@ export function PeriodSelector({
       aria-label={language === "tr" ? "Dönem seçimi" : "Period selection"}
       className="inline-flex gap-1 rounded-xl border app-border bg-[var(--color-surface-muted)] p-1"
     >
-      {ARALIKLAR.map((aralik) => {
-        const secili = deger === aralik.deger;
+      {RANGES.map((range) => {
+        const isActive = value === range.value;
         return (
           <button
-            key={aralik.deger}
+            key={range.value}
             type="button"
-            onClick={() => onDegis(aralik.deger)}
+            onClick={() => onChange(range.value)}
             // Yuklenirken yalnizca SECILI OLMAYAN dugmeler kilitlenir:
             // secili olani da kilitlemek butun seridi soluklastirirdi.
-            disabled={yukleniyor && !secili}
-            aria-pressed={secili}
-            title={aralik.ad[language]}
+            disabled={loading && !isActive}
+            aria-pressed={isActive}
+            title={range.title[language]}
             className={`rounded-lg px-3.5 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
-              secili
+              isActive
                 ? "bg-[var(--color-panel-dark)] text-white shadow-sm"
                 : "app-muted hover:opacity-80"
             }`}
           >
-            {aralik.etiket}
+            {range.label}
           </button>
         );
       })}

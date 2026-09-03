@@ -1,65 +1,64 @@
 "use client";
 
-import type { LeadDurum } from "./leadFields";
-import { DURUM_ETIKETLERI, PANEL_YUKSEKLIGI } from "./leadFields";
+import type { LeadStatus } from "./leadFields";
+import { STATUS_LABELS, PANEL_HEIGHT } from "./leadFields";
 
-export type BakiyeAraligi = "120-500" | "500-1000" | "diger";
+export type BalanceRange = "120-500" | "500-1000" | "other";
 
-export type LeadFiltre = {
-  arama: string;
-  durumlar: LeadDurum[];
-  bakiye: BakiyeAraligi[];
+export type LeadFilter = {
+  search: string;
+  statuses: LeadStatus[];
+  balance: BalanceRange[];
 };
 
-export const BOS_FILTRE: LeadFiltre = { arama: "", durumlar: [], bakiye: [] };
+export const EMPTY_FILTER: LeadFilter = { search: "", statuses: [], balance: [] };
 
-const BAKIYE_ETIKETLERI: Record<BakiyeAraligi, string> = {
+const BALANCE_LABELS: Record<BalanceRange, string> = {
   "120-500": "120K - 500K ₺",
   "500-1000": "500K - 1M ₺",
-  diger: "Aralık dışı",
+  other: "Aralık dışı",
 };
 
-
 /** Bir listedeki degeri ekler ya da cikarir (cok secimli filtre davranisi). */
-function degistir<T>(liste: T[], deger: T): T[] {
-  return liste.includes(deger) ? liste.filter((d) => d !== deger) : [...liste, deger];
+function toggle<T>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
 
-function FiltreGrubu<T extends string>({
-  baslik,
-  secenekler,
-  etiketler,
-  secili,
-  sayaclar,
-  onDegis,
+function FilterGroup<T extends string>({
+  title,
+  options,
+  labels,
+  selected,
+  counts,
+  onChange,
 }: {
-  baslik: string;
-  secenekler: readonly T[];
-  etiketler: Record<T, string>;
-  secili: T[];
-  sayaclar?: Record<string, number>;
-  onDegis: (deger: T) => void;
+  title: string;
+  options: readonly T[];
+  labels: Record<T, string>;
+  selected: T[];
+  counts?: Record<string, number>;
+  onChange: (value: T) => void;
 }) {
   return (
     <div>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide app-muted">{baslik}</h3>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide app-muted">{title}</h3>
       <div className="space-y-1">
-        {secenekler.map((secenek) => {
-          const aktif = secili.includes(secenek);
+        {options.map((option) => {
+          const active = selected.includes(option);
           return (
             <button
-              key={secenek}
+              key={option}
               type="button"
-              onClick={() => onDegis(secenek)}
-              aria-pressed={aktif}
+              onClick={() => onChange(option)}
+              aria-pressed={active}
               className={`flex w-full items-center justify-between rounded-md border px-3 py-1.5 text-left text-sm transition ${
-                aktif ? "app-primary border-transparent" : "app-card app-border app-subtle-hover"
+                active ? "app-primary border-transparent" : "app-card app-border app-subtle-hover"
               }`}
             >
-              <span>{etiketler[secenek]}</span>
-              {sayaclar ? (
-                <span className={`text-xs ${aktif ? "" : "app-muted"}`}>
-                  {sayaclar[secenek] ?? 0}
+              <span>{labels[option]}</span>
+              {counts ? (
+                <span className={`text-xs ${active ? "" : "app-muted"}`}>
+                  {counts[option] ?? 0}
                 </span>
               ) : null}
             </button>
@@ -71,29 +70,27 @@ function FiltreGrubu<T extends string>({
 }
 
 export function LeadFilters({
-  filtre,
-  onDegis,
-  durumSayaclari,
+  filter,
+  onChange,
+  statusCounts,
 }: {
-  filtre: LeadFiltre;
-  onDegis: (yeni: LeadFiltre) => void;
-  durumSayaclari: Record<string, number>;
+  filter: LeadFilter;
+  onChange: (next: LeadFilter) => void;
+  statusCounts: Record<string, number>;
 }) {
-  const aktifVar =
-    filtre.arama.trim() !== "" ||
-    filtre.durumlar.length > 0 ||
-    filtre.bakiye.length > 0
+  const hasActiveFilter =
+    filter.search.trim() !== "" || filter.statuses.length > 0 || filter.balance.length > 0;
 
   return (
     <aside
-      className={`${PANEL_YUKSEKLIGI} space-y-5 overflow-auto rounded-xl border app-card p-4 shadow-sm`}
+      className={`${PANEL_HEIGHT} space-y-5 overflow-auto rounded-xl border app-card p-4 shadow-sm`}
     >
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold app-heading">Filtreler</h2>
-        {aktifVar && (
+        {hasActiveFilter && (
           <button
             type="button"
-            onClick={() => onDegis(BOS_FILTRE)}
+            onClick={() => onChange(EMPTY_FILTER)}
             className="text-xs font-medium app-primary-text hover:underline"
           >
             Temizle
@@ -105,40 +102,40 @@ export function LeadFilters({
         <span className="sr-only">Lead ara</span>
         <input
           type="search"
-          value={filtre.arama}
-          onChange={(e) => onDegis({ ...filtre, arama: e.target.value })}
+          value={filter.search}
+          onChange={(event) => onChange({ ...filter, search: event.target.value })}
           placeholder="İsim veya e-posta ara"
           className="w-full rounded-md border px-3 py-2 text-sm outline-none app-input"
         />
       </label>
 
-      <FiltreGrubu
-        baslik="Durum"
+      <FilterGroup
+        title="Durum"
         // Sira aksiyon onceligine gore: once hala aranmasi gerekenler,
         // sonra kapanmis dosyalar, en sonda motorun kendi durumlari.
-        secenekler={
+        options={
           [
             "bsd",
-            "ulasilamadi",
-            "kabul",
-            "istemiyor",
-            "mail_gonderildi",
-            "mail_bekliyor",
-            "dislandi",
+            "unreachable",
+            "accepted",
+            "declined",
+            "email_sent",
+            "email_pending",
+            "excluded",
           ] as const
         }
-        etiketler={DURUM_ETIKETLERI}
-        secili={filtre.durumlar}
-        sayaclar={durumSayaclari}
-        onDegis={(d) => onDegis({ ...filtre, durumlar: degistir(filtre.durumlar, d) })}
+        labels={STATUS_LABELS}
+        selected={filter.statuses}
+        counts={statusCounts}
+        onChange={(value) => onChange({ ...filter, statuses: toggle(filter.statuses, value) })}
       />
 
-      <FiltreGrubu
-        baslik="Atıl bakiye"
-        secenekler={["120-500", "500-1000", "diger"] as const}
-        etiketler={BAKIYE_ETIKETLERI}
-        secili={filtre.bakiye}
-        onDegis={(d) => onDegis({ ...filtre, bakiye: degistir(filtre.bakiye, d) })}
+      <FilterGroup
+        title="Atıl bakiye"
+        options={["120-500", "500-1000", "other"] as const}
+        labels={BALANCE_LABELS}
+        selected={filter.balance}
+        onChange={(value) => onChange({ ...filter, balance: toggle(filter.balance, value) })}
       />
     </aside>
   );

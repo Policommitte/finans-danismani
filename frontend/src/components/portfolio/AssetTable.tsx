@@ -22,7 +22,7 @@ function getAssetClassLabel(assetClass: string, language: "tr" | "en"): string {
   return language === "tr" ? ASSET_CLASS_LABELS[assetClass.toUpperCase()] ?? assetClass : assetClass.replaceAll("_", " ");
 }
 
-const DONEM_ETIKETI: Record<PerformanceRange, { tr: string; en: string }> = {
+const PERIOD_LABELS: Record<PerformanceRange, { tr: string; en: string }> = {
   "1G": { tr: "Günlük", en: "Daily" },
   "1H": { tr: "Haftalık", en: "Weekly" },
   "1A": { tr: "Aylık", en: "Monthly" },
@@ -48,7 +48,7 @@ export function AssetTable({
   periodLoading: boolean;
 }) {
   const { language } = useLanguage();
-  const donemPnl = new Map(symbolPnl.map((s) => [s.symbol, s]));
+  const periodPnlBySymbol = new Map(symbolPnl.map((s) => [s.symbol, s]));
   const money = new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-US", {
     style: "currency",
     currency: displayCurrency,
@@ -69,7 +69,7 @@ export function AssetTable({
               <th className="py-2 pr-4">{language === "tr" ? "Değer" : "Value"}</th>
               <th className="py-2 pr-4">
                 {language === "tr" ? "Kar/Zarar" : "P/L"}
-                <span className="ml-1 normal-case app-muted">({DONEM_ETIKETI[range][language]})</span>
+                <span className="ml-1 normal-case app-muted">({PERIOD_LABELS[range][language]})</span>
               </th>
             </tr>
           </thead>
@@ -88,7 +88,7 @@ export function AssetTable({
             {items.map((item) => {
               // Donem verisi gelmediyse (bellek ici yedek, ya da varlik
               // donem boyunca hic tutulmamis) uydurma rakam yerine "—".
-              const pnl = donemPnl.get(item.symbol);
+              const pnl = periodPnlBySymbol.get(item.symbol);
               return (
                 <tr key={item.symbol}>
                   <td className="py-3 pr-4 font-medium app-heading">{item.symbol}</td>

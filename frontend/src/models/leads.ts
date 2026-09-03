@@ -12,7 +12,7 @@ export type LeadQueueItem = {
   monthly_income: number;
   likit_para: number;
   phone_number: string | null;
-  /** Yas EKRANDA bundan turetilir (bkz. `yasHesapla`), ayrica saklanmaz. */
+  /** Yas EKRANDA bundan turetilir (bkz. `calculateAge`), ayrica saklanmaz. */
   birth_date: string | null;
   tckn_last4: string | null;
   /**

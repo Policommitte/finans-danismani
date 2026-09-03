@@ -108,7 +108,7 @@ export function AssetSummaryModal({
   //: `onClose` gibi davranir.
   onNavigate?: () => void;
 }) {
-  const gitVeKapat = onNavigate ?? onClose;
+  const closeAndNavigate = onNavigate ?? onClose;
   const [asset, setAsset] = useState<Asset | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
@@ -371,7 +371,7 @@ export function AssetSummaryModal({
           <div className="mt-5 flex gap-3">
             <Link
               href="/market"
-              onClick={gitVeKapat}
+              onClick={closeAndNavigate}
               className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
             >
               İşlem Ekranına Git

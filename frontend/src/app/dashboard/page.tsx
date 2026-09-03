@@ -47,22 +47,22 @@ export default function DashboardPage() {
   //: emirler islendikten sonra alindigi icin yeniden hesaplanan seriden
   //: dogru. Ama snapshot 30 gun saklanip 720 saatle sinirli oldugundan
   //: 1H/1A/1Y'yi besleyemez - orada yeniden kurulan seriye duseriz.
-  const gunIci = range === "1G";
-  const snapshots = usePortfolioSnapshots(gunIci);
+  const isIntraday = range === "1G";
+  const snapshots = usePortfolioSnapshots(isIntraday);
 
   //: Grafik tek bir bicim bekler; uzun aralik serisi snapshot bicimine
   //: cevrilir. Nakit ayrimi yalnizca snapshot'ta var, digerinde toplam
   //: dogrudan varlik degeridir.
-  const grafikNoktalari = gunIci
+  const chartPoints = isIntraday
     ? (snapshots.data?.points ?? [])
-    : (performance.data?.points ?? []).map((nokta) => ({
-        ts: nokta.ts,
-        holdings_value_try: nokta.total_value_try,
+    : (performance.data?.points ?? []).map((point) => ({
+        ts: point.ts,
+        holdings_value_try: point.total_value_try,
         cash_value_try: 0,
-        total_value_try: nokta.total_value_try,
+        total_value_try: point.total_value_try,
       }));
-  const grafikYukleniyor = gunIci ? snapshots.loading : performance.loading;
-  const grafikHatasi = gunIci ? snapshots.error : performance.error;
+  const chartLoading = isIntraday ? snapshots.loading : performance.loading;
+  const chartError = isIntraday ? snapshots.error : performance.error;
   const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
 
   useEffect(() => {
@@ -169,9 +169,9 @@ export default function DashboardPage() {
           durdugu icin "bu ekran su donemi gosteriyor" mesajini verir. */}
       <div className="flex justify-end">
         <PeriodSelector
-          deger={range}
-          onDegis={setRange}
-          yukleniyor={performance.loading}
+          value={range}
+          onChange={setRange}
+          loading={performance.loading}
           language={language}
         />
       </div>
@@ -193,9 +193,9 @@ export default function DashboardPage() {
           range={range}
           periodChangeTry={performance.data?.change_try ?? null}
           periodChangePct={performance.data?.change_pct ?? null}
-          performancePoints={grafikNoktalari}
-          performanceLoading={grafikYukleniyor}
-          performanceError={grafikHatasi}
+          performancePoints={chartPoints}
+          performanceLoading={chartLoading}
+          performanceError={chartError}
           mode={portfolioViewMode}
           onModeChange={setPortfolioViewMode}
           displayCurrency={displayCurrency}

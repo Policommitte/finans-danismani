@@ -15,19 +15,23 @@ import { getMarketAssets } from "../../services/marketService";
 import { mainNavItems, utilityNavItems, type NavItem } from "./navItems";
 import { requestPageTransition } from "./transitionEvents";
 
+//: Varlik karti (AssetSummaryModal) KAPATILDIGINDA AppShell bu olayi
+//: yayinlar. Karttan cikinca arama paleti geri gelsin diye; kart icinden
+//: baska bir sayfaya gidildiginde AppShell bu olayi YAYINLAMAZ.
+export const ASSET_MODAL_CLOSED_EVENT = "polifin:asset-modal-closed";
+
 //: Varlik listesi oturum boyunca degismez; paleti her acista yeniden
 //: cekmemek icin modul duzeyinde onbellege alinir - MarketTicker'daki
 //: `cachedTickerItems` ile ayni desen.
-export const ASSET_MODAL_CLOSED_EVENT = "polifin:asset-modal-closed";
 let cachedAssets: Asset[] = [];
 
 //: Sorgu bosken gosterilen "hizli baslangic" listesi. Burada olup da varlik
 //: evreninde bulunmayan sembol sessizce atlanir, liste degisirse kirilmaz.
-const HIZLI_SEMBOLLER = ["THYAO", "GARAN", "BTC", "XAUTRY", "USDTRY"];
-const MAX_VARLIK = 8;
-const MAX_SAYFA = 4;
+const QUICK_SYMBOLS = ["THYAO", "GARAN", "BTC", "XAUTRY", "USDTRY"];
+const MAX_ASSET_RESULTS = 8;
+const MAX_PAGE_RESULTS = 4;
 
-const fiyatFormat = new Intl.NumberFormat("tr-TR", {
+const priceFormat = new Intl.NumberFormat("tr-TR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
@@ -36,7 +40,7 @@ const fiyatFormat = new Intl.NumberFormat("tr-TR", {
 //: "Şişecam" ~ "sisecam". Once I/İ/ı tek bir "i"ye indirgenir (noktali/
 //: noktasiz ayrimi aramada is gormez), sonra kalan aksanlar NFD ile
 //: ayristirilip atilir.
-function aramaAnahtari(value: string): string {
+function searchKey(value: string): string {
   return value
     .replace(/[İIı]/g, "i")
     .toLowerCase()
@@ -44,9 +48,9 @@ function aramaAnahtari(value: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-type Satir = { tur: "varlik"; asset: Asset } | { tur: "sayfa"; item: NavItem };
+type SearchRow = { kind: "asset"; asset: Asset } | { kind: "page"; item: NavItem };
 
-function AramaIkonu({ className = "" }: { className?: string }) {
+function SearchIcon({ className = "" }: { className?: string }) {
   return (
     <svg
       width="18"
@@ -86,7 +90,7 @@ export function GlobalSearch({
 
   //: Kart bu paletten mi acildi? Yalnizca o zaman geri donulur - ust
   //: seritteki sembole tiklanarak acilan kart kapaninca palet acilmaz.
-  const yenidenAcRef = useRef(false);
+  const reopenAfterModalRef = useRef(false);
 
   // Varlik listesi YALNIZCA palet ilk kez acildiginda cekilir; kapaliyken
   // ust cubuk fazladan tek bir istek bile atmaz.
@@ -138,68 +142,68 @@ export function GlobalSearch({
   }, []);
 
   useEffect(() => {
-    function handleKartKapandi() {
-      if (!yenidenAcRef.current) {
+    function handleModalClosed() {
+      if (!reopenAfterModalRef.current) {
         return;
       }
-      yenidenAcRef.current = false;
+      reopenAfterModalRef.current = false;
       setOpen(true);
     }
-    window.addEventListener(ASSET_MODAL_CLOSED_EVENT, handleKartKapandi);
-    return () => window.removeEventListener(ASSET_MODAL_CLOSED_EVENT, handleKartKapandi);
+    window.addEventListener(ASSET_MODAL_CLOSED_EVENT, handleModalClosed);
+    return () => window.removeEventListener(ASSET_MODAL_CLOSED_EVENT, handleModalClosed);
   }, []);
 
-  const anahtar = aramaAnahtari(query.trim());
+  const key = searchKey(query.trim());
 
-  const varliklar = useMemo(() => {
-    if (!anahtar) {
-      const oncelikli = HIZLI_SEMBOLLER.map((sembol) =>
-        assets.find((asset) => asset.symbol === sembol),
+  const assetResults = useMemo(() => {
+    if (!key) {
+      const preferred = QUICK_SYMBOLS.map((symbolKey) =>
+        assets.find((asset) => asset.symbol === symbolKey),
       ).filter((asset): asset is Asset => Boolean(asset));
-      return (oncelikli.length > 0 ? oncelikli : assets).slice(0, 5);
+      return (preferred.length > 0 ? preferred : assets).slice(0, 5);
     }
     // Sembolle BASLAYAN sonuc, adin ortasinda gecen sonuctan once gelir:
     // "th" yazinca THYAO en ustte olsun diye.
     return assets
       .map((asset) => {
-        const sembol = aramaAnahtari(asset.symbol);
-        const ad = aramaAnahtari(asset.name);
-        if (sembol.startsWith(anahtar)) return { asset, puan: 0 };
-        if (ad.startsWith(anahtar)) return { asset, puan: 1 };
-        if (sembol.includes(anahtar)) return { asset, puan: 2 };
-        if (ad.includes(anahtar)) return { asset, puan: 3 };
+        const symbolKey = searchKey(asset.symbol);
+        const name = searchKey(asset.name);
+        if (symbolKey.startsWith(key)) return { asset, rank: 0 };
+        if (name.startsWith(key)) return { asset, rank: 1 };
+        if (symbolKey.includes(key)) return { asset, rank: 2 };
+        if (name.includes(key)) return { asset, rank: 3 };
         return null;
       })
-      .filter((e): e is { asset: Asset; puan: number } => e !== null)
-      .sort((a, b) => a.puan - b.puan)
-      .slice(0, MAX_VARLIK)
+      .filter((e): e is { asset: Asset; rank: number } => e !== null)
+      .sort((a, b) => a.rank - b.rank)
+      .slice(0, MAX_ASSET_RESULTS)
       .map((e) => e.asset);
-  }, [anahtar, assets]);
+  }, [key, assets]);
 
-  const sayfalar = useMemo(() => {
+  const pageResults = useMemo(() => {
     // "Ana Sayfa" DISARIDA: sol kenar cubugunda ve logoda zaten tek tikla
     // ulasilan bir yer, palette yer kaplamasinin bir degeri yok.
-    const hepsi = [...mainNavItems, ...utilityNavItems].filter((item) => item.key !== "home");
-    if (!anahtar) {
-      return hepsi.slice(0, MAX_SAYFA);
+    const allPages = [...mainNavItems, ...utilityNavItems].filter((item) => item.key !== "home");
+    if (!key) {
+      return allPages.slice(0, MAX_PAGE_RESULTS);
     }
-    return hepsi
+    return allPages
       .filter(
         (item) =>
-          aramaAnahtari(item.label.tr).includes(anahtar) ||
-          aramaAnahtari(item.label.en).includes(anahtar),
+          searchKey(item.label.tr).includes(key) ||
+          searchKey(item.label.en).includes(key),
       )
-      .slice(0, MAX_SAYFA);
-  }, [anahtar]);
+      .slice(0, MAX_PAGE_RESULTS);
+  }, [key]);
 
   // Klavye gezinmesi tek bir duz liste uzerinde yurur; bolum basliklari
   // yalnizca gorsel gruplama.
-  const satirlar = useMemo<Satir[]>(
+  const rows = useMemo<SearchRow[]>(
     () => [
-      ...varliklar.map((asset) => ({ tur: "varlik" as const, asset })),
-      ...sayfalar.map((item) => ({ tur: "sayfa" as const, item })),
+      ...assetResults.map((asset) => ({ kind: "asset" as const, asset })),
+      ...pageResults.map((item) => ({ kind: "page" as const, item })),
     ],
-    [sayfalar, varliklar],
+    [pageResults, assetResults],
   );
 
   useEffect(() => {
@@ -210,46 +214,46 @@ export function GlobalSearch({
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
-  const kapat = useCallback(() => {
+  const close = useCallback(() => {
     setOpen(false);
     setQuery("");
   }, []);
 
-  const sec = useCallback(
-    (satir: Satir) => {
-      if (satir.tur === "varlik") {
+  const select = useCallback(
+    (row: SearchRow) => {
+      if (row.kind === "asset") {
         // Sorgu BILEREK temizlenmez: kart kapatilinca palet ayni arama
         // sonuclariyla geri gelir (bkz. ASSET_MODAL_CLOSED_EVENT).
-        yenidenAcRef.current = true;
+        reopenAfterModalRef.current = true;
         setOpen(false);
-        onSelectSymbol(satir.asset.symbol);
+        onSelectSymbol(row.asset.symbol);
         return;
       }
-      kapat();
-      requestPageTransition(satir.item.href);
+      close();
+      requestPageTransition(row.item.href);
     },
-    [kapat, onSelectSymbol],
+    [close, onSelectSymbol],
   );
 
   function handleInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
-    if (satirlar.length === 0) {
+    if (rows.length === 0) {
       return;
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((current) => (current + 1) % satirlar.length);
+      setActiveIndex((current) => (current + 1) % rows.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((current) => (current - 1 + satirlar.length) % satirlar.length);
+      setActiveIndex((current) => (current - 1 + rows.length) % rows.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      sec(satirlar[activeIndex] ?? satirlar[0]);
+      select(rows[activeIndex] ?? rows[0]);
     }
   }
 
-  const satirSinifi = (seciliMi: boolean) =>
+  const rowClass = (isActive: boolean) =>
     `flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${
-      seciliMi ? "bg-[var(--color-surface-muted)]" : ""
+      isActive ? "bg-[var(--color-surface-muted)]" : ""
     }`;
 
   return (
@@ -260,14 +264,14 @@ export function GlobalSearch({
         aria-label={tr ? "Ara" : "Search"}
         className="flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-md border app-border app-surface app-muted transition hover:opacity-80 md:w-56 md:justify-start md:px-3 lg:w-72 xl:w-80"
       >
-        <AramaIkonu />
+        <SearchIcon />
         <span className="hidden text-sm md:inline">{tr ? "Ara" : "Search"}</span>
       </button>
 
       {open ? (
         <div
           role="presentation"
-          onClick={kapat}
+          onClick={close}
           className="fixed inset-0 z-[90] flex items-start justify-center bg-black/50 px-4 pt-24 backdrop-blur-sm"
         >
           <div
@@ -278,7 +282,7 @@ export function GlobalSearch({
             className="w-full max-w-xl overflow-hidden rounded-2xl border app-card shadow-2xl"
           >
             <div className="flex items-center gap-3 border-b app-border px-4 py-3.5">
-              <AramaIkonu className="app-muted" />
+              <SearchIcon className="app-muted" />
               <input
                 ref={inputRef}
                 value={query}
@@ -289,8 +293,8 @@ export function GlobalSearch({
               />
               <button
                 type="button"
-                onClick={kapat}
-                aria-label={tr ? "Aramayı kapat" : "Close search"}
+                onClick={close}
+                aria-label={tr ? "Aramayı close" : "Close search"}
                 className="grid h-7 w-7 shrink-0 place-items-center rounded-md border app-border app-surface app-muted transition hover:opacity-80"
               >
                 <svg
@@ -316,7 +320,7 @@ export function GlobalSearch({
                     : "Sign in to search assets and get AI-powered asset analysis."}
                   <Link
                     href="/login"
-                    onClick={kapat}
+                    onClick={close}
                     className="mt-3 block font-semibold app-primary-text hover:opacity-80"
                   >
                     {tr ? "Giriş Yap" : "Sign in"}
@@ -328,10 +332,10 @@ export function GlobalSearch({
                 </div>
               ) : (
                 <>
-                  {varliklar.length > 0 ? (
+                  {assetResults.length > 0 ? (
                     <>
                       <div className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider app-muted">
-                        {anahtar
+                        {key
                           ? tr
                             ? "Varlıklar"
                             : "Assets"
@@ -339,17 +343,17 @@ export function GlobalSearch({
                             ? "Hızlı başlangıç"
                             : "Quick start"}
                       </div>
-                      {varliklar.map((asset, index) => {
-                        const seciliMi = activeIndex === index;
-                        const artida = (asset.daily_change_pct ?? 0) >= 0;
+                      {assetResults.map((asset, index) => {
+                        const isActive = activeIndex === index;
+                        const isUp = (asset.daily_change_pct ?? 0) >= 0;
                         return (
                           <button
                             key={asset.symbol}
                             type="button"
-                            data-active={seciliMi}
+                            data-active={isActive}
                             onMouseMove={() => setActiveIndex(index)}
-                            onClick={() => sec({ tur: "varlik", asset })}
-                            className={satirSinifi(seciliMi)}
+                            onClick={() => select({ kind: "asset", asset })}
+                            className={rowClass(isActive)}
                           >
                             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md app-primary-soft text-[11px] font-bold">
                               {asset.symbol.slice(0, 2).toUpperCase()}
@@ -362,14 +366,14 @@ export function GlobalSearch({
                             </span>
                             <span className="shrink-0 text-right">
                               <span className="block text-sm font-semibold app-heading">
-                                {fiyatFormat.format(asset.current_price)} {asset.currency}
+                                {priceFormat.format(asset.current_price)} {asset.currency}
                               </span>
                               <span
-                                className={`block text-xs font-semibold ${artida ? "app-success" : "app-danger"}`}
+                                className={`block text-xs font-semibold ${isUp ? "app-success" : "app-danger"}`}
                               >
                                 {asset.daily_change_pct == null
                                   ? "—"
-                                  : `${artida ? "+" : ""}${asset.daily_change_pct.toFixed(2)}%`}
+                                  : `${isUp ? "+" : ""}${asset.daily_change_pct.toFixed(2)}%`}
                               </span>
                             </span>
                           </button>
@@ -378,22 +382,22 @@ export function GlobalSearch({
                     </>
                   ) : null}
 
-                  {sayfalar.length > 0 ? (
+                  {pageResults.length > 0 ? (
                     <>
                       <div className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider app-muted">
                         {tr ? "Sayfalar" : "Navigation"}
                       </div>
-                      {sayfalar.map((item, index) => {
-                        const satirIndex = varliklar.length + index;
-                        const seciliMi = activeIndex === satirIndex;
+                      {pageResults.map((item, index) => {
+                        const rowIndex = assetResults.length + index;
+                        const isActive = activeIndex === rowIndex;
                         return (
                           <button
                             key={item.key}
                             type="button"
-                            data-active={seciliMi}
-                            onMouseMove={() => setActiveIndex(satirIndex)}
-                            onClick={() => sec({ tur: "sayfa", item })}
-                            className={satirSinifi(seciliMi)}
+                            data-active={isActive}
+                            onMouseMove={() => setActiveIndex(rowIndex)}
+                            onClick={() => select({ kind: "page", item })}
+                            className={rowClass(isActive)}
                           >
                             <span
                               className="grid h-8 w-8 shrink-0 place-items-center rounded-md border app-border app-muted"
@@ -410,7 +414,7 @@ export function GlobalSearch({
                     </>
                   ) : null}
 
-                  {satirlar.length === 0 ? (
+                  {rows.length === 0 ? (
                     <div className="px-4 py-6 text-center text-sm app-muted">
                       {tr ? `"${query}" için sonuç yok.` : `No results for "${query}".`}
                     </div>

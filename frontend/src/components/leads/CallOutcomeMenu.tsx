@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CallOutcome, CallOutcomeInput } from "../../models/leads";
-import { DURUM_ETIKETLERI, DURUM_SINIFLARI, type LeadDurum } from "./leadFields";
+import { STATUS_LABELS, STATUS_CLASSES, type LeadStatus } from "./leadFields";
 
 /**
  * DURUM sutunundaki rozet - ayni zamanda gorusme sonucunu isaretleme
@@ -13,69 +13,69 @@ import { DURUM_ETIKETLERI, DURUM_SINIFLARI, type LeadDurum } from "./leadFields"
  * (projede popover bileseni / radix-floating-ui bagimliligi yok).
  */
 
-const SECENEKLER: Array<{ deger: CallOutcome; etiket: string }> = [
-  { deger: "KABUL", etiket: DURUM_ETIKETLERI.kabul },
-  { deger: "ISTEMIYOR", etiket: DURUM_ETIKETLERI.istemiyor },
-  { deger: "ULASILAMADI", etiket: DURUM_ETIKETLERI.ulasilamadi },
+const OPTIONS: Array<{ value: CallOutcome; label: string }> = [
+  { value: "KABUL", label: STATUS_LABELS.accepted },
+  { value: "ISTEMIYOR", label: STATUS_LABELS.declined },
+  { value: "ULASILAMADI", label: STATUS_LABELS.unreachable },
 ];
 
 //: Renk BILEREK burada verilmiyor: `app-heading` ile `app-muted` ayni
 //: ozelligi (color) yazar, ikisini tek sinif dizesinde birlestirmek
 //: kazananin index.css'teki TANIM SIRASINA baglanmasina yol acardi.
-const SATIR_SINIFI =
+const ITEM_CLASS =
   "block w-full px-3 py-1.5 text-left text-xs font-medium transition app-subtle-hover";
 
 export function CallOutcomeMenu({
-  durum,
-  mevcutSonuc,
-  kaydediliyor,
-  onSec,
+  status,
+  currentOutcome,
+  saving,
+  onSelect,
 }: {
-  durum: LeadDurum;
-  mevcutSonuc: CallOutcome | null;
-  kaydediliyor: boolean;
-  onSec: (outcome: CallOutcomeInput) => void;
+  status: LeadStatus;
+  currentOutcome: CallOutcome | null;
+  saving: boolean;
+  onSelect: (outcome: CallOutcomeInput) => void;
 }) {
-  const [acik, setAcik] = useState(false);
-  const kapsayici = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    if (!acik) return;
+    if (!open) return;
 
-    function disariTiklandi(event: PointerEvent) {
-      if (!kapsayici.current?.contains(event.target as Node)) {
-        setAcik(false);
+    function handleOutsideClick(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
       }
     }
-    function escBasildi(event: KeyboardEvent) {
-      if (event.key === "Escape") setAcik(false);
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
     }
 
-    document.addEventListener("pointerdown", disariTiklandi);
-    document.addEventListener("keydown", escBasildi);
+    document.addEventListener("pointerdown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape);
     return () => {
-      document.removeEventListener("pointerdown", disariTiklandi);
-      document.removeEventListener("keydown", escBasildi);
+      document.removeEventListener("pointerdown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape);
     };
-  }, [acik]);
+  }, [open]);
 
-  function sec(outcome: CallOutcomeInput) {
-    setAcik(false);
-    onSec(outcome);
+  function select(outcome: CallOutcomeInput) {
+    setOpen(false);
+    onSelect(outcome);
   }
 
   return (
-    <span ref={kapsayici} className="relative inline-flex">
+    <span ref={containerRef} className="relative inline-flex">
       <button
         type="button"
-        onClick={() => setAcik((v) => !v)}
-        disabled={kaydediliyor}
+        onClick={() => setOpen((v) => !v)}
+        disabled={saving}
         aria-haspopup="menu"
-        aria-expanded={acik}
-        aria-label={`Görüşme sonucunu güncelle (şu an: ${DURUM_ETIKETLERI[durum]})`}
-        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50 ${DURUM_SINIFLARI[durum]}`}
+        aria-expanded={open}
+        aria-label={`Görüşme sonucunu güncelle (şu an: ${STATUS_LABELS[status]})`}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition hover:opacity-80 disabled:opacity-50 ${STATUS_CLASSES[status]}`}
       >
-        {kaydediliyor ? "Kaydediliyor…" : DURUM_ETIKETLERI[durum]}
+        {saving ? "Kaydediliyor…" : STATUS_LABELS[status]}
         {/* Metin oku (▾) yazi tipine gore inceliyor ve rozetin kucuk
             puntosunda zor secilir; ciziksel bir chevron her boyutta net. */}
         <svg
@@ -94,35 +94,35 @@ export function CallOutcomeMenu({
         </svg>
       </button>
 
-      {acik && (
+      {open && (
         <span
           role="menu"
           className="absolute left-0 top-full z-50 mt-1.5 w-40 overflow-hidden rounded-md border app-border app-card py-1 shadow-xl"
         >
-          {SECENEKLER.map((secenek) => (
+          {OPTIONS.map((option) => (
             <button
-              key={secenek.deger}
+              key={option.value}
               type="button"
               role="menuitem"
-              onClick={() => sec(secenek.deger)}
-              className={`${SATIR_SINIFI} ${
-                mevcutSonuc === secenek.deger ? "app-primary-soft" : "app-heading"
+              onClick={() => select(option.value)}
+              className={`${ITEM_CLASS} ${
+                currentOutcome === option.value ? "app-primary-soft" : "app-heading"
               }`}
             >
-              {secenek.etiket}
+              {option.label}
             </button>
           ))}
 
           {/* Yanlis isaretlemeyi geri almanin baska yolu yok; sonuc
               yalnizca isaretlenmisken gosterilir. */}
-          {mevcutSonuc !== null && (
+          {currentOutcome !== null && (
             <>
               <span className="my-1 block border-t app-border-soft" />
               <button
                 type="button"
                 role="menuitem"
-                onClick={() => sec("ACIK")}
-                className={`${SATIR_SINIFI} app-muted`}
+                onClick={() => select("ACIK")}
+                className={`${ITEM_CLASS} app-muted`}
               >
                 Sonucu temizle
               </button>

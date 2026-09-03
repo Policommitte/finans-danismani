@@ -6,37 +6,38 @@ import type { LeadQueueItem } from "../../models/leads";
  * gondermez; hepsi mevcut alanlardan hesaplanir.
  */
 
-export type LeadDurum =
+export type LeadStatus =
   // Danismanin ELLE isaretledigi gorusme sonuclari
-  | "kabul"
-  | "istemiyor"
-  | "ulasilamadi"
-  // Tarama motorunun urettigi durumlar
+  | "accepted"
+  | "declined"
+  | "unreachable"
+  // Tarama motorunun urettigi durumlar. `bsd` backend'deki `decision`
+  // degeriyle ayni kalir - orada da BSD (bireysel satis danismani) kuyrugu.
   | "bsd"
-  | "mail_gonderildi"
-  | "mail_bekliyor"
-  | "dislandi";
+  | "email_sent"
+  | "email_pending"
+  | "excluded";
 
-export const DURUM_ETIKETLERI: Record<LeadDurum, string> = {
-  kabul: "Kabul etti",
-  istemiyor: "İstemiyor",
-  ulasilamadi: "Ulaşılamadı",
+export const STATUS_LABELS: Record<LeadStatus, string> = {
+  accepted: "Kabul etti",
+  declined: "İstemiyor",
+  unreachable: "Ulaşılamadı",
   bsd: "Aranacak",
-  mail_gonderildi: "Mail gönderildi",
-  mail_bekliyor: "Mail bekliyor",
-  dislandi: "Dışlandı",
+  email_sent: "Mail gönderildi",
+  email_pending: "Mail bekliyor",
+  excluded: "Dışlandı",
 };
 
 /** Rozet rengi: aksiyon bekleyenler dikkat cekici, kapananlar sonuca gore. */
-export const DURUM_SINIFLARI: Record<LeadDurum, string> = {
-  kabul: "app-success-box border",
-  istemiyor: "app-danger-box border",
+export const STATUS_CLASSES: Record<LeadStatus, string> = {
+  accepted: "app-success-box border",
+  declined: "app-danger-box border",
   // Aranacak ile AYNI ton, cunku ikisi de "hala aranmali" demek.
-  ulasilamadi: "app-warning-box border",
+  unreachable: "app-warning-box border",
   bsd: "app-warning-box border",
-  mail_bekliyor: "app-warning-box border",
-  mail_gonderildi: "app-primary-soft",
-  dislandi: "app-card-muted app-muted",
+  email_pending: "app-warning-box border",
+  email_sent: "app-primary-soft",
+  excluded: "app-card-muted app-muted",
 };
 
 /**
@@ -47,11 +48,11 @@ export const DURUM_SINIFLARI: Record<LeadDurum, string> = {
  * onlari telefonla aramaz, dolayisiyla isaretleyecek bir gorusme sonucu
  * da olusmaz.
  */
-export const SONUC_ISARETLENEBILIR: ReadonlySet<LeadDurum> = new Set<LeadDurum>([
+export const OUTCOME_EDITABLE_STATUSES: ReadonlySet<LeadStatus> = new Set<LeadStatus>([
   "bsd",
-  "ulasilamadi",
-  "kabul",
-  "istemiyor",
+  "unreachable",
+  "accepted",
+  "declined",
 ]);
 
 /**
@@ -63,13 +64,13 @@ export const SONUC_ISARETLENEBILIR: ReadonlySet<LeadDurum> = new Set<LeadDurum>(
  *    satirlarda doldurulur, BSD ve dislanan satirlarda sema varsayilani
  *    olan `false` gelir (bkz. `services/leads.py::_kuyruk_getir`).
  */
-export function durumBelirle(item: LeadQueueItem): LeadDurum {
-  if (item.call_outcome === "KABUL") return "kabul";
-  if (item.call_outcome === "ISTEMIYOR") return "istemiyor";
-  if (item.call_outcome === "ULASILAMADI") return "ulasilamadi";
+export function resolveStatus(item: LeadQueueItem): LeadStatus {
+  if (item.call_outcome === "KABUL") return "accepted";
+  if (item.call_outcome === "ISTEMIYOR") return "declined";
+  if (item.call_outcome === "ULASILAMADI") return "unreachable";
   if (item.decision === "BSD") return "bsd";
-  if (item.decision === "EXCLUDED") return "dislandi";
-  return item.mail_gonderildi ? "mail_gonderildi" : "mail_bekliyor";
+  if (item.decision === "EXCLUDED") return "excluded";
+  return item.mail_gonderildi ? "email_sent" : "email_pending";
 }
 
 /**
@@ -77,7 +78,7 @@ export function durumBelirle(item: LeadQueueItem): LeadDurum {
  * degerleriyle birebir eslesmeli; orada yeni bir dislama nedeni eklenirse
  * buraya da eklenmeli, yoksa danismana ham Ingilizce enum gorunur.
  */
-export const DISLAMA_NEDENLERI: Record<string, string> = {
+export const EXCLUSION_REASON_LABELS: Record<string, string> = {
   consent_missing: "İletişim izni yok",
   email_missing: "E-posta adresi yok",
   income_below_threshold: "Beyan edilmiş geliri yok",
@@ -89,33 +90,33 @@ export const DISLAMA_NEDENLERI: Record<string, string> = {
   advisor_closed: "Danışman kapattı",
 };
 
-export function dislamaNedeni(item: LeadQueueItem): string | null {
+export function exclusionReasonLabel(item: LeadQueueItem): string | null {
   if (!item.exclusion_reason) return null;
-  return DISLAMA_NEDENLERI[item.exclusion_reason] ?? item.exclusion_reason;
+  return EXCLUSION_REASON_LABELS[item.exclusion_reason] ?? item.exclusion_reason;
 }
 
 /** Dogum tarihinden yas; tarih yoksa ya da gecersizse `null`. */
-export function yasHesapla(birthDate: string | null): number | null {
+export function calculateAge(birthDate: string | null): number | null {
   if (!birthDate) return null;
-  const dogum = new Date(birthDate);
-  if (Number.isNaN(dogum.getTime())) return null;
+  const birth = new Date(birthDate);
+  if (Number.isNaN(birth.getTime())) return null;
 
-  const bugun = new Date();
-  let yas = bugun.getFullYear() - dogum.getFullYear();
-  const ayFarki = bugun.getMonth() - dogum.getMonth();
-  if (ayFarki < 0 || (ayFarki === 0 && bugun.getDate() < dogum.getDate())) {
-    yas -= 1;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
   }
-  return yas >= 0 && yas < 130 ? yas : null;
+  return age >= 0 && age < 130 ? age : null;
 }
 
-export const paraFormat = new Intl.NumberFormat("tr-TR", {
+export const moneyFormat = new Intl.NumberFormat("tr-TR", {
   style: "currency",
   currency: "TRY",
   maximumFractionDigits: 0,
 });
 
-export const tarihFormat = new Intl.DateTimeFormat("tr-TR", {
+export const dateFormat = new Intl.DateTimeFormat("tr-TR", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
@@ -126,7 +127,7 @@ export const tarihFormat = new Intl.DateTimeFormat("tr-TR", {
  * kullanir; boylece cerceveler her zaman esit boyda durur ve tek yerden
  * ayarlanir. Liste bu yuksekligi asarsa scroll ile gezilir.
  */
-export const PANEL_YUKSEKLIGI = "lg:h-[39rem]";
+export const PANEL_HEIGHT = "lg:h-[39rem]";
 
 /**
  * Telefonu okunur gruplara ayirir: "+905539607671" -> "+90 553 960 7671".
@@ -134,18 +135,18 @@ export const PANEL_YUKSEKLIGI = "lg:h-[39rem]";
  * once rakamlar ayiklanir; taninmayan bir uzunluk gelirse deger OLDUGU GIBI
  * gosterilir - uydurma bir bicime zorlanmaz.
  */
-export function telefonFormat(ham: string | null): string {
-  if (!ham) return "—";
-  const rakam = ham.replace(/\D/g, "");
+export function formatPhone(raw: string | null): string {
+  if (!raw) return "—";
+  const digits = raw.replace(/\D/g, "");
 
-  if (rakam.length === 12 && rakam.startsWith("90")) {
-    return `+90 ${rakam.slice(2, 5)} ${rakam.slice(5, 8)} ${rakam.slice(8)}`;
+  if (digits.length === 12 && digits.startsWith("90")) {
+    return `+90 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
   }
-  if (rakam.length === 11 && rakam.startsWith("0")) {
-    return `0${rakam.slice(1, 4)} ${rakam.slice(4, 7)} ${rakam.slice(7)}`;
+  if (digits.length === 11 && digits.startsWith("0")) {
+    return `0${digits.slice(1, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
   }
-  if (rakam.length === 10) {
-    return `${rakam.slice(0, 3)} ${rakam.slice(3, 6)} ${rakam.slice(6)}`;
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
   }
-  return ham;
+  return raw;
 }
