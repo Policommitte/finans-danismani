@@ -114,6 +114,16 @@ async def reset_todays_participation(user_id: int) -> None:
     await get_contest_repository().reset_todays_participation(user_id)
 
 
+async def reset_shop_purchases(user_id: int) -> None:
+    """DEMO/GELISTIRME icin: tum joker/bagis satin almalarini siler - harcanan
+    puanlar `get_points_balance` formulu geregi (earned - spent) otomatik geri
+    iade edilmis olur, sanki satin alinanlar iade edilmis gibi. Aynen
+    `reset_todays_participation` gibi uretimde KAPALI."""
+    if settings.app_env == "production":
+        raise BusinessRuleError("Bu islem yalnizca gelistirme ortaminda kullanilabilir.")
+    await get_contest_repository().reset_shop_purchases(user_id)
+
+
 async def get_contest_topics(contest_id: int) -> list[ContestTopic]:
     rows = await get_contest_repository().get_contest_topics(contest_id)
     return [

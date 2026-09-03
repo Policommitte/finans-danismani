@@ -186,13 +186,27 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
             <button
               onClick={registered ? onEnterLobby : onRegister}
               disabled={disabled}
-              className="rounded-lg px-7 py-3.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
-              style={{
-                background: disabled ? "var(--color-border)" : "var(--color-primary)",
-                color: disabled ? "var(--color-muted)" : "#fff",
-              }}
+              className={`rounded-full px-7 py-3.5 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                disabled ? "" : "hover:scale-[1.03] hover:shadow-xl active:scale-[0.98]"
+              }`}
+              style={
+                disabled
+                  ? { background: "var(--color-border)", color: "var(--color-muted)" }
+                  : {
+                      background:
+                        "linear-gradient(135deg, var(--color-primary) 0%, color-mix(in srgb, var(--color-primary) 70%, #7c3aed) 100%)",
+                      boxShadow: "0 8px 24px color-mix(in srgb, var(--color-primary) 45%, transparent)",
+                    }
+              }
             >
-              {label}
+              <span className="inline-flex items-center justify-center gap-2">
+                {!disabled && (
+                  <span className="text-base" aria-hidden="true">
+                    {registered ? "🎮" : "🏆"}
+                  </span>
+                )}
+                {label}
+              </span>
             </button>
           </div>
 

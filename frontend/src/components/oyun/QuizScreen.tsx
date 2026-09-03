@@ -367,13 +367,25 @@ export function QuizScreen(props: Props) {
             <button
               onClick={q.confirm}
               disabled={q.selected === null}
-              className="ml-auto rounded-lg px-7 py-3 text-sm font-semibold transition disabled:cursor-not-allowed"
-              style={{
-                background: q.selected === null ? "var(--color-border)" : "var(--color-primary)",
-                color: q.selected === null ? "var(--color-muted)" : "#fff",
-              }}
+              className={`ml-auto rounded-full px-7 py-3 text-sm font-bold text-white transition disabled:cursor-not-allowed ${
+                q.selected === null ? "" : "hover:scale-[1.04] hover:shadow-xl active:scale-[0.97]"
+              }`}
+              style={
+                q.selected === null
+                  ? { background: "var(--color-border)", color: "var(--color-muted)" }
+                  : {
+                      background:
+                        "linear-gradient(135deg, var(--color-primary) 0%, color-mix(in srgb, var(--color-primary) 70%, #7c3aed) 100%)",
+                      boxShadow: "0 8px 22px color-mix(in srgb, var(--color-primary) 45%, transparent)",
+                    }
+              }
             >
-              {language === "tr" ? "Cevabı onayla" : "Confirm answer"}
+              <span className="inline-flex items-center justify-center gap-2">
+                {q.selected !== null && (
+                  <span aria-hidden="true">✓</span>
+                )}
+                {language === "tr" ? "Cevabı onayla" : "Confirm answer"}
+              </span>
             </button>
           </div>
         )}

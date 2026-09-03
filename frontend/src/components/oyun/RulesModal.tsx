@@ -20,8 +20,16 @@ const RULES: { title: { tr: string; en: string }; body: { tr: string; en: string
   {
     title: { tr: "Hazırlık", en: "Preparation" },
     body: {
-      tr: "Yarışma saatinde 5 dakikalık çalışma notu açılır. Sorular yalnızca bu konulardan gelir. Not konuyu anlatır, cevap anahtarı vermez.",
-      en: "A 5-minute study note opens at contest time. Questions come only from these topics. The note explains the topic but doesn't give an answer key.",
+      tr: `Yarışma saatinde ${
+        CONFIG.cheatSheetSeconds >= 60
+          ? `${CONFIG.cheatSheetSeconds / 60} dakikalık`
+          : `${CONFIG.cheatSheetSeconds} saniyelik`
+      } çalışma notu açılır. Sorular yalnızca bu konulardan gelir. Not konuyu anlatır, cevap anahtarı vermez.`,
+      en: `A ${
+        CONFIG.cheatSheetSeconds >= 60
+          ? `${CONFIG.cheatSheetSeconds / 60}-minute`
+          : `${CONFIG.cheatSheetSeconds}-second`
+      } study note opens at contest time. Questions come only from these topics. The note explains the topic but doesn't give an answer key.`,
     },
   },
   {

@@ -1,13 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import Card from "../ui/Card";
 import { InfoFlipCard } from "./InfoFlipCard";
 import { CONFIG } from "../../models/oyun";
 import { useLanguage } from "../../contexts/LanguageContext";
+import { useCountdown, nextContestTime } from "../../hooks/useCountdown";
 
 type Props = {
   registered: boolean;
   taken: number;
+  /** Bugünkü katılım hakkı zaten kullanıldıysa "Kayıt durumu" yerine
+   * sonraki yarışmaya kalan süre gösterilir. */
+  alreadyPlayedToday?: boolean;
 };
 
 function HelpCircleIcon({ className = "h-8 w-8" }: { className?: string }) {
@@ -48,8 +53,10 @@ const HOW_TO_PLAY = [
   },
 ];
 
-export function IntroSidebar({ registered, taken }: Props) {
+export function IntroSidebar({ registered, taken, alreadyPlayedToday = false }: Props) {
   const { language } = useLanguage();
+  const [nextTarget] = useState(() => nextContestTime(true));
+  const countdown = useCountdown(alreadyPlayedToday ? nextTarget : null);
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -83,28 +90,49 @@ export function IntroSidebar({ registered, taken }: Props) {
       </Card>
 
       <Card>
-        <span className="app-muted block text-xs">
-          {language === "tr" ? "Kayıt durumu" : "Registration status"}
-        </span>
-        <div
-          className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[13px] font-semibold"
-          style={{
-            background: registered ? "var(--color-primary-soft)" : "var(--color-surface-muted)",
-            color: registered ? "var(--color-primary-soft-text)" : "var(--color-muted)",
-          }}
-        >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: registered ? "var(--color-success)" : "var(--color-muted)" }}
-          />
-          {registered
-            ? (language === "tr" ? "Kayıtlısın" : "You're registered")
-            : (language === "tr" ? "Henüz kayıtlı değilsin" : "You're not registered yet")}
-        </div>
-        <p className="app-muted mt-2 text-xs">
-          <b className="tabular-nums">{taken}</b> / {CONFIG.capacityTotal}{" "}
-          {language === "tr" ? "kişi kayıtlı" : "people registered"}
-        </p>
+        {alreadyPlayedToday ? (
+          <>
+            <span className="app-muted block text-xs">
+              {language === "tr" ? "Sonraki yarışma" : "Next contest"}
+            </span>
+            <p className="app-heading mt-1.5 text-[13px] font-semibold leading-snug">
+              {language === "tr"
+                ? "Sonraki yarışmaya 24 saat kaldı"
+                : "24 hours until the next contest"}
+            </p>
+            <strong
+              className="mt-2 block text-2xl font-bold tabular-nums"
+              style={{ color: "var(--color-primary)" }}
+            >
+              {countdown.hours}:{countdown.minutes}:{countdown.seconds}
+            </strong>
+          </>
+        ) : (
+          <>
+            <span className="app-muted block text-xs">
+              {language === "tr" ? "Kayıt durumu" : "Registration status"}
+            </span>
+            <div
+              className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[13px] font-semibold"
+              style={{
+                background: registered ? "var(--color-primary-soft)" : "var(--color-surface-muted)",
+                color: registered ? "var(--color-primary-soft-text)" : "var(--color-muted)",
+              }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ background: registered ? "var(--color-success)" : "var(--color-muted)" }}
+              />
+              {registered
+                ? (language === "tr" ? "Kayıtlısın" : "You're registered")
+                : (language === "tr" ? "Henüz kayıtlı değilsin" : "You're not registered yet")}
+            </div>
+            <p className="app-muted mt-2 text-xs">
+              <b className="tabular-nums">{taken}</b> / {CONFIG.capacityTotal}{" "}
+              {language === "tr" ? "kişi kayıtlı" : "people registered"}
+            </p>
+          </>
+        )}
       </Card>
 
       <div className="flex-1">
