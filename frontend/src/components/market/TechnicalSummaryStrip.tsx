@@ -10,6 +10,46 @@ import {
 
 const SCALE_STEPS = ["Güçlü Sat", "Sat", "Nötr", "Al", "Güçlü Al"];
 
+const TECHNICAL_INFO_TEXT =
+  "Teknik göstergeler, geçmiş fiyat hareketlerinden hesaplanan istatistiksel " +
+  "ölçümlerdir (RSI, MACD, hareketli ortalamalar gibi). Haber veya şirket " +
+  "verisi içermez; yalnızca fiyat hareketine dayanır.";
+
+/** Baslik yanindaki (i) ikonu - hover/focus'ta aciklama balonu gosterir. */
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group/info relative inline-flex">
+      <button
+        type="button"
+        aria-label="Teknik gösterge açıklaması"
+        className="flex h-3.5 w-3.5 items-center justify-center rounded-full app-muted transition hover:opacity-80"
+      >
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-20 mt-1.5 w-64 max-w-[80vw] rounded-lg border app-border app-surface px-3 py-2 text-[11px] font-normal normal-case tracking-normal leading-relaxed app-heading opacity-0 shadow-lg transition group-hover/info:opacity-100 group-focus-within/info:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
 /**
  * Teknik görünümün özet şeridi: sonuç sınıfı, sayaçlar ve veri künyesi.
  *
@@ -40,8 +80,9 @@ export function TechnicalSummaryStrip({
   if (!data.sufficient || !data.summary) {
     return (
       <div className="mt-4 rounded-xl border app-border bg-[var(--color-surface-muted)] px-3.5 py-3">
-        <div className="text-xs font-semibold uppercase tracking-wide app-muted">
-          Teknik Analiz
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide app-muted">
+          <span>Teknik Analiz</span>
+          <InfoTooltip text={TECHNICAL_INFO_TEXT} />
         </div>
         <p className="mt-1 text-sm app-heading">Analiz için veri yetersiz.</p>
         {data.reason && <p className="mt-1 text-xs app-muted">{data.reason}</p>}
@@ -55,8 +96,9 @@ export function TechnicalSummaryStrip({
   return (
     <div className="mt-4 rounded-xl border app-border app-surface px-3.5 py-3">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold uppercase tracking-wide app-muted">
-          Teknik Analiz
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide app-muted">
+          <span>Teknik Analiz</span>
+          <InfoTooltip text={TECHNICAL_INFO_TEXT} />
         </div>
         <span
           className="rounded-full px-2.5 py-1 text-xs font-bold"
