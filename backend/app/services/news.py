@@ -274,24 +274,46 @@ _CRYPTO_IMAGE = "/news/crypto-coins.jpg.jfif"
 _TCMB_IMAGE = "/news/tcmb-economy.jpg.jpg"
 _TBMM_IMAGE = "/news/tbmm-economy.jpg.webp"
 _DEFAULT_IMAGE = "/news/finance-coins-chart.jpg.png"
+_GOLD_IMAGE = "/news/gold-bar.jpg"
+_CURRENCY_IMAGE = "/news/euro-banknotes.jpg"
+_OIL_IMAGE = "/news/oil-pumpjack.jpg"
+_AUTOMOTIVE_IMAGE = "/news/car-assembly-line.jpg"
+_TECH_IMAGE = "/news/data-center.jpg"
+_AGRICULTURE_IMAGE = "/news/agriculture-field.jpg"
+_REAL_ESTATE_IMAGE = "/news/apartment-buildings.jpg"
+_STOCK_EXCHANGE_IMAGE = "/news/stock-exchange.jpg"
 
-#: Basliktaki ozel/taninan (elle secilmis marka) anahtar kelimeler -> yerel
-#: gorsel. Pexels'e istek atmadan ONCE denenir: API kotasi harcamaz, ag
-#: gerektirmez ve bu birkac sirket/varlik icin zaten temaya birebir uygundur.
+#: Basliktaki ozel/taninan anahtar kelimeler -> yerel gorsel. Pexels'e (artik
+#: kullanilmiyor, bkz. resolve_image) istek atmadan ONCE denenir: API kotasi
+#: harcamaz, ag gerektirmez ve tema ile birebir uyumludur. Marka-ozel kurallar
+#: (THY, SASA) daha GENEL konu kurallarindan ONCE gelir - "sasa" gibi ozel
+#: bir isim, "otomotiv" gibi genel bir kelimeden once eslesmeli.
 _KEYWORD_IMAGE_RULES: list[tuple[tuple[str, ...], str]] = [
     (("thy", "havayolu", "havacılık", "havacilik", "uçuş", "ucus", "yolcu"), _THY_IMAGE),
-    (("kripto", "bitcoin", "btc", "ethereum"), _CRYPTO_IMAGE),
     (("sasa",), _SASA_IMAGE),
+    (("kripto", "bitcoin", "btc", "ethereum"), _CRYPTO_IMAGE),
+    (("altın", "altin", "gram altın", "ons altın"), _GOLD_IMAGE),
+    (("dolar", "euro", "avro", "döviz", "doviz", "kur ", "sterlin"), _CURRENCY_IMAGE),
+    (("petrol", "brent", "akaryakıt", "akaryakit", "benzin", "motorin", "opec"), _OIL_IMAGE),
+    (
+        ("otomotiv", "otomobil", "araç üretim", "arac uretim", "elektrikli araç"),
+        _AUTOMOTIVE_IMAGE,
+    ),
+    (("yapay zeka", "teknoloji", "yazılım", "yazilim", "veri merkezi", "çip", "cip"), _TECH_IMAGE),
+    (("tarım", "tarim", "gıda", "gida", "hasat", "çiftçi", "ciftci"), _AGRICULTURE_IMAGE),
+    (("emlak", "konut", "kira ", "gayrimenkul", "inşaat", "insaat"), _REAL_ESTATE_IMAGE),
+    (("borsa", "bist", "hisse senedi", "gong", "endeks"), _STOCK_EXCHANGE_IMAGE),
 ]
 
-#: Pexels basarisiz olursa (anahtar tanimsiz, hata, sonuc yok, kota doldu)
-#: EN SON CARE olarak dusulen kategori bazli sabit gorseller. Bilerek DB'ye
-#: YAZILMAZ (bkz. resolve_image) - kalici hata degil, gecici bir durum olabilir.
+#: Ozel bir anahtar kelime eslesmezse (bkz. yukarisi) dusulen kategori bazli
+#: sabit gorseller - "hisse"/"piyasa" kategorisindeki cogu haber tek bir
+#: sirkete ozel olmadigi icin (bkz. resolve_image docstring) burada genel
+#: ama temaya uygun bir gorsel kullanilir.
 _CATEGORY_FALLBACK_IMAGE: dict[str, str] = {
-    "doviz": _TCMB_IMAGE,
-    "altin": _TCMB_IMAGE,
+    "doviz": _CURRENCY_IMAGE,
+    "altin": _GOLD_IMAGE,
     "ekonomi": _TBMM_IMAGE,
-    "hisse": _DEFAULT_IMAGE,
+    "hisse": _STOCK_EXCHANGE_IMAGE,
     "piyasa": _DEFAULT_IMAGE,
 }
 
