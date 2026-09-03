@@ -1,9 +1,26 @@
 name: Frontend CI
 
 on:
+  # TUM dallara push CI'yi tetikler. ONCESI `branches: [main]` idi ve `main`
+  # korumali oldugu icin (bkz. CONTRIBUTING.md) oraya dogrudan push HIC
+  # olmuyordu: ozellik dallari pushlandiginda tek bir is bile kosmuyor, geri
+  # bildirim ancak PR acildiktan sonra geliyordu.
   push:
-    branches: [main]
+  # PR olayi AYRICA sart: fork'tan gelen PR'larda push olayi bu depoda
+  # tetiklenmez, tek kapsam buradan gelir. Ayni depodaki bir dalda PR aciksa
+  # her push iki kez kosar (push + synchronize); bu bilincli bir maliyet -
+  # `main` uzerindeki zorunlu kontroller PR kosusuna bagli oldugu icin
+  # `types:` ile kisip PR kosusunu ayiklamak korumayi zayiflatirdi.
   pull_request:
+  # Elle tetikleme: Actions sekmesinden herhangi bir dalda calistirilabilir.
+  workflow_dispatch:
+
+# Ayni dala pesi sira push atilirsa eskisi iptal edilir. `github.event_name`
+# gruba DAHIL: push ve pull_request kosulari birbirini iptal ETMEMELI - PR
+# kosusu iptal olursa zorunlu kontrol "cancelled" kalir ve PR kilitlenir.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -26,16 +43,33 @@ jobs:
         if: steps.check.outputs.exists == 'true'
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Bagimliliklari kur
         if: steps.check.outputs.exists == 'true'
         working-directory: frontend
-        run: npm install
+        # `npm install` DEGIL: kilit dosyasini sessizce guncelleyip yerelde
+        # denenmemis surumleri kurabilir. `npm ci` yalnizca package-lock.json'i
+        # uygular; kilit ile package.json ayrisirsa adim kirmizi olur.
+        run: npm ci
 
+      # DIKKAT: `lint` betigi package.json'da TANIMLI DEGIL ve eslint bagimlilik
+      # olarak da kurulu degil - bu adim su an sessizce hicbir sey yapmiyor.
+      # CONTRIBUTING.md eslint+prettier diyor; eslint kurulana kadar bu adim
+      # yalnizca yer tutucudur.
       - name: Lint
         if: steps.check.outputs.exists == 'true'
         working-directory: frontend
         run: npm run lint --if-present
+
+      # `--run`: `test` betigi duz `vitest`, yani IZLEME modunda acilir ve CI'da
+      # asili kalirdi. Vitest CI ortaminda izlemeyi kendi kapatir ama buna
+      # BEL BAGLANMAZ - bayrak acikca verilir.
+      - name: Test
+        if: steps.check.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm test -- --run
 
       - name: Build
         if: steps.check.outputs.exists == 'true'
