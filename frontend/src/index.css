@@ -50,6 +50,15 @@
   --color-chart-cyan: #0891b2;
   --color-brand-teal: #3cb481;
   --logo-filter: none;
+  /* mascot-bg.svg piksel piksel olculdu: icerigin ~%99'u SEFFAF/beyaza yakin
+     (bkz. tarayici canvas API'siyle yapilan olcum) - koyu bir illustrasyon
+     DEGIL. Koyu temada bu acik cizgiler zeminle dogal kontrast olusturur,
+     ama acik (beyaz) zeminde beyaza-yakin icerik opaklik ne olursa olsun
+     GORUNMEZ (beyaz-uzerine-beyaz). Cozum opaklik degil: logonun koyu
+     temada kullandigi `invert` yontemunun TERSİ - acik temada renk ters
+     cevrilip acik cizgiler koyu/gri olur, boylece beyaz zeminde secilir. */
+  --mascot-bg-opacity: 0.18;
+  --mascot-bg-filter: invert(1) brightness(1.15);
   color: var(--color-text);
   background: var(--color-bg);
   color-scheme: light;
@@ -96,6 +105,8 @@
   --color-chart-cyan: #22d3ee;
   --color-brand-teal: #4ecb98;
   --logo-filter: invert(1) brightness(1.2);
+  --mascot-bg-opacity: 0.3;
+  --mascot-bg-filter: none;
   color-scheme: dark;
 }
 
