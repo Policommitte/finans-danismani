@@ -112,7 +112,20 @@ export function QuizScreen(props: Props) {
                 : MASCOT_IDLE[q.index % MASCOT_IDLE.length][language];
 
   return (
-    <div className="relative">
+    <div className="relative isolate">
+      
+      {/* Gorsel piksel piksel olculdu: icerigin ~%99'u seffaf/beyaza yakin -
+          acik (beyaz) zeminde opaklik ne olursa olsun secilmez. Acik temada
+          `invert` ile acik cizgiler koyu/gri renge cevrilir (logonun koyu
+          temada kullandigi yontemin TERSİ) - degiskenler tema basina index.css'te
+          tanimli (bkz. --mascot-bg-opacity / --mascot-bg-filter). */}
+      <img
+        src="/oyun/mascot-bg.svg"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover"
+        style={{ opacity: "var(--mascot-bg-opacity)", filter: "var(--mascot-bg-filter)" }}
+      />
       {/* "Soru N" + görünür geri sayım — HER soruda */}
       {q.phase === "curtain" && (
         <div
