@@ -62,12 +62,30 @@ uvicorn app.main:app --reload --reload-dir app
 
 ## Test
 
+Testler KATEGORİYE göre klasörlenmiştir; yeni bir test yazarken hangi
+katmanı sınadığınıza bakıp o klasöre koyun:
+
+| Klasör | Ne sınar | Kural |
+|---|---|---|
+| `tests/unit/` | Saf fonksiyonlar (`core`, `engine.kapsam`, `signals`, `forecast.engine`, ...) | I/O yok, uyku yok, ağ yok |
+| `tests/agents/` | Ajan sınıfları + orkestrasyon motoru + MCP | Sahte LLM/MCP kullanır |
+| `tests/services/` | `app/services`, `leads`, `notifications`, `market`, `ingestion`, `documents` | Depo `StubRepo` ile enjekte edilir |
+| `tests/api/` | REST sözleşmesi (`TestClient`) | Bellek içi depoya konuşur |
+| `tests/integration/` | Uçtan uca, GERÇEK PostgreSQL ister | Tamamı `@pytest.mark.db` |
+| `tests/helpers/` | Fixture değil ARAÇ: `StubRepo`, sahte LLM/embedder, üreticiler | — |
+
 ```bash
 pytest -q                        # DB gerekmez (bellek içi repository'ler)
 
-# PostgreSQL entegrasyon testleri (opsiyonel):
+# PostgreSQL entegrasyon testleri (tests/integration/ + dağınık `db` işaretleri):
 TEST_DATABASE_URL=postgresql+psycopg://finans:finans@localhost:5432/finans pytest -q
 ```
+
+⚠️ Suite AĞA ÇIKAMAZ: `conftest.py` dış bir adrese `connect` denemesini
+`RuntimeError` ile keser (geri döngü ve ASGI/TestClient serbesttir). Dış bir
+servise gerçekten gitmesi gereken test `@pytest.mark.db` ile işaretlenir.
+`.env` gerçek anahtar taşıdığı için `DATABASE_URL`'e GERİ DÜŞÜLMEZ —
+entegrasyon testleri yalnızca `TEST_DATABASE_URL` ile açılır.
 
 Lint: `ruff check . && black --check .`
 

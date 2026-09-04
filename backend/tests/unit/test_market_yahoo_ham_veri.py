@@ -567,9 +567,19 @@ def _borsa_verisi_symbols():
     `borsa-verisi/` bir paket DEGILDIR ve backend onu import etmez; bu yuzden
     normal `import` calismaz. Klasor yoksa (backend tek basina kullanildiginda)
     test atlanir.
+
+    ⚠️ SABIT `parents[N]` KULLANILMAZ. Onceden `parents[2]` yaziliydi ve dosya
+    `tests/` -> `tests/unit/` altina tasindiginda bir seviye kaydi: yol
+    `backend/borsa-verisi` oldu, bulunamadi ve test SESSIZCE ATLANDI. Depo
+    koku yukari dogru aranarak bulunur - dosya nereye tasinirsa tasinsin
+    calisir.
     """
-    yol = Path(__file__).resolve().parents[2] / "borsa-verisi" / "symbols.py"
-    if not yol.exists():
+    yol = None
+    for aday in Path(__file__).resolve().parents:
+        if (aday / "borsa-verisi" / "symbols.py").exists():
+            yol = aday / "borsa-verisi" / "symbols.py"
+            break
+    if yol is None:
         pytest.skip("borsa-verisi/ bu kopyada yok")
 
     spec = importlib.util.spec_from_file_location("borsa_verisi_symbols", yol)

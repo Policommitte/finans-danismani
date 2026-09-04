@@ -14,7 +14,9 @@ import type {
   PublicMarketTickerResponse,
   TechnicalResponse,
 } from "../models/market";
+import type { ChatEvent } from "../models/chat";
 import { apiRequest } from "./apiClient";
+import { streamSse } from "./sseStream";
 
 export function getMarketAssets(category?: string): Promise<AssetsResponse> {
   const query = category ? `?category=${encodeURIComponent(category)}` : "";
@@ -117,4 +119,25 @@ export function getForecast(symbol: string): Promise<Forecast | null> {
 /** Portfoyun TUM varliklari + nakdi uzerinden TL bazli birlesik tahmin. */
 export function getPortfolioForecast(): Promise<Forecast | null> {
   return apiRequest<Forecast | null>("/api/market/forecast-portfolio");
+}
+
+/**
+ * Varlik kartindaki "Polifin AI Analizi" kutusu icin SSE akisi.
+ *
+ * ⚠️ `chatService.streamChat` ILE KARISTIRILMASIN: bu cagri HICBIR sohbet
+ * oturumu ACMAZ/KAYDETMEZ (bkz. routes/market.py::quick_analysis). Kart
+ * acildiginda `ChatContext`'e (widget ile PAYLASIMLI) DOKUNULMAMASI icin
+ * ozellikle ayri tutulur - aksi halde kullanicinin hic yazmadigi bir soru
+ * gercek sohbet gecmisinde beliriyordu.
+ */
+export function streamQuickAnalysis(
+  symbol: string,
+  onEvent: (event: ChatEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSse<ChatEvent>(
+    `/api/market/quick-analysis?symbol=${encodeURIComponent(symbol)}`,
+    onEvent,
+    { signal },
+  );
 }

@@ -58,8 +58,8 @@ def sahte_smtp(monkeypatch):
 
 
 @pytest.fixture
-def gmail_ayarli(override_settings):
-    override_settings(
+def gmail_ayarli(ayar):
+    ayar(
         gmail_sender_email="gonderen@example.com",
         gmail_app_password="app-sifresi",
         gmail_smtp_host="smtp.example.com",
@@ -76,14 +76,14 @@ def test_iki_alan_da_doluysa_yapilandirilmistir(gmail_ayarli):
     assert mailer.is_configured() is True
 
 
-def test_sifre_bossa_yapilandirilmamistir(override_settings):
-    override_settings(gmail_sender_email="gonderen@example.com", gmail_app_password="")
+def test_sifre_bossa_yapilandirilmamistir(ayar):
+    ayar(gmail_sender_email="gonderen@example.com", gmail_app_password="")
 
     assert mailer.is_configured() is False
 
 
-def test_adres_bossa_yapilandirilmamistir(override_settings):
-    override_settings(gmail_sender_email="", gmail_app_password="app-sifresi")
+def test_adres_bossa_yapilandirilmamistir(ayar):
+    ayar(gmail_sender_email="", gmail_app_password="app-sifresi")
 
     assert mailer.is_configured() is False
 
@@ -91,10 +91,8 @@ def test_adres_bossa_yapilandirilmamistir(override_settings):
 # --- send_lead_email --------------------------------------------------------
 
 
-async def test_yapilandirilmamissa_skipped_doner_ve_smtp_hic_cagrilmaz(
-    override_settings, sahte_smtp
-):
-    override_settings(gmail_sender_email="", gmail_app_password="")
+async def test_yapilandirilmamissa_skipped_doner_ve_smtp_hic_cagrilmaz(ayar, sahte_smtp):
+    ayar(gmail_sender_email="", gmail_app_password="")
 
     sonuc = await mailer.send_lead_email("alici@example.com", "Test")
 
@@ -114,12 +112,10 @@ async def test_yapilandirilmissa_dogru_sunucu_ve_kimlikle_gonderilir(gmail_ayarl
     assert cagri["to"] == "alici@example.com"
 
 
-async def test_redirect_ayarliyken_gercek_alici_redirect_adresidir(
-    gmail_ayarli, override_settings, sahte_smtp
-):
+async def test_redirect_ayarliyken_gercek_alici_redirect_adresidir(gmail_ayarli, ayar, sahte_smtp):
     # Demo guvenligi: seed adresleri teslim edilemez oldugu icin tum mailler
     # tek bir test adresine yonlendirilir, asil alici govdeye yazilir.
-    override_settings(lead_email_redirect_to="test@example.com")
+    ayar(lead_email_redirect_to="test@example.com")
 
     sonuc = await mailer.send_lead_email("gercek@example.com", "Test")
 

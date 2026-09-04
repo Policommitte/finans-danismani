@@ -22,7 +22,7 @@ import pytest
 from sqlalchemy import text
 
 from app.config import settings
-from tests.conftest import SahteApiSaglayici
+from tests.helpers.fakes import SahtePiyasaSaglayici
 
 pytestmark = pytest.mark.db
 
@@ -173,7 +173,7 @@ async def test_tick_writes_live_prices_not_price_history():
     async with _clean_environment():
         gecmis_once = (await _query("SELECT count(*) AS n FROM price_history"))[0]["n"]
 
-        await price_tick(SahteApiSaglayici(), write_live=True)
+        await price_tick(SahtePiyasaSaglayici(), write_live=True)
 
         canli = (await _query("SELECT count(*) AS n FROM live_prices"))[0]["n"]
         gecmis_sonra = (await _query("SELECT count(*) AS n FROM price_history"))[0]["n"]
@@ -186,7 +186,7 @@ async def test_no_live_row_written_when_write_live_disabled():
     from app.market.scheduler import price_tick
 
     async with _clean_environment():
-        await price_tick(SahteApiSaglayici(), write_live=False)
+        await price_tick(SahtePiyasaSaglayici(), write_live=False)
 
         assert (await _query("SELECT count(*) AS n FROM live_prices"))[0]["n"] == 0
 
@@ -203,8 +203,8 @@ async def test_tick_does_not_touch_prev_close():
     async with _clean_environment():
         onceki = await _query("SELECT id, prev_close FROM assets ORDER BY id")
 
-        await price_tick(SahteApiSaglayici(carpan=1.02), write_live=True)
-        await price_tick(SahteApiSaglayici(carpan=1.04), write_live=True)
+        await price_tick(SahtePiyasaSaglayici(carpan=1.02), write_live=True)
+        await price_tick(SahtePiyasaSaglayici(carpan=1.04), write_live=True)
 
         sonraki = await _query("SELECT id, prev_close FROM assets ORDER BY id")
         assert sonraki == onceki

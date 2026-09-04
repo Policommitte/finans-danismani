@@ -820,6 +820,102 @@ def resolve_symbol(query: str, katalog: list[dict[str, Any]]) -> str | None:
     return en_iyi[2] if en_iyi else None
 
 
+#: `resolve_symbols` en fazla kac EK sembol dondurur (birincil `resolve_symbol`
+#: sonucu HARIC). Toplam kart sayisi sinirinin (`KART_SEMBOL_SINIRI`,
+#: orchestrator.py) 1 eksigi - birincil sembol zaten o siniri paylasiyor.
+_EK_SEMBOL_SINIRI = 2
+
+
+def resolve_symbols(
+    query: str,
+    katalog: list[dict[str, Any]],
+    *,
+    limit: int = _EK_SEMBOL_SINIRI,
+    disla: str | None = None,
+) -> list[str]:
+    """Sorguda gecen BIRDEN FAZLA varligi katalogdan cozer.
+
+    ⚠️ `resolve_symbol`'DEN BILEREK AYRI TUTULUR. O fonksiyon "TEK en iyi
+    aday"i bulmak icin olculerek kalibre edildi (bkz. docstring'i - "thyao
+    hissesi" -> None gibi false-positive avlari, takma ad eslestirme,
+    bitisik-olmayan kod yazimi gibi ince katmanlar). Bu fonksiyon COKLU
+    tespit icin `resolve_symbol`'un EN GUVENILIR IKI katmanini kullanir:
+
+      1. Tam kod eslesmesi ("ASELS")
+      2. Kod + Turkce ek eslesmesi ("aselsan", "eregli" -> EREGL+i) - BU
+         KATMAN ILK SURUMDE BILEREK ATLANMISTI ve GERCEK BIR HATAYA yol
+         actu: "nvidia ve ereğli ne kadar" sorusunda EREGL hic bulunamadi,
+         cunku katalogdaki adi "Erdemir" (Eregli DEGIL) - kod+ek eslesmesi
+         olmadan hicbir yol EREGL'i bulamiyordu. Bu katman `resolve_symbol`'da
+         zaten "aselsan" gibi GUNLUK kullanimin TEMELINI olusturuyor (tier 2,
+         tam eslesmeden hemen sonraki en guvenilir katman) - coklu tespitte
+         de ayni guvenilirlikte.
+      3. Tam sirket adi eslesmesi ("aselsan" ad alaninda gecerse)
+
+    Takma adlar ve sirket adinin "ilk kelimesi" gibi DAHA gevsek katmanlar
+    (resolve_symbol'daki tier 2'nin GEVSEK yarisi) BILEREK ATLANMAYA DEVAM
+    EDER: "bu hisse ne kadar dustu" gibi genel bir ifadeyi ucuncu bir varlik
+    sanmak YANLIS POZITIF uretirdi. `resolve_symbol`'un ana kod yolu HIC
+    DEGISTIRILMEDI - onun olculmus davranisina risk katmamak icin bu
+    fonksiyon tamamen bagimsiz, kendi taramasini yapar.
+
+    Args:
+        limit: azami dondurulecek sembol sayisi (sorgudaki gecis sirasina gore).
+        disla: zaten cozulmus BIRINCIL sembol - sonuc listesinden cikarilir
+            (aksi halde "NVDA ve NVDA" gibi tekrar cikardi).
+
+    Returns:
+        Sorguda GECTIGI SIRAYLA, tekrarsiz, katalogla dogrulanmis semboller.
+        `disla` HARIC en fazla `limit` adet.
+    """
+    metin = _normalize(query)
+    tokenler = re.findall(r"[a-z0-9]+", metin)
+    if not tokenler:
+        return []
+
+    adaylar: list[tuple[int, str]] = []  # (konum, sembol)
+
+    for kayit in katalog:
+        sembol = str(kayit.get("symbol") or "").strip()
+        # Kisa kodlar (KO, T) coklu taramada BILEREK DISLANIR: `resolve_symbol`
+        # bunlari yalnizca HAM sorguda buyuk harfle tam kelime olarak kabul
+        # ediyordu (gunluk kelimelerle cakismasin diye) - o incelikli kontrolu
+        # burada tekrarlamak yerine, coklu tespitte bu kisa kodlari atlamak
+        # tercih edildi: yanlis pozitif riski (KO -> "ko" kelimesi) faydasindan
+        # yuksek.
+        if not sembol or len(sembol) < _ASGARI_SEMBOL_UZUNLUGU:
+            continue
+
+        kok = _normalize(sembol)
+        kok_sikisik = re.sub(r"[^a-z0-9]", "", kok)
+        kokler = {kok, kok_sikisik} - {""}
+
+        eslesti = False
+        for konum, token in enumerate(tokenler):
+            # Tam eslesme YA DA kod+Turkce ek eslesmesi ("eregli" -> EREGL).
+            if token in kokler or any(_matches_with_suffix(token, k) for k in kokler):
+                adaylar.append((konum, sembol.upper()))
+                eslesti = True
+                break
+
+        if eslesti:
+            continue
+
+        ad = _normalize(str(kayit.get("ad") or ""))
+        if ad and ad in metin:
+            adaylar.append((metin.index(ad), sembol.upper()))
+
+    adaylar.sort()
+    sonuc: list[str] = []
+    for _, sembol in adaylar:
+        if sembol == disla or sembol in sonuc:
+            continue
+        sonuc.append(sembol)
+        if len(sonuc) >= limit:
+            break
+    return sonuc
+
+
 # ---------------------------------------------------------------------------
 # Mevsimsellik: "gecmis yillarin yaz aylarinda nasil hareket etti?"
 # ---------------------------------------------------------------------------
@@ -1130,6 +1226,7 @@ class MarketResearchAgent(BaseAgent):
         canli_veri: dict[str, Any] | None = None
         guven: float | None = None
         hatalar: list[AgentError] = []
+        ek_sembol_verileri: list[dict[str, Any]] = []
 
         if mode in ("rag", "both"):
             rag_ozet, kaynaklar, ham_kaynaklar, guven, rag_hatasi = await self._run_rag(task, query)
@@ -1142,6 +1239,16 @@ class MarketResearchAgent(BaseAgent):
             canli_ozet, canli_veri = await self._run_live(task)
             if canli_ozet:
                 ozet_parcalari.append(canli_ozet)
+
+            # COKLU VARLIK: "NVIDIA ve Apple ne durumda" gibi sorularda
+            # birincil sembol (`task["symbol"]`) YANINDA gecen diger
+            # varliklarin da fiyati cekilir - aksi halde model yalnizca
+            # ilkinden bahsedip ikinciyi sessizce yok sayiyordu (canli
+            # bildirildi). Sadece "live"/"both" modda anlamlidir - saf RAG
+            # sorusunda (haber arama) ek varliklarin fiyatini cekmenin
+            # anlami yok.
+            ek_ozet_satirlari, ek_sembol_verileri = await self._ek_sembolleri_getir(task, query)
+            ozet_parcalari.extend(ek_ozet_satirlari)
 
         ozet = "\n\n".join(ozet_parcalari) if ozet_parcalari else NO_RETRIEVAL_MESSAGE
 
@@ -1156,6 +1263,11 @@ class MarketResearchAgent(BaseAgent):
                 # orchestrator bunu "mentioned_assets" SSE olayina tasir, frontend
                 # sohbet cevabinin altinda varlik karti gostermek icin kullanir.
                 "symbol": task.get("symbol"),
+                # Sorguda BIRINCIL sembolun yaninda gecen diger varliklar
+                # (bkz. `_ek_sembolleri_getir`) - orchestrator bunlari da
+                # "mentioned_assets" listesine ekler. Coklu soru degilse bos
+                # liste, eski tek-sembol davranisi DEGISMEZ.
+                "additional_symbols": ek_sembol_verileri,
             },
             # Reducer'li alan: yalnizca bu turda bulunan kaynaklar eklenir.
             "sources": kaynaklar,
@@ -1575,6 +1687,62 @@ class MarketResearchAgent(BaseAgent):
     # ------------------------------------------------------------------
     # Canli veri yolu (MCP Server 3)
     # ------------------------------------------------------------------
+
+    async def _ek_sembolleri_getir(
+        self, task: dict[str, Any], query: str
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Sorguda BIRINCIL sembolun (`task["symbol"]`) yaninda gecen DIGER
+        varliklarin canli fiyatini getirir ("NVIDIA ve Apple ne durumda").
+
+        ⚠️ YALNIZCA FIYAT - `_run_live`'in aksine gecmis/mevsimsellik/KAP
+        bildirimi CEKMEZ. Amac bu ikincil varliklar icin kisa bir referans
+        noktasi vermek, birincil varlikla AYNI DERINLIKTE analiz degil: coklu
+        varlikta her biri icin tam analiz cekmek hem gecikmeyi hem tool
+        cagrisi sayisini katlardi.
+
+        Tool cagrisi basarisiz olursa (sembol bulunamadi, gecici hata) o
+        sembol SESSIZCE atlanir - birincil varligin cevabini bozmamali.
+        """
+        katalog = await self._symbol_catalog()
+        if not katalog:
+            return [], []
+
+        ek_semboller = resolve_symbols(query, katalog, disla=task.get("symbol"))
+        if not ek_semboller:
+            return [], []
+
+        ozet_satirlari: list[str] = []
+        veriler: list[dict[str, Any]] = []
+        for sembol in ek_semboller:
+            try:
+                quote = await self.call_tool(
+                    server=MARKET_SERVER_NAME,
+                    tool="market_get_quote",
+                    arguments={"symbol": sembol},
+                )
+            except MCPToolExecutionError:
+                logger.warning(
+                    "ek sembol icin canli fiyat alinamadi", extra={"symbol": sembol}, exc_info=True
+                )
+                continue
+
+            if quote.get("price") is None:
+                continue
+
+            veriler.append(
+                {
+                    "symbol": quote.get("symbol") or sembol,
+                    "price": quote["price"],
+                    "currency": quote.get("currency"),
+                    "daily_change_pct": quote.get("daily_change_pct"),
+                }
+            )
+            degisim = quote.get("daily_change_pct") or 0
+            ozet_satirlari.append(
+                f"{quote.get('symbol') or sembol} guncel fiyat: {quote['price']} "
+                f"{quote.get('currency') or ''} ({degisim:+.2f}%)."
+            )
+        return ozet_satirlari, veriler
 
     async def _run_live(self, task: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
         """Canli fiyat ve (istenirse) son KAP bildirimini getirir.

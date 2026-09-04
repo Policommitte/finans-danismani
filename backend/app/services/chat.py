@@ -21,6 +21,8 @@ import base64
 import binascii
 import json
 import logging
+import random
+import uuid
 from collections.abc import AsyncGenerator
 
 from app.config import settings
@@ -194,6 +196,42 @@ async def stream_chat_response(
                 # baglantisi cizer.
                 event.pop("rapor", None)
 
+        yield event
+
+
+async def stream_quick_analysis(user_id: int, symbol: str) -> AsyncGenerator[dict, None]:
+    """Varlik kartindaki "Polifin AI Analizi" kutusu icin TEK SEFERLIK,
+    KALICI OLMAYAN bir orkestrator cagrisi.
+
+    ⚠️ `stream_chat_response`'TAN BILEREK FARKLI: hicbir chat_sessions/
+    chat_messages satiri YAZMAZ. Onceki davranista varlik kartı acilinca
+    `ChatContext` (widget/kart arasinda PAYLASIMLI) uzerinden GERCEK bir
+    sohbet mesaji gonderiliyordu - kullanici hic yazmadigi "X hakkinda
+    kisa bir yatirim analizi yap" sorusunu, dakikalar sonra sohbet
+    penceresini actiginda kendi gecmisinde goruyordu. Bu fonksiyon ayni
+    orkestratoru, kalici bir sohbet OTURUMU ACMADAN dogrudan cagirir.
+
+    `thread_id` NEGATIF ve rastgele secilir: gercek `chat_sessions.id`
+    degerleri (Postgres serial) HER ZAMAN pozitiftir, yani bu deger hicbir
+    gercek oturumla CAKISAMAZ - LangGraph'in bellek ici checkpointer'i
+    (MemorySaver) bu sayede ne gercek bir konusmanin durumunu okur ne de
+    ona yazar.
+    """
+    request_id = str(uuid.uuid4())
+    thread_id = -random.randint(1, 2_000_000_000)
+
+    # MCP tool'lari kimligi buradan okur (bkz. stream_chat_response'daki ayni
+    # notlar) - SSE gövdesi endpoint'ten SONRA calisir, contextvar'lar burada
+    # TEKRAR yazilmali.
+    set_current_user_id(user_id)
+    set_request_context(request_id=request_id, session_id=thread_id)
+
+    async for event in get_orchestrator().stream_request(
+        query=f"{symbol} hakkında kısa bir yatırım analizi yap.",
+        user_id=user_id,
+        thread_id=thread_id,
+        request_id=request_id,
+    ):
         yield event
 
 
