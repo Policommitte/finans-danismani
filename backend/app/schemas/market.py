@@ -68,6 +68,55 @@ class CandlesResponse(BaseModel):
     candles: list[Candle]
 
 
+class TechnicalIndicator(BaseModel):
+    key: str
+    label: str = Field(description="Arayuzde gosterilen ad, orn. 'RSI(14)'")
+    value: float | None = None
+    signal: str = Field(description="AL | SAT | NOTR | VERI_YOK")
+
+
+class TechnicalMovingAverage(BaseModel):
+    period: int
+    sma: float | None = None
+    sma_signal: str
+    ema: float | None = None
+    ema_signal: str
+
+
+class TechnicalSummary(BaseModel):
+    """Sinyallerin toplulastirilmis sonucu."""
+
+    label: str = Field(description="GUCLU_AL | AL | NOTR | SAT | GUCLU_SAT")
+    score: float = Field(description="-1 (guclu sat) ile +1 (guclu al) arasi")
+    buy: int
+    neutral: int
+    sell: int
+
+
+class TechnicalResponse(BaseModel):
+    """Gunluk mumlardan hesaplanan teknik gorunum.
+
+    `sufficient` False oldugunda hicbir sinif uretilmez ve `summary` null
+    doner - eksik veriyle sayi UYDURULMAZ. 404 firlatilmaz; frontend bu
+    durumda "analiz icin veri yetersiz" gosterir.
+    """
+
+    symbol: str
+    interval: str = Field(default="1d", description="Sabit gunluk mum")
+    days: int = Field(description="Istenen takvim penceresi (gun)")
+    candle_count: int
+    last_candle_ts: str | None = None
+    source: str = Field(description="market_candles | yahoo | price_history | yok")
+    sufficient: bool
+    reason: str | None = Field(default=None, description="Yetersizse sebebi")
+    price: float | None = None
+    summary: TechnicalSummary | None = None
+    indicator_summary: TechnicalSummary | None = None
+    moving_average_summary: TechnicalSummary | None = None
+    indicators: list[TechnicalIndicator] = []
+    moving_averages: list[TechnicalMovingAverage] = []
+
+
 class PhotoResponse(BaseModel):
     """Genel amacli Pexels fotograf aramasi (bkz. app/services/pexels.py).
 
