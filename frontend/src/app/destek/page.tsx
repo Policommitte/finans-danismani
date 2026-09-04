@@ -1,4 +1,4 @@
-import { ChatAvatar } from "../../components/chat/ChatWidget";
+import { ChatAvatar } from "../../components/chat/ChatAvatar";
 import { FaqAccordion, type FaqItem } from "../../components/support/FaqAccordion";
 import { OpenChatButton } from "../../components/support/OpenChatButton";
 import { SystemStatusBar } from "../../components/support/SystemStatusBar";

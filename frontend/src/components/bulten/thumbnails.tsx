@@ -32,6 +32,48 @@ const topicIcons: Record<Topic, string> = {
     '<g transform="translate(202,30)" fill="#fff" fill-opacity="0.85"><rect x="0" y="16" width="8" height="46" rx="1.5"/><rect x="16" y="30" width="8" height="32" rx="1.5"/><rect x="32" y="4" width="8" height="58" rx="1.5"/><rect x="48" y="22" width="8" height="40" rx="1.5"/><rect x="64" y="12" width="8" height="50" rx="1.5"/><polyline points="4,14 20,28 36,2 52,20 68,10" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="3"/></g>',
 };
 
+//: Basit, deterministik dize karistirici (hash) - AYNI seed HER ZAMAN AYNI
+//: indeksi verir (bir varligin karti sayfa yenilense de degismez), ama
+//: FARKLI seed'ler (orn. NVDA vs AAPL) buyuk ihtimalle FARKLI indekslere
+//: duser. Kriptografik degil, yalnizca gorsel cesitlendirme icin.
+function seedHash(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+//: Backend'deki (services/news.py) HABER gorselleriyle AYNI dosyalar -
+//: `/public/news/` her iki tarafca da paylasilir. Belirgin bir anahtar
+//: kelime eslesmesi olmayan (ozellikle EREGL/TUPRS/AAPL/BIMAS gibi duz
+//: ticker kodlari icin HICBIR ZAMAN eslesmeyen) hisse/ABD-Avrupa hissesi
+//: kartlari, hepsi AYNI tek gradyan yerine bu havuzdan seed'e gore
+//: DETERMINISTIK bir foto secer - boylece farkli hisseler farkli, ama
+//: her hissenin kendi karti HER ZAMAN ayni gorunur.
+const STOCK_PHOTO_POOL = [
+  "/news/stock-exchange.jpg",
+  "/news/data-center.jpg",
+  "/news/car-assembly-line.jpg",
+  "/news/agriculture-field.jpg",
+  "/news/apartment-buildings.jpg",
+  "/news/finance-coins-chart.jpg.png",
+];
+
+//: `models/portfolio.ts` Holding.asset_class degerleriyle birebir - bir
+//: varligin SINIFI kesin bilindiginde (portfoy karti gibi) en guvenilir
+//: eslesme budur; baslik anahtar kelimesi eslesmesinden ONCE denenir.
+const ASSET_CLASS_PHOTO: Record<string, string> = {
+  CRYPTO: "/news/crypto-coins.jpg.jfif",
+  GOLD: "/news/gold-bar.jpg",
+  FOREX: "/news/euro-banknotes.jpg",
+  COMMODITY: "/news/oil-pumpjack.jpg",
+};
+
+export function assetClassPhoto(assetClass: string | undefined): string | null {
+  return assetClass ? ASSET_CLASS_PHOTO[assetClass] ?? null : null;
+}
+
 //: YENI BIR HISSE/VARLIK (ticker) eklendiginde bu fonksiyona (veya
 //: detectPhoto'ya) o ticker icin bir anahtar kelime eslesmesi eklemeyi
 //: UNUTMA - aksi halde asagidaki jenerik "varlik" ikonuna duser (bkz.
@@ -66,34 +108,68 @@ function detectTopic(seed: string): Topic | null {
   return null;
 }
 
+//: Backend'in `_KEYWORD_IMAGE_RULES`iyle (services/news.py) UYUMLU, ayni
+//: yerel dosyalari kullanan konu kurallari - bir haberin/varligin
+//: baslik+sembol metninde bu kelimelerden biri geciyorsa dogrudan eslesir.
+const KEYWORD_PHOTO_RULES: Array<[string[], string]> = [
+  [["thy", "hava", "yolcu"], "/news/thy-plane.jpg.webp"],
+  [["sasa"], "/news/sasa-factory.jpg.jfif"],
+  [["btc", "bitcoin", "kripto"], "/news/crypto-coins.jpg.jfif"],
+  [["altın", "altin"], "/news/gold-bar.jpg"],
+  [["dolar", "euro", "avro", "döviz", "doviz"], "/news/euro-banknotes.jpg"],
+  [["petrol", "brent", "akaryakıt", "akaryakit", "benzin"], "/news/oil-pumpjack.jpg"],
+  [["otomotiv", "otomobil"], "/news/car-assembly-line.jpg"],
+  [["yapay zeka", "teknoloji", "yazılım", "yazilim"], "/news/data-center.jpg"],
+  [["tarım", "tarim", "gıda", "gida"], "/news/agriculture-field.jpg"],
+  [["emlak", "konut", "gayrimenkul"], "/news/apartment-buildings.jpg"],
+  [["merkez", "faiz", "enflasyon", "tcmb", "tüik", "cari"], "/news/tcmb-economy.jpg.jpg"],
+  [["borsa", "bist", "hisse senedi", "gong"], "/news/stock-exchange.jpg"],
+  [["küresel", "global", "piyasa"], "/news/finance-coins-chart.jpg.png"],
+];
+
 export function detectPhoto(seed: string): string | null {
   const s = seed.toLowerCase();
-
-  if (s.includes("thy") || s.includes("hava") || s.includes("yolcu")) {
-    return "/news/thy-plane.jpg.webp";
+  for (const [keywords, photo] of KEYWORD_PHOTO_RULES) {
+    if (keywords.some((keyword) => s.includes(keyword))) {
+      return photo;
+    }
   }
-
-  if (s.includes("sasa")) {
-    return "/news/sasa-factory.jpg.jfif";
-  }
-
-  if (s.includes("btc") || s.includes("bitcoin") || s.includes("kripto")) {
-    return "/news/crypto-coins.jpg.jfif";
-  }
-
-  if (s.includes("merkez") || s.includes("faiz") || s.includes("enflasyon") || s.includes("tcmb") || s.includes("tüik") || s.includes("cari")) {
-    return "/news/tcmb-economy.jpg.jpg";
-  }
-
-  if (s.includes("küresel") || s.includes("global") || s.includes("piyasa")) {
-    return "/news/finance-coins-chart.jpg.png";
-  }
-
   return null;
 }
 
 export function newsThumbnail(seed: string) {
   return detectPhoto(seed) ?? topicThumbnail(seed);
+}
+
+//: Portfoy kartlari icin: varlik sinifi -> anahtar kelime -> (hala
+//: eslesmediyse) sembole gore SABIT bir gercek fotograf. `topicThumbnail`
+//: SVG ikonu yalnizca hicbiri tutmadiginda (COK nadir - STOCK/USA_STOCK/
+//: EU_STOCK disindaki siniflar zaten ASSET_CLASS_PHOTO'da) devreye girer.
+export function holdingThumbnail(seed: string, assetClass?: string) {
+  return (
+    assetClassPhoto(assetClass)
+    ?? detectPhoto(seed)
+    ?? STOCK_PHOTO_POOL[seedHash(seed) % STOCK_PHOTO_POOL.length]
+  );
+}
+
+//: STOCK_PHOTO_POOL yalnizca 6 gercek fotograftan olustugu icin, 6'dan
+//: fazla varligi olan bir portfoyde iki hissenin AYNI fotografa dusmesi
+//: istatistiksel olarak beklenir (dogum gunu paradoksu - 6 kutuda 6 oge
+//: icin carpisma olasiligi >%98). Bu durumda bile kartlarin birbirinden
+//: AYRISTIRILABILIR gorunmesi icin, sadece havuzdan sectigimiz (yani
+//: varlik sinifi/anahtar kelime ile GERCEKTEN eslesmeyen) kartlara,
+//: seed'e gore deterministik bir renk tonu (hue-rotate) uygulanir - ayni
+//: foto, farkli hisseler icin farkli renklerde gorunur. Gercek eslesmeler
+//: (altin/kripto/doviz gibi) rengi DOGRU temsil ettigi icin dokunulmaz.
+export function holdingImageFilter(seed: string, assetClass?: string): string | undefined {
+  if (assetClassPhoto(assetClass) || detectPhoto(seed)) {
+    return undefined;
+  }
+  const hash = seedHash(seed);
+  const hueDeg = hash % 360;
+  const saturationPct = 100 + (Math.floor(hash / 360) % 40); // 100-139
+  return `hue-rotate(${hueDeg}deg) saturate(${saturationPct}%)`;
 }
 
 export function topicThumbnail(seed: string) {

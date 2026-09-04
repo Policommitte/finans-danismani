@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatQuickReply } from "../../models/chat";
 import { downloadChatReport } from "../../services/chatService";
 import { AgentErrorNotice } from "./AgentErrorNotice";
+import { ChatAvatar } from "./ChatAvatar";
 import { InvestmentPackageCard } from "./InvestmentPackageCard";
 import { MentionedAssetCard } from "./MentionedAssetCard";
 import { QuickReplies } from "./QuickReplies";
@@ -54,6 +55,28 @@ function ReportDownloadButton({ messageId, fileName }: { messageId: number; file
   );
 }
 
+/** Bot yanit hazirlarken gosterilen zipirti (typing) baloncugu - eskiden
+ * ayri bir baslik satiri (`chat.status`) ile bu baloncuk AYRI yerlerde
+ * gorunuyordu; artik durum metni bu baloncugun icinde, uc noktanin
+ * yaninda gosteriliyor - tek bir "dusunuyor" gostergesi kaliyor. */
+function TypingBubble({ statusText }: { statusText?: string | null }) {
+  return (
+    <div className="mr-auto flex max-w-[86%] items-center gap-2">
+      <span className="h-7 w-7 shrink-0">
+        <ChatAvatar />
+      </span>
+      <div className="flex items-center gap-2 rounded-lg app-card-muted px-3 py-2 text-sm app-heading">
+        <span className="flex items-center gap-1" aria-hidden="true">
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current opacity-60" />
+        </span>
+        <span className="text-xs app-muted">{statusText || "Düşünüyor…"}</span>
+      </div>
+    </div>
+  );
+}
+
 export function MessageList({
   messages,
   emptyState = "Portföyün, piyasa verileri veya risk durumun hakkında soru sorabilirsin.",
@@ -62,6 +85,7 @@ export function MessageList({
   quickRepliesDisabled,
   onQuickReply,
   onPackagePurchased,
+  statusText,
 }: {
   messages: ChatMessage[];
   emptyState?: ReactNode;
@@ -71,6 +95,11 @@ export function MessageList({
   quickRepliesDisabled?: boolean;
   onQuickReply?: (reply: ChatQuickReply) => void;
   onPackagePurchased?: (orderCount: number) => void;
+  /** Bot'un su an ne yaptigini anlatan kisa canli durum metni (bkz.
+   * useChatStream.status) - AYRI bir baslik satirinda DEGIL, en son
+   * bos icerikli asistan mesaji yerine gecen `TypingBubble` icinde
+   * gosterilir. */
+  statusText?: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   //: Kullanici yukari kaydirdiysa yeni token'lar onu asagi SURUKLEMEZ;
@@ -123,7 +152,12 @@ export function MessageList({
           {emptyState}
         </div>
       )}
-      {messages.map((message) => (
+      {messages.map((message) => {
+        if (message.role === "assistant" && !message.content) {
+          return <TypingBubble key={message.id} statusText={statusText} />;
+        }
+
+        return (
         <div
           key={message.id}
           className={`${message.investmentPackage ? "max-w-[97%]" : "max-w-[86%]"} rounded-lg px-3 py-2 text-sm ${
@@ -185,7 +219,8 @@ export function MessageList({
             <MentionedAssetCard symbols={message.mentioned_assets ?? []} onOpenAsset={onSelectAsset} />
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
     {showJumpToBottom && (
       <button
