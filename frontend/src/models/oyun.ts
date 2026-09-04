@@ -488,7 +488,7 @@ export const CAMPAIGNS: Campaign[] = [
   },
   {
     id: 3,
-    image: "/oyun/kampanyalar/davet.jpg",
+    image: "/oyun/kampanyalar/yurtdisi.jpg",
     imageQuery: "online shopping delivery box",
     tags: { tr: "#online #yurtdışı #indirim", en: "#online #international #discount" },
     title: {
