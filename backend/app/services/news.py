@@ -283,39 +283,70 @@ _AGRICULTURE_IMAGE = "/news/agriculture-field.jpg"
 _REAL_ESTATE_IMAGE = "/news/apartment-buildings.jpg"
 _STOCK_EXCHANGE_IMAGE = "/news/stock-exchange.jpg"
 
-#: Basliktaki ozel/taninan anahtar kelimeler -> yerel gorsel. Pexels'e (artik
-#: kullanilmiyor, bkz. resolve_image) istek atmadan ONCE denenir: API kotasi
-#: harcamaz, ag gerektirmez ve tema ile birebir uyumludur. Marka-ozel kurallar
-#: (THY, SASA) daha GENEL konu kurallarindan ONCE gelir - "sasa" gibi ozel
-#: bir isim, "otomotiv" gibi genel bir kelimeden once eslesmeli.
-_KEYWORD_IMAGE_RULES: list[tuple[tuple[str, ...], str]] = [
-    (("thy", "havayolu", "havacılık", "havacilik", "uçuş", "ucus", "yolcu"), _THY_IMAGE),
-    (("sasa",), _SASA_IMAGE),
-    (("kripto", "bitcoin", "btc", "ethereum"), _CRYPTO_IMAGE),
-    (("altın", "altin", "gram altın", "ons altın"), _GOLD_IMAGE),
-    (("dolar", "euro", "avro", "döviz", "doviz", "kur ", "sterlin"), _CURRENCY_IMAGE),
-    (("petrol", "brent", "akaryakıt", "akaryakit", "benzin", "motorin", "opec"), _OIL_IMAGE),
+#: "doviz"/"hisse"/"altin"/"ekonomi"/"piyasa" kategorilerindeki haberlerin
+#: BUYUK COGUNLUGU basliginda o kategoriyi tanimlayan ayni kelimeyi tasir
+#: ("doviz" haberi genelde "dolar"/"euro" gecer) - tek bir sabit gorsel
+#: kullanilsaydi (eski hali) kategori icindeki TUM haberler ayni fotografa
+#: duserdi (bkz. 2026-09-04: 100 haberlik ornekte 47 doviz haberinin 41'i
+#: TEK bir euro-banknotes.jpg'ye dusuyordu). Bunun yerine her kategori icin
+#: birden fazla gorsellik bir HAVUZ tanimlanir; asagidaki `_local_keyword_image`
+#: ve `_CATEGORY_FALLBACK_IMAGE` bu havuzdan `document_id`e gore DETERMINISTIK
+#: bir gorsel secer (ayni `_KATEGORI_SEARCH_TERMS` deseninde) - ayni haber
+#: sayfa yenilense de ayni gorseli alir, ama kategori icindeki farkli
+#: haberler cogunlukla farkli gorsele duser.
+_DOVIZ_POOL = [_CURRENCY_IMAGE, _DEFAULT_IMAGE, _TCMB_IMAGE]
+_HISSE_POOL = [_STOCK_EXCHANGE_IMAGE, _DEFAULT_IMAGE, _TECH_IMAGE, _AUTOMOTIVE_IMAGE]
+_ALTIN_POOL = [_GOLD_IMAGE, _DEFAULT_IMAGE]
+_EKONOMI_POOL = [_TBMM_IMAGE, _TCMB_IMAGE, _DEFAULT_IMAGE, _REAL_ESTATE_IMAGE]
+_PIYASA_POOL = [_DEFAULT_IMAGE, _STOCK_EXCHANGE_IMAGE, _TECH_IMAGE]
+
+#: Basliktaki ozel/taninan anahtar kelimeler -> yerel gorsel HAVUZU. Pexels'e
+#: (artik kullanilmiyor, bkz. resolve_image) istek atmadan ONCE denenir: API
+#: kotasi harcamaz, ag gerektirmez ve tema ile birebir uyumludur. Marka-ozel
+#: kurallar (THY, SASA) daha GENEL konu kurallarindan ONCE gelir - "sasa" gibi
+#: ozel bir isim, "otomotiv" gibi genel bir kelimeden once eslesmeli. Kendi
+#: kategorisiyle bire bir orten kurallar (dolar/euro/döviz, altın, borsa/bist)
+#: o kategorinin HAVUZUNU paylasir - aksi halde kategori havuzu hic devreye
+#: girmeden hep bu tek kelimede eslesip cesitliligi bosa cikarirdi.
+_KEYWORD_IMAGE_RULES: list[tuple[tuple[str, ...], list[str]]] = [
+    (("thy", "havayolu", "havacılık", "havacilik", "uçuş", "ucus", "yolcu"), [_THY_IMAGE]),
+    (("sasa",), [_SASA_IMAGE]),
+    (("kripto", "bitcoin", "btc", "ethereum"), [_CRYPTO_IMAGE]),
+    (("altın", "altin", "gram altın", "ons altın"), _ALTIN_POOL),
+    (("dolar", "euro", "avro", "döviz", "doviz", "kur ", "sterlin"), _DOVIZ_POOL),
+    (("petrol", "brent", "akaryakıt", "akaryakit", "benzin", "motorin", "opec"), [_OIL_IMAGE]),
     (
         ("otomotiv", "otomobil", "araç üretim", "arac uretim", "elektrikli araç"),
-        _AUTOMOTIVE_IMAGE,
+        [_AUTOMOTIVE_IMAGE],
     ),
-    (("yapay zeka", "teknoloji", "yazılım", "yazilim", "veri merkezi", "çip", "cip"), _TECH_IMAGE),
-    (("tarım", "tarim", "gıda", "gida", "hasat", "çiftçi", "ciftci"), _AGRICULTURE_IMAGE),
-    (("emlak", "konut", "kira ", "gayrimenkul", "inşaat", "insaat"), _REAL_ESTATE_IMAGE),
-    (("borsa", "bist", "hisse senedi", "gong", "endeks"), _STOCK_EXCHANGE_IMAGE),
+    (
+        ("yapay zeka", "teknoloji", "yazılım", "yazilim", "veri merkezi", "çip", "cip"),
+        [_TECH_IMAGE],
+    ),
+    (("tarım", "tarim", "gıda", "gida", "hasat", "çiftçi", "ciftci"), [_AGRICULTURE_IMAGE]),
+    (("emlak", "konut", "kira ", "gayrimenkul", "inşaat", "insaat"), [_REAL_ESTATE_IMAGE]),
+    (("borsa", "bist", "hisse senedi", "gong", "endeks"), _HISSE_POOL),
 ]
 
 #: Ozel bir anahtar kelime eslesmezse (bkz. yukarisi) dusulen kategori bazli
-#: sabit gorseller - "hisse"/"piyasa" kategorisindeki cogu haber tek bir
+#: gorsel HAVUZLARI - "hisse"/"piyasa" kategorisindeki cogu haber tek bir
 #: sirkete ozel olmadigi icin (bkz. resolve_image docstring) burada genel
-#: ama temaya uygun bir gorsel kullanilir.
-_CATEGORY_FALLBACK_IMAGE: dict[str, str] = {
-    "doviz": _CURRENCY_IMAGE,
-    "altin": _GOLD_IMAGE,
-    "ekonomi": _TBMM_IMAGE,
-    "hisse": _STOCK_EXCHANGE_IMAGE,
-    "piyasa": _DEFAULT_IMAGE,
+#: ama temaya uygun bir gorsel havuzu kullanilir.
+_CATEGORY_FALLBACK_IMAGE: dict[str, list[str]] = {
+    "doviz": _DOVIZ_POOL,
+    "altin": _ALTIN_POOL,
+    "ekonomi": _EKONOMI_POOL,
+    "hisse": _HISSE_POOL,
+    "piyasa": _PIYASA_POOL,
 }
+
+
+def _category_fallback_image(document_id: int, kategori: str | None) -> str:
+    pool = _CATEGORY_FALLBACK_IMAGE.get(kategori or "")
+    if not pool:
+        return _DEFAULT_IMAGE
+    return pool[document_id % len(pool)]
+
 
 #: `rag.documents.kategori` gercek degeri -> Pexels'te aranacak Ingilizce
 #: terim ADAYLARI (tek sabit terim degil!). Ayni kategorideki onlarca haber
@@ -445,11 +476,18 @@ def _search_term(document_id: int, kategori: str | None, baslik: str | None) -> 
     return _DEFAULT_SEARCH_TERM
 
 
-def _local_keyword_image(baslik: str | None) -> str | None:
+def _local_keyword_image(baslik: str | None, document_id: int = 0) -> str | None:
+    """Basliktaki anahtar kelimeye gore havuzdan bir gorsel secer.
+
+    `document_id` verilmezse (varsayilan 0) havuzun HER ZAMAN ilk ogesi
+    doner - `resolve_image_in_background`in "yerel gorsel var mi?" bool
+    kontrolu ve test_news_service.py icin yeterlidir; asil secim `_haber`/
+    `resolve_image`in kendi document_id'siyle yapilir.
+    """
     text = (baslik or "").lower()
-    for keywords, image in _KEYWORD_IMAGE_RULES:
+    for keywords, pool in _KEYWORD_IMAGE_RULES:
         if any(keyword in text for keyword in keywords):
-            return image
+            return pool[document_id % len(pool)]
     return None
 
 
@@ -458,16 +496,18 @@ async def resolve_image(document_id: int, kategori: str | None, baslik: str | No
 
     Sira:
       1. Basliktaki ozel/marka anahtar kelime (yerel, ucretsiz) - THY, kripto,
-         SASA gibi zaten dogru temaya sahip birkac ozel durum.
+         SASA gibi zaten dogru temaya sahip birkac ozel durum; kategori
+         havuzuyla orten kurallar (doviz/altin/hisse) o havuzu paylasir.
       2. Pexels arama - basliktan/kategoriden turetilen Ingilizce terimle.
          Basarili olursa sonuc `rag.documents.image_url`'e YAZILIR (cache):
          bir sonraki istekte bu satir icin Pexels'e BIR DAHA gidilmez.
       3. Pexels basarisiz olursa (anahtar tanimsiz, hata, sonuc yok, kota
-         doldu) kategori bazli sabit gorsel. Bu deger DB'ye YAZILMAZ -
-         gecici bir hata (orn. kota) kalici olarak onbelleklenmesin, bir
-         sonraki istekte Pexels tekrar denensin.
+         doldu) kategori bazli gorsel HAVUZUNDAN document_id'ye gore
+         DETERMINISTIK bir secim. Bu deger DB'ye YAZILMAZ - gecici bir hata
+         (orn. kota) kalici olarak onbelleklenmesin, bir sonraki istekte
+         Pexels tekrar denensin.
     """
-    local_image = _local_keyword_image(baslik)
+    local_image = _local_keyword_image(baslik, document_id)
     if local_image:
         return local_image
 
@@ -477,7 +517,7 @@ async def resolve_image(document_id: int, kategori: str | None, baslik: str | No
         await get_rag_repository().set_news_image(document_id, photo_url)
         return photo_url
 
-    return _CATEGORY_FALLBACK_IMAGE.get(kategori or "", _DEFAULT_IMAGE)
+    return _category_fallback_image(document_id, kategori)
 
 
 # --- Gorsel cozumlemesi ISTEK DISINA alindi --------------------------------
@@ -502,10 +542,10 @@ _devam_eden_cozumlemeler: set[int] = set()
 _arka_plan_gorevleri: set[asyncio.Task] = set()
 
 
-def _instant_image(kategori: str | None, baslik: str | None) -> str:
+def _instant_image(document_id: int, kategori: str | None, baslik: str | None) -> str:
     """Dis cagri YAPMADAN aninda donebilecek gorsel."""
-    return _local_keyword_image(baslik) or _CATEGORY_FALLBACK_IMAGE.get(
-        kategori or "", _DEFAULT_IMAGE
+    return _local_keyword_image(baslik, document_id) or _category_fallback_image(
+        document_id, kategori
     )
 
 
@@ -527,7 +567,7 @@ def resolve_image_in_background(document_id: int, kategori: str | None, baslik: 
     `resolve_image` de onlar icin Pexels'e gitmezdi. Ayni belge icin bir
     cozumleme zaten suruyorsa ikincisi baslatilmaz.
     """
-    if document_id in _devam_eden_cozumlemeler or _local_keyword_image(baslik):
+    if document_id in _devam_eden_cozumlemeler or _local_keyword_image(baslik, document_id):
         return
     _devam_eden_cozumlemeler.add(document_id)
     gorev = asyncio.create_task(_resolve_in_background(document_id, kategori, baslik))
@@ -561,7 +601,7 @@ async def _haber(row: dict, change_by_symbol: dict[str, float | None]) -> NewsAr
     if not image_url:
         # Istegi Pexels'e bekletme: aninda yerel/kategori gorseli, arama
         # arka planda (bkz. `resolve_image_in_background`).
-        image_url = _instant_image(kategori, stored_baslik)
+        image_url = _instant_image(document_id, kategori, stored_baslik)
         resolve_image_in_background(document_id, kategori, stored_baslik)
 
     related_symbol = _related_symbol(kategori, stored_baslik)
