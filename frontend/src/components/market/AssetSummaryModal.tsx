@@ -4,9 +4,16 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useChat } from "../../contexts/ChatContext";
-import type { Asset, HistoryResponse, OhlcResponse } from "../../models/market";
-import { getMarketAssets, getMarketHistory, getMarketOhlc } from "../../services/marketService";
+import type { Asset, HistoryResponse, OhlcResponse, TechnicalResponse } from "../../models/market";
+import {
+  getMarketAssets,
+  getMarketHistory,
+  getMarketOhlc,
+  getMarketTechnical,
+} from "../../services/marketService";
 import { CandlestickChart } from "./CandlestickChart";
+import { TechnicalDetailView } from "./TechnicalDetailView";
+import { TechnicalSummaryStrip } from "./TechnicalSummaryStrip";
 
 const RANGE_TABS: { label: string; days: number }[] = [
   { label: "1G", days: 1 },
@@ -120,6 +127,11 @@ export function AssetSummaryModal({
   const askedRef = useRef<string | null>(null);
   //: Paylasilan sohbette YALNIZCA bu modalin sordugu sorunun cevabi izlenir.
   const [analysisMessageId, setAnalysisMessageId] = useState<string | null>(null);
+  const [technical, setTechnical] = useState<TechnicalResponse | null>(null);
+  const [technicalLoading, setTechnicalLoading] = useState(false);
+  //: Gosterge tablolari modali uzatmasin diye ayri bir gorunumde durur.
+  const [view, setView] = useState<"summary" | "technical">("summary");
+  const [aiExpanded, setAiExpanded] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -190,6 +202,33 @@ export function AssetSummaryModal({
   }, [symbol, rangeDays, chartMode, isAuthenticated]);
 
   useEffect(() => {
+    // Teknik analiz haberden BAGIMSIZ calisir: grafik sekmesinden etkilenmez,
+    // sabit gunluk mumlarla hesaplanir (bkz. app/services/technical_analysis.py).
+    if (!isAuthenticated) {
+      setTechnical(null);
+      return;
+    }
+
+    let active = true;
+    setView("summary");
+    setAiExpanded(false);
+    setTechnicalLoading(true);
+    getMarketTechnical(symbol)
+      .then((response) => {
+        if (active) setTechnical(response);
+      })
+      .catch(() => {
+        if (active) setTechnical(null);
+      })
+      .finally(() => {
+        if (active) setTechnicalLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [symbol, isAuthenticated]);
+
+  useEffect(() => {
     if (!isAuthenticated) {
       return;
     }
@@ -198,7 +237,7 @@ export function AssetSummaryModal({
       return;
     }
     askedRef.current = symbol;
-    setAnalysisMessageId(chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`));
+    setAnalysisMessageId(chat.sendMessage(`${symbol} hakkında son 24 saatteki fiyat değişikliklerini, portföyümdeki durumumu ve haberleri dikkate alarak kısa bir yatırım analizi yap.`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, isAuthenticated]);
 
@@ -260,122 +299,142 @@ export function AssetSummaryModal({
         <div className="px-5 py-4">
           {!isAuthenticated ? (
             <GuestAccessPrompt symbol={symbol} onClose={onClose} />
+          ) : view === "technical" && technical ? (
+            <TechnicalDetailView data={technical} onBack={() => setView("summary")} />
           ) : (
             <>
-          <div className="flex items-end gap-3">
-            <div className="text-3xl font-bold app-heading">
-              {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
-            </div>
-            {asset?.daily_change_pct != null && (
-              <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
-                {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
-              </span>
-            )}
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex gap-1 rounded-full border app-border bg-[var(--color-surface-muted)] p-1">
-              {RANGE_TABS.map((tab) => (
-                <button
-                  key={tab.label}
-                  type="button"
-                  onClick={() => setRangeDays(tab.days)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    rangeDays === tab.days ? "app-primary" : "app-muted hover:opacity-80"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <div className="inline-flex gap-1 rounded-full border app-border bg-[var(--color-surface-muted)] p-1">
-              {(
-                [
-                  { mode: "line" as const, label: "Çizgi" },
-                  { mode: "candle" as const, label: "Mum" },
-                ]
-              ).map((option) => (
-                <button
-                  key={option.mode}
-                  type="button"
-                  onClick={() => setChartMode(option.mode)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    chartMode === option.mode ? "app-primary" : "app-muted hover:opacity-80"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 h-56">
-            {chartMode === "candle" ? (
-              ohlcLoading ? (
-                <div className="flex h-full items-center justify-center text-sm app-muted">Mum grafiği yükleniyor…</div>
-              ) : ohlc && ohlc.candles.length > 0 ? (
-                <CandlestickChart candles={ohlc.candles} />
-              ) : (
-                <div className="flex h-full items-center justify-center px-4 text-center text-sm app-muted">
-                  Bu varlık için mum grafiği verisi yok - çizgi grafiğe geçebilirsiniz.
+              <div className="flex items-end gap-3">
+                <div className="text-3xl font-bold app-heading">
+                  {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
                 </div>
-              )
-            ) : loading ? (
-              <div className="flex h-full items-center justify-center text-sm app-muted">Grafik yükleniyor…</div>
-            ) : history && history.points.length > 0 ? (
-              <ResponsiveContainer>
-                <LineChart data={history.points}>
-                  <CartesianGrid stroke="var(--color-chart-grid)" strokeDasharray="3 3" />
-                  <XAxis dataKey="ts" tick={{ fontSize: 10, fill: "var(--color-muted)" }} minTickGap={30} />
-                  <YAxis tick={{ fontSize: 10, fill: "var(--color-muted)" }} domain={["auto", "auto"]} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--color-surface)",
-                      borderColor: "var(--color-border)",
-                      color: "var(--color-text)",
-                    }}
-                  />
-                  <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm app-muted">Bu aralık için veri yok.</div>
-            )}
-          </div>
+                {asset?.daily_change_pct != null && (
+                  <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
+                    {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
+                  </span>
+                )}
+              </div>
 
-          <div
-            className="mt-5 rounded-xl border p-3.5 text-sm"
-            style={{
-              background: `color-mix(in srgb, ${aiBoxAccent} 12%, var(--color-surface))`,
-              borderColor: `color-mix(in srgb, ${aiBoxAccent} 40%, transparent)`,
-              boxShadow: `0 0 0 1px color-mix(in srgb, ${aiBoxAccent} 15%, transparent), 0 6px 18px -6px color-mix(in srgb, ${aiBoxAccent} 40%, transparent)`,
-            }}
-          >
-            <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide" style={{ color: aiBoxAccent }}>
-              <span>Polifin AI Analizi</span>
-              {chat.isStreaming && <span className="app-muted normal-case">{chat.status ?? "…"}</span>}
-            </div>
-            <p className="whitespace-pre-wrap leading-relaxed app-heading">
-              {chat.error ? chat.error : lastAssistantMessage?.content || "Analiz hazırlanıyor…"}
-            </p>
-          </div>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex gap-1 rounded-full border app-border bg-[var(--color-surface-muted)] p-1">
+                  {RANGE_TABS.map((tab) => (
+                    <button
+                      key={tab.label}
+                      type="button"
+                      onClick={() => setRangeDays(tab.days)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                        rangeDays === tab.days ? "app-primary" : "app-muted hover:opacity-80"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="inline-flex gap-1 rounded-full border app-border bg-[var(--color-surface-muted)] p-1">
+                  {(
+                    [
+                      { mode: "line" as const, label: "Çizgi" },
+                      { mode: "candle" as const, label: "Mum" },
+                    ]
+                  ).map((option) => (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      onClick={() => setChartMode(option.mode)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                        chartMode === option.mode ? "app-primary" : "app-muted hover:opacity-80"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          <div className="mt-5 flex gap-3">
-            <Link
-              href="/market"
-              onClick={closeAndNavigate}
-              className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
-            >
-              İşlem Ekranına Git
-            </Link>
-            <button
-              type="button"
-              className="flex-1 rounded-xl border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
-              onClick={() => window.alert("Alarm kurma özelliği yakında eklenecek.")}
-            >
-              Alarm Kur
-            </button>
-          </div>
+              <div className="mt-4 h-56">
+                {chartMode === "candle" ? (
+                  ohlcLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm app-muted">Mum grafiği yükleniyor…</div>
+                  ) : ohlc && ohlc.candles.length > 0 ? (
+                    <CandlestickChart candles={ohlc.candles} />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-4 text-center text-sm app-muted">
+                      Bu varlık için mum grafiği verisi yok - çizgi grafiğe geçebilirsiniz.
+                    </div>
+                  )
+                ) : loading ? (
+                  <div className="flex h-full items-center justify-center text-sm app-muted">Grafik yükleniyor…</div>
+                ) : history && history.points.length > 0 ? (
+                  <ResponsiveContainer>
+                    <LineChart data={history.points}>
+                      <CartesianGrid stroke="var(--color-chart-grid)" strokeDasharray="3 3" />
+                      <XAxis dataKey="ts" tick={{ fontSize: 10, fill: "var(--color-muted)" }} minTickGap={30} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--color-muted)" }} domain={["auto", "auto"]} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "var(--color-surface)",
+                          borderColor: "var(--color-border)",
+                          color: "var(--color-text)",
+                        }}
+                      />
+                      <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm app-muted">Bu aralık için veri yok.</div>
+                )}
+              </div>
+
+              <div
+                className="mt-5 rounded-xl border p-3.5 text-sm"
+                style={{
+                  background: `color-mix(in srgb, ${aiBoxAccent} 12%, var(--color-surface))`,
+                  borderColor: `color-mix(in srgb, ${aiBoxAccent} 40%, transparent)`,
+                  boxShadow: `0 0 0 1px color-mix(in srgb, ${aiBoxAccent} 15%, transparent), 0 6px 18px -6px color-mix(in srgb, ${aiBoxAccent} 40%, transparent)`,
+                }}
+              >
+                <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide" style={{ color: aiBoxAccent }}>
+                  <span>Polifin AI Analizi</span>
+                  {chat.isStreaming && <span className="app-muted normal-case">{chat.status ?? "…"}</span>}
+                </div>
+                <p
+                  className={`whitespace-pre-wrap leading-relaxed app-heading ${aiExpanded ? "" : "line-clamp-3"
+                    }`}
+                >
+                  {chat.error ? chat.error : lastAssistantMessage?.content || "Analiz hazırlanıyor…"}
+                </p>
+                {!chat.error && (lastAssistantMessage?.content?.length ?? 0) > 160 && (
+                  <button
+                    type="button"
+                    onClick={() => setAiExpanded((open) => !open)}
+                    className="mt-1 text-xs font-semibold app-muted underline transition hover:opacity-80"
+                  >
+                    {aiExpanded ? "Daha az göster" : "Devamını gör"}
+                  </button>
+                )}
+              </div>
+
+              <TechnicalSummaryStrip
+                data={technical}
+                loading={technicalLoading}
+                onShowDetail={() => setView("technical")}
+              />
+
+              <div className="mt-5 flex gap-3">
+                <Link
+                  href="/market"
+                  onClick={closeAndNavigate}
+                  className="flex-1 rounded-xl app-primary px-4 py-2.5 text-center text-sm font-semibold transition hover:opacity-90"
+                >
+                  İşlem Ekranına Git
+                </Link>
+                <button
+                  type="button"
+                  className="flex-1 rounded-xl border app-border app-surface px-4 py-2.5 text-sm font-semibold app-muted transition hover:opacity-80"
+                  onClick={() => window.alert("Alarm kurma özelliği yakında eklenecek.")}
+                >
+                  Alarm Kur
+                </button>
+              </div>
             </>
           )}
         </div>

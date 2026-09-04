@@ -155,7 +155,7 @@ export function RegisterScreen({ registered, taken, onTakenChange, onRegister, o
       ? (language === "tr" ? "Kontenjan doldu" : "Registration full")
       : isClosed
         ? (language === "tr" ? "Kayıt kapandı" : "Registration closed")
-        : (language === "tr" ? "Yarışmaya kaydol →" : "Register for the contest →");
+        : (language === "tr" ? "Kazanmaya başla →" : "Start winning →");
 
   const disabled = (registered && !started) || (!registered && (isFull || isClosed));
 

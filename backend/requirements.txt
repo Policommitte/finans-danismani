@@ -59,6 +59,11 @@ pandas==2.2.3
 # EMBEDDING_API_KEY tanimli degilse kullanilmaz; rag_search BM25 ile calisir.
 cohere==7.0.8
 
+# Teknik gosterge hesabi (app/market/indicators.py). Saf Python; zorunlu
+# bagimliligi yalnizca numpy + pandas - ikisi de zaten kurulu, ek paket
+# getirmez. TA-Lib DEGIL: o C kutuphanesi ister ve dagitim imajini bozar.
+pandas-ta-classic==0.6.52
+
 # Kimlik dogrulama (app/auth/) - Python 3.13'te crypt modulu kaldirildigi icin
 # passlib yerine dogrudan bcrypt (docs/backend-kararlar.md bolum 1).
 PyJWT==2.10.1

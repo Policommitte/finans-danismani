@@ -66,6 +66,33 @@ def test_mum_endpointi_ohlc_serisi_doner(client, auth):
 
 
 @pytest.mark.db
+def test_teknik_analiz_ucu_sinif_ve_gosterge_doner(client, auth):
+    yanit = client.get("/api/market/technical?symbol=THYAO", headers=auth)
+
+    assert yanit.status_code == 200
+    govde = yanit.json()
+    assert govde["symbol"] == "THYAO"
+    assert govde["interval"] == "1d"
+    assert govde["sufficient"] is True
+    assert govde["summary"]["label"] in {"GUCLU_AL", "AL", "NOTR", "SAT", "GUCLU_SAT"}
+    assert govde["last_candle_ts"]
+    assert {"key", "label", "value", "signal"} == set(govde["indicators"][0])
+    assert {200} <= {ma["period"] for ma in govde["moving_averages"]}
+
+
+@pytest.mark.db
+def test_teknik_analiz_veri_yoksa_404_yerine_yetersiz_doner(client, auth):
+    """Bos sonuc bir HATA DEGIL: frontend "veri yetersiz" gosterir."""
+    yanit = client.get("/api/market/technical?symbol=YOKBOYLE", headers=auth)
+
+    assert yanit.status_code == 200
+    govde = yanit.json()
+    assert govde["sufficient"] is False
+    assert govde["summary"] is None
+    assert govde["reason"]
+
+
+@pytest.mark.db
 def test_unknown_symbol_returns_404(client, auth):
     yanit = client.get("/api/market/history?symbol=YOKBOYLE", headers=auth)
 
