@@ -10,6 +10,7 @@ import { useChat } from "../../contexts/ChatContext";
 import { useAuth } from "../../hooks/useAuth";
 import { useDailyBrief } from "../../hooks/useDailyBrief";
 import { useInvestmentPackageFlow } from "../../hooks/useInvestmentPackageFlow";
+import { useTradeProposalFlow } from "../../hooks/useTradeProposalFlow";
 import type { ChatQuickReply } from "../../models/chat";
 import type { PendingAttachment } from "./AttachmentMenu";
 import { ConversationHistory } from "./ConversationHistory";
@@ -132,6 +133,14 @@ export function ChatWidget({
   const chat = useChat();
   const [historyOpen, setHistoryOpen] = useState(false);
   const investmentFlow = useInvestmentPackageFlow({
+    language,
+    appendLocalMessage: chat.appendLocalMessage,
+    updateMessage: chat.updateMessage,
+  });
+  //: Sohbetten AL/SAT emri onerme akisi (TC-020/US14). Yatirim paketi
+  //: akisindan SONRA denenir: paket akisi bir soruyu bekliyorsa yazilan
+  //: metin onun CEVABIDIR, emir niyeti olarak yorumlanmamali.
+  const tradeFlow = useTradeProposalFlow({
     language,
     appendLocalMessage: chat.appendLocalMessage,
     updateMessage: chat.updateMessage,
@@ -364,6 +373,13 @@ export function ChatWidget({
       return;
     }
 
+    // Emir niyeti ("5 lot THYAO al") yerel olarak karta cevrilir; mesaj
+    // sohbet backend'ine GITMEZ. Emir yine de ancak kart onaylandiginda
+    // olusur (bkz. TradeProposalCard).
+    if (!attachment && tradeFlow.handleUserMessage(trimmed)) {
+      return;
+    }
+
     chat.sendMessage(trimmed, attachment);
   }
 
@@ -485,6 +501,7 @@ export function ChatWidget({
             quickRepliesDisabled={chat.isStreaming}
             onQuickReply={selectQuickReply}
             onPackagePurchased={investmentFlow.notifyPurchased}
+            onTradeProposalUpdate={tradeFlow.updateProposal}
             emptyState={
               canSend ? (
                 copy.welcome

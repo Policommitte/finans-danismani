@@ -1,3 +1,5 @@
+import type { OrderPreview } from "./trading";
+
 export type Source = {
   doc_id: string;
   baslik: string;
@@ -78,6 +80,29 @@ export type ChatMessage = {
   quickReplies?: ChatQuickReply[];
   /** Ready-made package rendered as a card with a one-tap purchase button. */
   investmentPackage?: InvestmentPackage;
+  /**
+   * Tek varlikli AL/SAT emir onerisi - karttan tek tikla onaylanir
+   * (TC-020/US14). Yerel uretilir, backend'e HIC gitmez; onay aninda
+   * `/api/trading/orders` cagrilir (bkz. `useTradeProposalFlow`).
+   */
+  tradeProposal?: TradeProposal;
+};
+
+/**
+ * Sohbet icinde gosterilen emir onerisi.
+ *
+ * Rakamlarin TAMAMI backend onizlemesinden (`/api/trading/orders/preview`)
+ * gelir - istemci fiyat/komisyon HESAPLAMAZ. Boylece kartta gorunen tutar
+ * ile emrin gercek maliyeti ayrisamaz.
+ */
+export type TradeProposal = {
+  preview: OrderPreview;
+  /**
+   * Varlik sinifi (STOCK/FOREX/CRYPTO...). `OrderPreview` bu alani
+   * tasimaz ama "Duzenle" akisindaki adet dogrulamasi
+   * (`utils/assetQuantity.ts`) buna ihtiyac duyar.
+   */
+  assetClass: string;
 };
 
 export type ChatQuickReply = {
