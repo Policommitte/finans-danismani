@@ -32,6 +32,7 @@ from app.agents.market_research import (
     _dokuman_bazinda_tekille,
     _icerikten_baslik,
     resolve_symbol,
+    resolve_symbols,
 )
 
 #: Gercek `assets` tablosundaki adlarla ayni - kisaltilmis katalog.
@@ -52,6 +53,11 @@ KATALOG = [
     {"symbol": "LLY", "ad": "Eli Lilly and Company"},
     {"symbol": "BRENT", "ad": "Ham Petrol (BRENT)"},
     {"symbol": "US10Y", "ad": "US 10 Yil Tahvil Getirisi"},
+    # Katalogdaki ad "Erdemir" - "Ereğli" DEGIL (bkz. db/v5_schema_and_data.sql).
+    # Kullanicilar genelde kod kokunden tureyen "ereğli" der; bu yuzden ad
+    # eslesmesi degil kod+ek eslesmesi (EREGL+i) devreye girmeli.
+    {"symbol": "EREGL", "ad": "Erdemir"},
+    {"symbol": "NVDA", "ad": "Nvidia"},
 ]
 
 
@@ -85,6 +91,87 @@ KATALOG = [
 )
 def test_gunluk_dilde_sorulan_varliklar_cozulur(sorgu, beklenen):
     assert resolve_symbol(sorgu, KATALOG) == beklenen
+
+
+# ---------------------------------------------------------------------------
+# resolve_symbols - COKLU varlik tespiti
+#
+# CANLI BILDIRILEN HATA: "NVIDIA ve Apple hisseleri ne durumda" diye sorulunca
+# yalnizca BIRI (market_data.symbol - TEK alan) kart olarak donuyordu, ikinci
+# varlik sessizce yok sayiliyordu. `resolve_symbols` birincil sembolun
+# YANINDA gecen digerlerini de bulur.
+# ---------------------------------------------------------------------------
+
+
+def test_coklu_varlikta_kod_ek_eslesmesi_de_calisir():
+    """REGRESYON KORUMASI - canli hata (3 Eylul 2026).
+
+    "nvidia ve ereğli hisselerinin fiyatlari kaç" sorusunda EREGL hic
+    bulunamiyordu: katalogdaki adi "Erdemir" (Eregli DEGIL), yani ne tam
+    kod eslesmesi ne tam ad eslesmesi tutuyordu. Ilk surumde `resolve_symbols`
+    kod+ek eslesmesini (tier 2) BILEREK atlamisti - bu test o katmanin
+    coklu tespitte de calistigini dogrular.
+    """
+    sonuc = resolve_symbols("nvidia ve ereğli hisselerinin fiyatlari kaç", KATALOG)
+
+    assert sonuc == ["NVDA", "EREGL"]
+
+
+def test_coklu_varlik_ikisi_de_bulunur():
+    sonuc = resolve_symbols("aselsan ve sasa hisseleri ne durumda", KATALOG)
+
+    assert sonuc == ["ASELS", "SASA"]
+
+
+def test_coklu_varlik_sorgudaki_sirayi_korur():
+    sonuc = resolve_symbols("once sasa sonra aselsan nasil gidiyor", KATALOG)
+
+    assert sonuc == ["SASA", "ASELS"]
+
+
+def test_disla_parametresi_birincil_sembolu_cikarir():
+    """Orchestrator birincil sembolu zaten `market_data.symbol`'de tasir -
+    ayni sembolun `additional_symbols`'ta tekrarlanmamasi gerekir."""
+    sonuc = resolve_symbols("aselsan ve sasa hisseleri ne durumda", KATALOG, disla="ASELS")
+
+    assert sonuc == ["SASA"]
+
+
+def test_ayni_varlik_iki_kez_gecerse_tekrarlanmaz():
+    sonuc = resolve_symbols("aselsan aselsan aselsan nasil", KATALOG)
+
+    assert sonuc == ["ASELS"]
+
+
+def test_limit_asilmaz():
+    sonuc = resolve_symbols("aselsan sasa bimas koc holding hepsi nasil", KATALOG, limit=2)
+
+    assert len(sonuc) == 2
+
+
+def test_disla_ile_tek_varlikli_sorguda_bos_liste_doner():
+    """Gercek kullanim: orchestrator birincil sembolu (`resolve_symbol` ile
+    zaten cozulmus) `disla` olarak gecirir - tek varlikli bir soruda bu,
+    hicbir EK varlik olmadigi anlamina gelir (bkz. `_ek_sembolleri_getir`).
+    """
+    assert resolve_symbols("thyao ne kadar", KATALOG, disla="THYAO") == []
+
+
+def test_kisa_kodlar_coklu_taramada_atlanir():
+    """KO/T gibi kisa kodlar gunluk kelimelerle cakisma riski yuzunden
+    coklu tespitte BILEREK dislanir (bkz. resolve_symbols docstring'i) -
+    yalnizca ASELS (uzun/net kod) yakalanmali, KO YAKALANMAMALI."""
+    sonuc = resolve_symbols("aselsan ve ko hisseleri nasil", KATALOG)
+
+    assert sonuc == ["ASELS"]
+
+
+def test_alakasiz_ikinci_kelime_yanlis_pozitif_uretmez():
+    """Genel bir ifade ("ne kadar dustu") ikinci bir varlik SANILMAMALI -
+    yalnizca sorulan ASELS donmeli, baska bir sey EKLENMEMELI."""
+    sonuc = resolve_symbols("aselsan ne kadar dustu bugun", KATALOG)
+
+    assert sonuc == ["ASELS"]
 
 
 @pytest.mark.parametrize(

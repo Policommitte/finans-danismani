@@ -1136,9 +1136,17 @@ async def test_fallback_reply_orders_sections_by_router_order():
     assert metin.index("Piyasa araştırması") < metin.index("Portföy analizi")
 
 
-async def test_kart_sembolleri_gunun_hareketlilerini_de_icerir():
-    """Kart hep piyasa ajaninin TEK sembolunu gosteriyordu: gunluk ozette bu
-    her seferinde ayni hisse oluyordu. Gunun hareketlileri de eklenir."""
+async def test_kart_sembolleri_gunun_hareketlilerini_ICERMEZ():
+    """REGRESYON KORUMASI - canli hata.
+
+    Onceki halde portfoy ajani calistiginda "gunun hareketlileri" (en cok
+    degisen 3 pozisyon) otomatik olarak karta ekleniyordu - cevap METNI o
+    varliklardan HIC bahsetmese bile. Canlida gozlemlendi: "GUMUS hakkında
+    ... analiz yap" sorusuna cevap yalnizca GUMUS'tan bahsederken, kart
+    listesinde cevapta hic gecmeyen EREGL/BTC de beliriyordu - kullanici
+    bunu "alakasiz varlik kartlari" olarak bildirdi. Kart artik YALNIZCA
+    piyasa ajaninin dogruladigi (gercekten sorulan) sembolu icermeli.
+    """
     ajanlar = _uc_ajan()
     ajanlar[AGENT_PORTFOLIO] = SahteAjan(
         AGENT_PORTFOLIO,
@@ -1158,11 +1166,13 @@ async def test_kart_sembolleri_gunun_hareketlilerini_de_icerir():
     olaylar = await _olaylar(orchestrator, "Portföyümün dağılımı nedir?")
 
     bitis = next(o for o in olaylar if o["type"] == "done")
-    assert bitis["mentioned_assets"] == ["BAKIR", "ASELS", "TCELL"]
+    assert bitis["mentioned_assets"] == []
 
 
-async def test_kart_sembolleri_sinirlanir_ve_tekrar_etmez():
-    """Piyasa sembolu once gelir, ayni sembol iki kez yazilmaz."""
+async def test_kart_piyasa_sembolu_varken_portfoy_hareketlilerini_yutmaz():
+    """Piyasa VE portfoy ajani birlikte calissa bile kart yalnizca piyasa
+    ajaninin dogruladigi sembolu gosterir - portfoydeki digger pozisyonlar
+    (BAKIR haric) cevapta gecmedigi icin karta SIZMAMALI."""
     ajanlar = _uc_ajan()
     ajanlar[AGENT_MARKET_RESEARCH] = SahteAjan(
         AGENT_MARKET_RESEARCH, {"market_data": {"symbol": "BAKIR"}}
@@ -1185,7 +1195,34 @@ async def test_kart_sembolleri_sinirlanir_ve_tekrar_etmez():
     olaylar = await _olaylar(orchestrator, "Portföyümün dağılımı nedir?")
 
     bitis = next(o for o in olaylar if o["type"] == "done")
-    assert bitis["mentioned_assets"] == ["BAKIR", "ASELS", "TCELL"]
+    assert bitis["mentioned_assets"] == ["BAKIR"]
+
+
+async def test_kart_coklu_varlik_sorusunda_ikincil_sembolu_de_icerir():
+    """CANLI BILDIRILEN HATA: 'NVIDIA ve Apple hisseleri ne durumda' gibi
+    coklu sorularda yalnizca BIRINCIL varligin karti geliyordu. Piyasa
+    ajani ikincil varliklari `market_data.additional_symbols` ile
+    bildirdiginde (bkz. MarketResearchAgent._ek_sembolleri_getir), kart
+    listesi birincil sembolun ARDINDAN bunlari da icermeli."""
+    ajanlar = _uc_ajan()
+    ajanlar[AGENT_MARKET_RESEARCH] = SahteAjan(
+        AGENT_MARKET_RESEARCH,
+        {
+            "market_data": {
+                "symbol": "ASELS",
+                "additional_symbols": [
+                    {"symbol": "SASA", "price": 4.12},
+                    {"symbol": "THYAO", "price": 302.25},
+                ],
+            }
+        },
+    )
+    orchestrator = _orchestrator(agents=ajanlar)
+
+    olaylar = await _olaylar(orchestrator, "ASELS ve SASA hisseleri ne durumda")
+
+    bitis = next(o for o in olaylar if o["type"] == "done")
+    assert bitis["mentioned_assets"] == ["ASELS", "SASA", "THYAO"]
 
 
 async def test_kart_sembolleri_portfoysuz_soruda_degismez():
