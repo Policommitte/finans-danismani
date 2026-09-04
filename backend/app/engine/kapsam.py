@@ -288,16 +288,51 @@ _FINANS_DESENI = re.compile(_FINANS_KONU_DESENI.pattern + "|" + _FINANS_NITELIK_
 #:
 #: NITELIK kokleri disarida birakilir: "yatirim" kelimesi zaten `-im` ile
 #: biter ve kendi kendisine destek uretemez.
-_IYELIK_DESENI = re.compile(r"\b[a-z]{3,}(?:im|um)\b")
+#:
+#: ⚠️ IYELIK EKININ USTUNE BIR HAL EKI BINEBILIR. "-im/-um" her zaman
+#: kelimenin SONU olmayabilir: "varliklarimIN" (tamlama), "varliklarimI"
+#: (belirtme), "varliklarimA" (yonelme), "varliklarimDA/DAN" (bulunma/
+#: ayrilma) gibi cekimli hallerde iyelik eki artik son ek degildir - ciplak
+#: `\b...(?:im|um)\b` bu hallerin HICBIRINI yakalamaz (canli olcum, 3 Eylul
+#: 2026: "Tum varliklarimin performansini karsilastir..." sorusu destek
+#: bulamadi, KAPSAM_BELIRSIZ'e dustu). Govde her zaman "m" ile bittigi icin
+#: (iyelik eki `-im/-um`) hal eki hic ODUNSUZLESMEZ: "-ta/-tan" degil,
+#: daima "-da/-dan" gelir - bu yuzden tek bir ek listesi yeter.
+_IYELIK_HAL_EKLERI: tuple[str, ...] = ("dan", "da", "in", "un", "la", "a", "i")
+
+
+def _iyelik_govdesi(kelime: str) -> str:
+    """Kelimenin sonunda iyelik ustune binmis bir hal eki varsa sIYIRIR.
+
+    "varliklarimin" -> "varliklarim": tamlama eki sIYIRILDI, iyelik govdesi
+    ortaya cikti. Eslesme yoksa kelime degismeden doner. Tek katman sIYIRIR -
+    Turkce'de ayni govdeye iki hal eki UST USTE binmez.
+    """
+    for ek in _IYELIK_HAL_EKLERI:
+        if kelime.endswith(ek) and len(kelime) - len(ek) >= 3:
+            return kelime[: -len(ek)]
+    return kelime
+
+
+_IYELIK_SONU = re.compile(r"^[a-z]{3,}(?:im|um)$")
+_IYELIK_ADAYI = re.compile(r"\b[a-z]{3,}\b")
 
 _NITELIK_KOK_KELIMELERI = frozenset(_FINANS_NITELIK_KOKLERI)
 
 
 def _has_possessive_support(normalized: str) -> bool:
-    """Cumlede 1. tekil sahis iyelik eki tasiyan (nitelik kokU OLMAYAN) kelime var mi?"""
-    return any(
-        kelime not in _NITELIK_KOK_KELIMELERI for kelime in _IYELIK_DESENI.findall(normalized)
-    )
+    """Cumlede 1. tekil sahis iyelik eki tasiyan (nitelik kokU OLMAYAN) kelime var mi?
+
+    Hem cekimsiz hal ("riskim") hem uzerine bir hal eki binmis cekimli
+    haller ("varliklarimin", "varliklarimi", "varliklarima") denenir - bkz.
+    `_iyelik_govdesi`.
+    """
+    for kelime in _IYELIK_ADAYI.findall(normalized):
+        if kelime in _NITELIK_KOK_KELIMELERI:
+            continue
+        if _IYELIK_SONU.match(kelime) or _IYELIK_SONU.match(_iyelik_govdesi(kelime)):
+            return True
+    return False
 
 
 #: BIST sembolu sezgisi - HAM metin uzerinde calisir (buyuk harf bilgisi

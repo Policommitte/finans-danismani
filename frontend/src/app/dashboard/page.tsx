@@ -8,6 +8,8 @@ import { LoadingState } from "../../components/feedback/LoadingState";
 import { AssetTable } from "../../components/portfolio/AssetTable";
 import {
   PortfolioVisualization,
+  mergeLatestSnapshotIntoDailyHistory,
+  mergeLatestSnapshotIntoWeeklyHistory,
   type DisplayCurrency,
   type PortfolioFxRates,
   type PortfolioViewMode,
@@ -43,26 +45,47 @@ export default function DashboardPage() {
   //: farkli donemlere ait rakam gorunmesi mumkun degil.
   const [range, setRange] = useState<PerformanceRange>("1G");
   const performance = usePortfolioPerformance(range);
-  //: 1G'de grafik scheduler'in OLCTUGU snapshot'lari cizer: nakit dahil,
-  //: emirler islendikten sonra alindigi icin yeniden hesaplanan seriden
-  //: dogru. Ama snapshot 30 gun saklanip 720 saatle sinirli oldugundan
-  //: 1H/1A/1Y'yi besleyemez - orada yeniden kurulan seriye duseriz.
-  const isIntraday = range === "1G";
-  const snapshots = usePortfolioSnapshots(isIntraday);
+  //: Snapshot'lar en fazla 30 gun saklanir. 1G/1H/1A mumlari bu olculmus
+  //: degerlerden kurulur; 1Y'de ise gunluk performans serisi haftalanir.
+  const snapshotHours = range === "1A" ? 720 : range === "1H" ? 168 : 24;
+  // Guncel toplam donemden bagimsiz TEK 24 saatlik snapshot sorgusundan
+  // gelir. Boylece donem degisince farkli sureli sorgularin ayri onbellekleri
+  // kart ve grafik basliginda gecici olarak farkli rakamlar gostermez.
+  const currentSnapshots = usePortfolioSnapshots(true, 24);
+  const rangeNeedsSnapshots = range === "1H" || range === "1A";
+  const rangeSnapshots = usePortfolioSnapshots(rangeNeedsSnapshots, snapshotHours);
+  const snapshotSeries = rangeNeedsSnapshots ? rangeSnapshots : currentSnapshots;
 
-  //: Grafik tek bir bicim bekler; uzun aralik serisi snapshot bicimine
-  //: cevrilir. Nakit ayrimi yalnizca snapshot'ta var, digerinde toplam
-  //: dogrudan varlik degeridir.
-  const chartPoints = isIntraday
-    ? (snapshots.data?.points ?? [])
-    : (performance.data?.points ?? []).map((point) => ({
-        ts: point.ts,
-        holdings_value_try: point.total_value_try,
-        cash_value_try: 0,
-        total_value_try: point.total_value_try,
-      }));
-  const chartLoading = isIntraday ? snapshots.loading : performance.loading;
-  const chartError = isIntraday ? snapshots.error : performance.error;
+  //: 1G cizgisi anlik snapshot'lari kullanir. 1H/1A tarih araligini
+  //: performans gecmisinden korur ve bugunun noktasini son snapshot ile
+  //: degistirir. 1Y gecmis haftalari korur, icinde bulunulan haftayi son
+  //: snapshot ile temsil eder. Mumlarda 1G/1H/1A snapshot, 1Y ise yeniden
+  //: kurulan gunluk seri kullanir.
+  const reconstructedPoints = (performance.data?.points ?? []).map((point) => ({
+    ts: point.ts,
+    holdings_value_try: point.total_value_try,
+    cash_value_try: 0,
+    total_value_try: point.total_value_try,
+  }));
+  const latestSnapshot = currentSnapshots.data?.points.at(-1);
+  const hybridPerformancePoints = rangeNeedsSnapshots
+    ? mergeLatestSnapshotIntoDailyHistory(reconstructedPoints, latestSnapshot)
+    : range === "1Y"
+      ? mergeLatestSnapshotIntoWeeklyHistory(reconstructedPoints, latestSnapshot)
+      : reconstructedPoints;
+  const lineUsesSnapshots = range === "1G";
+  const chartPoints = lineUsesSnapshots
+    ? (currentSnapshots.data?.points ?? [])
+    : hybridPerformancePoints;
+  const candleSourcePoints = range === "1Y"
+    ? reconstructedPoints
+    : (snapshotSeries.data?.points ?? []);
+  const visualizationUsesSnapshots = portfolioViewMode === "candlestick"
+    ? range !== "1Y"
+    : portfolioViewMode === "line" && lineUsesSnapshots;
+  const chartLoading = visualizationUsesSnapshots ? snapshotSeries.loading : performance.loading;
+  const chartError = visualizationUsesSnapshots ? snapshotSeries.error : performance.error;
+  const currentPortfolioTotalTry = latestSnapshot?.total_value_try ?? null;
   const conversionDivisor = displayCurrency === "TRY" ? 1 : (fxRates[displayCurrency] ?? 1);
 
   useEffect(() => {
@@ -94,7 +117,12 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (dashboard.loading || performance.loading || snapshots.loading) {
+    if (
+      dashboard.loading
+      || performance.loading
+      || currentSnapshots.loading
+      || (rangeNeedsSnapshots && rangeSnapshots.loading)
+    ) {
       return;
     }
 
@@ -104,7 +132,13 @@ export default function DashboardPage() {
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [dashboard.loading, performance.loading, snapshots.loading]);
+  }, [
+    dashboard.loading,
+    performance.loading,
+    currentSnapshots.loading,
+    rangeNeedsSnapshots,
+    rangeSnapshots.loading,
+  ]);
 
   if (dashboard.loading && !dashboard.data) {
     return <LoadingState label={language === "tr" ? "Genel bakış yükleniyor" : "Loading overview"} />;
@@ -184,6 +218,7 @@ export default function DashboardPage() {
         periodChangeTry={performance.data?.change_try ?? null}
         periodChangePct={performance.data?.change_pct ?? null}
         periodLoading={performance.loading}
+        currentTotalTry={currentPortfolioTotalTry}
       />
 
       <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
@@ -194,6 +229,8 @@ export default function DashboardPage() {
           periodChangeTry={performance.data?.change_try ?? null}
           periodChangePct={performance.data?.change_pct ?? null}
           performancePoints={chartPoints}
+          candleSourcePoints={candleSourcePoints}
+          currentTotalTry={currentPortfolioTotalTry}
           performanceLoading={chartLoading}
           performanceError={chartError}
           mode={portfolioViewMode}

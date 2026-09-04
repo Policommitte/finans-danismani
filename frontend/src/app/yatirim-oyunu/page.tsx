@@ -327,7 +327,6 @@ export default function YatirimOyunuPage() {
               boxShadow: "0 4px 14px color-mix(in srgb, var(--color-danger) 40%, transparent)",
             }}
           >
-            <span aria-hidden="true">🚪</span>
             {PAGE_TEXT.leaveContest[language]}
           </button>
         </div>

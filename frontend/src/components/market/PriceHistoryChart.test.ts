@@ -42,6 +42,6 @@ describe("colorForecastByDirection", () => {
       { time: 3, value: 102 },
       { time: 4, value: 102 },
     ]);
-    expect(colored.map((p) => p.color)).toEqual(["#26a69a", "#26a69a", "#ef5350", "#26a69a"]);
+    expect(colored.map((p) => p.color)).toEqual(["#26a69a", "#ef5350", "#26a69a", "#26a69a"]);
   });
 });

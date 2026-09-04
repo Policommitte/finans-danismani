@@ -12,6 +12,7 @@ import type {
   PhotoResponse,
   PublicLandingPreviewResponse,
   PublicMarketTickerResponse,
+  TechnicalResponse,
 } from "../models/market";
 import type { ChatEvent } from "../models/chat";
 import { apiRequest } from "./apiClient";
@@ -30,6 +31,14 @@ export function getMarketHistory(symbol: string, days = 30): Promise<HistoryResp
 export function getMarketOhlc(symbol: string, days = 30): Promise<OhlcResponse> {
   const params = new URLSearchParams({ symbol, days: String(days) });
   return apiRequest<OhlcResponse>(`/api/market/ohlc?${params.toString()}`);
+}
+
+export function getMarketTechnical(symbol: string, days?: number): Promise<TechnicalResponse> {
+  const params = new URLSearchParams({ symbol });
+  if (days) {
+    params.set("days", String(days));
+  }
+  return apiRequest<TechnicalResponse>(`/api/market/technical?${params.toString()}`);
 }
 
 export function searchMarket(payload: MarketSearchRequest): Promise<MarketSearchResponse> {

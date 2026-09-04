@@ -37,4 +37,4 @@ sıfırlamaz — LangGraph giriş değerini reducer ile *uygular* ve `[] + mevcu
 ```
 
 `Orchestrator.stream_request` her turun başında bunu gönderir. Kural
-`tests/test_orchestration_models.py` içinde testle sabitlenmiştir.
+`tests/unit/test_orchestration_state.py` içinde testle sabitlenmiştir.

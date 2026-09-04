@@ -54,7 +54,7 @@ function NavLinks({ items, pathname }: { items: NavItem[]; pathname: string }) {
             }}
             data-tour={item.tourId}
             aria-current={active ? "page" : undefined}
-            className={`rounded-md px-2 ${
+            className={`rounded-md ${
               active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
             }`}
           />

@@ -181,8 +181,10 @@ export const SidebarLink = ({
     <Link
       href={link.href}
       className={cn(
-        "flex items-center gap-2 group/sidebar py-2",
-        open || !animate ? "justify-start" : "justify-center",
+        // Ikonun merkezi kapali sidebar'in merkeziyle (48px) ayni hizada
+        // kalir. `justify-center -> justify-start` degisimi ikonlari genislik
+        // animasyonunun basinda sola sicratiyordu; artik yalnizca etiket acilir.
+        "flex items-center justify-start gap-2 group/sidebar py-2 pl-[22px] pr-2",
         className
       )}
       {...props}

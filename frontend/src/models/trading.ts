@@ -58,3 +58,31 @@ export type PaperOrder = {
 };
 
 export type OrdersResponse = { items: PaperOrder[]; limit: number };
+
+export type PercentageBasketAllocation = {
+  symbol: string;
+  weight_pct: number;
+};
+
+export type PercentageBasketPreviewItem = {
+  symbol: string;
+  asset_name: string;
+  asset_class: string;
+  currency: string;
+  weight_pct: number;
+  quoted_price_try: number;
+  quantity: number;
+  estimated_gross: number;
+  estimated_reserve: number;
+};
+
+export type PercentageBasketPreview = {
+  available_balance: number;
+  investable_gross: number;
+  estimated_gross: number;
+  estimated_reserve: number;
+  remaining_balance: number;
+  items: PercentageBasketPreviewItem[];
+  unavailable_symbols: string[];
+  unaffordable_symbols: string[];
+};
