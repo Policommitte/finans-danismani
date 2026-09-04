@@ -10,6 +10,12 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+# Kapsam (coverage) ciktilari - `pytest --cov` / `coverage run` uretir.
+# `.coverage` bir SQLite veritabanidir ve bir kez yanlislikla commit'lendi.
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 *.egg-info/
 
 # Node

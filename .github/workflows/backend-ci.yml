@@ -93,12 +93,25 @@ jobs:
         working-directory: backend
         # `-rs`: atlanan testlerin NEDENI cikti'da gorunsun.
         # Servis bir sekilde devre disi kalirsa db testleri sessizce atlanir ve
-        # CI yesil goruntur; asagidaki kontrol tam olarak bunu yakalar.
+        # CI yesil goruntur; asagidaki iki kontrol tam olarak bunu yakalar.
+        #
+        # ⚠️ ARANAN METIN TESTLERLE BIRLIKTE DEGISIR. Once
+        # "TEST_DATABASE_URL / DATABASE_URL tanimli degil" araniyordu; conftest
+        # `DATABASE_URL` geri dususunu kaldirinca (uretim baglantisina kosmasin
+        # diye) o metin YOK OLDU ve kontrol sessizce ise yaramaz hale geldi.
+        # Artik UC atlama mesajinin da ortak parcasi araniyor ve ayrica
+        # `tests/integration/` klasorunun GERCEKTEN kostugu dogrulaniyor -
+        # metin bir kez daha degisirse ikinci kontrol yakalar.
         run: |
           set -o pipefail
           pytest -q -rs | tee pytest-cikti.txt
-          if grep -q "TEST_DATABASE_URL / DATABASE_URL tanimli degil" pytest-cikti.txt; then
+          if grep -q "TEST_DATABASE_URL tanimli degil" pytest-cikti.txt; then
             echo "::error::Veri katmani testleri atlandi — Postgres servisi calismiyor."
+            exit 1
+          fi
+          pytest tests/integration -q -rs | tee integration-cikti.txt
+          if grep -qE "no tests ran|[0-9]+ skipped" integration-cikti.txt; then
+            echo "::error::tests/integration kosmadi ya da atlandi — Postgres servisi calismiyor."
             exit 1
           fi
 

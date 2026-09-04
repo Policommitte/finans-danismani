@@ -59,20 +59,18 @@ def embedder() -> CohereEmbedder:
 # ---------------------------------------------------------------------------
 
 
-def test_anahtar_yoksa_none_doner(override_settings):
-    override_settings(embedding_api_key="")
+def test_anahtar_yoksa_none_doner(ayar):
+    ayar(embedding_api_key="")
     assert get_embedder() is None
 
 
-def test_model_yoksa_none_doner(override_settings):
-    override_settings(embedding_api_key="sahte-anahtar", embedding_model="", embedding_dim=1024)
+def test_model_yoksa_none_doner(ayar):
+    ayar(embedding_api_key="sahte-anahtar", embedding_model="", embedding_dim=1024)
     assert get_embedder() is None
 
 
-def test_anahtar_varsa_cohere_embedder_uretilir(override_settings):
-    override_settings(
-        embedding_api_key="sahte-anahtar", embedding_model="embed-v4.0", embedding_dim=1024
-    )
+def test_anahtar_varsa_cohere_embedder_uretilir(ayar):
+    ayar(embedding_api_key="sahte-anahtar", embedding_model="embed-v4.0", embedding_dim=1024)
     assert isinstance(get_embedder(), CohereEmbedder)
 
 

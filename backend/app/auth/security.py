@@ -12,6 +12,7 @@ degistiginde elde kalmis bir token yetki tasimaya devam etmez.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -24,13 +25,35 @@ logger = logging.getLogger(__name__)
 TOKEN_TYPE = "bearer"
 
 
+#: bcrypt ozeti SABIT BICIMLIDIR: "$2<varyant>$<iki haneli maliyet>$" ardindan
+#: 22 karakter tuz + 31 karakter ozet = 53 karakter. Toplam 60 karakter.
+_BCRYPT_OZET_DESENI = re.compile(r"^\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}$")
+
+
 def verify_password(plain_password: str, password_hash: str) -> bool:
     """Sifreyi hash ile karsilastirir.
 
     Bozuk/eksik hash durumunda istisna firlatmaz, `False` doner: giris ucu
     "gecersiz kimlik bilgisi" demeli, 500 vermemelidir.
+
+    ⚠️ BICIM ONCE KENDIMIZ DOGRULANIR, `bcrypt`e SONRA gidilir.
+    `bcrypt==4.2.1` (requirements.txt'te sabitlenen surum) kirpilmis bir
+    ozette Rust tarafinda PANIKLER; PyO3 bunu `pyo3_runtime.PanicException`
+    olarak yuzeye cikarir ve o sinif `Exception`'dan DEGIL dogrudan
+    `BaseException`'dan turer - yani ne `except (ValueError, TypeError)` ne de
+    `except Exception` onu yakalar. Sonuc: `users.password_hash` bir sekilde
+    bozulmussa giris ucu 401 yerine 500 veriyordu (CI'da yakalandi,
+    `$2b$12$kisa` girdisiyle).
+
+    Ayni girdi `bcrypt==5.0.0`'da `ValueError` veriyor - yani davranis SURUME
+    BAGLI. Bu yuzden kutuphanenin hata davranisina hic guvenilmiyor: bicim
+    desene uymuyorsa `bcrypt` cagrilmaz bile. `except` yine de duruyor,
+    desenden gecen ama yine de reddedilen girdiler icin.
     """
     if not plain_password or not password_hash:
+        return False
+    if not _BCRYPT_OZET_DESENI.match(password_hash):
+        logger.warning("gecersiz sifre hash formati")
         return False
     try:
         return bcrypt.checkpw(plain_password.encode("utf-8"), password_hash.encode("utf-8"))
