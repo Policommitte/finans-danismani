@@ -35,6 +35,7 @@ KORUMALI_GET = [
     "/api/market/news",
     "/api/market/ohlc",
     "/api/market/photo",
+    "/api/market/technical",
     "/api/oneriler",
     "/api/oneriler/ayarlar",
     "/api/portfolio/allocation",
