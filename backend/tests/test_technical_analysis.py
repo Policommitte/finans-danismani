@@ -3,6 +3,7 @@
 Aga ve veritabanina CIKMAZ: mum kaynaklari monkeypatch ile degistirilir.
 """
 
+import json
 import math
 
 import pytest
@@ -131,6 +132,27 @@ async def test_once_kayitli_gunluk_mumlar_kullanilir(sahte_depo):
     assert sonuc.source == "market_candles"
     assert depo.candle_calls[0]["interval"] == "1d"
     assert depo.candle_calls[0]["days"] == 200
+
+
+@pytest.mark.asyncio
+async def test_gecersiz_mum_json_yanitina_sizmaz(sahte_depo):
+    candles = _candles([100.0 + i for i in range(60)])
+    candles.append(
+        {
+            "ts": "2026-03-01 00:00:00+00:00",
+            "open": math.nan,
+            "high": math.nan,
+            "low": math.nan,
+            "close": math.nan,
+        }
+    )
+    sahte_depo(SahteDepo(candles=candles))
+
+    sonuc = await technical_analysis("THYAO")
+
+    assert sonuc.candle_count == 60
+    assert sonuc.price == 159.0
+    json.dumps(sonuc.model_dump(mode="json"), allow_nan=False)
 
 
 @pytest.mark.asyncio

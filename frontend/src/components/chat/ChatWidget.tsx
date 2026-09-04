@@ -1,8 +1,5 @@
 "use client";
 
-import { thinking } from "blobatar/expression";
-import "blobatar/motion.css";
-import { Blobatar } from "blobatar/react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLanguage } from "../../contexts/LanguageContext";
@@ -13,6 +10,7 @@ import { useInvestmentPackageFlow } from "../../hooks/useInvestmentPackageFlow";
 import { useTradeProposalFlow } from "../../hooks/useTradeProposalFlow";
 import type { ChatQuickReply } from "../../models/chat";
 import type { PendingAttachment } from "./AttachmentMenu";
+import { ChatAvatar } from "./ChatAvatar";
 import { ConversationHistory } from "./ConversationHistory";
 import { DailyBriefBubble } from "./DailyBriefBubble";
 import { MessageInput } from "./MessageInput";
@@ -29,7 +27,7 @@ const HEADER_COPY = {
     open: "Yatırım Asistanı'nı aç",
     send: "Gönder",
     stop: "Durdur",
-    placeholder: "Mesajınızı yazın (Shift+Enter: yeni satır)",
+    placeholder: "Mesajınızı yazın",
     loginRequired: "Giriş yapmanız gerekir",
     loadingHistory: "Sohbet yükleniyor…",
     welcome: "Portföyün, piyasa verileri veya risk durumun hakkında soru sorabilirsin.",
@@ -43,7 +41,7 @@ const HEADER_COPY = {
     open: "Open the Investment Assistant",
     send: "Send",
     stop: "Stop",
-    placeholder: "Type your message (Shift+Enter for a new line)",
+    placeholder: "Type your message",
     loginRequired: "You need to sign in",
     loadingHistory: "Loading conversation…",
     welcome: "Ask about your portfolio, market data or your risk profile.",
@@ -91,16 +89,6 @@ function getPanelLeftBoundary(viewportWidth: number): number {
       PANEL_LEFT_BOUNDARY,
       viewportWidth - PANEL_MIN_WIDTH - PANEL_VIEWPORT_MARGIN,
     ),
-  );
-}
-
-export function ChatAvatar() {
-  return (
-    <span className="flex h-full w-full shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-panel-dark)]">
-      <span className="block h-[118%] w-[118%] [&_svg]:h-full [&_svg]:w-full">
-        <Blobatar name="Aichatbot" traits={{ shape: 0.933 }} hue={225} expression={thinking} animate="hover" />
-      </span>
-    </span>
   );
 }
 
@@ -439,12 +427,7 @@ export function ChatWidget({
               <span className="h-8 w-8">
                 <ChatAvatar />
               </span>
-              <div>
-                <div className="font-semibold">{copy.title}</div>
-                <div className="text-xs opacity-80">
-                  {chat.isLoadingHistory ? copy.loadingHistory : chat.status ?? copy.ready}
-                </div>
-              </div>
+              <div className="font-semibold">{copy.title}</div>
             </div>
             <div className="flex items-center gap-0.5">
               {canSend && (
@@ -497,6 +480,7 @@ export function ChatWidget({
           {chat.error && <div className="app-danger-box px-4 py-2 text-xs">{chat.error}</div>}
           <MessageList
             messages={messages}
+            statusText={chat.status}
             onSelectAsset={onSelectAsset}
             quickRepliesDisabled={chat.isStreaming}
             onQuickReply={selectQuickReply}

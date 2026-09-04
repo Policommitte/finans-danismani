@@ -1,41 +1,14 @@
+import Link from "next/link";
 import type { DashboardSummaryResponse } from "../../models/dashboard";
 import type { PerformanceRange } from "../../models/portfolio";
+import type { RecommendationListResponse } from "../../models/recommendation";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { getRiskTone } from "../risk/riskTone";
 import type { DisplayCurrency } from "../portfolio/PortfolioVisualization";
 
-const RISK_LEVEL_LABEL: Record<string, string> = {
-  dusuk: "Düşük risk bandında",
-  orta: "Orta risk bandında",
-  yuksek: "Yüksek risk bandında",
-  "cok yuksek": "Çok yüksek risk bandında",
-  hesaplanamadi: "Risk hesaplanamadı",
-};
-
-function polar(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = (angleDeg * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
-}
-
-function RiskGauge({ score, color }: { score: number; color: string }) {
-  const clamped = Math.max(0, Math.min(100, score));
-  const angleEnd = 180 - (clamped / 100) * 180;
-  const start = polar(50, 52, 42, 180);
-  const end = polar(50, 52, 42, angleEnd);
-  const needleEnd = polar(50, 52, 35, angleEnd);
-
+function BoltIcon() {
   return (
-    <svg viewBox="0 0 100 58" className="h-full w-full">
-      <path d="M8 52 A42 42 0 0 1 92 52" fill="none" stroke="var(--color-chart-grid)" strokeWidth="9" strokeLinecap="round" />
-      <path
-        d={`M${start.x.toFixed(2)} ${start.y.toFixed(2)} A42 42 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`}
-        fill="none"
-        stroke={color}
-        strokeWidth="9"
-        strokeLinecap="round"
-      />
-      <line x1="50" y1="52" x2={needleEnd.x.toFixed(2)} y2={needleEnd.y.toFixed(2)} stroke="var(--color-heading)" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="50" cy="52" r="4.5" fill="var(--color-heading)" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2 4 14h6l-1 8 9-12h-6z" />
     </svg>
   );
 }
@@ -58,6 +31,7 @@ export function SummaryCards({
   periodChangePct,
   periodLoading,
   currentTotalTry,
+  recommendations,
 }: {
   data: DashboardSummaryResponse;
   displayCurrency: DisplayCurrency;
@@ -69,6 +43,8 @@ export function SummaryCards({
   periodLoading: boolean;
   /** Grafikle ortak, son basarili snapshot'taki nakit dahil toplam. */
   currentTotalTry: number | null;
+  /** Bekleyen (PUBLISHED) otonom oneriler - null ise henuz yuklenmedi. */
+  recommendations: RecommendationListResponse | null;
 }) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
@@ -89,22 +65,29 @@ export function SummaryCards({
   const changePct = periodChangePct ?? summary?.daily_change_pct ?? null;
   const changeUp = changeTry >= 0;
 
-  const levelKey = data.risk.risk_level.toLowerCase();
-  const englishRiskLabels: Record<string, string> = {
-    dusuk: "Low risk range",
-    orta: "Medium risk range",
-    yuksek: "High risk range",
-    "cok yuksek": "Very high risk range",
-    hesaplanamadi: "Risk unavailable",
-  };
-  const levelLabel = language === "tr"
-    ? RISK_LEVEL_LABEL[levelKey] ?? data.risk.risk_level
-    : englishRiskLabels[levelKey] ?? data.risk.risk_level;
-  const levelColor = getRiskTone(levelKey);
+  const topRecommendation = recommendations?.items[0] ?? null;
+  const pendingCount = recommendations?.counts?.PUBLISHED ?? 0;
+  const isBuy = topRecommendation?.side === "BUY";
+
+  //: Kar/zarar yonune gore hafif, ama musterinin RAHATCA fark edecegi bir
+  //: renk vurgusu. `--color-panel-dark` KOYU MAVI oldugu icin kirmizi
+  //: onun uzerine karisinca mor'a kayiyordu (kirmizi+mavi=mor) - bunun
+  //: yerine notr, neredeyse siyah `--color-panel-dark-alt` uzerine
+  //: karistiriliyor, boylece kirmizi kirmizi, yesil yesil kaliyor.
+  //: Veri gelmeden notr lacivert kalir; `total_pnl_try` degistiginde
+  //: (yeni fiyat/emir) gecis animasyonlu.
+  const netWorthTintColor = summary
+    ? isUp
+      ? "color-mix(in srgb, var(--color-success) 32%, var(--color-panel-dark-alt))"
+      : "color-mix(in srgb, var(--color-danger) 32%, var(--color-panel-dark-alt))"
+    : "var(--color-panel-dark)";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <div className="relative overflow-hidden rounded-xl bg-[var(--color-panel-dark)] p-5 text-white shadow-lg">
+      <div
+        className="relative overflow-hidden rounded-xl p-5 text-white shadow-lg transition-colors duration-700"
+        style={{ backgroundColor: netWorthTintColor }}
+      >
         <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
         <div className="relative flex items-center gap-2 text-xs font-medium text-white/70">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10">
@@ -189,26 +172,45 @@ export function SummaryCards({
         )}
       </div>
 
-      <div className="relative overflow-hidden rounded-xl border app-card p-5 shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-medium app-muted">
-          <span className="grid h-8 w-8 place-items-center rounded-lg app-warning-box">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2l8 3.5v5c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11v-5z" />
-              <path d="M12 8v4" />
-              <path d="M12 16h.01" />
-            </svg>
-          </span>
-          {language === "tr" ? "Risk Skoru" : "Risk Score"}
+      <Link
+        href="/market?mode=otonom"
+        className="group relative overflow-hidden rounded-xl border app-card p-5 shadow-sm transition hover:border-[var(--color-primary)]"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-medium app-muted">
+            <span className="grid h-8 w-8 place-items-center rounded-lg app-primary-soft">
+              <BoltIcon />
+            </span>
+            {language === "tr" ? "Otonom Öneriler" : "Autonomous Recommendations"}
+          </div>
+          <span className="text-lg app-muted transition group-hover:translate-x-1" aria-hidden="true">→</span>
         </div>
-        <div className="mt-3 text-2xl font-semibold app-heading">
-          {data.risk.risk_score}
-          <span className="text-sm font-normal app-muted">/100</span>
-        </div>
-        <span className={`mt-3 inline-flex items-center text-sm font-semibold ${levelColor.textClass}`}>{levelLabel}</span>
-        <div className="absolute right-4 top-4 h-16 w-24">
-          <RiskGauge score={data.risk.risk_score} color={levelColor.color} />
-        </div>
-      </div>
+
+        {recommendations === null ? (
+          <div className="mt-3 text-2xl font-semibold app-heading">—</div>
+        ) : topRecommendation ? (
+          <>
+            <div className="mt-3 flex items-center gap-2">
+              <span
+                className={`rounded-md px-2 py-0.5 text-xs font-bold text-white ${isBuy ? "bg-emerald-600" : "bg-rose-600"}`}
+              >
+                {isBuy ? (language === "tr" ? "AL" : "BUY") : language === "tr" ? "SAT" : "SELL"}
+              </span>
+              <span className="text-2xl font-semibold app-heading">{topRecommendation.asset_symbol}</span>
+            </div>
+            <p className="mt-3 text-sm app-muted">
+              {currency.format(topRecommendation.estimated_amount / conversionDivisor)}
+              {pendingCount > 1 && (
+                <> · {language === "tr" ? `+${pendingCount - 1} öneri daha` : `+${pendingCount - 1} more`}</>
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="mt-3 text-sm app-muted">
+            {language === "tr" ? "Şu an aktif bir öneri yok." : "No active recommendation right now."}
+          </p>
+        )}
+      </Link>
     </div>
   );
 }

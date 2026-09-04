@@ -9,6 +9,7 @@ import { detectPhoto, topicThumbnail } from "./thumbnails";
 export function NewsCard({
   icon,
   image,
+  imageFilter,
   photoQuery,
   symbol,
   tag,
@@ -19,6 +20,13 @@ export function NewsCard({
 }: {
   icon?: ReactNode;
   image?: string;
+  /**
+   * Kapak fotografina uygulanacak CSS `filter` (orn. "hue-rotate(120deg)
+   * saturate(115%)") - aym foto, gercek eslesmesi olmayan farkli
+   * varliklarda birbirinden ayrisabilsin diye kullanilir (bkz.
+   * thumbnails.tsx -> holdingImageFilter). Verilmezse foto oldugu gibi kalir.
+   */
+  imageFilter?: string;
   /**
    * Sunucudan hazir bir `image` gelmiyorsa (orn. portfoy varligi karti) VE
    * bilinen bir yerel foto eslesmesi yoksa, bu sorguyla Pexels'te canli bir
@@ -82,6 +90,7 @@ export function NewsCard({
             alt=""
             aria-hidden="true"
             className="app-hover-card-image h-full w-full object-cover"
+            style={imageFilter ? { filter: imageFilter } : undefined}
           />
         </div>
         <div className="flex flex-1 flex-col gap-3 p-4">

@@ -302,8 +302,6 @@ export function AssetSummaryModal({
   const aiBoxAccent =
     changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-brand-teal)" : "var(--color-danger)";
 
-  const sparklinePoints = (history?.points ?? []).slice(-20);
-
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 px-4 pb-4 pt-24"
@@ -352,25 +350,14 @@ export function AssetSummaryModal({
             <TechnicalDetailView data={technical} onBack={() => setView("summary")} />
           ) : (
             <>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-end gap-3">
-                  <div className="text-3xl font-bold app-heading">
-                    {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
-                  </div>
-                  {asset?.daily_change_pct != null && (
-                    <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
-                      {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
-                    </span>
-                  )}
+              <div className="flex items-end gap-3">
+                <div className="text-3xl font-bold app-heading">
+                  {asset ? `${priceFormat.format(asset.current_price)} ${asset.currency}` : "—"}
                 </div>
-                {sparklinePoints.length >= 2 && (
-                  <div className="h-12 w-24 shrink-0">
-                    <ResponsiveContainer>
-                      <LineChart data={sparklinePoints}>
-                        <Line type="monotone" dataKey="price" stroke={lineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
+                {asset?.daily_change_pct != null && (
+                  <span className={`mb-1 inline-flex items-center gap-1 text-sm font-semibold ${changeClass}`}>
+                    {changeIsPositive ? "▲" : "▼"} %{priceFormat.format(Math.abs(asset.daily_change_pct))}
+                  </span>
                 )}
               </div>
 
@@ -381,8 +368,9 @@ export function AssetSummaryModal({
                       key={tab.label}
                       type="button"
                       onClick={() => setRangeDays(tab.days)}
-                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${rangeDays === tab.days ? "app-primary" : "app-muted hover:opacity-80"
-                        }`}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                        rangeDays === tab.days ? "app-primary" : "app-muted hover:opacity-80"
+                      }`}
                     >
                       {tab.label}
                     </button>
@@ -399,8 +387,9 @@ export function AssetSummaryModal({
                       key={option.mode}
                       type="button"
                       onClick={() => setChartMode(option.mode)}
-                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${chartMode === option.mode ? "app-primary" : "app-muted hover:opacity-80"
-                        }`}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                        chartMode === option.mode ? "app-primary" : "app-muted hover:opacity-80"
+                      }`}
                     >
                       {option.label}
                     </button>

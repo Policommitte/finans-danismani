@@ -10,6 +10,8 @@ Yetersiz veride kutuphane `None` ya da NaN dondurur; her iki durum da burada
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 import pandas_ta_classic as ta
 
@@ -33,11 +35,14 @@ RANGE_DEPENDENT: frozenset[str] = frozenset({"stoch_k_9_6", "adx_14", "cci_20", 
 
 
 def _last(series) -> float | None:
-    """Serinin son gecerli degeri; seri yoksa ya da NaN ise `None`."""
+    """Serinin son sonlu degeri; NaN/Infinity ise `None`."""
     if series is None or len(series) == 0:
         return None
     value = series.iloc[-1]
-    return None if pd.isna(value) else float(value)
+    if pd.isna(value):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else None
 
 
 def indicator_values(frame: pd.DataFrame, *, has_range: bool) -> dict[str, float | None]:

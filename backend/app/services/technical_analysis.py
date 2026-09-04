@@ -12,6 +12,7 @@ yorumu gunluk mum uzerinedir.
 from __future__ import annotations
 
 import logging
+import math
 
 import pandas as pd
 
@@ -116,38 +117,44 @@ async def _load_candles(symbol: str, days: int) -> tuple[list[dict], str]:
     except Exception:  # noqa: BLE001 - depo hatasi yedek kaynaklari kapatmamali
         logger.warning("gunluk mumlar depodan alinamadi", extra={"symbol": symbol})
         rows = []
-    if rows:
-        return [
-            {
-                "ts": str(row["ts"]),
-                "open": float(row["open"]),
-                "high": float(row["high"]),
-                "low": float(row["low"]),
-                "close": float(row["close"]),
-            }
-            for row in rows
-        ], "market_candles"
+    candles = _normalize_candles(rows)
+    if candles:
+        return candles, "market_candles"
 
     yahoo_candles = await gunluk_ohlc(symbol, days)
-    if yahoo_candles:
-        return [
-            {
-                "ts": str(candle["ts"]),
-                "open": float(candle["open"]),
-                "high": float(candle["high"]),
-                "low": float(candle["low"]),
-                "close": float(candle["close"]),
-            }
-            for candle in yahoo_candles
-        ], "yahoo"
+    candles = _normalize_candles(yahoo_candles or [])
+    if candles:
+        return candles, "yahoo"
 
     history = await repository.get_history(symbol, days=days)
-    if history:
-        return [
-            {"ts": str(row["ts"]), "close": float(row["price"])} for row in history
-        ], "price_history"
+    candles = _normalize_candles(history, close_key="price", with_range=False)
+    if candles:
+        return candles, "price_history"
 
     return [], "yok"
+
+
+def _normalize_candles(
+    rows: list[dict], *, close_key: str = "close", with_range: bool = True
+) -> list[dict]:
+    """JSON'a yazilamayan NaN/Infinity iceren mumlari veri sinirinda ele."""
+    candles: list[dict] = []
+    for row in rows:
+        try:
+            close = float(row[close_key])
+            values = {"close": close}
+            if with_range:
+                values.update(
+                    open=float(row["open"]),
+                    high=float(row["high"]),
+                    low=float(row["low"]),
+                )
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not all(math.isfinite(value) for value in values.values()):
+            continue
+        candles.append({"ts": str(row["ts"]), **values})
+    return candles
 
 
 def _build_indicators(
@@ -298,4 +305,6 @@ def _label(score: float) -> str:
 
 
 def _rounded(value: float | None) -> float | None:
-    return None if value is None else round(value, 4)
+    if value is None or not math.isfinite(value):
+        return None
+    return round(value, 4)

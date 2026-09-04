@@ -19,11 +19,13 @@ import type { PerformanceRange } from "../../models/portfolio";
 import { RecommendationList } from "../../components/risk/RecommendationList";
 import { RiskScoreCard } from "../../components/risk/RiskScoreCard";
 import { useAuth } from "../../hooks/useAuth";
+import { useAsyncData } from "../../hooks/useAsyncData";
 import { useDashboard } from "../../hooks/useDashboard";
 import { usePortfolioPerformance, usePortfolioSnapshots } from "../../hooks/usePortfolio";
 import { useLanguage } from "../../contexts/LanguageContext";
 import { DASHBOARD_READY_EVENT } from "../../components/layout/transitionEvents";
 import { getPublicMarketTicker } from "../../services/marketService";
+import { getRecommendations } from "../../services/recommendationService";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
   dusuk: "düşük",
@@ -52,6 +54,14 @@ export default function DashboardPage() {
   // gelir. Boylece donem degisince farkli sureli sorgularin ayri onbellekleri
   // kart ve grafik basliginda gecici olarak farkli rakamlar gostermez.
   const currentSnapshots = usePortfolioSnapshots(true, 24);
+  //: Ust siradaki eski Risk Skoru karti artik Otonom Oneriler'e acilan bir
+  //: giris noktasi - risk skorunun kendisi asagidaki RiskScoreCard'da hala
+  //: goruluyor, burada tekrar edilmiyor.
+  const recommendationsPreview = useAsyncData(
+    () => getRecommendations("PUBLISHED"),
+    [],
+    "dashboard:recommendations-preview",
+  );
   const rangeNeedsSnapshots = range === "1H" || range === "1A";
   const rangeSnapshots = usePortfolioSnapshots(rangeNeedsSnapshots, snapshotHours);
   const snapshotSeries = rangeNeedsSnapshots ? rangeSnapshots : currentSnapshots;
@@ -219,6 +229,7 @@ export default function DashboardPage() {
         periodChangePct={performance.data?.change_pct ?? null}
         periodLoading={performance.loading}
         currentTotalTry={currentPortfolioTotalTry}
+        recommendations={recommendationsPreview.data}
       />
 
       <div className="portfolio-view-layout" data-mode={portfolioViewMode}>
