@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, ChatQuickReply } from "../../models/chat";
+import type { ChatMessage, ChatQuickReply, TradeProposal } from "../../models/chat";
 import { downloadChatReport } from "../../services/chatService";
 import { AgentErrorNotice } from "./AgentErrorNotice";
 import { InvestmentPackageCard } from "./InvestmentPackageCard";
 import { MentionedAssetCard } from "./MentionedAssetCard";
 import { QuickReplies } from "./QuickReplies";
+import { TradeProposalCard } from "./TradeProposalCard";
 import { SourceList } from "./SourceList";
 
 function ReportDownloadButton({ messageId, fileName }: { messageId: number; fileName: string }) {
@@ -62,6 +63,7 @@ export function MessageList({
   quickRepliesDisabled,
   onQuickReply,
   onPackagePurchased,
+  onTradeProposalUpdate,
 }: {
   messages: ChatMessage[];
   emptyState?: ReactNode;
@@ -71,6 +73,8 @@ export function MessageList({
   quickRepliesDisabled?: boolean;
   onQuickReply?: (reply: ChatQuickReply) => void;
   onPackagePurchased?: (orderCount: number) => void;
+  /** Kartta adet degistiginde guncel oneriyi mesaja geri yazar. */
+  onTradeProposalUpdate?: (messageId: string, proposal: TradeProposal) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   //: Kullanici yukari kaydirdiysa yeni token'lar onu asagi SURUKLEMEZ;
@@ -80,7 +84,7 @@ export function MessageList({
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const lastMessage = messages[messages.length - 1];
   const lastMessageKey = lastMessage
-    ? `${lastMessage.id}:${lastMessage.content.length}:${lastMessage.quickReplies?.length ?? 0}:${lastMessage.investmentPackage ? 1 : 0}`
+    ? `${lastMessage.id}:${lastMessage.content.length}:${lastMessage.quickReplies?.length ?? 0}:${lastMessage.investmentPackage ? 1 : 0}:${lastMessage.tradeProposal ? 1 : 0}`
     : "";
 
   function isNearBottom(container: HTMLDivElement): boolean {
@@ -164,6 +168,12 @@ export function MessageList({
             <InvestmentPackageCard
               investmentPackage={message.investmentPackage}
               onPurchased={onPackagePurchased}
+            />
+          )}
+          {message.role === "assistant" && message.tradeProposal && (
+            <TradeProposalCard
+              proposal={message.tradeProposal}
+              onUpdate={(next) => onTradeProposalUpdate?.(message.id, next)}
             />
           )}
           {message.role === "assistant" && message.quickReplies && onQuickReply && (

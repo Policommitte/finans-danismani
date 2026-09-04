@@ -60,7 +60,6 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.base import BaseAgent
-from app.agents.portfolio import gunun_hareketlileri
 from app.agents.security_agent import PII_FLAG
 from app.config import settings
 from app.core.llm import _is_transient_error
@@ -1401,10 +1400,6 @@ class Orchestrator:
         #: ilk token'dan once gitme zorunlulugu yok, cunku frontend karti
         #: cevap TAMAMLANDIKTAN sonra gosterir.
         bahsedilen_semboller: list[str] = []
-        #: Portfoy ajani calistiysa gunun en hareketli pozisyonlari - piyasa
-        #: ajaninin sembolu TEK bir varlik veriyor, portfoy sorularinda ise
-        #: cevap birden fazla pozisyondan bahsediyor.
-        hareketli_semboller: list[str] = []
         son_yanit: str | None = None
         #: Kullaniciya GERCEKTEN gonderilmis token'lar. Nihai metin bundan
         #: uzunsa aradaki fark sonda ek token olarak yollanir (bkz. asagisi).
@@ -1455,15 +1450,17 @@ class Orchestrator:
 
                         piyasa_verisi = update.get("market_data")
                         if isinstance(piyasa_verisi, dict) and piyasa_verisi.get("symbol"):
-                            bahsedilen_semboller = [piyasa_verisi["symbol"]]
-
-                        portfoy_verisi = update.get("portfolio_data")
-                        if isinstance(portfoy_verisi, dict):
-                            hareketli_semboller = [
-                                h["symbol"]
-                                for h in gunun_hareketlileri(portfoy_verisi)
-                                if h.get("symbol")
-                            ]
+                            # Birincil sembol ONCE, ardindan ayni sorguda
+                            # gecen DIGER varliklar ("NVIDIA ve Apple ne
+                            # durumda" gibi coklu sorularda) - bkz.
+                            # MarketResearchAgent._ek_sembolleri_getir.
+                            # Tekliler icin `additional_symbols` hep bos
+                            # liste doner, eski davranis DEGISMEZ.
+                            ek = piyasa_verisi.get("additional_symbols") or []
+                            ek_semboller = (
+                                e["symbol"] for e in ek if isinstance(e, dict) and e.get("symbol")
+                            )
+                            bahsedilen_semboller = [piyasa_verisi["symbol"], *ek_semboller]
 
                         # Kismi basarisizlik: tek ajan coktu, sohbet DEVAM
                         # ediyor. Frontend bunu uyari olarak gosterir, akisi
@@ -1537,11 +1534,17 @@ class Orchestrator:
         bitis_olayi: dict = {
             "type": "done",
             "latency_ms": round((time.perf_counter() - baslangic) * 1000, 2),
-            # Sorulan varlik once, ardindan gunun hareketlileri; tekrarlar
-            # elenir ve kart sayisi sinirlanir.
-            "mentioned_assets": list(dict.fromkeys([*bahsedilen_semboller, *hareketli_semboller]))[
-                :KART_SEMBOL_SINIRI
-            ],
+            # ⚠️ YALNIZCA gercekten SORULAN/dogrulanan varlik - "gunun
+            # hareketlileri" (portfoydeki en cok degisen pozisyonlar) BURAYA
+            # BILEREK EKLENMEZ. Onceki halde eklenıyordu ve cevap metni o
+            # varlıklardan HIC bahsetmese bile kart olarak beliriyorlardı -
+            # kullanici bunu "alakasiz varlik kartlari" olarak bildirdi
+            # (canli ornek: GUMUS sorulunca cevapta hic gecmeyen EREGL/BTC
+            # kartlari da geliyordu). `gunun_hareketlileri()` kendisi hala
+            # var ve portfoy ajaninin OZET METNINDE kullaniliyor
+            # (app/agents/portfolio.py) - yalnizca bu karta SIZMASI
+            # engellendi.
+            "mentioned_assets": bahsedilen_semboller[:KART_SEMBOL_SINIRI],
         }
         if uretilen_rapor:
             # `rapor`: yalnizca META veri (dosya adi/boyut) - SSE'ye JSON
