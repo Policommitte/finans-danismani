@@ -16,9 +16,11 @@ from app.schemas.market import (
     NewsListResponse,
     OhlcResponse,
     PhotoResponse,
+    TechnicalResponse,
 )
 from app.services import market as service
 from app.services import news as news_service
+from app.services import technical_analysis as technical_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -65,6 +67,21 @@ async def ohlc(
     icin bos `candles` doner (404 DEGIL - frontend cizgi grafige duser).
     """
     return await service.ohlc_getir(symbol, days=days)
+
+
+@router.get("/technical", response_model=TechnicalResponse)
+async def technical(
+    user: CurrentUser,
+    symbol: str = Query(description="Varlik kodu (orn. THYAO)"),
+    days: int = Query(default=technical_service.DEFAULT_DAYS, ge=35, le=MAX_HISTORY_GUN),
+) -> TechnicalResponse:
+    """Gunluk mumlardan hesaplanan teknik gorunum (RSI, MACD, stokastik, MA).
+
+    Aralik SABIT GUNLUKTUR, grafik sekmesinden bagimsizdir. Veri yetersizse
+    404 DEGIL, `sufficient=False` + sebep doner - frontend "analiz icin veri
+    yetersiz" gosterir, sayi UYDURULMAZ.
+    """
+    return await technical_service.technical_analysis(symbol, days=days)
 
 
 @router.get("/candles", response_model=CandlesResponse)

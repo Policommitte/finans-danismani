@@ -86,10 +86,16 @@ cost_basis_try, pnl_try, pnl_pct`.
 |---|---|---|
 | GET | `/api/market/assets?category=` | `{items: [{symbol, name, asset_class, currency, current_price, daily_change_pct, weekly_change_pct, yearly_change_pct}]}` |
 | GET | `/api/market/history?symbol=&days=` | `{symbol, days, points: [{ts, price}]}` |
+| GET | `/api/market/technical?symbol=&days=` | `{symbol, interval:"1d", days, candle_count, last_candle_ts, source, sufficient, reason?, price, summary, indicator_summary, moving_average_summary, indicators: [{key, label, value, signal}], moving_averages: [{period, sma, sma_signal, ema, ema_signal}]}` |
 | POST | `/api/market/search` | `{query, top_k, sirket?, tip?}` → `{query, items: [{doc_id, baslik, sirket, symbol, tarih, tip, excerpt, score}]}` |
 
 `sirket` filtresi hem sembol ("THYAO") hem unvan ("Türk Hava Yolları") ile
 eşleşir.
+
+Teknik analiz **sabit günlük mumlarla** hesaplanır (grafik aralığından
+bağımsız). `summary.label` beş sınıftan biridir: `GUCLU_AL | AL | NOTR | SAT |
+GUCLU_SAT`; `signal` ise `AL | SAT | NOTR | VERI_YOK`. Veri yetersizse **404
+değil**, `sufficient=false` + `reason` döner ve hiçbir sınıf üretilmez.
 
 ### Risk
 
