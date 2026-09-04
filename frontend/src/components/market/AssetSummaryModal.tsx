@@ -1,12 +1,75 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { useChat } from "../../contexts/ChatContext";
 import type { Asset, HistoryResponse, OhlcResponse } from "../../models/market";
-import { getMarketAssets, getMarketHistory, getMarketOhlc } from "../../services/marketService";
+import { getMarketAssets, getMarketHistory, getMarketOhlc, streamQuickAnalysis } from "../../services/marketService";
 import { CandlestickChart } from "./CandlestickChart";
+
+/**
+ * Varlik karti icin TEK SEFERLIK "Polifin AI Analizi" metni.
+ *
+ * ⚠️ KASITLI OLARAK `ChatContext` KULLANMAZ (bkz. `marketService.streamQuickAnalysis`
+ * docstring'i). Onceki halde bu analiz `useChat().sendMessage(...)` ile
+ * PAYLASIMLI sohbet baglamina gonderiliyordu - kullanici widget'i actiginda
+ * hic yazmadigi "X hakkinda kisa bir yatirim analizi yap" sorusunu kendi
+ * sohbet gecmisinde goruyordu. Bu hook TAMAMEN yerel state tutar; ne
+ * widget'a ne kalici sohbet gecmisine hicbir sey sizmaz.
+ */
+function useQuickAnalysis(symbol: string, isAuthenticated: boolean) {
+  const [content, setContent] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    // ⚠️ BURADA "sadece bir kez sor" REF'I KULLANILMAZ. React StrictMode
+    // (frontend/next.config.js: reactStrictMode=true) gelistirmede HER
+    // effect'i mount->cleanup->mount olarak IKI KEZ calistirir - bir ref
+    // koruması ikinci calistirmayi engellerdi ama asagidaki cleanup zaten
+    // ILK istegi abort() ile iptal etmisti; sonuc TAMAMEN cevapsiz kalan
+    // bir istek olurdu (canli olculdu - kutu sonsuza dek "Analiz
+    // hazirlaniyor..." de takili kaliyordu). AbortController + cleanup tek
+    // basina yeterli: her effect calistirmasi ONCEKI istegi iptal edip
+    // KENDI TEMIZ istegini baslatir, StrictMode'un ikinci calistirmasi da
+    // dahil - sonda hep TEK ve TAMAMLANAN bir istek kalir.
+    setContent("");
+    setStatus(null);
+    setError(null);
+    setIsStreaming(true);
+
+    const controller = new AbortController();
+    streamQuickAnalysis(
+      symbol,
+      (event) => {
+        if (event.type === "status") setStatus(event.message);
+        if (event.type === "token") setContent((current) => current + event.content);
+        if (event.type === "error") setError(event.message);
+        if (event.type === "done") setIsStreaming(false);
+      },
+      controller.signal,
+    )
+      .catch((exc) => {
+        // Modal kapanip AbortController.abort() cagrildiginda `fetch` bu
+        // istisnayla reddeder - bu bir HATA DEGIL, kullanicinin kendi
+        // eylemi. Sessizce yutulur.
+        if (exc instanceof DOMException && exc.name === "AbortError") {
+          return;
+        }
+        setError("Analiz şu anda alınamadı.");
+      })
+      .finally(() => setIsStreaming(false));
+
+    return () => controller.abort();
+  }, [symbol, isAuthenticated]);
+
+  return { content, status, error, isStreaming };
+}
 
 const RANGE_TABS: { label: string; days: number }[] = [
   { label: "1G", days: 1 },
@@ -116,10 +179,7 @@ export function AssetSummaryModal({
   const [chartMode, setChartMode] = useState<"line" | "candle">("line");
   const [ohlc, setOhlc] = useState<OhlcResponse | null>(null);
   const [ohlcLoading, setOhlcLoading] = useState(false);
-  const chat = useChat();
-  const askedRef = useRef<string | null>(null);
-  //: Paylasilan sohbette YALNIZCA bu modalin sordugu sorunun cevabi izlenir.
-  const [analysisMessageId, setAnalysisMessageId] = useState<string | null>(null);
+  const analysis = useQuickAnalysis(symbol, isAuthenticated);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -189,19 +249,6 @@ export function AssetSummaryModal({
     };
   }, [symbol, rangeDays, chartMode, isAuthenticated]);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      return;
-    }
-
-    if (askedRef.current === symbol) {
-      return;
-    }
-    askedRef.current = symbol;
-    setAnalysisMessageId(chat.sendMessage(`${symbol} hakkında kısa bir yatırım analizi yap.`));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, isAuthenticated]);
-
   const historyTrendPositive =
     history && history.points.length >= 2
       ? history.points[history.points.length - 1].price >= history.points[0].price
@@ -214,7 +261,6 @@ export function AssetSummaryModal({
   //: (marka yesili / kirmizi, ikisi de tema-duyarli); yon belirsizse notr mavi.
   const aiBoxAccent =
     changeIsPositive == null ? "var(--color-primary)" : changeIsPositive ? "var(--color-brand-teal)" : "var(--color-danger)";
-  const lastAssistantMessage = chat.messages.find((m) => m.id === analysisMessageId);
 
   const sparklinePoints = (history?.points ?? []).slice(-20);
 
@@ -363,10 +409,10 @@ export function AssetSummaryModal({
           >
             <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide" style={{ color: aiBoxAccent }}>
               <span>Polifin AI Analizi</span>
-              {chat.isStreaming && <span className="app-muted normal-case">{chat.status ?? "…"}</span>}
+              {analysis.isStreaming && <span className="app-muted normal-case">{analysis.status ?? "…"}</span>}
             </div>
             <p className="whitespace-pre-wrap leading-relaxed app-heading">
-              {chat.error ? chat.error : lastAssistantMessage?.content || "Analiz hazırlanıyor…"}
+              {analysis.error ? analysis.error : analysis.content || "Analiz hazırlanıyor…"}
             </p>
           </div>
 

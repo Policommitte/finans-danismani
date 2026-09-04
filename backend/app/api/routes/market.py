@@ -3,6 +3,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 
 from app.auth.deps import CurrentUser
 from app.forecast import service as forecast_service
@@ -17,6 +18,7 @@ from app.schemas.market import (
     OhlcResponse,
     PhotoResponse,
 )
+from app.services import chat as chat_service
 from app.services import market as service
 from app.services import news as news_service
 
@@ -156,3 +158,39 @@ async def forecast_portfolio(user: CurrentUser) -> Tahmin | None:
     `engine.py::portfoy_tahmini_birlestir`.
     """
     return await forecast_service.portfoy_tahmini(user["id"])
+
+
+@router.get("/quick-analysis")
+async def quick_analysis(
+    user: CurrentUser, symbol: str = Query(description="Varlik kodu (orn. THYAO, GRAM_ALTIN)")
+) -> StreamingResponse:
+    """Varlik kartindaki "Polifin AI Analizi" kutusu icin SSE akisi.
+
+    `symbol` SORGU PARAMETRESIDIR - kardes uc `/forecast` ile ayni gerekce
+    (yol parcasinda "/" iceren sembollerde 404).
+
+    ⚠️ /chat/stream ILE KARISTIRILMASIN: bu uc HICBIR sohbet oturumu
+    ACMAZ/KAYDETMEZ (bkz. `chat_service.stream_quick_analysis`). Varlik
+    kartina tiklamak eskiden kullanicinin GERCEK sohbet gecmisine bir mesaj
+    yaziyordu - kullanici hic yazmadigi bir soruyu sonradan sohbetinde
+    goruyordu. Bu uc ayni orkestratoru kalici kayit olmadan cagirir.
+
+    Olay sozlesmesi `chat.py`'deki `/chat/stream` ile AYNIDIR (`status`,
+    `token`, `agent_error`, `error`, `done`) - yalnizca `meta`/`sources`/
+    `rapor` alanlari bu baglamda anlamsizdir, frontend bunlari yok sayar.
+    """
+    olaylar = chat_service.stream_quick_analysis(user_id=user["id"], symbol=symbol)
+
+    async def event_body():
+        async for event in olaylar:
+            yield chat_service.format_sse(event)
+
+    return StreamingResponse(
+        event_body(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
