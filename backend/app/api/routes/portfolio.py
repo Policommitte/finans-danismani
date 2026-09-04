@@ -65,5 +65,5 @@ async def snapshot_performance(
     user: CurrentUser,
     hours: int = Query(default=24, ge=1, le=720, description="Kac saatlik snapshot donsun"),
 ) -> PortfolioSnapshotPerformanceResponse:
-    """Bes dakikada bir kaydedilen gercek portfoy toplamlarini dondurur."""
+    """Basarili fiyat turlarindan sonra kaydedilen portfoy toplamlarini dondurur."""
     return await service.snapshot_performansi_getir(user["id"], hours=hours)

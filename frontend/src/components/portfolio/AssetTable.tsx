@@ -57,11 +57,11 @@ export function AssetTable({
   return (
     <Card
       title={language === "tr" ? "Portföy varlıkları" : "Portfolio assets"}
-      className="portfolio-assets-card h-full"
+      className="portfolio-assets-card flex h-full min-h-0 flex-col"
     >
-      <div className="portfolio-assets-scroll">
+      <div className="portfolio-assets-scroll min-h-0 flex-1">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b app-border text-xs uppercase app-muted">
+          <thead className="sticky top-0 z-10 border-b bg-[var(--color-surface)] app-border text-xs uppercase app-muted">
             <tr>
               <th className="py-2 pr-4">{language === "tr" ? "Sembol" : "Symbol"}</th>
               <th className="py-2 pr-4">{language === "tr" ? "Tür" : "Type"}</th>

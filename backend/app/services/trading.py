@@ -6,16 +6,21 @@ from datetime import datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 from app.core.errors import BusinessRuleError, NotFoundError
-from app.core.quantity import invalid_quantity_message, is_valid_quantity
+from app.core.quantity import invalid_quantity_message, is_valid_quantity, round_quantity
 from app.repositories.deps import get_trading_repository
 from app.schemas.trading import (
     OrderPreview,
     OrdersResponse,
     PaperOrder,
+    PercentageBasketAllocation,
+    PercentageBasketPreview,
+    PercentageBasketPreviewItem,
     TradingAccount,
 )
 
 COMMISSION_RATE = 0.0015
+MARKET_ORDER_PRICE_BUFFER_RATE = 0.02
+MARKET_ORDER_RESERVE_MULTIPLIER = 1 + MARKET_ORDER_PRICE_BUFFER_RATE + COMMISSION_RATE
 
 
 async def hesap_getir(user_id: int) -> TradingAccount:
@@ -121,6 +126,74 @@ async def emir_olustur(
         stop_loss_price=stop_loss_price,
     )
     return _order(row)
+
+
+async def yuzdesel_sepet_onizle(
+    user_id: int,
+    allocations: list[PercentageBasketAllocation],
+) -> PercentageBasketPreview:
+    """TRY bakiyeyi hedef yuzdelere gore gecerli sanal emir adetlerine cevirir.
+
+    `get_order_context` her varligin fiyatini `v_fx_rates` ile TRY'ye cevirir;
+    bu nedenle BIST, yabanci hisse, kripto, altin, emtia ve doviz ayni sepette
+    guvenle hesaplanabilir. Emirlerin kendisi mevcut create-order akisinda
+    olusturulur; bu uc yalnizca deterministik onizleme yapar.
+    """
+    repository = get_trading_repository()
+    account = await repository.get_account(user_id)
+    if account is None:
+        raise NotFoundError("Paper trading hesabi bulunamadi.")
+
+    available = max(0.0, float(account["available_balance"]))
+    investable_gross = available / MARKET_ORDER_RESERVE_MULTIPLIER
+    items: list[PercentageBasketPreviewItem] = []
+    unavailable: list[str] = []
+    unaffordable: list[str] = []
+
+    for allocation in allocations:
+        symbol = allocation.symbol.strip().upper()
+        context = await repository.get_order_context(user_id, symbol)
+        if context is None or context.get("asset_class") == "INDEX":
+            unavailable.append(symbol)
+            continue
+        price_try = float(context.get("current_price") or 0)
+        if price_try <= 0:
+            unavailable.append(symbol)
+            continue
+
+        target_gross = investable_gross * float(allocation.weight_pct) / 100
+        quantity = round_quantity(target_gross / price_try, context.get("asset_class"))
+        if quantity <= 0:
+            unaffordable.append(symbol)
+            continue
+
+        gross = price_try * quantity
+        items.append(
+            PercentageBasketPreviewItem(
+                symbol=context["symbol"],
+                asset_name=context["asset_name"],
+                asset_class=context["asset_class"],
+                currency=context["currency"],
+                weight_pct=round(float(allocation.weight_pct), 4),
+                quoted_price_try=_f(price_try),
+                quantity=_q(quantity),
+                estimated_gross=_f(gross),
+                estimated_reserve=_f(gross * MARKET_ORDER_RESERVE_MULTIPLIER),
+            )
+        )
+
+    estimated_gross = sum(item.estimated_gross for item in items)
+    estimated_reserve = sum(item.estimated_reserve for item in items)
+    return PercentageBasketPreview(
+        available_balance=_f(available),
+        investable_gross=_f(investable_gross),
+        estimated_gross=_f(estimated_gross),
+        estimated_reserve=_f(estimated_reserve),
+        remaining_balance=_f(max(0.0, available - estimated_reserve)),
+        items=items,
+        unavailable_symbols=unavailable,
+        unaffordable_symbols=unaffordable,
+    )
 
 
 async def emirleri_getir(user_id: int, limit: int = 20) -> OrdersResponse:

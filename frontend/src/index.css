@@ -455,7 +455,9 @@ body {
 
   .portfolio-assets-panel {
     min-width: 0;
-    max-height: 60rem;
+    height: 32.5rem;
+    min-height: 0;
+    max-height: 32.5rem;
     overflow: hidden;
     opacity: 1;
     transform: translateX(0);
@@ -471,7 +473,8 @@ body {
   }
 
   .portfolio-assets-scroll {
-    overflow-x: auto;
+    scrollbar-gutter: stable;
+    overflow: auto;
   }
 
   .portfolio-view-layout[data-mode="pie"] .portfolio-assets-panel {
@@ -558,11 +561,12 @@ body {
     }
 
     .portfolio-assets-panel {
-      max-height: none;
+      height: 32.5rem;
+      max-height: 32.5rem;
     }
 
     .portfolio-assets-scroll {
-      overflow-x: hidden;
+      overflow-x: auto;
     }
 
     .portfolio-view-layout[data-mode="pie"] .portfolio-assets-panel {

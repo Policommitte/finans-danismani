@@ -57,6 +57,7 @@ export function SummaryCards({
   periodChangeTry,
   periodChangePct,
   periodLoading,
+  currentTotalTry,
 }: {
   data: DashboardSummaryResponse;
   displayCurrency: DisplayCurrency;
@@ -66,6 +67,8 @@ export function SummaryCards({
   periodChangeTry: number | null;
   periodChangePct: number | null;
   periodLoading: boolean;
+  /** Grafikle ortak, son basarili snapshot'taki nakit dahil toplam. */
+  currentTotalTry: number | null;
 }) {
   const { language } = useLanguage();
   const locale = language === "tr" ? "tr-TR" : "en-US";
@@ -77,7 +80,8 @@ export function SummaryCards({
   const reservedCash = data.cash_account?.reserved_balance ?? 0;
   const totalCash = availableCash + reservedCash;
   const investedValue = summary?.total_value_try ?? 0;
-  const netWorth = investedValue + totalCash;
+  const netWorth = currentTotalTry ?? investedValue + totalCash;
+  const displayedInvestedValue = Math.max(0, netWorth - totalCash);
 
   // Donem verisi gelene kadar ozetteki gunluk rakama duseriz: kart bos
   // yanip sonmesin, secim degistiginde yalnizca solar.
@@ -117,7 +121,7 @@ export function SummaryCards({
         </div>
         {(summary || data.cash_account) && (
           <p className="relative mt-1 text-xs text-white/65">
-            {language === "tr" ? "Varlıklar" : "Assets"}: {currency.format(investedValue / conversionDivisor)} · {language === "tr" ? "Nakit" : "Cash"}: {currency.format(totalCash / conversionDivisor)}
+            {language === "tr" ? "Varlıklar" : "Assets"}: {currency.format(displayedInvestedValue / conversionDivisor)} · {language === "tr" ? "Nakit" : "Cash"}: {currency.format(totalCash / conversionDivisor)}
           </p>
         )}
         {summary && (
