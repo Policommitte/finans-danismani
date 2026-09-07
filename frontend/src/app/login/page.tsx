@@ -56,7 +56,7 @@ function EyeIcon({ off }: { off: boolean }) {
 
 function LoginPageContent() {
   const auth = useAuth();
-  const [email, setEmail] = useState("mehmet@example.com");
+  const [email, setEmail] = useState("teoman@example.com");
   const [password, setPassword] = useState("demo1234");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +135,7 @@ function LoginPageContent() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 type="email"
-                placeholder="mehmet@example.com"
+                placeholder="teoman@example.com"
                 autoComplete="username"
               />
             </label>
